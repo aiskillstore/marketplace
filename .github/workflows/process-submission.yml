@@ -46,11 +46,15 @@ jobs:
           URL="${{ env.GITHUB_URL }}"
           echo "Parsing URL: $URL"
           
-          if [[ $URL =~ github\.com/([^/]+)/([^/]+)(/tree/([^/]+)(/(.+))?)? ]]; then
+          if [[ $URL =~ github\.com/([^/]+)/([^/]+)(/(tree|blob)/([^/]+)(/(.+))?)? ]]; then
             OWNER="${BASH_REMATCH[1]}"
             REPO="${BASH_REMATCH[2]}"
-            BRANCH="${BASH_REMATCH[4]:-main}"
-            SKILL_PATH="${BASH_REMATCH[6]:-}"
+            BRANCH="${BASH_REMATCH[5]:-main}"
+            SKILL_PATH="${BASH_REMATCH[7]:-}"
+            
+            if [[ "$SKILL_PATH" =~ \.(md|txt|json|yaml|yml)$ ]]; then
+              SKILL_PATH=$(dirname "$SKILL_PATH")
+            fi
             
             echo "owner=$OWNER" >> $GITHUB_OUTPUT
             echo "repo=$REPO" >> $GITHUB_OUTPUT
@@ -97,16 +101,16 @@ jobs:
           elif [ -f "$SKILL_DIR/skills/$SLUG/SKILL.md" ]; then
             SKILL_DIR="$SKILL_DIR/skills/$SLUG"
             echo "Found SKILL.md in skills/$SLUG/"
-          # Priority 3: Search for first SKILL.md (only in top 2 levels to avoid random nested ones)
+          # Priority 3: Search for first SKILL.md in deeper levels
           else
-            FOUND=$(find "$SKILL_DIR" -maxdepth 3 -name "SKILL.md" -type f | head -1)
+            FOUND=$(find "$SKILL_DIR" -maxdepth 10 -name "SKILL.md" -type f | head -1)
             if [ -n "$FOUND" ]; then
               SKILL_DIR=$(dirname "$FOUND")
               echo "Found SKILL.md at: $SKILL_DIR"
             else
               echo "::error::No SKILL.md found in repository. This doesn't appear to be a valid skill."
               echo "Searched in: $SKILL_DIR"
-              find "$SKILL_DIR" -maxdepth 3 -type f -name "*.md" | head -10
+              find "$SKILL_DIR" -maxdepth 10 -type f -name "*.md" | head -10
               exit 1
             fi
           fi
