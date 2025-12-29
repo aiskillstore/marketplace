@@ -377,35 +377,41 @@ jobs:
           OUTPUT FORMAT (Return ONLY valid JSON)
           =============================================================================
           
+          CRITICAL TYPE CONSTRAINTS - STRICTLY FOLLOW:
+          - All "*_findings" arrays must contain STRINGS, not objects
+          - "dangerous_patterns_found" must be STRING ARRAY: ["pattern1 at file:line", "pattern2 at file:line"]
+          - WRONG: [{"pattern": "eval", "file": "x.py"}] 
+          - CORRECT: ["eval() found in x.py:15", "exec() found in script.sh:23"]
+          
           {
             "security_audit": {
               "risk_level": "safe|low|medium|high|critical",
               "should_block": false,
               "safe_to_publish": true,
-              "summary": "Assessment summary",
-              "critical_findings": [],
-              "high_findings": [],
-              "medium_findings": [],
-              "low_findings": [],
+              "summary": "One sentence assessment",
+              "critical_findings": ["string describing finding 1", "string describing finding 2"],
+              "high_findings": ["string describing finding"],
+              "medium_findings": ["string describing finding"],
+              "low_findings": ["string describing finding"],
               "files_analyzed": 0,
-              "dangerous_patterns_found": []
+              "dangerous_patterns_found": ["pattern description with location as string"]
             },
             "content": {
-              "user_title": "...",
-              "value_statement": "...",
-              "seo_keywords": [],
-              "actual_capabilities": [],
-              "limitations": [],
-              "use_cases": [],
-              "prompt_templates": [],
-              "output_examples": [],
-              "best_practices": [],
-              "anti_patterns": [],
-              "faq": [],
+              "user_title": "max 60 chars string",
+              "value_statement": "2 sentence string",
+              "seo_keywords": ["keyword1", "keyword2"],
+              "actual_capabilities": ["capability1", "capability2"],
+              "limitations": ["limitation1", "limitation2"],
+              "use_cases": [{"target_user": "string", "title": "string", "description": "string"}],
+              "prompt_templates": [{"level": "beginner|intermediate|advanced", "prompt": "string"}],
+              "output_examples": [{"description": "string", "example": "string"}],
+              "best_practices": ["practice1", "practice2"],
+              "anti_patterns": ["antipattern1", "antipattern2"],
+              "faq": [{"question": "string", "answer": "string"}],
               "technical_requirements": {
-                "dependencies": [],
-                "permissions_needed": [],
-                "estimated_complexity": "low",
+                "dependencies": ["dep1", "dep2"],
+                "permissions_needed": ["permission1"],
+                "estimated_complexity": "low|medium|high",
                 "setup_time_minutes": 2
               }
             }
@@ -439,14 +445,123 @@ jobs:
           
           echo "$FINAL_PROMPT" > $WORK_DIR/audit-prompt.txt
           
+          # Define JSON schema for structured output
+          RESPONSE_SCHEMA='{
+            "type": "json_schema",
+            "json_schema": {
+              "name": "skill_audit_response",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "required": ["security_audit", "content"],
+                "additionalProperties": false,
+                "properties": {
+                  "security_audit": {
+                    "type": "object",
+                    "required": ["risk_level", "should_block", "safe_to_publish", "summary"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "risk_level": { "type": "string", "enum": ["safe", "low", "medium", "high", "critical"] },
+                      "should_block": { "type": "boolean" },
+                      "safe_to_publish": { "type": "boolean" },
+                      "summary": { "type": "string" },
+                      "critical_findings": { "type": "array", "items": { "type": "string" } },
+                      "high_findings": { "type": "array", "items": { "type": "string" } },
+                      "medium_findings": { "type": "array", "items": { "type": "string" } },
+                      "low_findings": { "type": "array", "items": { "type": "string" } },
+                      "files_analyzed": { "type": "integer" },
+                      "dangerous_patterns_found": { "type": "array", "items": { "type": "string" } }
+                    }
+                  },
+                  "content": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "user_title": { "type": "string" },
+                      "value_statement": { "type": "string" },
+                      "seo_keywords": { "type": "array", "items": { "type": "string" } },
+                      "actual_capabilities": { "type": "array", "items": { "type": "string" } },
+                      "limitations": { "type": "array", "items": { "type": "string" } },
+                      "use_cases": { 
+                        "type": "array", 
+                        "items": { 
+                          "type": "object",
+                          "properties": {
+                            "target_user": { "type": "string" },
+                            "title": { "type": "string" },
+                            "description": { "type": "string" }
+                          },
+                          "required": ["target_user", "title", "description"],
+                          "additionalProperties": false
+                        } 
+                      },
+                      "prompt_templates": { 
+                        "type": "array", 
+                        "items": { 
+                          "type": "object",
+                          "properties": {
+                            "level": { "type": "string" },
+                            "prompt": { "type": "string" }
+                          },
+                          "required": ["level", "prompt"],
+                          "additionalProperties": false
+                        } 
+                      },
+                      "output_examples": { 
+                        "type": "array", 
+                        "items": { 
+                          "type": "object",
+                          "properties": {
+                            "description": { "type": "string" },
+                            "example": { "type": "string" }
+                          },
+                          "required": ["description", "example"],
+                          "additionalProperties": false
+                        } 
+                      },
+                      "best_practices": { "type": "array", "items": { "type": "string" } },
+                      "anti_patterns": { "type": "array", "items": { "type": "string" } },
+                      "faq": { 
+                        "type": "array", 
+                        "items": { 
+                          "type": "object",
+                          "properties": {
+                            "question": { "type": "string" },
+                            "answer": { "type": "string" }
+                          },
+                          "required": ["question", "answer"],
+                          "additionalProperties": false
+                        } 
+                      },
+                      "technical_requirements": { 
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "dependencies": { "type": "array", "items": { "type": "string" } },
+                          "permissions_needed": { "type": "array", "items": { "type": "string" } },
+                          "estimated_complexity": { "type": "string", "enum": ["low", "medium", "high"] },
+                          "setup_time_minutes": { "type": "integer" }
+                        },
+                        "required": ["dependencies", "permissions_needed", "estimated_complexity", "setup_time_minutes"]
+                      }
+                    },
+                    "required": ["user_title", "value_statement", "seo_keywords", "actual_capabilities", "limitations", "use_cases", "prompt_templates", "output_examples", "best_practices", "anti_patterns", "faq", "technical_requirements"]
+                  }
+                }
+              }
+            }
+          }'
+          
           REQUEST_BODY=$(jq -n \
             --arg model "$AI_MODEL" \
             --arg content "$FINAL_PROMPT" \
+            --argjson response_format "$RESPONSE_SCHEMA" \
             '{
               model: $model,
               messages: [{ role: "user", content: $content }],
               temperature: 0.3,
-              max_tokens: 100000
+              max_tokens: 100000,
+              response_format: $response_format
             }')
           
           echo "Calling AI API at $AI_API_BASE..."
