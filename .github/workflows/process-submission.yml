@@ -21,7 +21,6 @@ env:
   AI_API_BASE: ${{ vars.AI_API_BASE || 'http://192.168.199.7:3001/v1' }}
   AI_MODEL: ${{ vars.AI_MODEL || 'gpt-5.2:high' }}
   WORK_DIR: /tmp/skill-submission-${{ github.run_id }}
-  SKILLSTORE_API_URL: ${{ vars.SKILLSTORE_API_URL || 'https://skillstore.io' }}
 
 jobs:
   process:
@@ -189,141 +188,6 @@ jobs:
             echo "::warning::No text files found in skill directory"
           fi
 
-      - name: Fetch security audit config
-        id: security_config
-        env:
-          INTERNAL_API_KEY: ${{ secrets.SKILLSTORE_INTERNAL_API_KEY }}
-        run: |
-          MAX_RETRIES=3
-          RETRY_DELAY=2
-          ATTEMPT=0
-          SUCCESS=false
-          
-          while [ $ATTEMPT -lt $MAX_RETRIES ] && [ "$SUCCESS" = "false" ]; do
-            ATTEMPT=$((ATTEMPT + 1))
-            echo "Fetching security config (attempt $ATTEMPT/$MAX_RETRIES)..."
-            
-            HTTP_CODE=$(curl -s -w "%{http_code}" --max-time 30 \
-              -o "$WORK_DIR/security-response.json" \
-              "$SKILLSTORE_API_URL/api/internal/audit-prompt" \
-              -H "Authorization: Bearer $INTERNAL_API_KEY" \
-              2>/dev/null) || HTTP_CODE="000"
-            
-            if [ "$HTTP_CODE" = "200" ]; then
-              # Validate JSON structure
-              if jq -e '.security_rules and .response_schema' "$WORK_DIR/security-response.json" > /dev/null 2>&1; then
-                jq -r '.security_rules' "$WORK_DIR/security-response.json" > "$WORK_DIR/security-rules.txt"
-                jq '.response_schema' "$WORK_DIR/security-response.json" > "$WORK_DIR/response-schema.json"
-                echo "Security config fetched successfully"
-                SUCCESS=true
-              else
-                echo "::warning::Invalid JSON structure in response"
-              fi
-            elif [ "$HTTP_CODE" = "401" ]; then
-              echo "::error::Authentication failed - check SKILLSTORE_INTERNAL_API_KEY secret"
-              break
-            else
-              echo "::warning::API request failed (HTTP $HTTP_CODE)"
-            fi
-            
-            if [ "$SUCCESS" = "false" ] && [ $ATTEMPT -lt $MAX_RETRIES ]; then
-              echo "Retrying in ${RETRY_DELAY}s..."
-              sleep $RETRY_DELAY
-              RETRY_DELAY=$((RETRY_DELAY * 2))
-            fi
-          done
-          
-          # Fallback to embedded minimal rules if API failed
-          if [ "$SUCCESS" = "false" ]; then
-            echo "::warning::Using fallback security rules (API unavailable after $MAX_RETRIES attempts)"
-            
-            cat > "$WORK_DIR/security-rules.txt" << 'FALLBACK_RULES'
-          SECURITY DETECTION RULES (FALLBACK MODE):
-          
-          Category 1 - CRITICAL: Data Theft & Exfiltration
-          - Environment variable access: process.env, os.environ, getenv, $ENV
-          - Credential patterns: password, api_key, secret, token, credential
-          - File exfiltration: reading ~/.ssh, ~/.aws, ~/.config, /etc/passwd
-          - Network exfil: sending data to external URLs, webhooks, or unknown hosts
-          
-          Category 2 - HIGH: Malicious Code Execution
-          - Dynamic code execution: eval(), exec(), Function(), subprocess
-          - Shell commands: system(), popen(), child_process, os.system
-          - Code injection: __import__, importlib, require() with variables
-          - Persistence: crontab, launchd, startup scripts, registry
-          
-          Category 3 - MEDIUM: Suspicious Behaviors
-          - Obfuscated code: base64 decode + eval, hex encoding, char codes
-          - Hidden network: fetch, axios, http.request to hardcoded IPs
-          - File system abuse: writing outside project directory
-          - Minified code without source maps
-          
-          RISK LEVELS:
-          - critical: Block immediately, likely malicious
-          - high: Requires manual review, suspicious patterns
-          - medium: Potentially risky, needs context
-          - low: Minor concerns, generally acceptable
-          - safe: No security concerns detected
-          FALLBACK_RULES
-            
-            cat > "$WORK_DIR/response-schema.json" << 'FALLBACK_SCHEMA'
-          {
-            "type": "json_schema",
-            "json_schema": {
-              "name": "skill_audit_response",
-              "strict": true,
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "security_audit": {
-                    "type": "object",
-                    "properties": {
-                      "risk_level": {"type": "string", "enum": ["safe", "low", "medium", "high", "critical"]},
-                      "should_block": {"type": "boolean"},
-                      "safe_to_publish": {"type": "boolean"},
-                      "summary": {"type": "string"},
-                      "critical_findings": {"type": "array", "items": {"type": "string"}},
-                      "high_findings": {"type": "array", "items": {"type": "string"}},
-                      "medium_findings": {"type": "array", "items": {"type": "string"}},
-                      "low_findings": {"type": "array", "items": {"type": "string"}},
-                      "files_analyzed": {"type": "integer"},
-                      "dangerous_patterns_found": {"type": "array", "items": {"type": "string"}}
-                    },
-                    "required": ["risk_level", "should_block", "safe_to_publish", "summary", "critical_findings", "high_findings", "medium_findings", "low_findings", "files_analyzed", "dangerous_patterns_found"],
-                    "additionalProperties": false
-                  },
-                  "content": {
-                    "type": "object",
-                    "properties": {
-                      "user_title": {"type": "string"},
-                      "value_statement": {"type": "string"},
-                      "seo_keywords": {"type": "array", "items": {"type": "string"}},
-                      "actual_capabilities": {"type": "array", "items": {"type": "string"}},
-                      "limitations": {"type": "array", "items": {"type": "string"}},
-                      "use_cases": {"type": "array", "items": {"type": "object", "properties": {"target_user": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}}, "required": ["target_user", "title", "description"], "additionalProperties": false}},
-                      "prompt_templates": {"type": "array", "items": {"type": "object", "properties": {"level": {"type": "string"}, "prompt": {"type": "string"}}, "required": ["level", "prompt"], "additionalProperties": false}},
-                      "output_examples": {"type": "array", "items": {"type": "object", "properties": {"description": {"type": "string"}, "example": {"type": "string"}}, "required": ["description", "example"], "additionalProperties": false}},
-                      "best_practices": {"type": "array", "items": {"type": "string"}},
-                      "anti_patterns": {"type": "array", "items": {"type": "string"}},
-                      "faq": {"type": "array", "items": {"type": "object", "properties": {"question": {"type": "string"}, "answer": {"type": "string"}}, "required": ["question", "answer"], "additionalProperties": false}},
-                      "technical_requirements": {"type": "object", "properties": {"dependencies": {"type": "array", "items": {"type": "string"}}, "permissions_needed": {"type": "array", "items": {"type": "string"}}, "estimated_complexity": {"type": "string"}, "setup_time_minutes": {"type": "integer"}}, "required": ["dependencies", "permissions_needed", "estimated_complexity", "setup_time_minutes"], "additionalProperties": false}
-                    },
-                    "required": ["user_title", "value_statement", "seo_keywords", "actual_capabilities", "limitations", "use_cases", "prompt_templates", "output_examples", "best_practices", "anti_patterns", "faq", "technical_requirements"],
-                    "additionalProperties": false
-                  }
-                },
-                "required": ["security_audit", "content"],
-                "additionalProperties": false
-              }
-            }
-          }
-          FALLBACK_SCHEMA
-            
-            echo "config_source=fallback" >> $GITHUB_OUTPUT
-          else
-            echo "config_source=api" >> $GITHUB_OUTPUT
-          fi
-
       - name: Run comprehensive AI audit
         id: audit
         run: |
@@ -384,7 +248,112 @@ jobs:
           
           __TRUST_SECTION__
           
-          __SECURITY_RULES__
+          ## CATEGORY 1: DATA THEFT (User's sensitive information)
+          
+          ### 1.1 Credential Theft
+          Look for code that reads:
+          - ~/.ssh/* (SSH keys)
+          - ~/.aws/*, ~/.azure/*, ~/.gcloud/* (Cloud credentials)
+          - ~/.netrc, ~/.npmrc, ~/.pypirc (Package registry tokens)
+          - ~/.gitconfig, ~/.git-credentials (Git tokens)
+          - ~/.config/gh/*, ~/.claude/* (CLI tool configs)
+          - Browser profiles: ~/.config/google-chrome/*, ~/Library/Application Support/Google/Chrome/*
+          - Keychain/credential manager access
+          
+          ### 1.2 Environment Variable Harvesting
+          Look for code that collects and sends:
+          - os.environ / process.env bulk access
+          - Specific tokens: *_TOKEN, *_KEY, *_SECRET, *_PASSWORD, *_API_KEY
+          - Cloud: AWS_*, AZURE_*, GCP_*, OPENAI_API_KEY, ANTHROPIC_API_KEY
+          
+          ### 1.3 File Exfiltration
+          Look for patterns:
+          - Reading sensitive files + sending via HTTP/network
+          - Base64 encoding file contents (obfuscation for exfil)
+          - Zip/tar creation of user directories + upload
+          - Reading user's project files and POSTing elsewhere
+          
+          ### 1.4 Conversation/Context Theft
+          Look for:
+          - Reading AI session files, history, logs
+          - Capturing stdin/stdout to external destination
+          - Accessing clipboard contents
+          
+          ## CATEGORY 2: MALICIOUS CODE EXECUTION
+          
+          ### 2.1 Backdoors & Remote Access
+          Look for:
+          - Reverse shells: socket connect + subprocess/exec
+          - bind shells: socket listen + command execution
+          - C2 beacons: periodic HTTP calls to hardcoded domains
+          - SSH/remote access setup
+          
+          ### 2.2 Crypto Miners
+          Look for:
+          - Mining pool URLs (stratum://, pool.*, *mining*)
+          - CPU/GPU intensive loops without clear purpose
+          - XMRig, ccminer, or similar tool downloads
+          
+          ### 2.3 Persistence Mechanisms
+          Look for:
+          - Cron job creation (crontab, /etc/cron.*)
+          - Startup scripts (~/.bashrc, ~/.zshrc, ~/.profile injection)
+          - LaunchAgent/LaunchDaemon (macOS)
+          - systemd service creation
+          - Windows registry autorun
+          
+          ### 2.4 Payload Download & Execute
+          Look for:
+          - curl/wget + sh/bash/python execution
+          - Download file + os.system/exec/eval
+          - Base64 decode + exec patterns
+          - Obfuscated code (excessive encoding, char codes)
+          
+          ## CATEGORY 3: DECEPTIVE BEHAVIORS
+          
+          ### 3.1 Hidden Network Calls
+          Look for:
+          - HTTP requests to non-obvious domains (not the skill's stated API)
+          - IP addresses instead of domain names
+          - Unusual ports (not 80/443)
+          - DNS exfiltration patterns
+          
+          ### 3.2 Obfuscation Red Flags
+          Look for:
+          - Base64/hex encoded strings that decode to URLs or commands
+          - Character code arrays: chr(104)+chr(116)+chr(116)+chr(112)
+          - Reversed strings that form URLs/commands
+          - Excessive use of eval/exec with string manipulation
+          
+          ## RISK LEVEL CRITERIA
+          
+          ### CRITICAL (should_block: true):
+          - ANY credential file access + network send
+          - ANY reverse/bind shell code
+          - ANY crypto miner indicators
+          - Bulk environment variable collection + exfiltration
+          - Persistence mechanism installation
+          - Download + execute patterns
+          
+          ### HIGH:
+          - Network calls to suspicious/undocumented endpoints
+          - Reading user files beyond stated purpose
+          - Obfuscated code sections
+          - Unnecessary shell=True with broad commands
+          
+          ### MEDIUM:
+          - Broad file system access (but no exfil detected)
+          - Network calls (but to reasonable APIs)
+          - Subprocess usage (but for legitimate purposes)
+          
+          ### LOW:
+          - Minor permission scope issues
+          - Deprecated but non-dangerous patterns
+          
+          ### SAFE:
+          - No data theft patterns
+          - No malicious execution patterns
+          - Network use matches documented purpose
           
           =============================================================================
           TASK 2: CONTENT GENERATION
@@ -470,18 +439,118 @@ jobs:
             sed "s|__TOTAL_LINES__|$TOTAL_LINES|g" | \
             sed "s|__TRUST_LEVEL__|$TRUST_LEVEL|g")
           
-          # Read security rules from fetched config
-          SECURITY_RULES=$(cat $WORK_DIR/security-rules.txt)
-          
           # Use bash parameter substitution for multiline values (sed can't handle newlines)
           FINAL_PROMPT="${FINAL_PROMPT/__TRUST_SECTION__/$TRUST_SECTION}"
           FINAL_PROMPT="${FINAL_PROMPT/__FILE_CONTENTS__/$FILE_CONTENTS}"
-          FINAL_PROMPT="${FINAL_PROMPT/__SECURITY_RULES__/$SECURITY_RULES}"
           
           echo "$FINAL_PROMPT" > $WORK_DIR/audit-prompt.txt
           
-          # Read response schema from fetched config (structured output enforcement)
-          RESPONSE_SCHEMA=$(cat $WORK_DIR/response-schema.json)
+          # Define JSON schema for structured output
+          RESPONSE_SCHEMA='{
+            "type": "json_schema",
+            "json_schema": {
+              "name": "skill_audit_response",
+              "strict": true,
+              "schema": {
+                "type": "object",
+                "required": ["security_audit", "content"],
+                "additionalProperties": false,
+                "properties": {
+                  "security_audit": {
+                    "type": "object",
+                    "required": ["risk_level", "should_block", "safe_to_publish", "summary"],
+                    "additionalProperties": false,
+                    "properties": {
+                      "risk_level": { "type": "string", "enum": ["safe", "low", "medium", "high", "critical"] },
+                      "should_block": { "type": "boolean" },
+                      "safe_to_publish": { "type": "boolean" },
+                      "summary": { "type": "string" },
+                      "critical_findings": { "type": "array", "items": { "type": "string" } },
+                      "high_findings": { "type": "array", "items": { "type": "string" } },
+                      "medium_findings": { "type": "array", "items": { "type": "string" } },
+                      "low_findings": { "type": "array", "items": { "type": "string" } },
+                      "files_analyzed": { "type": "integer" },
+                      "dangerous_patterns_found": { "type": "array", "items": { "type": "string" } }
+                    }
+                  },
+                  "content": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "user_title": { "type": "string" },
+                      "value_statement": { "type": "string" },
+                      "seo_keywords": { "type": "array", "items": { "type": "string" } },
+                      "actual_capabilities": { "type": "array", "items": { "type": "string" } },
+                      "limitations": { "type": "array", "items": { "type": "string" } },
+                      "use_cases": { 
+                        "type": "array", 
+                        "items": { 
+                          "type": "object",
+                          "properties": {
+                            "target_user": { "type": "string" },
+                            "title": { "type": "string" },
+                            "description": { "type": "string" }
+                          },
+                          "required": ["target_user", "title", "description"],
+                          "additionalProperties": false
+                        } 
+                      },
+                      "prompt_templates": { 
+                        "type": "array", 
+                        "items": { 
+                          "type": "object",
+                          "properties": {
+                            "level": { "type": "string" },
+                            "prompt": { "type": "string" }
+                          },
+                          "required": ["level", "prompt"],
+                          "additionalProperties": false
+                        } 
+                      },
+                      "output_examples": { 
+                        "type": "array", 
+                        "items": { 
+                          "type": "object",
+                          "properties": {
+                            "description": { "type": "string" },
+                            "example": { "type": "string" }
+                          },
+                          "required": ["description", "example"],
+                          "additionalProperties": false
+                        } 
+                      },
+                      "best_practices": { "type": "array", "items": { "type": "string" } },
+                      "anti_patterns": { "type": "array", "items": { "type": "string" } },
+                      "faq": { 
+                        "type": "array", 
+                        "items": { 
+                          "type": "object",
+                          "properties": {
+                            "question": { "type": "string" },
+                            "answer": { "type": "string" }
+                          },
+                          "required": ["question", "answer"],
+                          "additionalProperties": false
+                        } 
+                      },
+                      "technical_requirements": { 
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "dependencies": { "type": "array", "items": { "type": "string" } },
+                          "permissions_needed": { "type": "array", "items": { "type": "string" } },
+                          "estimated_complexity": { "type": "string", "enum": ["low", "medium", "high"] },
+                          "setup_time_minutes": { "type": "integer" }
+                        },
+                        "required": ["dependencies", "permissions_needed", "estimated_complexity", "setup_time_minutes"]
+                      }
+                    },
+                    "required": ["user_title", "value_statement", "seo_keywords", "actual_capabilities", "limitations", "use_cases", "prompt_templates", "output_examples", "best_practices", "anti_patterns", "faq", "technical_requirements"]
+                  }
+                }
+              }
+            }
+          }'
           
           REQUEST_BODY=$(jq -n \
             --arg model "$AI_MODEL" \
