@@ -86,7 +86,7 @@ jobs:
         id: collect
         run: |
           SKILL_PATH="${{ steps.parse.outputs.skill_path }}"
-          SLUG="${{ steps.parse.outputs.slug }}"
+          INITIAL_SLUG="${{ steps.parse.outputs.slug }}"
           
           if [ -n "$SKILL_PATH" ]; then
             SKILL_DIR="$WORK_DIR/source-repo/$SKILL_PATH"
@@ -100,9 +100,9 @@ jobs:
           if [ -f "$SKILL_DIR/SKILL.md" ]; then
             echo "Found SKILL.md directly in target directory"
           # Priority 2: skills/slug/SKILL.md pattern
-          elif [ -f "$SKILL_DIR/skills/$SLUG/SKILL.md" ]; then
-            SKILL_DIR="$SKILL_DIR/skills/$SLUG"
-            echo "Found SKILL.md in skills/$SLUG/"
+          elif [ -f "$SKILL_DIR/skills/$INITIAL_SLUG/SKILL.md" ]; then
+            SKILL_DIR="$SKILL_DIR/skills/$INITIAL_SLUG"
+            echo "Found SKILL.md in skills/$INITIAL_SLUG/"
           # Priority 3: Search for first SKILL.md in deeper levels
           else
             FOUND=$(find "$SKILL_DIR" -maxdepth 10 -name "SKILL.md" -type f | head -1)
@@ -117,8 +117,38 @@ jobs:
             fi
           fi
           
+          # Extract skill name from SKILL.md frontmatter
+          # Priority: 1) frontmatter name field, 2) SKILL.md parent folder name, 3) repo name
+          SKILL_MD_PATH="$SKILL_DIR/SKILL.md"
+          FRONTMATTER_NAME=""
+          
+          if [ -f "$SKILL_MD_PATH" ]; then
+            # Extract name from YAML frontmatter (between --- markers)
+            FRONTMATTER_NAME=$(sed -n '/^---$/,/^---$/p' "$SKILL_MD_PATH" | grep -E '^name:' | head -1 | sed 's/^name:[[:space:]]*//' | tr -d '"'"'" | xargs)
+            echo "Extracted frontmatter name: '$FRONTMATTER_NAME'"
+          fi
+          
+          if [ -n "$FRONTMATTER_NAME" ]; then
+            # Slugify the frontmatter name: lowercase, replace spaces/special chars with hyphens
+            SLUG=$(echo "$FRONTMATTER_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
+            echo "Using slugified frontmatter name: $SLUG"
+          else
+            # Fallback to SKILL.md parent folder name
+            FOLDER_NAME=$(basename "$SKILL_DIR")
+            if [ "$FOLDER_NAME" != "source-repo" ] && [ "$FOLDER_NAME" != "." ]; then
+              SLUG=$(echo "$FOLDER_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+              echo "Using SKILL.md parent folder name: $SLUG"
+            else
+              # Final fallback to initial slug (repo name)
+              SLUG="$INITIAL_SLUG"
+              echo "Using repo name as fallback: $SLUG"
+            fi
+          fi
+          
+          echo "slug=$SLUG" >> $GITHUB_OUTPUT
           echo "skill_dir=$SKILL_DIR" >> $GITHUB_OUTPUT
           echo "Final skill directory: $SKILL_DIR"
+          echo "Final slug: $SLUG"
           ls -la "$SKILL_DIR"
           
           mkdir -p $WORK_DIR/skill-files
@@ -162,7 +192,7 @@ jobs:
         id: audit
         run: |
           SKILL_DIR="${{ steps.collect.outputs.skill_dir }}"
-          SLUG="${{ steps.parse.outputs.slug }}"
+          SLUG="${{ steps.collect.outputs.slug }}"
           SOURCE_URL="${{ env.GITHUB_URL }}"
           
           FILE_CONTENTS=""
@@ -448,7 +478,7 @@ jobs:
 
       - name: Build skill-report.json
         run: |
-          SLUG="${{ steps.parse.outputs.slug }}"
+          SLUG="${{ steps.collect.outputs.slug }}"
           SOURCE_URL="${{ env.GITHUB_URL }}"
           RISK_LEVEL="${{ steps.audit.outputs.risk_level }}"
           TOTAL_LINES="${{ steps.audit.outputs.total_lines }}"
@@ -481,7 +511,7 @@ jobs:
 
       - name: Package plugin
         run: |
-          SLUG="${{ steps.parse.outputs.slug }}"
+          SLUG="${{ steps.collect.outputs.slug }}"
           SKILL_DIR="${{ steps.collect.outputs.skill_dir }}"
           PENDING_DIR="pending/$SLUG"
           
@@ -535,7 +565,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SLUG="${{ steps.parse.outputs.slug }}"
+          SLUG="${{ steps.collect.outputs.slug }}"
           SUBMISSION_ID="${{ env.SUBMISSION_ID }}"
           RISK_LEVEL="${{ steps.audit.outputs.risk_level }}"
           
