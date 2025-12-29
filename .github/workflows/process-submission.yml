@@ -20,6 +20,7 @@ env:
   SUBMITTER_EMAIL: ${{ github.event.client_payload.submitter_email || inputs.submitter_email || 'manual@skillstore.io' }}
   AI_API_BASE: ${{ vars.AI_API_BASE || 'http://192.168.199.7:3001/v1' }}
   AI_MODEL: ${{ vars.AI_MODEL || 'gpt-5.2:high' }}
+  WORK_DIR: /tmp/skill-submission-${{ github.run_id }}
 
 jobs:
   process:
@@ -35,10 +36,11 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Cleanup previous run artifacts
+      - name: Setup work directory
         run: |
-          rm -rf /tmp/source-repo /tmp/skill-files /tmp/skill-report.json /tmp/ai-result.json /tmp/audit-prompt.txt /tmp/pr-body.md
-          echo "Cleaned up /tmp artifacts from previous runs"
+          rm -rf "$WORK_DIR"
+          mkdir -p "$WORK_DIR"
+          echo "Work directory: $WORK_DIR"
 
       - name: Parse GitHub URL
         id: parse
@@ -78,7 +80,7 @@ jobs:
         run: |
           git clone --depth 1 --branch ${{ steps.parse.outputs.branch }} \
             "https://github.com/${{ steps.parse.outputs.owner }}/${{ steps.parse.outputs.repo }}.git" \
-            /tmp/source-repo
+            $WORK_DIR/source-repo
 
       - name: Find SKILL.md and collect files
         id: collect
@@ -87,9 +89,9 @@ jobs:
           SLUG="${{ steps.parse.outputs.slug }}"
           
           if [ -n "$SKILL_PATH" ]; then
-            SKILL_DIR="/tmp/source-repo/$SKILL_PATH"
+            SKILL_DIR="$WORK_DIR/source-repo/$SKILL_PATH"
           else
-            SKILL_DIR="/tmp/source-repo"
+            SKILL_DIR="$WORK_DIR/source-repo"
           fi
           
           echo "Looking for SKILL.md in: $SKILL_DIR"
@@ -119,7 +121,7 @@ jobs:
           echo "Final skill directory: $SKILL_DIR"
           ls -la "$SKILL_DIR"
           
-          mkdir -p /tmp/skill-files
+          mkdir -p $WORK_DIR/skill-files
           
           # Collect text files (use xargs instead of while loop to avoid subshell issues)
           find "$SKILL_DIR" -type f \( \
@@ -128,9 +130,9 @@ jobs:
             -name "*.yml" -o -name "*.toml" -o -name "*.xml" -o -name "*.html" -o \
             -name "*.css" -o -name "*.sql" -o -name "*.rb" -o -name "*.go" -o \
             -name "*.rs" -o -name "*.java" -o -name "*.c" -o -name "*.cpp" \
-          \) -size -50k > /tmp/files-to-copy.txt
+          \) -size -50k > $WORK_DIR/files-to-copy.txt
           
-          echo "Found $(wc -l < /tmp/files-to-copy.txt) text files to analyze"
+          echo "Found $(wc -l < $WORK_DIR/files-to-copy.txt) text files to analyze"
           
           TOTAL_SIZE=0
           MAX_SIZE=200000
@@ -141,14 +143,14 @@ jobs:
               if [ $((TOTAL_SIZE + SIZE)) -lt $MAX_SIZE ]; then
                 REL_PATH="${file#$SKILL_DIR/}"
                 DEST_NAME=$(echo "$REL_PATH" | tr '/' '_')
-                cp "$file" "/tmp/skill-files/$DEST_NAME"
+                cp "$file" "$WORK_DIR/skill-files/$DEST_NAME"
                 TOTAL_SIZE=$((TOTAL_SIZE + SIZE))
                 echo "  Copied: $REL_PATH ($SIZE bytes)"
               fi
             fi
-          done < /tmp/files-to-copy.txt
+          done < $WORK_DIR/files-to-copy.txt
           
-          FILE_COUNT=$(ls -1 /tmp/skill-files 2>/dev/null | wc -l)
+          FILE_COUNT=$(ls -1 $WORK_DIR/skill-files 2>/dev/null | wc -l)
           echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
           echo "Collected $FILE_COUNT files (total size: $TOTAL_SIZE bytes)"
           
@@ -167,7 +169,7 @@ jobs:
           TOTAL_LINES=0
           FILE_COUNT=0
           
-          for file in /tmp/skill-files/*; do
+          for file in $WORK_DIR/skill-files/*; do
             if [ -f "$file" ]; then
               FILENAME=$(basename "$file" | tr '_' '/')
               EXT="${file##*.}"
@@ -405,7 +407,7 @@ jobs:
           FINAL_PROMPT="${FINAL_PROMPT/__TRUST_SECTION__/$TRUST_SECTION}"
           FINAL_PROMPT="${FINAL_PROMPT/__FILE_CONTENTS__/$FILE_CONTENTS}"
           
-          echo "$FINAL_PROMPT" > /tmp/audit-prompt.txt
+          echo "$FINAL_PROMPT" > $WORK_DIR/audit-prompt.txt
           
           REQUEST_BODY=$(jq -n \
             --arg model "$AI_MODEL" \
@@ -432,7 +434,7 @@ jobs:
           fi
           
           CLEAN_JSON=$(echo "$AI_CONTENT" | sed 's/^```json//g' | sed 's/^```//g' | sed 's/```$//g')
-          echo "$CLEAN_JSON" > /tmp/ai-result.json
+          echo "$CLEAN_JSON" > $WORK_DIR/ai-result.json
           
           RISK_LEVEL=$(echo "$CLEAN_JSON" | jq -r '.security_audit.risk_level // "unknown"')
           SHOULD_BLOCK=$(echo "$CLEAN_JSON" | jq -r '.security_audit.should_block // false')
@@ -452,13 +454,13 @@ jobs:
           TOTAL_LINES="${{ steps.audit.outputs.total_lines }}"
           FILE_COUNT="${{ steps.audit.outputs.file_count }}"
           
-          AI_RESULT=$(cat /tmp/ai-result.json)
+          AI_RESULT=$(cat $WORK_DIR/ai-result.json)
           
           jq -n \
             --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg model "$AI_MODEL" \
             --arg source_url "$SOURCE_URL" \
-            --arg source_ref "$(cd /tmp/source-repo && git rev-parse HEAD)" \
+            --arg source_ref "$(cd $WORK_DIR/source-repo && git rev-parse HEAD)" \
             --argjson ai_result "$AI_RESULT" \
             --arg total_lines "$TOTAL_LINES" \
             --arg file_count "$FILE_COUNT" \
@@ -475,7 +477,7 @@ jobs:
                 total_lines: ($total_lines | tonumber)
               }),
               content: $ai_result.content
-            }' > /tmp/skill-report.json
+            }' > $WORK_DIR/skill-report.json
 
       - name: Package plugin
         run: |
@@ -487,10 +489,10 @@ jobs:
           mkdir -p "$PENDING_DIR/skills/$SLUG"
           
           cp -r "$SKILL_DIR"/* "$PENDING_DIR/skills/$SLUG/"
-          cp /tmp/skill-report.json "$PENDING_DIR/skill-report.json"
+          cp $WORK_DIR/skill-report.json "$PENDING_DIR/skill-report.json"
           
-          USER_TITLE=$(jq -r '.content.user_title // ""' /tmp/skill-report.json)
-          DESCRIPTION=$(jq -r '.content.value_statement // ""' /tmp/skill-report.json)
+          USER_TITLE=$(jq -r '.content.user_title // ""' $WORK_DIR/skill-report.json)
+          DESCRIPTION=$(jq -r '.content.value_statement // ""' $WORK_DIR/skill-report.json)
           
           if [ -z "$DESCRIPTION" ]; then
             DESCRIPTION=$(grep -A5 "^#" "$SKILL_DIR/SKILL.md" | grep -v "^#" | grep -v "^$" | head -1 | cut -c1-200)
@@ -581,11 +583,11 @@ jobs:
           *Automated submission via skillstore.io*
           *AI Model: $AI_MODEL*"
           
-          echo "$PR_BODY" > /tmp/pr-body.md
+          echo "$PR_BODY" > $WORK_DIR/pr-body.md
           
           gh pr create \
             --title "New plugin: $SLUG ($RISK_LEVEL risk)" \
-            --body-file /tmp/pr-body.md \
+            --body-file $WORK_DIR/pr-body.md \
             --label "pending-review" \
             --base main \
             --head "$BRANCH_NAME"
@@ -596,9 +598,9 @@ jobs:
           echo "::error::Submission blocked due to security concerns"
           echo "Risk level: ${{ steps.audit.outputs.risk_level }}"
           
-          AUDIT_SUMMARY=$(jq -r '.security_audit.summary // "No summary"' /tmp/skill-report.json)
+          AUDIT_SUMMARY=$(jq -r '.security_audit.summary // "No summary"' $WORK_DIR/skill-report.json)
           echo "Summary: $AUDIT_SUMMARY"
           
-          jq '.security_audit.critical_findings' /tmp/skill-report.json
+          jq '.security_audit.critical_findings' $WORK_DIR/skill-report.json
           
           exit 1
