@@ -83,700 +83,96 @@ jobs:
             "https://github.com/${{ steps.parse.outputs.owner }}/${{ steps.parse.outputs.repo }}.git" \
             $WORK_DIR/source-repo
 
-      - name: Find SKILL.md and collect files
-        id: collect
+      - name: Process all skills
+        id: process
+        env:
+          SKILL_PATH: ${{ steps.parse.outputs.skill_path }}
+          SOURCE_URL: ${{ env.GITHUB_URL }}
         run: |
-          SKILL_PATH="${{ steps.parse.outputs.skill_path }}"
-          INITIAL_SLUG="${{ steps.parse.outputs.slug }}"
-          
-          if [ -n "$SKILL_PATH" ]; then
-            SKILL_DIR="$WORK_DIR/source-repo/$SKILL_PATH"
-          else
-            SKILL_DIR="$WORK_DIR/source-repo"
-          fi
-          
-          echo "Looking for SKILL.md in: $SKILL_DIR"
-          
-          # Priority 1: Direct SKILL.md in target dir
-          if [ -f "$SKILL_DIR/SKILL.md" ]; then
-            echo "Found SKILL.md directly in target directory"
-          # Priority 2: skills/slug/SKILL.md pattern
-          elif [ -f "$SKILL_DIR/skills/$INITIAL_SLUG/SKILL.md" ]; then
-            SKILL_DIR="$SKILL_DIR/skills/$INITIAL_SLUG"
-            echo "Found SKILL.md in skills/$INITIAL_SLUG/"
-          # Priority 3: Search for first SKILL.md in deeper levels
-          else
-            FOUND=$(find "$SKILL_DIR" -maxdepth 10 -name "SKILL.md" -type f | head -1)
-            if [ -n "$FOUND" ]; then
-              SKILL_DIR=$(dirname "$FOUND")
-              echo "Found SKILL.md at: $SKILL_DIR"
-            else
-              echo "::error::No SKILL.md found in repository. This doesn't appear to be a valid skill."
-              echo "Searched in: $SKILL_DIR"
-              find "$SKILL_DIR" -maxdepth 10 -type f -name "*.md" | head -10
-              exit 1
-            fi
-          fi
-          
-          # Extract skill name from SKILL.md frontmatter
-          # Priority: 1) frontmatter name field, 2) SKILL.md parent folder name, 3) repo name
-          SKILL_MD_PATH="$SKILL_DIR/SKILL.md"
-          FRONTMATTER_NAME=""
-          
-          if [ -f "$SKILL_MD_PATH" ]; then
-            # Extract name from YAML frontmatter (between --- markers)
-            FRONTMATTER_NAME=$(sed -n '/^---$/,/^---$/p' "$SKILL_MD_PATH" | grep -E '^name:' | head -1 | sed 's/^name:[[:space:]]*//' | tr -d '"'"'" | xargs)
-            echo "Extracted frontmatter name: '$FRONTMATTER_NAME'"
-          fi
-          
-          if [ -n "$FRONTMATTER_NAME" ]; then
-            # Slugify the frontmatter name: lowercase, replace spaces/special chars with hyphens
-            SLUG=$(echo "$FRONTMATTER_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//')
-            echo "Using slugified frontmatter name: $SLUG"
-          else
-            # Fallback to SKILL.md parent folder name
-            FOLDER_NAME=$(basename "$SKILL_DIR")
-            if [ "$FOLDER_NAME" != "source-repo" ] && [ "$FOLDER_NAME" != "." ]; then
-              SLUG=$(echo "$FOLDER_NAME" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-              echo "Using SKILL.md parent folder name: $SLUG"
-            else
-              # Final fallback to initial slug (repo name)
-              SLUG="$INITIAL_SLUG"
-              echo "Using repo name as fallback: $SLUG"
-            fi
-          fi
-          
-          echo "slug=$SLUG" >> $GITHUB_OUTPUT
-          echo "skill_dir=$SKILL_DIR" >> $GITHUB_OUTPUT
-          echo "Final skill directory: $SKILL_DIR"
-          echo "Final slug: $SLUG"
-          ls -la "$SKILL_DIR"
-          
-          mkdir -p $WORK_DIR/skill-files
-          
-          # Collect text files (use xargs instead of while loop to avoid subshell issues)
-          find "$SKILL_DIR" -type f \( \
-            -name "*.md" -o -name "*.txt" -o -name "*.js" -o -name "*.ts" -o \
-            -name "*.py" -o -name "*.sh" -o -name "*.json" -o -name "*.yaml" -o \
-            -name "*.yml" -o -name "*.toml" -o -name "*.xml" -o -name "*.html" -o \
-            -name "*.css" -o -name "*.sql" -o -name "*.rb" -o -name "*.go" -o \
-            -name "*.rs" -o -name "*.java" -o -name "*.c" -o -name "*.cpp" \
-          \) -size -50k > $WORK_DIR/files-to-copy.txt
-          
-          echo "Found $(wc -l < $WORK_DIR/files-to-copy.txt) text files to analyze"
-          
-          TOTAL_SIZE=0
-          MAX_SIZE=200000
-          
-          while IFS= read -r file; do
-            if [ -f "$file" ]; then
-              SIZE=$(wc -c < "$file")
-              if [ $((TOTAL_SIZE + SIZE)) -lt $MAX_SIZE ]; then
-                REL_PATH="${file#$SKILL_DIR/}"
-                DEST_NAME=$(echo "$REL_PATH" | tr '/' '_')
-                cp "$file" "$WORK_DIR/skill-files/$DEST_NAME"
-                TOTAL_SIZE=$((TOTAL_SIZE + SIZE))
-                echo "  Copied: $REL_PATH ($SIZE bytes)"
-              fi
-            fi
-          done < $WORK_DIR/files-to-copy.txt
-          
-          FILE_COUNT=$(ls -1 $WORK_DIR/skill-files 2>/dev/null | wc -l)
-          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
-          echo "Collected $FILE_COUNT files (total size: $TOTAL_SIZE bytes)"
-          
-          if [ "$FILE_COUNT" -eq 0 ]; then
-            echo "::warning::No text files found in skill directory"
-          fi
-
-      - name: Run comprehensive AI audit
-        id: audit
-        run: |
-          SKILL_DIR="${{ steps.collect.outputs.skill_dir }}"
-          SLUG="${{ steps.collect.outputs.slug }}"
-          SOURCE_URL="${{ env.GITHUB_URL }}"
-          
-          FILE_CONTENTS=""
-          TOTAL_LINES=0
-          FILE_COUNT=0
-          
-          for file in $WORK_DIR/skill-files/*; do
-            if [ -f "$file" ]; then
-              FILENAME=$(basename "$file" | tr '_' '/')
-              EXT="${file##*.}"
-              LINES=$(wc -l < "$file")
-              TOTAL_LINES=$((TOTAL_LINES + LINES))
-              FILE_COUNT=$((FILE_COUNT + 1))
-              CONTENT=$(cat "$file" | head -c 50000)
-              FILE_CONTENTS="$FILE_CONTENTS
-          
-          ### File: $FILENAME ($LINES lines)
-          \`\`\`$EXT
-          $CONTENT
-          \`\`\`"
-            fi
-          done
-          
-          IS_OFFICIAL="false"
-          TRUST_LEVEL="COMMUNITY"
-          if [[ "$SOURCE_URL" == *"github.com/anthropics/skills"* ]]; then
-            IS_OFFICIAL="true"
-            TRUST_LEVEL="OFFICIAL"
-          fi
-          
-          AUDIT_PROMPT=$(cat << 'PROMPT_EOF'
-          Perform SECURITY AUDIT and CONTENT GENERATION for this skill.
-          
-          ## SKILL INFO
-          Name: __SLUG__ | Repo: __SOURCE_URL__ | Files: __FILE_COUNT__ | Lines: __TOTAL_LINES__ | Trust: __TRUST_LEVEL__
-          
-          ## SOURCE CODE
-          __FILE_CONTENTS__
-          
-          ---
-          ## TASK 1: SECURITY AUDIT
-          __TRUST_SECTION__
-          
-          ### Scan for these patterns:
-          
-          **DATA THEFT:**
-          - Credential files: ~/.ssh/*, ~/.aws/*, ~/.npmrc, ~/.gitconfig, ~/.claude/*
-          - Env harvesting: os.environ/process.env bulk access, *_TOKEN, *_KEY, *_SECRET
-          - File exfil: read sensitive files + HTTP send, base64 encode + upload
-          
-          **MALICIOUS EXECUTION:**
-          - Shells: reverse/bind shells, socket + exec, C2 beacons
-          - Miners: stratum://, pool URLs, XMRig downloads
-          - Persistence: crontab, ~/.bashrc injection, LaunchAgent, systemd
-          - Download+exec: curl|wget + sh/python, base64 decode + eval
-          
-          **DECEPTION:**
-          - Hidden network: hardcoded IPs, unusual ports, undocumented endpoints
-          - Obfuscation: encoded strings → URLs/commands, char code arrays, reversed strings
-          
-          ### Risk Levels:
-          - **CRITICAL** (block): credential theft, shells, miners, persistence, download+exec
-          - **HIGH**: suspicious network, file access beyond purpose, obfuscated code
-          - **MEDIUM**: broad filesystem access, legitimate subprocess use
-          - **LOW**: minor scope issues, deprecated patterns
-          - **SAFE**: no threats, behavior matches documentation
-          
-          ### Finding format (use exact line numbers from code above):
-          ```json
-          {"locations": [{"file": "path/file.py", "line_start": 23, "line_end": 25}], "title": "max 60 chars", "description": "explain issue and risk"}
-          ```
-          
-          ---
-          ## TASK 2: CONTENT GENERATION
-          
-          Generate marketplace listing content. Follow the JSON example exactly.
-          
-          ### Writing rules:
-          - Action verbs, no hype ("revolutionary", "best")
-          - Simple sentences for i18n (no idioms/puns)
-          - seo_keywords: first 2-3 MUST include "Claude" or "Claude Code"
-          - output_examples.output: plain English bullets, NOT raw JSON/code
-          
-          ### Field counts:
-          | Field | Count | Key requirement |
-          |-------|-------|-----------------|
-          | user_title | 1 | max 60 chars, starts with verb |
-          | value_statement | 1 | 2 sentences: problem + benefit |
-          | seo_keywords | 8-10 | first items include "Claude" |
-          | actual_capabilities | 4-6 | specific, from code analysis |
-          | limitations | 3-4 | honest boundaries |
-          | use_cases | 3 | different target_user personas |
-          | prompt_templates | 4 | beginner → advanced progression |
-          | output_examples | 1 | human-readable output array |
-          | best_practices | 3 | start with verb |
-          | anti_patterns | 3 | start with "Avoid" |
-          | faq | 6 | compatibility, limits, integration, data safety, troubleshooting, comparison |
-          
-          ---
-          ## OUTPUT: Return ONLY this JSON structure (follow example exactly)
-          
-          {
-            "security_audit": {
-              "risk_level": "safe",
-              "should_block": false,
-              "safe_to_publish": true,
-              "summary": "No malicious patterns. File operations match stated purpose.",
-              "critical_findings": [],
-              "high_findings": [],
-              "medium_findings": [],
-              "low_findings": [{"locations": [{"file": "convert.py", "line_start": 45, "line_end": 48}], "title": "Subprocess with user input", "description": "Filename passed to subprocess.run as list args, low risk."}],
-              "files_analyzed": 8,
-              "dangerous_patterns_found": ["subprocess.run in convert.py:45"]
-            },
-            "content": {
-              "user_title": "Transform Excel Data into Insights",
-              "value_statement": "Stop manual spreadsheet copying. Extract Excel data in seconds.",
-              "seo_keywords": ["Claude xlsx skill", "Claude Code excel", "xlsx parser", "excel validator", "spreadsheet automation", "formula checker", "data extraction", "excel analysis"],
-              "actual_capabilities": ["Parse multi-sheet Excel files with formulas", "Extract .xlsx/.xls/.csv up to 10MB", "Validate cell formats and references", "Export as JSON or markdown"],
-              "limitations": ["No password-protected files", "Max 10MB per file", "VBA macros ignored"],
-              "use_cases": [
-                {"target_user": "Financial Analyst", "title": "Report Validation", "description": "Validate spreadsheets before audit, catch formula errors."},
-                {"target_user": "Data Engineer", "title": "ETL Integration", "description": "Extract Excel data to JSON for database ingestion."},
-                {"target_user": "Operations Manager", "title": "Inventory Check", "description": "Compare sheets across warehouses for discrepancies."}
-              ],
-              "prompt_templates": [
-                {"title": "Quick Check", "scenario": "Before sharing file", "prompt": "Check formulas in report.xlsx for errors"},
-                {"title": "Recalculate", "scenario": "After data update", "prompt": "Recalculate budget.xlsx and show totals"},
-                {"title": "Multi-Sheet", "scenario": "Complex workbook", "prompt": "Scan all sheets in model.xlsx for errors"},
-                {"title": "CI Check", "scenario": "Automated gate", "prompt": "Validate model.xlsx, fail on any errors"}
-              ],
-              "output_examples": [{"input": "Check budget.xlsx for errors", "output": ["Scanned 156 formulas in 4 sheets", "Found 2 errors", "#REF in Sheet1:C10", "#DIV/0 in Summary:F5"]}],
-              "best_practices": ["Use specific column names for accuracy", "Verify numbers against source", "Keep files under 5MB"],
-              "anti_patterns": ["Avoid files over 10MB", "Do not use on encrypted files", "Do not rely solely on AI for legal docs"],
-              "faq": [
-                {"question": "Works with .xls files?", "answer": "Yes, .xlsx, .xls, and .xlsm supported."},
-                {"question": "Max file size?", "answer": "50MB. Split larger files."},
-                {"question": "Works with openpyxl?", "answer": "Yes, great for validating generated files."},
-                {"question": "Modifies original file?", "answer": "No, uses temporary copy."},
-                {"question": "LibreOffice not found?", "answer": "Install: brew install libreoffice (Mac)."},
-                {"question": "vs manual review?", "answer": "Automated, catches all errors in seconds."}
-              ],
-              "technical_requirements": {"dependencies": [], "permissions_needed": ["file_read"], "estimated_complexity": "low", "setup_time_minutes": 2}
-            }
-          }
-          PROMPT_EOF
-          )
-          
-          if [ "$IS_OFFICIAL" = "true" ]; then
-            TRUST_SECTION="🟢 OFFICIAL SKILL - TRUSTED SOURCE
-          This skill is from the OFFICIAL Anthropic repository.
-          Set risk_level to 'safe', should_block to false, safe_to_publish to true.
-          Skip detailed security analysis. Proceed to content generation."
-          else
-            TRUST_SECTION="🔴 COMMUNITY SKILL - FULL SECURITY AUDIT REQUIRED
-          THREAT MODEL: Malicious skill developer attacking innocent users.
-          GOAL: Detect skills that steal user data or execute malicious code.
-          Analyze ALL code files thoroughly for the patterns listed above."
-          fi
-          
-          # Use sed for single-line substitutions only
-          FINAL_PROMPT=$(echo "$AUDIT_PROMPT" | \
-            sed "s|__SLUG__|$SLUG|g" | \
-            sed "s|__SOURCE_URL__|$SOURCE_URL|g" | \
-            sed "s|__FILE_COUNT__|$FILE_COUNT|g" | \
-            sed "s|__TOTAL_LINES__|$TOTAL_LINES|g" | \
-            sed "s|__TRUST_LEVEL__|$TRUST_LEVEL|g")
-          
-          # Use bash parameter substitution for multiline values (sed can't handle newlines)
-          FINAL_PROMPT="${FINAL_PROMPT/__TRUST_SECTION__/$TRUST_SECTION}"
-          FINAL_PROMPT="${FINAL_PROMPT/__FILE_CONTENTS__/$FILE_CONTENTS}"
-          
-          echo "$FINAL_PROMPT" > $WORK_DIR/audit-prompt.txt
-          
-          # Define JSON schema for structured output
-          RESPONSE_SCHEMA='{
-            "type": "json_schema",
-            "json_schema": {
-              "name": "skill_audit_response",
-              "strict": true,
-              "schema": {
-                "type": "object",
-                "required": ["security_audit", "content"],
-                "additionalProperties": false,
-                "properties": {
-                  "security_audit": {
-                    "type": "object",
-                    "required": ["risk_level", "should_block", "safe_to_publish", "summary"],
-                    "additionalProperties": false,
-                    "properties": {
-                      "risk_level": { "type": "string", "enum": ["safe", "low", "medium", "high", "critical"] },
-                      "should_block": { "type": "boolean" },
-                      "safe_to_publish": { "type": "boolean" },
-                      "summary": { "type": "string" },
-                      "critical_findings": { 
-                        "type": "array", 
-                        "items": { 
-                          "type": "object",
-                          "properties": {
-                            "locations": { 
-                              "type": "array", 
-                              "items": { 
-                                "type": "object",
-                                "properties": {
-                                  "file": { "type": "string" },
-                                  "line_start": { "type": "integer" },
-                                  "line_end": { "type": "integer" }
-                                },
-                                "required": ["file", "line_start", "line_end"],
-                                "additionalProperties": false
-                              }
-                            },
-                            "title": { "type": "string" },
-                            "description": { "type": "string" }
-                          },
-                          "required": ["locations", "title", "description"],
-                          "additionalProperties": false
-                        }
-                      },
-                      "high_findings": { 
-                        "type": "array", 
-                        "items": { 
-                          "type": "object",
-                          "properties": {
-                            "locations": { 
-                              "type": "array", 
-                              "items": { 
-                                "type": "object",
-                                "properties": {
-                                  "file": { "type": "string" },
-                                  "line_start": { "type": "integer" },
-                                  "line_end": { "type": "integer" }
-                                },
-                                "required": ["file", "line_start", "line_end"],
-                                "additionalProperties": false
-                              }
-                            },
-                            "title": { "type": "string" },
-                            "description": { "type": "string" }
-                          },
-                          "required": ["locations", "title", "description"],
-                          "additionalProperties": false
-                        }
-                      },
-                      "medium_findings": { 
-                        "type": "array", 
-                        "items": { 
-                          "type": "object",
-                          "properties": {
-                            "locations": { 
-                              "type": "array", 
-                              "items": { 
-                                "type": "object",
-                                "properties": {
-                                  "file": { "type": "string" },
-                                  "line_start": { "type": "integer" },
-                                  "line_end": { "type": "integer" }
-                                },
-                                "required": ["file", "line_start", "line_end"],
-                                "additionalProperties": false
-                              }
-                            },
-                            "title": { "type": "string" },
-                            "description": { "type": "string" }
-                          },
-                          "required": ["locations", "title", "description"],
-                          "additionalProperties": false
-                        }
-                      },
-                      "low_findings": { 
-                        "type": "array", 
-                        "items": { 
-                          "type": "object",
-                          "properties": {
-                            "locations": { 
-                              "type": "array", 
-                              "items": { 
-                                "type": "object",
-                                "properties": {
-                                  "file": { "type": "string" },
-                                  "line_start": { "type": "integer" },
-                                  "line_end": { "type": "integer" }
-                                },
-                                "required": ["file", "line_start", "line_end"],
-                                "additionalProperties": false
-                              }
-                            },
-                            "title": { "type": "string" },
-                            "description": { "type": "string" }
-                          },
-                          "required": ["locations", "title", "description"],
-                          "additionalProperties": false
-                        }
-                      },
-                      "files_analyzed": { "type": "integer" },
-                      "dangerous_patterns_found": { "type": "array", "items": { "type": "string" } }
-                    }
-                  },
-                  "content": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "user_title": { "type": "string" },
-                      "value_statement": { "type": "string" },
-                      "seo_keywords": { "type": "array", "items": { "type": "string" } },
-                      "actual_capabilities": { "type": "array", "items": { "type": "string" } },
-                      "limitations": { "type": "array", "items": { "type": "string" } },
-                      "use_cases": { 
-                        "type": "array", 
-                        "items": { 
-                          "type": "object",
-                          "properties": {
-                            "target_user": { "type": "string" },
-                            "title": { "type": "string" },
-                            "description": { "type": "string" }
-                          },
-                          "required": ["target_user", "title", "description"],
-                          "additionalProperties": false
-                        } 
-                      },
-                      "prompt_templates": { 
-                        "type": "array", 
-                        "items": { 
-                          "type": "object",
-                          "properties": {
-                            "title": { "type": "string" },
-                            "scenario": { "type": "string" },
-                            "prompt": { "type": "string" }
-                          },
-                          "required": ["title", "scenario", "prompt"],
-                          "additionalProperties": false
-                        } 
-                      },
-                      "output_examples": { 
-                        "type": "array", 
-                        "items": { 
-                          "type": "object",
-                          "properties": {
-                            "input": { "type": "string" },
-                            "output": { "type": "array", "items": { "type": "string" } }
-                          },
-                          "required": ["input", "output"],
-                          "additionalProperties": false
-                        } 
-                      },
-                      "best_practices": { "type": "array", "items": { "type": "string" } },
-                      "anti_patterns": { "type": "array", "items": { "type": "string" } },
-                      "faq": { 
-                        "type": "array", 
-                        "items": { 
-                          "type": "object",
-                          "properties": {
-                            "question": { "type": "string" },
-                            "answer": { "type": "string" }
-                          },
-                          "required": ["question", "answer"],
-                          "additionalProperties": false
-                        } 
-                      },
-                      "technical_requirements": { 
-                        "type": "object",
-                        "additionalProperties": false,
-                        "properties": {
-                          "dependencies": { "type": "array", "items": { "type": "string" } },
-                          "permissions_needed": { "type": "array", "items": { "type": "string" } },
-                          "estimated_complexity": { "type": "string", "enum": ["low", "medium", "high"] },
-                          "setup_time_minutes": { "type": "integer" }
-                        },
-                        "required": ["dependencies", "permissions_needed", "estimated_complexity", "setup_time_minutes"]
-                      }
-                    },
-                    "required": ["user_title", "value_statement", "seo_keywords", "actual_capabilities", "limitations", "use_cases", "prompt_templates", "output_examples", "best_practices", "anti_patterns", "faq", "technical_requirements"]
-                  }
-                }
-              }
-            }
-          }'
-          
-          REQUEST_BODY=$(jq -n \
-            --arg model "$AI_MODEL" \
-            --arg content "$FINAL_PROMPT" \
-            --argjson response_format "$RESPONSE_SCHEMA" \
-            '{
-              model: $model,
-              messages: [{ role: "user", content: $content }],
-              temperature: 0.3,
-              max_tokens: 100000,
-              response_format: $response_format
-            }')
-          
-          echo "Calling AI API at $AI_API_BASE..."
-          
-          RESPONSE=$(curl -s --max-time 300 \
-            "$AI_API_BASE/chat/completions" \
-            -H "Content-Type: application/json" \
-            -d "$REQUEST_BODY")
-          
-          AI_CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
-          
-          if [ -z "$AI_CONTENT" ]; then
-            echo "AI API returned no content, using fallback"
-            AI_CONTENT='{"security_audit":{"risk_level":"medium","should_block":false,"safe_to_publish":true,"summary":"AI analysis unavailable - manual review recommended","critical_findings":[],"high_findings":[],"medium_findings":[],"low_findings":[],"files_analyzed":0,"dangerous_patterns_found":[]},"content":{"user_title":"AI Skill","value_statement":"Extends Claude capabilities.","seo_keywords":[],"actual_capabilities":[],"limitations":[],"use_cases":[],"prompt_templates":[],"output_examples":[],"best_practices":[],"anti_patterns":[],"faq":[],"technical_requirements":{"dependencies":[],"permissions_needed":[],"estimated_complexity":"medium","setup_time_minutes":5}}}'
-          fi
-          
-          CLEAN_JSON=$(echo "$AI_CONTENT" | sed 's/^```json//g' | sed 's/^```//g' | sed 's/```$//g')
-          echo "$CLEAN_JSON" > $WORK_DIR/ai-result.json
-          
-          RISK_LEVEL=$(echo "$CLEAN_JSON" | jq -r '.security_audit.risk_level // "unknown"')
-          SHOULD_BLOCK=$(echo "$CLEAN_JSON" | jq -r '.security_audit.should_block // false')
-          
-          echo "risk_level=$RISK_LEVEL" >> $GITHUB_OUTPUT
-          echo "should_block=$SHOULD_BLOCK" >> $GITHUB_OUTPUT
-          echo "total_lines=$TOTAL_LINES" >> $GITHUB_OUTPUT
-          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
-          
-          echo "Security audit complete: risk_level=$RISK_LEVEL, should_block=$SHOULD_BLOCK"
-
-      - name: Build skill-report.json
-        run: |
-          SLUG="${{ steps.collect.outputs.slug }}"
-          SOURCE_URL="${{ env.GITHUB_URL }}"
-          RISK_LEVEL="${{ steps.audit.outputs.risk_level }}"
-          TOTAL_LINES="${{ steps.audit.outputs.total_lines }}"
-          FILE_COUNT="${{ steps.audit.outputs.file_count }}"
-          
-          AI_RESULT=$(cat $WORK_DIR/ai-result.json)
-          
-          jq -n \
-            --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg model "$AI_MODEL" \
-            --arg source_url "$SOURCE_URL" \
-            --arg source_ref "$(cd $WORK_DIR/source-repo && git rev-parse HEAD)" \
-            --argjson ai_result "$AI_RESULT" \
-            --arg total_lines "$TOTAL_LINES" \
-            --arg file_count "$FILE_COUNT" \
-            '{
-              meta: {
-                generated_at: $generated_at,
-                model: $model,
-                source_url: $source_url,
-                source_ref: $source_ref,
-                analysis_version: "2.0.0"
-              },
-              security_audit: ($ai_result.security_audit + {
-                files_scanned: ($file_count | tonumber),
-                total_lines: ($total_lines | tonumber)
-              }),
-              content: $ai_result.content
-            }' > $WORK_DIR/skill-report.json
-
-      - name: Package plugin
-        run: |
-          SLUG="${{ steps.collect.outputs.slug }}"
-          SKILL_DIR="${{ steps.collect.outputs.skill_dir }}"
-          PENDING_DIR="pending/$SLUG"
-          
-          mkdir -p "$PENDING_DIR/.claude-plugin"
-          mkdir -p "$PENDING_DIR/skills/$SLUG"
-          
-          cp -r "$SKILL_DIR"/* "$PENDING_DIR/skills/$SLUG/"
-          cp $WORK_DIR/skill-report.json "$PENDING_DIR/skill-report.json"
-          
-          USER_TITLE=$(jq -r '.content.user_title // ""' $WORK_DIR/skill-report.json)
-          DESCRIPTION=$(jq -r '.content.value_statement // ""' $WORK_DIR/skill-report.json)
-          
-          if [ -z "$DESCRIPTION" ]; then
-            DESCRIPTION=$(grep -A5 "^#" "$SKILL_DIR/SKILL.md" | grep -v "^#" | grep -v "^$" | head -1 | cut -c1-200)
-          fi
-          
-          jq -n \
-            --arg name "$SLUG" \
-            --arg desc "$DESCRIPTION" \
-            --arg homepage "https://skillstore.io/skills/$SLUG" \
-            --arg repo "${{ env.GITHUB_URL }}" \
-            '{
-              name: $name,
-              version: "1.0.0",
-              description: $desc,
-              author: { name: "Community" },
-              homepage: $homepage,
-              repository: $repo,
-              license: "MIT",
-              keywords: []
-            }' > "$PENDING_DIR/.claude-plugin/plugin.json"
-          
-          jq -n \
-            --arg name "$SLUG" \
-            --arg desc "$DESCRIPTION" \
-            --arg path "pending/$SLUG" \
-            '{
-              name: $name,
-              version: "1.0.0",
-              description: $desc,
-              author: { name: "Community" },
-              homepage: "https://skillstore.io/skills/\($name)",
-              path: $path
-            }' > "$PENDING_DIR/marketplace-entry.json"
-          
-          echo "Plugin packaged at $PENDING_DIR"
-          ls -la "$PENDING_DIR"
+          chmod +x .github/scripts/process-skills.sh
+          .github/scripts/process-skills.sh
 
       - name: Create Pull Request
-        if: steps.audit.outputs.should_block != 'true'
+        if: steps.process.outputs.should_block_all != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SLUG="${{ steps.collect.outputs.slug }}"
           SUBMISSION_ID="${{ env.SUBMISSION_ID }}"
-          RISK_LEVEL="${{ steps.audit.outputs.risk_level }}"
+          HIGHEST_RISK="${{ steps.process.outputs.highest_risk }}"
+          PROCESSED_COUNT="${{ steps.process.outputs.processed_count }}"
+          BLOCKED_COUNT="${{ steps.process.outputs.blocked_count }}"
+          SKILLS_LIST="${{ steps.process.outputs.skills_list }}"
+          SKILL_COUNT="${{ steps.process.outputs.skill_count }}"
+          REPO_NAME="${{ steps.parse.outputs.repo }}"
           
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          BRANCH_NAME="submission/$SLUG-$SUBMISSION_ID"
+          BRANCH_NAME="submission/${REPO_NAME}-${SUBMISSION_ID}"
           git checkout -b "$BRANCH_NAME"
+          git add pending/
           
-          git add "pending/$SLUG"
-          git commit -m "Add pending plugin: $SLUG [submission: $SUBMISSION_ID]"
+          if [ "$PROCESSED_COUNT" -eq 1 ]; then
+            FIRST_SKILL=$(echo "$SKILLS_LIST" | cut -d',' -f1)
+            git commit -m "Add pending plugin: $FIRST_SKILL [submission: $SUBMISSION_ID]"
+            PR_TITLE="New plugin: $FIRST_SKILL ($HIGHEST_RISK risk)"
+          else
+            git commit -m "Add $PROCESSED_COUNT pending plugins from $REPO_NAME [submission: $SUBMISSION_ID]"
+            PR_TITLE="New plugins: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK risk)"
+          fi
           
           git push origin "$BRANCH_NAME"
           
-          AUDIT_SUMMARY=$(jq -r '.security_audit.summary // "No summary"' "pending/$SLUG/skill-report.json")
-          CRITICAL_COUNT=$(jq '.security_audit.critical_findings | length' "pending/$SLUG/skill-report.json")
-          HIGH_COUNT=$(jq '.security_audit.high_findings | length' "pending/$SLUG/skill-report.json")
-          
           RISK_BADGE="🟢"
-          if [ "$RISK_LEVEL" = "critical" ]; then RISK_BADGE="🔴"; fi
-          if [ "$RISK_LEVEL" = "high" ]; then RISK_BADGE="🟠"; fi
-          if [ "$RISK_LEVEL" = "medium" ]; then RISK_BADGE="🟡"; fi
+          [ "$HIGHEST_RISK" = "critical" ] && RISK_BADGE="🔴"
+          [ "$HIGHEST_RISK" = "high" ] && RISK_BADGE="🟠"
+          [ "$HIGHEST_RISK" = "medium" ] && RISK_BADGE="🟡"
           
-          NOTES="${{ env.SUBMITTER_NOTES }}"
+          SKILLS_TABLE="| Skill | Risk | Status |
+          |-------|------|--------|"
           
-          PR_BODY="## New Plugin Submission: $SLUG
-
+          for slug in $(echo "$SKILLS_LIST" | tr ',' '\n'); do
+            if [ -f "pending/$slug/skill-report.json" ]; then
+              SKILL_RISK=$(jq -r '.security_audit.risk_level // "unknown"' "pending/$slug/skill-report.json")
+              SKILLS_TABLE="$SKILLS_TABLE
+          | \`$slug\` | $SKILL_RISK | Ready |"
+            fi
+          done
+          
+          PR_BODY="## Skill Submission: $REPO_NAME
+          
           **Submission ID**: \`$SUBMISSION_ID\`
           **Source**: ${{ env.GITHUB_URL }}
-          **Submitter**: ${{ env.SUBMITTER_EMAIL }}"
+          **Submitter**: ${{ env.SUBMITTER_EMAIL }}
           
-          if [ -n "$NOTES" ]; then
-            PR_BODY="$PR_BODY
-
-          ### Submitter Notes
-          > $NOTES"
-          fi
+          ### Summary $RISK_BADGE
+          - Skills discovered: $SKILL_COUNT
+          - Skills ready: $PROCESSED_COUNT
+          - Skills blocked: $BLOCKED_COUNT
           
-          PR_BODY="$PR_BODY
-
-          ### Security Audit $RISK_BADGE
-
-          **Risk Level**: \`$RISK_LEVEL\`
-          **Critical Findings**: $CRITICAL_COUNT
-          **High Findings**: $HIGH_COUNT
-
-          $AUDIT_SUMMARY
-
+          ### Skills
+          $SKILLS_TABLE
+          
           ### Review Checklist
-
-          - [ ] Skill content is appropriate
+          - [ ] All skill contents are appropriate
           - [ ] Security audit findings reviewed
           - [ ] Source repository checked
-
+          
           ---
-          *Automated submission via skillstore.io*
-          *AI Model: $AI_MODEL*"
+          *Automated via skillstore.io | AI Model: $AI_MODEL*"
           
           echo "$PR_BODY" > $WORK_DIR/pr-body.md
           
           gh pr create \
-            --title "New plugin: $SLUG ($RISK_LEVEL risk)" \
+            --title "$PR_TITLE" \
             --body-file $WORK_DIR/pr-body.md \
             --label "pending-review" \
             --base main \
             --head "$BRANCH_NAME"
 
-      - name: Handle blocked submission
-        if: steps.audit.outputs.should_block == 'true'
+      - name: Handle all blocked
+        if: steps.process.outputs.should_block_all == 'true'
         run: |
-          echo "::error::Submission blocked due to security concerns"
-          echo "Risk level: ${{ steps.audit.outputs.risk_level }}"
-          
-          AUDIT_SUMMARY=$(jq -r '.security_audit.summary // "No summary"' $WORK_DIR/skill-report.json)
-          echo "Summary: $AUDIT_SUMMARY"
-          
-          jq '.security_audit.critical_findings' $WORK_DIR/skill-report.json
-          
+          echo "::error::All skills blocked due to security concerns"
+          echo "Blocked skills: $(cat $WORK_DIR/blocked-skills.txt 2>/dev/null)"
           exit 1
