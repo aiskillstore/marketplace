@@ -1,0 +1,209 @@
+name: Validate Marketplace
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.claude-plugin/marketplace.json'
+      - 'plugins/**/plugin.json'
+      - 'plugins/**/skill-report.json'
+      - 'pending/**/plugin.json'
+      - 'pending/**/skill-report.json'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.claude-plugin/marketplace.json'
+      - 'plugins/**/plugin.json'
+      - 'plugins/**/skill-report.json'
+      - 'pending/**/plugin.json'
+      - 'pending/**/skill-report.json'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install ajv ajv-formats
+
+      - name: Validate marketplace.json
+        run: |
+          node -e "
+            const Ajv = require('ajv');
+            const addFormats = require('ajv-formats');
+            const fs = require('fs');
+            
+            const ajv = new Ajv({ allErrors: true });
+            addFormats(ajv);
+            
+            const schema = JSON.parse(fs.readFileSync('schemas/marketplace.schema.json', 'utf8'));
+            const data = JSON.parse(fs.readFileSync('.claude-plugin/marketplace.json', 'utf8'));
+            
+            const validate = ajv.compile(schema);
+            const valid = validate(data);
+            
+            if (!valid) {
+              console.error('Validation errors:', JSON.stringify(validate.errors, null, 2));
+              process.exit(1);
+            }
+            console.log('marketplace.json is valid');
+          "
+
+      - name: Validate all plugin.json files
+        run: |
+          node -e "
+            const Ajv = require('ajv');
+            const addFormats = require('ajv-formats');
+            const fs = require('fs');
+            const path = require('path');
+            const { globSync } = require('fs');
+            
+            const ajv = new Ajv({ allErrors: true });
+            addFormats(ajv);
+            
+            const schema = JSON.parse(fs.readFileSync('schemas/plugin.schema.json', 'utf8'));
+            const validate = ajv.compile(schema);
+            
+            let hasErrors = false;
+            
+            // Find all plugin.json files
+            const pluginFiles = [];
+            const findPluginJsons = (dir) => {
+              if (!fs.existsSync(dir)) return;
+              const entries = fs.readdirSync(dir, { withFileTypes: true });
+              for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                  findPluginJsons(fullPath);
+                } else if (entry.name === 'plugin.json') {
+                  pluginFiles.push(fullPath);
+                }
+              }
+            };
+            
+            findPluginJsons('plugins');
+            findPluginJsons('pending');
+            
+            for (const file of pluginFiles) {
+              try {
+                const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+                const valid = validate(data);
+                if (!valid) {
+                  console.error(\`Validation errors in \${file}:\`, JSON.stringify(validate.errors, null, 2));
+                  hasErrors = true;
+                } else {
+                  console.log(\`\${file} is valid\`);
+                }
+              } catch (e) {
+                console.error(\`Error reading \${file}:\`, e.message);
+                hasErrors = true;
+              }
+            }
+            
+            if (hasErrors) process.exit(1);
+            console.log('All plugin.json files are valid');
+          "
+
+      - name: Check marketplace consistency
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            
+            const marketplace = JSON.parse(fs.readFileSync('.claude-plugin/marketplace.json', 'utf8'));
+            const pluginRoot = marketplace.metadata?.pluginRoot || './plugins';
+            
+            let hasErrors = false;
+            
+            for (const plugin of marketplace.plugins) {
+              const pluginPath = path.join(pluginRoot, plugin.source.replace('./', ''));
+              const manifestPath = path.join(pluginPath, '.claude-plugin', 'plugin.json');
+              
+              if (!fs.existsSync(pluginPath)) {
+                console.error(\`Plugin directory not found: \${pluginPath}\`);
+                hasErrors = true;
+                continue;
+              }
+              
+              if (!fs.existsSync(manifestPath)) {
+                console.error(\`Plugin manifest not found: \${manifestPath}\`);
+                hasErrors = true;
+                continue;
+              }
+              
+              const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+              if (manifest.name !== plugin.name) {
+                console.error(\`Plugin name mismatch: marketplace says '\${plugin.name}' but manifest says '\${manifest.name}'\`);
+                hasErrors = true;
+              }
+              
+              console.log(\`Plugin '\${plugin.name}' is consistent\`);
+            }
+            
+            if (hasErrors) process.exit(1);
+            console.log('Marketplace is consistent with all plugins');
+          "
+
+      - name: Validate skill-report.json files
+        run: |
+          node -e "
+            const Ajv = require('ajv');
+            const addFormats = require('ajv-formats');
+            const fs = require('fs');
+            const path = require('path');
+            
+            const ajv = new Ajv({ allErrors: true });
+            addFormats(ajv);
+            
+            const schema = JSON.parse(fs.readFileSync('schemas/skill-report.schema.json', 'utf8'));
+            const validate = ajv.compile(schema);
+            
+            let hasErrors = false;
+            
+            const findReportFiles = (dir) => {
+              const files = [];
+              if (!fs.existsSync(dir)) return files;
+              const entries = fs.readdirSync(dir, { withFileTypes: true });
+              for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                  files.push(...findReportFiles(fullPath));
+                } else if (entry.name === 'skill-report.json') {
+                  files.push(fullPath);
+                }
+              }
+              return files;
+            };
+            
+            const reportFiles = [...findReportFiles('plugins'), ...findReportFiles('pending')];
+            
+            for (const file of reportFiles) {
+              try {
+                const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+                const valid = validate(data);
+                if (!valid) {
+                  console.error(\`Validation errors in \${file}:\`, JSON.stringify(validate.errors, null, 2));
+                  hasErrors = true;
+                } else {
+                  console.log(\`\${file} is valid\`);
+                }
+              } catch (e) {
+                console.error(\`Error reading \${file}:\`, e.message);
+                hasErrors = true;
+              }
+            }
+            
+            if (hasErrors) process.exit(1);
+            if (reportFiles.length === 0) {
+              console.log('No skill-report.json files found (OK for empty marketplace)');
+            } else {
+              console.log('All skill-report.json files are valid');
+            }
+          "
