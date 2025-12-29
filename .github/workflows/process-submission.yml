@@ -88,47 +88,69 @@ jobs:
             SKILL_DIR="/tmp/source-repo"
           fi
           
+          echo "Looking for SKILL.md in: $SKILL_DIR"
+          
+          # Priority 1: Direct SKILL.md in target dir
           if [ -f "$SKILL_DIR/SKILL.md" ]; then
-            echo "skill_dir=$SKILL_DIR" >> $GITHUB_OUTPUT
+            echo "Found SKILL.md directly in target directory"
+          # Priority 2: skills/slug/SKILL.md pattern
           elif [ -f "$SKILL_DIR/skills/$SLUG/SKILL.md" ]; then
             SKILL_DIR="$SKILL_DIR/skills/$SLUG"
-            echo "skill_dir=$SKILL_DIR" >> $GITHUB_OUTPUT
+            echo "Found SKILL.md in skills/$SLUG/"
+          # Priority 3: Search for first SKILL.md (only in top 2 levels to avoid random nested ones)
           else
-            FOUND=$(find "$SKILL_DIR" -name "SKILL.md" -type f | head -1)
+            FOUND=$(find "$SKILL_DIR" -maxdepth 3 -name "SKILL.md" -type f | head -1)
             if [ -n "$FOUND" ]; then
               SKILL_DIR=$(dirname "$FOUND")
-              echo "skill_dir=$SKILL_DIR" >> $GITHUB_OUTPUT
+              echo "Found SKILL.md at: $SKILL_DIR"
             else
-              echo "No SKILL.md found in $SKILL_DIR"
+              echo "::error::No SKILL.md found in repository. This doesn't appear to be a valid skill."
+              echo "Searched in: $SKILL_DIR"
+              find "$SKILL_DIR" -maxdepth 3 -type f -name "*.md" | head -10
               exit 1
             fi
           fi
           
-          echo "Found skill at: $SKILL_DIR"
+          echo "skill_dir=$SKILL_DIR" >> $GITHUB_OUTPUT
+          echo "Final skill directory: $SKILL_DIR"
+          ls -la "$SKILL_DIR"
           
           mkdir -p /tmp/skill-files
           
-          TOTAL_SIZE=0
-          MAX_SIZE=200000
-          
+          # Collect text files (use xargs instead of while loop to avoid subshell issues)
           find "$SKILL_DIR" -type f \( \
             -name "*.md" -o -name "*.txt" -o -name "*.js" -o -name "*.ts" -o \
             -name "*.py" -o -name "*.sh" -o -name "*.json" -o -name "*.yaml" -o \
             -name "*.yml" -o -name "*.toml" -o -name "*.xml" -o -name "*.html" -o \
             -name "*.css" -o -name "*.sql" -o -name "*.rb" -o -name "*.go" -o \
             -name "*.rs" -o -name "*.java" -o -name "*.c" -o -name "*.cpp" \
-          \) | while read -r file; do
-            SIZE=$(wc -c < "$file")
-            if [ $SIZE -lt 50000 ] && [ $TOTAL_SIZE -lt $MAX_SIZE ]; then
-              REL_PATH="${file#$SKILL_DIR/}"
-              cp "$file" "/tmp/skill-files/$(echo "$REL_PATH" | tr '/' '_')"
-              TOTAL_SIZE=$((TOTAL_SIZE + SIZE))
-            fi
-          done
+          \) -size -50k > /tmp/files-to-copy.txt
           
-          FILE_COUNT=$(ls -1 /tmp/skill-files | wc -l)
+          echo "Found $(wc -l < /tmp/files-to-copy.txt) text files to analyze"
+          
+          TOTAL_SIZE=0
+          MAX_SIZE=200000
+          
+          while IFS= read -r file; do
+            if [ -f "$file" ]; then
+              SIZE=$(wc -c < "$file")
+              if [ $((TOTAL_SIZE + SIZE)) -lt $MAX_SIZE ]; then
+                REL_PATH="${file#$SKILL_DIR/}"
+                DEST_NAME=$(echo "$REL_PATH" | tr '/' '_')
+                cp "$file" "/tmp/skill-files/$DEST_NAME"
+                TOTAL_SIZE=$((TOTAL_SIZE + SIZE))
+                echo "  Copied: $REL_PATH ($SIZE bytes)"
+              fi
+            fi
+          done < /tmp/files-to-copy.txt
+          
+          FILE_COUNT=$(ls -1 /tmp/skill-files 2>/dev/null | wc -l)
           echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
-          echo "Collected $FILE_COUNT files"
+          echo "Collected $FILE_COUNT files (total size: $TOTAL_SIZE bytes)"
+          
+          if [ "$FILE_COUNT" -eq 0 ]; then
+            echo "::warning::No text files found in skill directory"
+          fi
 
       - name: Run comprehensive AI audit
         id: audit
@@ -367,14 +389,16 @@ jobs:
           Analyze ALL code files thoroughly for the patterns listed above."
           fi
           
+          # Use sed for single-line substitutions only
           FINAL_PROMPT=$(echo "$AUDIT_PROMPT" | \
             sed "s|__SLUG__|$SLUG|g" | \
             sed "s|__SOURCE_URL__|$SOURCE_URL|g" | \
             sed "s|__FILE_COUNT__|$FILE_COUNT|g" | \
             sed "s|__TOTAL_LINES__|$TOTAL_LINES|g" | \
-            sed "s|__TRUST_LEVEL__|$TRUST_LEVEL|g" | \
-            sed "s|__TRUST_SECTION__|$TRUST_SECTION|g")
+            sed "s|__TRUST_LEVEL__|$TRUST_LEVEL|g")
           
+          # Use bash parameter substitution for multiline values (sed can't handle newlines)
+          FINAL_PROMPT="${FINAL_PROMPT/__TRUST_SECTION__/$TRUST_SECTION}"
           FINAL_PROMPT="${FINAL_PROMPT/__FILE_CONTENTS__/$FILE_CONTENTS}"
           
           echo "$FINAL_PROMPT" > /tmp/audit-prompt.txt
