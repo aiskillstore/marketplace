@@ -1,0 +1,435 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: 'minor'
+      release_summary:
+        description: 'Release summary (optional, AI will generate if empty)'
+        required: false
+        type: string
+
+env:
+  AI_API_URL: http://192.168.199.7:3001/v1
+  AI_MODEL: gpt-5.2:high
+
+jobs:
+  release:
+    runs-on: self-hosted
+    permissions:
+      contents: write
+    outputs:
+      new_version: ${{ steps.new_version.outputs.version }}
+      release_date: ${{ steps.changelog.outputs.release_date }}
+      plugin_count: ${{ steps.changelog.outputs.plugin_count }}
+      added_plugins: ${{ steps.changelog.outputs.added_plugins }}
+      added_count: ${{ steps.changelog.outputs.added_count }}
+      updated_count: ${{ steps.changelog.outputs.updated_count }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Get current version
+        id: current_version
+        run: |
+          CURRENT=$(jq -r '.metadata.version' .claude-plugin/marketplace.json)
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT"
+
+      - name: Calculate new version
+        id: new_version
+        run: |
+          CURRENT="${{ steps.current_version.outputs.version }}"
+          BUMP="${{ inputs.bump_type }}"
+          
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          
+          case "$BUMP" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+          
+          NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "New version: $NEW_VERSION"
+
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          echo "tag=$PREV_TAG" >> $GITHUB_OUTPUT
+          if [ -n "$PREV_TAG" ]; then
+            echo "Previous tag: $PREV_TAG"
+          else
+            echo "No previous tags found"
+          fi
+
+      - name: Analyze changes since last release
+        id: changelog
+        run: |
+          PREV_TAG="${{ steps.prev_tag.outputs.tag }}"
+          NEW_VERSION="${{ steps.new_version.outputs.version }}"
+          TODAY=$(date +%Y-%m-%d)
+          
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+          
+          echo "Analyzing commits in range: $RANGE"
+          
+          ADDED_PLUGINS=""
+          ADDED_COUNT=0
+          UPDATED_COUNT=0
+          INFRA_CHANGES=""
+          
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            MSG=$(echo "$line" | cut -d' ' -f2-)
+            
+            if echo "$MSG" | grep -qE "^Approve plugins:"; then
+              PLUGINS=$(echo "$MSG" | sed 's/Approve plugins: *//')
+              for p in $PLUGINS; do
+                [ -z "$p" ] && continue
+                if [ -z "$ADDED_PLUGINS" ]; then
+                  ADDED_PLUGINS="$p"
+                else
+                  ADDED_PLUGINS="${ADDED_PLUGINS},$p"
+                fi
+                ADDED_COUNT=$((ADDED_COUNT + 1))
+              done
+            elif echo "$MSG" | grep -qE "^(feat|fix|chore|docs|refactor|release):"; then
+              if [ -z "$INFRA_CHANGES" ]; then
+                INFRA_CHANGES="$MSG"
+              else
+                INFRA_CHANGES="${INFRA_CHANGES}|$MSG"
+              fi
+            fi
+          done < <(git log --oneline $RANGE 2>/dev/null || git log --oneline)
+          
+          PLUGIN_COUNT=$(find plugins -maxdepth 1 -type d ! -name plugins | wc -l | tr -d ' ')
+          
+          {
+            echo "release_date=$TODAY"
+            echo "plugin_count=$PLUGIN_COUNT"
+            echo "added_plugins=$ADDED_PLUGINS"
+            echo "added_count=$ADDED_COUNT"
+            echo "updated_count=$UPDATED_COUNT"
+            echo "infra_changes=$INFRA_CHANGES"
+          } >> $GITHUB_OUTPUT
+          
+          echo "Found: $ADDED_COUNT new plugins, $UPDATED_COUNT updates"
+
+      - name: Generate AI summary (if not provided)
+        id: ai_summary
+        run: |
+          if [ -n "${{ inputs.release_summary }}" ]; then
+            echo "summary=${{ inputs.release_summary }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          NEW_VERSION="${{ steps.new_version.outputs.version }}"
+          ADDED_PLUGINS="${{ steps.changelog.outputs.added_plugins }}"
+          ADDED_COUNT="${{ steps.changelog.outputs.added_count }}"
+          PLUGIN_COUNT="${{ steps.changelog.outputs.plugin_count }}"
+          
+          PROMPT="Generate a concise 1-2 sentence release summary for AI Skillstore marketplace v${NEW_VERSION}. 
+          Stats: ${PLUGIN_COUNT} total plugins, ${ADDED_COUNT} new plugins added: ${ADDED_PLUGINS}.
+          Focus on value to users. Be professional, not marketing-speak. Output only the summary text."
+          
+          RESPONSE=$(curl -s "${AI_API_URL}/chat/completions" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"model\": \"${AI_MODEL}\",
+              \"messages\": [{\"role\": \"user\", \"content\": $(echo "$PROMPT" | jq -Rs .)}],
+              \"max_tokens\": 150,
+              \"temperature\": 0.7
+            }" | jq -r '.choices[0].message.content // empty')
+          
+          if [ -z "$RESPONSE" ]; then
+            RESPONSE="Marketplace update with ${ADDED_COUNT} new plugins. Total ${PLUGIN_COUNT} plugins now available."
+          fi
+          
+          ESCAPED=$(echo "$RESPONSE" | tr '\n' ' ' | sed 's/"/\\"/g')
+          echo "summary=$ESCAPED" >> $GITHUB_OUTPUT
+
+      - name: Build changelog entry
+        id: build_changelog
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.version }}"
+          TODAY="${{ steps.changelog.outputs.release_date }}"
+          PLUGIN_COUNT="${{ steps.changelog.outputs.plugin_count }}"
+          ADDED_PLUGINS="${{ steps.changelog.outputs.added_plugins }}"
+          ADDED_COUNT="${{ steps.changelog.outputs.added_count }}"
+          UPDATED_COUNT="${{ steps.changelog.outputs.updated_count }}"
+          INFRA_CHANGES="${{ steps.changelog.outputs.infra_changes }}"
+          SUMMARY="${{ steps.ai_summary.outputs.summary }}"
+          
+          ENTRY="## [${NEW_VERSION}] - ${TODAY}\n\n"
+          ENTRY+="### Summary\n\n${SUMMARY}\n\n"
+          ENTRY+="### Statistics\n\n"
+          ENTRY+="- Total plugins: ${PLUGIN_COUNT}\n"
+          ENTRY+="- New plugins: ${ADDED_COUNT}\n"
+          ENTRY+="- Updated plugins: ${UPDATED_COUNT}\n\n"
+          
+          if [ -n "$ADDED_PLUGINS" ]; then
+            ENTRY+="### New Plugins\n\n"
+            IFS=',' read -ra PLUGINS <<< "$ADDED_PLUGINS"
+            for p in "${PLUGINS[@]}"; do
+              [ -n "$p" ] && ENTRY+="- \`${p}\`\n"
+            done
+            ENTRY+="\n"
+          fi
+          
+          if [ -n "$INFRA_CHANGES" ]; then
+            ENTRY+="### Infrastructure Changes\n\n"
+            IFS='|' read -ra CHANGES <<< "$INFRA_CHANGES"
+            for c in "${CHANGES[@]}"; do
+              [ -n "$c" ] && ENTRY+="- ${c}\n"
+            done
+            ENTRY+="\n"
+          fi
+          
+          echo "CHANGELOG_ENTRY<<EOF" >> $GITHUB_ENV
+          echo -e "$ENTRY" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Update marketplace.json version
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.version }}"
+          TODAY="${{ steps.changelog.outputs.release_date }}"
+          
+          jq --arg version "$NEW_VERSION" --arg date "$TODAY" \
+            '.metadata.version = $version | .metadata.released_at = $date' \
+            .claude-plugin/marketplace.json > /tmp/marketplace.json
+          
+          mv /tmp/marketplace.json .claude-plugin/marketplace.json
+
+      - name: Update CHANGELOG.md
+        run: |
+          if [ ! -f CHANGELOG.md ]; then
+            cat > CHANGELOG.md << 'HEADER'
+          # Changelog
+
+          All notable changes to the AI Skillstore marketplace will be documented in this file.
+
+          The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+          and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+          HEADER
+          fi
+          
+          HEADER_END=$(grep -n "^## \[" CHANGELOG.md | head -1 | cut -d: -f1 || echo "")
+          
+          if [ -z "$HEADER_END" ]; then
+            echo -e "\n$CHANGELOG_ENTRY" >> CHANGELOG.md
+          else
+            {
+              head -n $((HEADER_END - 1)) CHANGELOG.md
+              echo ""
+              echo -e "$CHANGELOG_ENTRY"
+              tail -n +$HEADER_END CHANGELOG.md
+            } > /tmp/CHANGELOG.md
+            mv /tmp/CHANGELOG.md CHANGELOG.md
+          fi
+
+      - name: Commit version bump
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.version }}"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add .claude-plugin/marketplace.json CHANGELOG.md
+          git commit -m "release: v${NEW_VERSION}"
+          git push origin main
+
+      - name: Create and push tag
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.version }}"
+          git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}"
+          git push origin "v${NEW_VERSION}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.version }}"
+          PREV_TAG="${{ steps.prev_tag.outputs.tag }}"
+          PLUGIN_COUNT="${{ steps.changelog.outputs.plugin_count }}"
+          SUMMARY="${{ steps.ai_summary.outputs.summary }}"
+          
+          cat > /tmp/release_notes.md << EOF
+          ## AI Skillstore Marketplace v${NEW_VERSION}
+          
+          ${SUMMARY}
+          
+          ### Quick Install
+          
+          \`\`\`bash
+          /plugin marketplace add aiskillstore/marketplace
+          \`\`\`
+          
+          ### What's Changed
+          
+          ${CHANGELOG_ENTRY}
+          
+          ---
+          
+          **Full Changelog**: $([ -n "$PREV_TAG" ] && echo "https://github.com/${{ github.repository }}/compare/${PREV_TAG}...v${NEW_VERSION}" || echo "https://github.com/${{ github.repository }}/commits/v${NEW_VERSION}")
+          EOF
+          
+          gh release create "v${NEW_VERSION}" \
+            --title "v${NEW_VERSION}" \
+            --notes-file /tmp/release_notes.md \
+            --latest
+
+      - name: Summary
+        run: |
+          NEW_VERSION="${{ steps.new_version.outputs.version }}"
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: v${NEW_VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Plugins**: ${{ steps.changelog.outputs.plugin_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **New Plugins**: ${{ steps.changelog.outputs.added_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release URL**: https://github.com/${{ github.repository }}/releases/tag/v${NEW_VERSION}" >> $GITHUB_STEP_SUMMARY
+
+  sync-to-supabase:
+    needs: release
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @supabase/supabase-js
+
+      - name: Sync release to Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          node << 'EOF'
+          const { createClient } = require('@supabase/supabase-js');
+          const fs = require('fs');
+
+          const supabase = createClient(
+            process.env.SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_KEY
+          );
+
+          async function syncRelease() {
+            const version = '${{ needs.release.outputs.new_version }}';
+            const releaseDate = '${{ needs.release.outputs.release_date }}';
+            const pluginCount = parseInt('${{ needs.release.outputs.plugin_count }}', 10);
+            const addedCount = parseInt('${{ needs.release.outputs.added_count }}', 10);
+            const updatedCount = parseInt('${{ needs.release.outputs.updated_count }}', 10);
+            const addedPlugins = '${{ needs.release.outputs.added_plugins }}'.split(',').filter(Boolean);
+
+            const marketplace = JSON.parse(
+              fs.readFileSync('.claude-plugin/marketplace.json', 'utf8')
+            );
+
+            const changelog = JSON.parse(
+              fs.readFileSync('CHANGELOG.md', 'utf8')
+                .split(/^## \[/m)[1]
+                ?.split(/^## \[/m)[0] || '{}'
+            ) || {};
+
+            const changelogData = {
+              added_plugins: addedPlugins,
+              infrastructure: []
+            };
+
+            await supabase
+              .schema('skillstore')
+              .from('releases')
+              .update({ is_latest: false })
+              .eq('is_latest', true);
+
+            const languages = ['en', 'zh-hans', 'ja', 'ko', 'de', 'fr', 'es', 'pt', 'ru', 'ar'];
+            
+            for (const lang of languages) {
+              const summary = lang === 'en' 
+                ? `Marketplace update with ${addedCount} new plugins. Total ${pluginCount} plugins available.`
+                : null;
+
+              const record = {
+                tag: `v${version}`,
+                version: version,
+                release_date: releaseDate,
+                skill_count: pluginCount,
+                summary: summary || `Marketplace v${version}`,
+                changelog: changelogData,
+                added_count: addedCount,
+                updated_count: updatedCount,
+                removed_count: 0,
+                is_latest: true,
+                language: lang
+              };
+
+              console.log(`Upserting release v${version} for language: ${lang}`);
+
+              const { error } = await supabase
+                .schema('skillstore')
+                .from('releases')
+                .upsert(record, { 
+                  onConflict: 'tag,language',
+                  ignoreDuplicates: false 
+                });
+
+              if (error) {
+                console.error(`Error for ${lang}:`, error.message);
+              } else {
+                console.log(`Synced: v${version} (${lang})`);
+              }
+            }
+
+            console.log('Release sync complete!');
+          }
+
+          syncRelease().catch(err => {
+            console.error('Sync failed:', err);
+            process.exit(1);
+          });
+          EOF
+
+      - name: Report sync status
+        run: |
+          echo "## Supabase Sync" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Release v${{ needs.release.outputs.new_version }} synced to Supabase for all languages." >> $GITHUB_STEP_SUMMARY

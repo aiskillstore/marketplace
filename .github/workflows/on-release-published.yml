@@ -1,0 +1,142 @@
+name: On Release Published - Sync to Supabase
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  sync-release:
+    runs-on: self-hosted
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @supabase/supabase-js
+
+      - name: Extract release info
+        id: release_info
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          BODY="${{ github.event.release.body }}"
+          
+          PLUGIN_COUNT=$(find plugins -maxdepth 1 -type d ! -name plugins | wc -l | tr -d ' ')
+          
+          ADDED_COUNT=$(echo "$BODY" | grep -oP '(?<=New plugins: )\d+' || echo "0")
+          UPDATED_COUNT=$(echo "$BODY" | grep -oP '(?<=Updated plugins: )\d+' || echo "0")
+          
+          {
+            echo "version=$VERSION"
+            echo "plugin_count=$PLUGIN_COUNT"
+            echo "added_count=$ADDED_COUNT"
+            echo "updated_count=$UPDATED_COUNT"
+          } >> $GITHUB_OUTPUT
+
+      - name: Sync release to Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_DATE: ${{ github.event.release.published_at }}
+        run: |
+          node << 'EOF'
+          const { createClient } = require('@supabase/supabase-js');
+
+          const supabase = createClient(
+            process.env.SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_KEY
+          );
+
+          async function syncRelease() {
+            const tag = process.env.RELEASE_TAG;
+            const version = tag.replace(/^v/, '');
+            const body = process.env.RELEASE_BODY || '';
+            const publishedAt = process.env.RELEASE_DATE;
+            
+            const releaseDate = publishedAt 
+              ? new Date(publishedAt).toISOString().split('T')[0]
+              : new Date().toISOString().split('T')[0];
+
+            const pluginCount = parseInt('${{ steps.release_info.outputs.plugin_count }}', 10) || 0;
+            const addedCount = parseInt('${{ steps.release_info.outputs.added_count }}', 10) || 0;
+            const updatedCount = parseInt('${{ steps.release_info.outputs.updated_count }}', 10) || 0;
+
+            const summaryMatch = body.match(/### Summary\s*\n\s*([^\n#]+)/);
+            const summary = summaryMatch 
+              ? summaryMatch[1].trim()
+              : `Marketplace ${tag} with ${pluginCount} plugins`;
+
+            const addedPluginsMatch = body.match(/### New Plugins[\s\S]*?(?=###|$)/);
+            const addedPlugins = addedPluginsMatch
+              ? [...addedPluginsMatch[0].matchAll(/`([^`]+)`/g)].map(m => m[1])
+              : [];
+
+            const changelogData = {
+              added_plugins: addedPlugins,
+              raw_body: body.substring(0, 5000)
+            };
+
+            await supabase
+              .schema('skillstore')
+              .from('releases')
+              .update({ is_latest: false })
+              .eq('is_latest', true);
+
+            const languages = ['en', 'zh-hans', 'ja', 'ko', 'de', 'fr', 'es', 'pt', 'ru', 'ar'];
+            
+            for (const lang of languages) {
+              const record = {
+                tag: tag,
+                version: version,
+                release_date: releaseDate,
+                skill_count: pluginCount,
+                summary: summary,
+                changelog: changelogData,
+                added_count: addedCount,
+                updated_count: updatedCount,
+                removed_count: 0,
+                is_latest: true,
+                language: lang
+              };
+
+              console.log(`Syncing ${tag} for ${lang}...`);
+
+              const { error } = await supabase
+                .schema('skillstore')
+                .from('releases')
+                .upsert(record, { 
+                  onConflict: 'tag,language',
+                  ignoreDuplicates: false 
+                });
+
+              if (error) {
+                console.error(`Error for ${lang}:`, error.message);
+              }
+            }
+
+            console.log('Release sync complete!');
+          }
+
+          syncRelease().catch(err => {
+            console.error('Sync failed:', err);
+            process.exit(1);
+          });
+          EOF
+
+      - name: Summary
+        run: |
+          echo "## Release Synced to Supabase" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: ${{ github.event.release.tag_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Plugins**: ${{ steps.release_info.outputs.plugin_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **New**: ${{ steps.release_info.outputs.added_count }}" >> $GITHUB_STEP_SUMMARY
