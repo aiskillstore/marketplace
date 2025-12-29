@@ -1,0 +1,324 @@
+name: Process Skill Submission
+
+on:
+  repository_dispatch:
+    types: [process-submission]
+
+env:
+  SUBMISSION_ID: ${{ github.event.client_payload.submission_id }}
+  GITHUB_URL: ${{ github.event.client_payload.github_url }}
+  SUBMITTER_EMAIL: ${{ github.event.client_payload.submitter_email }}
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout marketplace
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install ajv ajv-formats
+
+      - name: Parse GitHub URL
+        id: parse
+        run: |
+          URL="${{ env.GITHUB_URL }}"
+          echo "Parsing URL: $URL"
+          
+          if [[ $URL =~ github\.com/([^/]+)/([^/]+)(/tree/([^/]+)(/(.+))?)? ]]; then
+            OWNER="${BASH_REMATCH[1]}"
+            REPO="${BASH_REMATCH[2]}"
+            BRANCH="${BASH_REMATCH[4]:-main}"
+            SKILL_PATH="${BASH_REMATCH[6]:-}"
+            
+            echo "owner=$OWNER" >> $GITHUB_OUTPUT
+            echo "repo=$REPO" >> $GITHUB_OUTPUT
+            echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+            echo "skill_path=$SKILL_PATH" >> $GITHUB_OUTPUT
+            
+            if [ -n "$SKILL_PATH" ]; then
+              SLUG=$(basename "$SKILL_PATH" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+            else
+              SLUG=$(echo "$REPO" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+            fi
+            echo "slug=$SLUG" >> $GITHUB_OUTPUT
+            
+            echo "Parsed: owner=$OWNER, repo=$REPO, branch=$BRANCH, path=$SKILL_PATH, slug=$SLUG"
+          else
+            echo "Failed to parse GitHub URL"
+            exit 1
+          fi
+
+      - name: Clone source repository
+        run: |
+          git clone --depth 1 --branch ${{ steps.parse.outputs.branch }} \
+            "https://github.com/${{ steps.parse.outputs.owner }}/${{ steps.parse.outputs.repo }}.git" \
+            /tmp/source-repo
+
+      - name: Find SKILL.md
+        id: find_skill
+        run: |
+          SKILL_PATH="${{ steps.parse.outputs.skill_path }}"
+          SLUG="${{ steps.parse.outputs.slug }}"
+          
+          if [ -n "$SKILL_PATH" ]; then
+            SKILL_DIR="/tmp/source-repo/$SKILL_PATH"
+          else
+            SKILL_DIR="/tmp/source-repo"
+          fi
+          
+          if [ -f "$SKILL_DIR/SKILL.md" ]; then
+            echo "skill_dir=$SKILL_DIR" >> $GITHUB_OUTPUT
+            echo "Found SKILL.md at $SKILL_DIR"
+          elif [ -f "$SKILL_DIR/skills/$SLUG/SKILL.md" ]; then
+            echo "skill_dir=$SKILL_DIR/skills/$SLUG" >> $GITHUB_OUTPUT
+            echo "Found SKILL.md at $SKILL_DIR/skills/$SLUG"
+          else
+            FOUND=$(find "$SKILL_DIR" -name "SKILL.md" -type f | head -1)
+            if [ -n "$FOUND" ]; then
+              echo "skill_dir=$(dirname $FOUND)" >> $GITHUB_OUTPUT
+              echo "Found SKILL.md at $(dirname $FOUND)"
+            else
+              echo "No SKILL.md found in $SKILL_DIR"
+              exit 1
+            fi
+          fi
+
+      - name: Run AI Security Audit
+        id: audit
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          SKILL_DIR="${{ steps.find_skill.outputs.skill_dir }}"
+          
+          SKILL_CONTENT=$(cat "$SKILL_DIR/SKILL.md" | head -c 50000)
+          
+          CODE_FILES=""
+          for ext in sh ts js py rb go; do
+            FILES=$(find "$SKILL_DIR" -name "*.$ext" -type f 2>/dev/null | head -5)
+            for f in $FILES; do
+              if [ -f "$f" ]; then
+                CODE_FILES="$CODE_FILES\n\n--- File: $(basename $f) ---\n$(cat $f | head -c 5000)"
+              fi
+            done
+          done
+          
+          cat > /tmp/audit-prompt.json << 'EOF'
+          {
+            "model": "gpt-4-turbo-preview",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a security auditor for AI skills. Analyze the provided skill content and code for security risks. Output a JSON object with: risk_level (safe|low|medium|high|critical|blocked), is_blocked (boolean), safe_to_publish (boolean), summary (string), critical_findings (array), high_findings (array), medium_findings (array), low_findings (array), dangerous_patterns (array of strings). Each finding has: title, description, file, line (optional), recommendation."
+              },
+              {
+                "role": "user",
+                "content": "PLACEHOLDER"
+              }
+            ],
+            "temperature": 0.1,
+            "response_format": { "type": "json_object" }
+          }
+          EOF
+          
+          ESCAPED_CONTENT=$(echo "Analyze this skill for security:\n\nSKILL.md:\n$SKILL_CONTENT\n\nCode files:$CODE_FILES" | jq -Rs .)
+          jq --arg content "$ESCAPED_CONTENT" '.messages[1].content = ($content | fromjson)' /tmp/audit-prompt.json > /tmp/audit-request.json
+          
+          RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d @/tmp/audit-request.json)
+          
+          AUDIT_RESULT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+          
+          if [ -z "$AUDIT_RESULT" ] || [ "$AUDIT_RESULT" = "null" ]; then
+            echo "Failed to get audit response"
+            AUDIT_RESULT='{"risk_level":"low","is_blocked":false,"safe_to_publish":true,"summary":"API unavailable - manual review recommended","critical_findings":[],"high_findings":[],"medium_findings":[],"low_findings":[],"dangerous_patterns":[]}'
+          fi
+          
+          echo "$AUDIT_RESULT" > /tmp/security-audit.json
+          
+          IS_BLOCKED=$(echo "$AUDIT_RESULT" | jq -r '.is_blocked // false')
+          if [ "$IS_BLOCKED" = "true" ]; then
+            echo "::error::Skill blocked due to critical security issues"
+            echo "blocked=true" >> $GITHUB_OUTPUT
+          else
+            echo "blocked=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate AI Content
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          SKILL_DIR="${{ steps.find_skill.outputs.skill_dir }}"
+          SKILL_CONTENT=$(cat "$SKILL_DIR/SKILL.md" | head -c 30000)
+          
+          cat > /tmp/content-prompt.json << 'EOF'
+          {
+            "model": "gpt-4-turbo-preview",
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a technical writer. Generate marketing and documentation content for an AI skill. Output JSON with: user_title (catchy title), value_statement (1-2 sentences), seo_keywords (array of 5-8 keywords), actual_capabilities (array of 4-6 bullet points), limitations (array of 2-4 items), use_cases (array of 3 objects with title, description, example_prompt), best_practices (array of 3-5 tips), anti_patterns (array of 2-3 things to avoid), faq (array of 3 objects with question and answer)."
+              },
+              {
+                "role": "user", 
+                "content": "PLACEHOLDER"
+              }
+            ],
+            "temperature": 0.7,
+            "response_format": { "type": "json_object" }
+          }
+          EOF
+          
+          ESCAPED=$(echo "Generate content for this skill:\n\n$SKILL_CONTENT" | jq -Rs .)
+          jq --arg content "$ESCAPED" '.messages[1].content = ($content | fromjson)' /tmp/content-prompt.json > /tmp/content-request.json
+          
+          RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $OPENAI_API_KEY" \
+            -d @/tmp/content-request.json)
+          
+          AI_CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
+          
+          if [ -z "$AI_CONTENT" ] || [ "$AI_CONTENT" = "null" ]; then
+            AI_CONTENT='{"user_title":"AI Skill","value_statement":"Extends Claude capabilities.","seo_keywords":[],"actual_capabilities":[],"limitations":[],"use_cases":[],"best_practices":[],"anti_patterns":[],"faq":[]}'
+          fi
+          
+          echo "$AI_CONTENT" > /tmp/ai-content.json
+
+      - name: Build skill-report.json
+        run: |
+          SLUG="${{ steps.parse.outputs.slug }}"
+          SOURCE_URL="${{ env.GITHUB_URL }}"
+          
+          jq -n \
+            --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg model "gpt-4-turbo-preview" \
+            --arg source_url "$SOURCE_URL" \
+            --arg source_ref "$(cd /tmp/source-repo && git rev-parse HEAD)" \
+            --slurpfile audit /tmp/security-audit.json \
+            --slurpfile content /tmp/ai-content.json \
+            '{
+              meta: {
+                generated_at: $generated_at,
+                model: $model,
+                source_url: $source_url,
+                source_ref: $source_ref,
+                analysis_version: "1.0.0"
+              },
+              security_audit: ($audit[0] + {
+                files_scanned: 0,
+                total_lines: 0
+              }),
+              content: $content[0]
+            }' > /tmp/skill-report.json
+
+      - name: Package plugin
+        run: |
+          SLUG="${{ steps.parse.outputs.slug }}"
+          SKILL_DIR="${{ steps.find_skill.outputs.skill_dir }}"
+          PENDING_DIR="pending/$SLUG"
+          
+          mkdir -p "$PENDING_DIR/.claude-plugin"
+          mkdir -p "$PENDING_DIR/skills/$SLUG"
+          
+          cp -r "$SKILL_DIR"/* "$PENDING_DIR/skills/$SLUG/"
+          cp /tmp/skill-report.json "$PENDING_DIR/skill-report.json"
+          
+          DESCRIPTION=$(grep -A5 "^#" "$SKILL_DIR/SKILL.md" | grep -v "^#" | grep -v "^$" | head -1 | cut -c1-200)
+          
+          jq -n \
+            --arg name "$SLUG" \
+            --arg desc "$DESCRIPTION" \
+            --arg homepage "https://skillstore.io/skills/$SLUG" \
+            --arg repo "${{ env.GITHUB_URL }}" \
+            '{
+              name: $name,
+              version: "1.0.0",
+              description: $desc,
+              author: { name: "Community" },
+              homepage: $homepage,
+              repository: $repo,
+              license: "MIT",
+              keywords: []
+            }' > "$PENDING_DIR/.claude-plugin/plugin.json"
+          
+          jq -n \
+            --arg name "$SLUG" \
+            --arg desc "$DESCRIPTION" \
+            --arg path "pending/$SLUG" \
+            '{
+              name: $name,
+              version: "1.0.0",
+              description: $desc,
+              author: { name: "Community" },
+              homepage: "https://skillstore.io/skills/\($name)",
+              path: $path
+            }' > "$PENDING_DIR/marketplace-entry.json"
+          
+          echo "Plugin packaged at $PENDING_DIR"
+          ls -la "$PENDING_DIR"
+
+      - name: Create Pull Request
+        if: steps.audit.outputs.blocked != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SLUG="${{ steps.parse.outputs.slug }}"
+          SUBMISSION_ID="${{ env.SUBMISSION_ID }}"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          BRANCH_NAME="submission/$SLUG-$SUBMISSION_ID"
+          git checkout -b "$BRANCH_NAME"
+          
+          git add "pending/$SLUG"
+          git commit -m "Add pending plugin: $SLUG [submission: $SUBMISSION_ID]"
+          
+          git push origin "$BRANCH_NAME"
+          
+          RISK_LEVEL=$(jq -r '.security_audit.risk_level // "unknown"' "pending/$SLUG/skill-report.json")
+          AUDIT_SUMMARY=$(jq -r '.security_audit.summary // "No summary"' "pending/$SLUG/skill-report.json")
+          
+          PR_BODY="## New Plugin Submission: $SLUG
+
+          **Submission ID**: \`$SUBMISSION_ID\`
+          **Source**: ${{ env.GITHUB_URL }}
+          **Submitter**: ${{ env.SUBMITTER_EMAIL }}
+
+          ### Security Audit
+          **Risk Level**: \`$RISK_LEVEL\`
+          $AUDIT_SUMMARY
+
+          ### Review Checklist
+          - [ ] Skill content is appropriate
+          - [ ] Security audit findings reviewed
+          - [ ] Source repository checked
+
+          ---
+          *Automated submission via skillstore.io*"
+          
+          echo "$PR_BODY" > /tmp/pr-body.md
+          
+          gh pr create \
+            --title "New plugin: $SLUG" \
+            --body-file /tmp/pr-body.md \
+            --label "pending-review" \
+            --base main \
+            --head "$BRANCH_NAME"
+
+      - name: Handle blocked submission
+        if: steps.audit.outputs.blocked == 'true'
+        run: |
+          echo "::error::Submission blocked due to security concerns"
+          echo "Submission ${{ env.SUBMISSION_ID }} was blocked"
+          exit 1

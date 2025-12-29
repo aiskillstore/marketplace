@@ -1,0 +1,103 @@
+name: On PR Merge - Approve Plugin
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  approve-plugin:
+    if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'pending-review')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Find pending plugins to approve
+        id: find_pending
+        run: |
+          PLUGINS=""
+          for dir in pending/*/; do
+            if [ -d "$dir" ]; then
+              SLUG=$(basename "$dir")
+              PLUGINS="$PLUGINS $SLUG"
+            fi
+          done
+          echo "plugins=$PLUGINS" >> $GITHUB_OUTPUT
+          echo "Found pending plugins:$PLUGINS"
+
+      - name: Move plugins from pending to plugins
+        run: |
+          for SLUG in ${{ steps.find_pending.outputs.plugins }}; do
+            if [ -d "pending/$SLUG" ]; then
+              echo "Moving pending/$SLUG to plugins/$SLUG"
+              
+              if [ -d "plugins/$SLUG" ]; then
+                rm -rf "plugins/$SLUG"
+              fi
+              
+              mv "pending/$SLUG" "plugins/$SLUG"
+              
+              if [ -f "plugins/$SLUG/marketplace-entry.json" ]; then
+                jq --arg path "plugins/$SLUG" '.path = $path' \
+                  "plugins/$SLUG/marketplace-entry.json" > /tmp/entry.json
+                mv /tmp/entry.json "plugins/$SLUG/marketplace-entry.json"
+              fi
+            fi
+          done
+
+      - name: Update marketplace.json
+        run: |
+          for SLUG in ${{ steps.find_pending.outputs.plugins }}; do
+            ENTRY_FILE="plugins/$SLUG/marketplace-entry.json"
+            
+            if [ ! -f "$ENTRY_FILE" ]; then
+              echo "No marketplace-entry.json for $SLUG, skipping"
+              continue
+            fi
+            
+            EXISTING=$(jq --arg name "$SLUG" '.plugins | map(select(.name == $name)) | length' .claude-plugin/marketplace.json)
+            
+            if [ "$EXISTING" -gt "0" ]; then
+              echo "Plugin $SLUG already in marketplace, updating..."
+              jq --arg name "$SLUG" --slurpfile entry "$ENTRY_FILE" \
+                '.plugins = [.plugins[] | if .name == $name then $entry[0] else . end]' \
+                .claude-plugin/marketplace.json > /tmp/marketplace.json
+            else
+              echo "Adding new plugin $SLUG to marketplace..."
+              jq --slurpfile entry "$ENTRY_FILE" \
+                '.plugins += $entry' \
+                .claude-plugin/marketplace.json > /tmp/marketplace.json
+            fi
+            
+            mv /tmp/marketplace.json .claude-plugin/marketplace.json
+          done
+          
+          echo "Updated marketplace.json:"
+          jq '.plugins | length' .claude-plugin/marketplace.json
+
+      - name: Commit and push changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add plugins/ .claude-plugin/marketplace.json
+          
+          if [ -d "pending" ] && [ -z "$(ls -A pending 2>/dev/null)" ]; then
+            rmdir pending 2>/dev/null || true
+          fi
+          
+          PLUGINS="${{ steps.find_pending.outputs.plugins }}"
+          git commit -m "Approve plugins: $PLUGINS" || echo "No changes to commit"
+          
+          git push origin main

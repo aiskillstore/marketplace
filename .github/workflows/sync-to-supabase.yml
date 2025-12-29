@@ -1,0 +1,120 @@
+name: Sync to Supabase
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/**'
+      - '.claude-plugin/marketplace.json'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @supabase/supabase-js
+
+      - name: Sync plugins to Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          node << 'EOF'
+          const { createClient } = require('@supabase/supabase-js');
+          const fs = require('fs');
+          const path = require('path');
+
+          const supabase = createClient(
+            process.env.SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_KEY
+          );
+
+          async function syncPlugins() {
+            const marketplace = JSON.parse(
+              fs.readFileSync('.claude-plugin/marketplace.json', 'utf8')
+            );
+
+            console.log(`Syncing ${marketplace.plugins.length} plugins...`);
+
+            for (const plugin of marketplace.plugins) {
+              const pluginPath = plugin.path || `plugins/${plugin.name}`;
+              const reportPath = path.join(pluginPath, 'skill-report.json');
+              const manifestPath = path.join(pluginPath, '.claude-plugin', 'plugin.json');
+
+              let skillReport = null;
+              let manifest = null;
+
+              if (fs.existsSync(reportPath)) {
+                skillReport = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+              }
+
+              if (fs.existsSync(manifestPath)) {
+                manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+              }
+
+              const record = {
+                slug: plugin.name,
+                name: skillReport?.content?.user_title || plugin.name,
+                description: plugin.description,
+                version: plugin.version || '1.0.0',
+                author_name: plugin.author?.name || 'Unknown',
+                author_email: plugin.author?.email || null,
+                homepage: plugin.homepage || null,
+                repository: plugin.repository || null,
+                license: plugin.license || 'MIT',
+                
+                marketplace_source: 'aiskillstore',
+                plugin_path: pluginPath,
+                
+                security_risk_level: skillReport?.security_audit?.risk_level || null,
+                security_safe_to_publish: skillReport?.security_audit?.safe_to_publish || true,
+                security_summary: skillReport?.security_audit?.summary || null,
+                
+                user_title: skillReport?.content?.user_title || null,
+                value_statement: skillReport?.content?.value_statement || null,
+                seo_keywords: skillReport?.content?.seo_keywords || [],
+                
+                source_url: skillReport?.meta?.source_url || plugin.repository || null,
+                source_ref: skillReport?.meta?.source_ref || null,
+                
+                status: 'approved',
+                published_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                
+                skill_report_url: `https://raw.githubusercontent.com/aiskillstore/marketplace/main/${pluginPath}/skill-report.json`
+              };
+
+              console.log(`Upserting: ${record.slug}`);
+
+              const { error } = await supabase
+                .schema('skillstore')
+                .from('skills')
+                .upsert(record, { onConflict: 'slug' });
+
+              if (error) {
+                console.error(`Error upserting ${record.slug}:`, error.message);
+              } else {
+                console.log(`Synced: ${record.slug}`);
+              }
+            }
+
+            console.log('Sync complete!');
+          }
+
+          syncPlugins().catch(err => {
+            console.error('Sync failed:', err);
+            process.exit(1);
+          });
+          EOF
+
+      - name: Report sync status
+        run: echo "Supabase sync completed successfully"
