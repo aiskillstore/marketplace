@@ -3,15 +3,27 @@ name: Process Skill Submission
 on:
   repository_dispatch:
     types: [process-submission]
+  workflow_dispatch:
+    inputs:
+      github_url:
+        description: 'GitHub URL of the skill to process'
+        required: true
+        type: string
+      submitter_email:
+        description: 'Submitter email (optional)'
+        required: false
+        type: string
 
 env:
-  SUBMISSION_ID: ${{ github.event.client_payload.submission_id }}
-  GITHUB_URL: ${{ github.event.client_payload.github_url }}
-  SUBMITTER_EMAIL: ${{ github.event.client_payload.submitter_email }}
+  SUBMISSION_ID: ${{ github.event.client_payload.submission_id || github.run_id }}
+  GITHUB_URL: ${{ github.event.client_payload.github_url || inputs.github_url }}
+  SUBMITTER_EMAIL: ${{ github.event.client_payload.submitter_email || inputs.submitter_email || 'manual@skillstore.io' }}
+  AI_API_BASE: ${{ vars.AI_API_BASE || 'http://192.168.199.7:3001/v1' }}
+  AI_MODEL: ${{ vars.AI_MODEL || 'gpt-5.2:high' }}
 
 jobs:
   process:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - name: Checkout marketplace
         uses: actions/checkout@v4
@@ -22,9 +34,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Install dependencies
-        run: npm install ajv ajv-formats
 
       - name: Parse GitHub URL
         id: parse
@@ -62,8 +71,8 @@ jobs:
             "https://github.com/${{ steps.parse.outputs.owner }}/${{ steps.parse.outputs.repo }}.git" \
             /tmp/source-repo
 
-      - name: Find SKILL.md
-        id: find_skill
+      - name: Find SKILL.md and collect files
+        id: collect
         run: |
           SKILL_PATH="${{ steps.parse.outputs.skill_path }}"
           SLUG="${{ steps.parse.outputs.slug }}"
@@ -76,155 +85,369 @@ jobs:
           
           if [ -f "$SKILL_DIR/SKILL.md" ]; then
             echo "skill_dir=$SKILL_DIR" >> $GITHUB_OUTPUT
-            echo "Found SKILL.md at $SKILL_DIR"
           elif [ -f "$SKILL_DIR/skills/$SLUG/SKILL.md" ]; then
-            echo "skill_dir=$SKILL_DIR/skills/$SLUG" >> $GITHUB_OUTPUT
-            echo "Found SKILL.md at $SKILL_DIR/skills/$SLUG"
+            SKILL_DIR="$SKILL_DIR/skills/$SLUG"
+            echo "skill_dir=$SKILL_DIR" >> $GITHUB_OUTPUT
           else
             FOUND=$(find "$SKILL_DIR" -name "SKILL.md" -type f | head -1)
             if [ -n "$FOUND" ]; then
-              echo "skill_dir=$(dirname $FOUND)" >> $GITHUB_OUTPUT
-              echo "Found SKILL.md at $(dirname $FOUND)"
+              SKILL_DIR=$(dirname "$FOUND")
+              echo "skill_dir=$SKILL_DIR" >> $GITHUB_OUTPUT
             else
               echo "No SKILL.md found in $SKILL_DIR"
               exit 1
             fi
           fi
-
-      - name: Run AI Security Audit
-        id: audit
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          SKILL_DIR="${{ steps.find_skill.outputs.skill_dir }}"
           
-          SKILL_CONTENT=$(cat "$SKILL_DIR/SKILL.md" | head -c 50000)
+          echo "Found skill at: $SKILL_DIR"
           
-          CODE_FILES=""
-          for ext in sh ts js py rb go; do
-            FILES=$(find "$SKILL_DIR" -name "*.$ext" -type f 2>/dev/null | head -5)
-            for f in $FILES; do
-              if [ -f "$f" ]; then
-                CODE_FILES="$CODE_FILES\n\n--- File: $(basename $f) ---\n$(cat $f | head -c 5000)"
-              fi
-            done
+          mkdir -p /tmp/skill-files
+          
+          TOTAL_SIZE=0
+          MAX_SIZE=200000
+          
+          find "$SKILL_DIR" -type f \( \
+            -name "*.md" -o -name "*.txt" -o -name "*.js" -o -name "*.ts" -o \
+            -name "*.py" -o -name "*.sh" -o -name "*.json" -o -name "*.yaml" -o \
+            -name "*.yml" -o -name "*.toml" -o -name "*.xml" -o -name "*.html" -o \
+            -name "*.css" -o -name "*.sql" -o -name "*.rb" -o -name "*.go" -o \
+            -name "*.rs" -o -name "*.java" -o -name "*.c" -o -name "*.cpp" \
+          \) | while read -r file; do
+            SIZE=$(wc -c < "$file")
+            if [ $SIZE -lt 50000 ] && [ $TOTAL_SIZE -lt $MAX_SIZE ]; then
+              REL_PATH="${file#$SKILL_DIR/}"
+              cp "$file" "/tmp/skill-files/$(echo "$REL_PATH" | tr '/' '_')"
+              TOTAL_SIZE=$((TOTAL_SIZE + SIZE))
+            fi
           done
           
-          cat > /tmp/audit-prompt.json << 'EOF'
-          {
-            "model": "gpt-4-turbo-preview",
-            "messages": [
-              {
-                "role": "system",
-                "content": "You are a security auditor for AI skills. Analyze the provided skill content and code for security risks. Output a JSON object with: risk_level (safe|low|medium|high|critical|blocked), is_blocked (boolean), safe_to_publish (boolean), summary (string), critical_findings (array), high_findings (array), medium_findings (array), low_findings (array), dangerous_patterns (array of strings). Each finding has: title, description, file, line (optional), recommendation."
-              },
-              {
-                "role": "user",
-                "content": "PLACEHOLDER"
-              }
-            ],
-            "temperature": 0.1,
-            "response_format": { "type": "json_object" }
-          }
-          EOF
-          
-          ESCAPED_CONTENT=$(echo "Analyze this skill for security:\n\nSKILL.md:\n$SKILL_CONTENT\n\nCode files:$CODE_FILES" | jq -Rs .)
-          jq --arg content "$ESCAPED_CONTENT" '.messages[1].content = ($content | fromjson)' /tmp/audit-prompt.json > /tmp/audit-request.json
-          
-          RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $OPENAI_API_KEY" \
-            -d @/tmp/audit-request.json)
-          
-          AUDIT_RESULT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
-          
-          if [ -z "$AUDIT_RESULT" ] || [ "$AUDIT_RESULT" = "null" ]; then
-            echo "Failed to get audit response"
-            AUDIT_RESULT='{"risk_level":"low","is_blocked":false,"safe_to_publish":true,"summary":"API unavailable - manual review recommended","critical_findings":[],"high_findings":[],"medium_findings":[],"low_findings":[],"dangerous_patterns":[]}'
-          fi
-          
-          echo "$AUDIT_RESULT" > /tmp/security-audit.json
-          
-          IS_BLOCKED=$(echo "$AUDIT_RESULT" | jq -r '.is_blocked // false')
-          if [ "$IS_BLOCKED" = "true" ]; then
-            echo "::error::Skill blocked due to critical security issues"
-            echo "blocked=true" >> $GITHUB_OUTPUT
-          else
-            echo "blocked=false" >> $GITHUB_OUTPUT
-          fi
+          FILE_COUNT=$(ls -1 /tmp/skill-files | wc -l)
+          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+          echo "Collected $FILE_COUNT files"
 
-      - name: Generate AI Content
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      - name: Run comprehensive AI audit
+        id: audit
         run: |
-          SKILL_DIR="${{ steps.find_skill.outputs.skill_dir }}"
-          SKILL_CONTENT=$(cat "$SKILL_DIR/SKILL.md" | head -c 30000)
+          SKILL_DIR="${{ steps.collect.outputs.skill_dir }}"
+          SLUG="${{ steps.parse.outputs.slug }}"
+          SOURCE_URL="${{ env.GITHUB_URL }}"
           
-          cat > /tmp/content-prompt.json << 'EOF'
-          {
-            "model": "gpt-4-turbo-preview",
-            "messages": [
-              {
-                "role": "system",
-                "content": "You are a technical writer. Generate marketing and documentation content for an AI skill. Output JSON with: user_title (catchy title), value_statement (1-2 sentences), seo_keywords (array of 5-8 keywords), actual_capabilities (array of 4-6 bullet points), limitations (array of 2-4 items), use_cases (array of 3 objects with title, description, example_prompt), best_practices (array of 3-5 tips), anti_patterns (array of 2-3 things to avoid), faq (array of 3 objects with question and answer)."
-              },
-              {
-                "role": "user", 
-                "content": "PLACEHOLDER"
-              }
-            ],
-            "temperature": 0.7,
-            "response_format": { "type": "json_object" }
-          }
-          EOF
+          FILE_CONTENTS=""
+          TOTAL_LINES=0
+          FILE_COUNT=0
           
-          ESCAPED=$(echo "Generate content for this skill:\n\n$SKILL_CONTENT" | jq -Rs .)
-          jq --arg content "$ESCAPED" '.messages[1].content = ($content | fromjson)' /tmp/content-prompt.json > /tmp/content-request.json
+          for file in /tmp/skill-files/*; do
+            if [ -f "$file" ]; then
+              FILENAME=$(basename "$file" | tr '_' '/')
+              EXT="${file##*.}"
+              LINES=$(wc -l < "$file")
+              TOTAL_LINES=$((TOTAL_LINES + LINES))
+              FILE_COUNT=$((FILE_COUNT + 1))
+              CONTENT=$(cat "$file" | head -c 50000)
+              FILE_CONTENTS="$FILE_CONTENTS
           
-          RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $OPENAI_API_KEY" \
-            -d @/tmp/content-request.json)
+          ### File: $FILENAME ($LINES lines)
+          \`\`\`$EXT
+          $CONTENT
+          \`\`\`"
+            fi
+          done
           
-          AI_CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content')
-          
-          if [ -z "$AI_CONTENT" ] || [ "$AI_CONTENT" = "null" ]; then
-            AI_CONTENT='{"user_title":"AI Skill","value_statement":"Extends Claude capabilities.","seo_keywords":[],"actual_capabilities":[],"limitations":[],"use_cases":[],"best_practices":[],"anti_patterns":[],"faq":[]}'
+          IS_OFFICIAL="false"
+          TRUST_LEVEL="COMMUNITY"
+          if [[ "$SOURCE_URL" == *"github.com/anthropics/skills"* ]]; then
+            IS_OFFICIAL="true"
+            TRUST_LEVEL="OFFICIAL"
           fi
           
-          echo "$AI_CONTENT" > /tmp/ai-content.json
+          AUDIT_PROMPT=$(cat << 'PROMPT_EOF'
+          You are an expert system performing TWO tasks:
+          1. SECURITY AUDIT
+          2. CONTENT GENERATION (Based on actual code analysis)
+          
+          =============================================================================
+          SKILL INFORMATION
+          =============================================================================
+          - Name: __SLUG__
+          - Repository: __SOURCE_URL__
+          - Total Files: __FILE_COUNT__
+          - Total Lines: __TOTAL_LINES__
+          - Trust Level: __TRUST_LEVEL__
+          
+          =============================================================================
+          SOURCE CODE FILES
+          =============================================================================
+          __FILE_CONTENTS__
+          
+          =============================================================================
+          TASK 1: SECURITY AUDIT (Protecting Users from Malicious Skills)
+          =============================================================================
+          
+          __TRUST_SECTION__
+          
+          ## CATEGORY 1: DATA THEFT (User's sensitive information)
+          
+          ### 1.1 Credential Theft
+          Look for code that reads:
+          - ~/.ssh/* (SSH keys)
+          - ~/.aws/*, ~/.azure/*, ~/.gcloud/* (Cloud credentials)
+          - ~/.netrc, ~/.npmrc, ~/.pypirc (Package registry tokens)
+          - ~/.gitconfig, ~/.git-credentials (Git tokens)
+          - ~/.config/gh/*, ~/.claude/* (CLI tool configs)
+          - Browser profiles: ~/.config/google-chrome/*, ~/Library/Application Support/Google/Chrome/*
+          - Keychain/credential manager access
+          
+          ### 1.2 Environment Variable Harvesting
+          Look for code that collects and sends:
+          - os.environ / process.env bulk access
+          - Specific tokens: *_TOKEN, *_KEY, *_SECRET, *_PASSWORD, *_API_KEY
+          - Cloud: AWS_*, AZURE_*, GCP_*, OPENAI_API_KEY, ANTHROPIC_API_KEY
+          
+          ### 1.3 File Exfiltration
+          Look for patterns:
+          - Reading sensitive files + sending via HTTP/network
+          - Base64 encoding file contents (obfuscation for exfil)
+          - Zip/tar creation of user directories + upload
+          - Reading user's project files and POSTing elsewhere
+          
+          ### 1.4 Conversation/Context Theft
+          Look for:
+          - Reading AI session files, history, logs
+          - Capturing stdin/stdout to external destination
+          - Accessing clipboard contents
+          
+          ## CATEGORY 2: MALICIOUS CODE EXECUTION
+          
+          ### 2.1 Backdoors & Remote Access
+          Look for:
+          - Reverse shells: socket connect + subprocess/exec
+          - bind shells: socket listen + command execution
+          - C2 beacons: periodic HTTP calls to hardcoded domains
+          - SSH/remote access setup
+          
+          ### 2.2 Crypto Miners
+          Look for:
+          - Mining pool URLs (stratum://, pool.*, *mining*)
+          - CPU/GPU intensive loops without clear purpose
+          - XMRig, ccminer, or similar tool downloads
+          
+          ### 2.3 Persistence Mechanisms
+          Look for:
+          - Cron job creation (crontab, /etc/cron.*)
+          - Startup scripts (~/.bashrc, ~/.zshrc, ~/.profile injection)
+          - LaunchAgent/LaunchDaemon (macOS)
+          - systemd service creation
+          - Windows registry autorun
+          
+          ### 2.4 Payload Download & Execute
+          Look for:
+          - curl/wget + sh/bash/python execution
+          - Download file + os.system/exec/eval
+          - Base64 decode + exec patterns
+          - Obfuscated code (excessive encoding, char codes)
+          
+          ## CATEGORY 3: DECEPTIVE BEHAVIORS
+          
+          ### 3.1 Hidden Network Calls
+          Look for:
+          - HTTP requests to non-obvious domains (not the skill's stated API)
+          - IP addresses instead of domain names
+          - Unusual ports (not 80/443)
+          - DNS exfiltration patterns
+          
+          ### 3.2 Obfuscation Red Flags
+          Look for:
+          - Base64/hex encoded strings that decode to URLs or commands
+          - Character code arrays: chr(104)+chr(116)+chr(116)+chr(112)
+          - Reversed strings that form URLs/commands
+          - Excessive use of eval/exec with string manipulation
+          
+          ## RISK LEVEL CRITERIA
+          
+          ### CRITICAL (should_block: true):
+          - ANY credential file access + network send
+          - ANY reverse/bind shell code
+          - ANY crypto miner indicators
+          - Bulk environment variable collection + exfiltration
+          - Persistence mechanism installation
+          - Download + execute patterns
+          
+          ### HIGH:
+          - Network calls to suspicious/undocumented endpoints
+          - Reading user files beyond stated purpose
+          - Obfuscated code sections
+          - Unnecessary shell=True with broad commands
+          
+          ### MEDIUM:
+          - Broad file system access (but no exfil detected)
+          - Network calls (but to reasonable APIs)
+          - Subprocess usage (but for legitimate purposes)
+          
+          ### LOW:
+          - Minor permission scope issues
+          - Deprecated but non-dangerous patterns
+          
+          ### SAFE:
+          - No data theft patterns
+          - No malicious execution patterns
+          - Network use matches documented purpose
+          
+          =============================================================================
+          TASK 2: CONTENT GENERATION
+          =============================================================================
+          
+          Generate content for marketplace listing:
+          - user_title: max 60 chars, action verb + user outcome
+          - value_statement: 2 sentences, problem + benefit
+          - seo_keywords: 8-10 terms including platform names
+          - actual_capabilities: 4-6 items based on code analysis
+          - limitations: 3-4 honest boundaries
+          - use_cases: 3 items with target_user, title, description
+          - prompt_templates: 4 items (beginner to advanced)
+          - output_examples: 1 item showing value
+          - best_practices: 3 actionable tips
+          - anti_patterns: 3 things to avoid
+          - faq: 6 items covering compatibility, limits, integration, data safety, troubleshooting, comparison
+          - technical_requirements: dependencies, permissions_needed, estimated_complexity, setup_time_minutes
+          
+          =============================================================================
+          OUTPUT FORMAT (Return ONLY valid JSON)
+          =============================================================================
+          
+          {
+            "security_audit": {
+              "risk_level": "safe|low|medium|high|critical",
+              "should_block": false,
+              "safe_to_publish": true,
+              "summary": "Assessment summary",
+              "critical_findings": [],
+              "high_findings": [],
+              "medium_findings": [],
+              "low_findings": [],
+              "files_analyzed": 0,
+              "dangerous_patterns_found": []
+            },
+            "content": {
+              "user_title": "...",
+              "value_statement": "...",
+              "seo_keywords": [],
+              "actual_capabilities": [],
+              "limitations": [],
+              "use_cases": [],
+              "prompt_templates": [],
+              "output_examples": [],
+              "best_practices": [],
+              "anti_patterns": [],
+              "faq": [],
+              "technical_requirements": {
+                "dependencies": [],
+                "permissions_needed": [],
+                "estimated_complexity": "low",
+                "setup_time_minutes": 2
+              }
+            }
+          }
+          PROMPT_EOF
+          )
+          
+          if [ "$IS_OFFICIAL" = "true" ]; then
+            TRUST_SECTION="🟢 OFFICIAL SKILL - TRUSTED SOURCE
+          This skill is from the OFFICIAL Anthropic repository.
+          Set risk_level to 'safe', should_block to false, safe_to_publish to true.
+          Skip detailed security analysis. Proceed to content generation."
+          else
+            TRUST_SECTION="🔴 COMMUNITY SKILL - FULL SECURITY AUDIT REQUIRED
+          THREAT MODEL: Malicious skill developer attacking innocent users.
+          GOAL: Detect skills that steal user data or execute malicious code.
+          Analyze ALL code files thoroughly for the patterns listed above."
+          fi
+          
+          FINAL_PROMPT=$(echo "$AUDIT_PROMPT" | \
+            sed "s|__SLUG__|$SLUG|g" | \
+            sed "s|__SOURCE_URL__|$SOURCE_URL|g" | \
+            sed "s|__FILE_COUNT__|$FILE_COUNT|g" | \
+            sed "s|__TOTAL_LINES__|$TOTAL_LINES|g" | \
+            sed "s|__TRUST_LEVEL__|$TRUST_LEVEL|g" | \
+            sed "s|__TRUST_SECTION__|$TRUST_SECTION|g")
+          
+          FINAL_PROMPT="${FINAL_PROMPT/__FILE_CONTENTS__/$FILE_CONTENTS}"
+          
+          echo "$FINAL_PROMPT" > /tmp/audit-prompt.txt
+          
+          REQUEST_BODY=$(jq -n \
+            --arg model "$AI_MODEL" \
+            --arg content "$FINAL_PROMPT" \
+            '{
+              model: $model,
+              messages: [{ role: "user", content: $content }],
+              temperature: 0.3,
+              max_tokens: 100000
+            }')
+          
+          echo "Calling AI API at $AI_API_BASE..."
+          
+          RESPONSE=$(curl -s --max-time 300 \
+            "$AI_API_BASE/chat/completions" \
+            -H "Content-Type: application/json" \
+            -d "$REQUEST_BODY")
+          
+          AI_CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+          
+          if [ -z "$AI_CONTENT" ]; then
+            echo "AI API returned no content, using fallback"
+            AI_CONTENT='{"security_audit":{"risk_level":"medium","should_block":false,"safe_to_publish":true,"summary":"AI analysis unavailable - manual review recommended","critical_findings":[],"high_findings":[],"medium_findings":[],"low_findings":[],"files_analyzed":0,"dangerous_patterns_found":[]},"content":{"user_title":"AI Skill","value_statement":"Extends Claude capabilities.","seo_keywords":[],"actual_capabilities":[],"limitations":[],"use_cases":[],"prompt_templates":[],"output_examples":[],"best_practices":[],"anti_patterns":[],"faq":[],"technical_requirements":{"dependencies":[],"permissions_needed":[],"estimated_complexity":"medium","setup_time_minutes":5}}}'
+          fi
+          
+          CLEAN_JSON=$(echo "$AI_CONTENT" | sed 's/^```json//g' | sed 's/^```//g' | sed 's/```$//g')
+          echo "$CLEAN_JSON" > /tmp/ai-result.json
+          
+          RISK_LEVEL=$(echo "$CLEAN_JSON" | jq -r '.security_audit.risk_level // "unknown"')
+          SHOULD_BLOCK=$(echo "$CLEAN_JSON" | jq -r '.security_audit.should_block // false')
+          
+          echo "risk_level=$RISK_LEVEL" >> $GITHUB_OUTPUT
+          echo "should_block=$SHOULD_BLOCK" >> $GITHUB_OUTPUT
+          echo "total_lines=$TOTAL_LINES" >> $GITHUB_OUTPUT
+          echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+          
+          echo "Security audit complete: risk_level=$RISK_LEVEL, should_block=$SHOULD_BLOCK"
 
       - name: Build skill-report.json
         run: |
           SLUG="${{ steps.parse.outputs.slug }}"
           SOURCE_URL="${{ env.GITHUB_URL }}"
+          RISK_LEVEL="${{ steps.audit.outputs.risk_level }}"
+          TOTAL_LINES="${{ steps.audit.outputs.total_lines }}"
+          FILE_COUNT="${{ steps.audit.outputs.file_count }}"
+          
+          AI_RESULT=$(cat /tmp/ai-result.json)
           
           jq -n \
             --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg model "gpt-4-turbo-preview" \
+            --arg model "$AI_MODEL" \
             --arg source_url "$SOURCE_URL" \
             --arg source_ref "$(cd /tmp/source-repo && git rev-parse HEAD)" \
-            --slurpfile audit /tmp/security-audit.json \
-            --slurpfile content /tmp/ai-content.json \
+            --argjson ai_result "$AI_RESULT" \
+            --arg total_lines "$TOTAL_LINES" \
+            --arg file_count "$FILE_COUNT" \
             '{
               meta: {
                 generated_at: $generated_at,
                 model: $model,
                 source_url: $source_url,
                 source_ref: $source_ref,
-                analysis_version: "1.0.0"
+                analysis_version: "2.0.0"
               },
-              security_audit: ($audit[0] + {
-                files_scanned: 0,
-                total_lines: 0
+              security_audit: ($ai_result.security_audit + {
+                files_scanned: ($file_count | tonumber),
+                total_lines: ($total_lines | tonumber)
               }),
-              content: $content[0]
+              content: $ai_result.content
             }' > /tmp/skill-report.json
 
       - name: Package plugin
         run: |
           SLUG="${{ steps.parse.outputs.slug }}"
-          SKILL_DIR="${{ steps.find_skill.outputs.skill_dir }}"
+          SKILL_DIR="${{ steps.collect.outputs.skill_dir }}"
           PENDING_DIR="pending/$SLUG"
           
           mkdir -p "$PENDING_DIR/.claude-plugin"
@@ -233,7 +456,12 @@ jobs:
           cp -r "$SKILL_DIR"/* "$PENDING_DIR/skills/$SLUG/"
           cp /tmp/skill-report.json "$PENDING_DIR/skill-report.json"
           
-          DESCRIPTION=$(grep -A5 "^#" "$SKILL_DIR/SKILL.md" | grep -v "^#" | grep -v "^$" | head -1 | cut -c1-200)
+          USER_TITLE=$(jq -r '.content.user_title // ""' /tmp/skill-report.json)
+          DESCRIPTION=$(jq -r '.content.value_statement // ""' /tmp/skill-report.json)
+          
+          if [ -z "$DESCRIPTION" ]; then
+            DESCRIPTION=$(grep -A5 "^#" "$SKILL_DIR/SKILL.md" | grep -v "^#" | grep -v "^$" | head -1 | cut -c1-200)
+          fi
           
           jq -n \
             --arg name "$SLUG" \
@@ -268,12 +496,13 @@ jobs:
           ls -la "$PENDING_DIR"
 
       - name: Create Pull Request
-        if: steps.audit.outputs.blocked != 'true'
+        if: steps.audit.outputs.should_block != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SLUG="${{ steps.parse.outputs.slug }}"
           SUBMISSION_ID="${{ env.SUBMISSION_ID }}"
+          RISK_LEVEL="${{ steps.audit.outputs.risk_level }}"
           
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -286,8 +515,14 @@ jobs:
           
           git push origin "$BRANCH_NAME"
           
-          RISK_LEVEL=$(jq -r '.security_audit.risk_level // "unknown"' "pending/$SLUG/skill-report.json")
           AUDIT_SUMMARY=$(jq -r '.security_audit.summary // "No summary"' "pending/$SLUG/skill-report.json")
+          CRITICAL_COUNT=$(jq '.security_audit.critical_findings | length' "pending/$SLUG/skill-report.json")
+          HIGH_COUNT=$(jq '.security_audit.high_findings | length' "pending/$SLUG/skill-report.json")
+          
+          RISK_BADGE="🟢"
+          if [ "$RISK_LEVEL" = "critical" ]; then RISK_BADGE="🔴"; fi
+          if [ "$RISK_LEVEL" = "high" ]; then RISK_BADGE="🟠"; fi
+          if [ "$RISK_LEVEL" = "medium" ]; then RISK_BADGE="🟡"; fi
           
           PR_BODY="## New Plugin Submission: $SLUG
 
@@ -295,30 +530,42 @@ jobs:
           **Source**: ${{ env.GITHUB_URL }}
           **Submitter**: ${{ env.SUBMITTER_EMAIL }}
 
-          ### Security Audit
+          ### Security Audit $RISK_BADGE
+
           **Risk Level**: \`$RISK_LEVEL\`
+          **Critical Findings**: $CRITICAL_COUNT
+          **High Findings**: $HIGH_COUNT
+
           $AUDIT_SUMMARY
 
           ### Review Checklist
+
           - [ ] Skill content is appropriate
           - [ ] Security audit findings reviewed
           - [ ] Source repository checked
 
           ---
-          *Automated submission via skillstore.io*"
+          *Automated submission via skillstore.io*
+          *AI Model: $AI_MODEL*"
           
           echo "$PR_BODY" > /tmp/pr-body.md
           
           gh pr create \
-            --title "New plugin: $SLUG" \
+            --title "New plugin: $SLUG ($RISK_LEVEL risk)" \
             --body-file /tmp/pr-body.md \
             --label "pending-review" \
             --base main \
             --head "$BRANCH_NAME"
 
       - name: Handle blocked submission
-        if: steps.audit.outputs.blocked == 'true'
+        if: steps.audit.outputs.should_block == 'true'
         run: |
           echo "::error::Submission blocked due to security concerns"
-          echo "Submission ${{ env.SUBMISSION_ID }} was blocked"
+          echo "Risk level: ${{ steps.audit.outputs.risk_level }}"
+          
+          AUDIT_SUMMARY=$(jq -r '.security_audit.summary // "No summary"' /tmp/skill-report.json)
+          echo "Summary: $AUDIT_SUMMARY"
+          
+          jq '.security_audit.critical_findings' /tmp/skill-report.json
+          
           exit 1
