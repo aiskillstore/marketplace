@@ -1,12 +1,16 @@
-name: Sync to Supabase
+name: Sync to Supabase (Incremental)
 
 on:
   push:
     branches: [main]
     paths:
       - 'plugins/**'
-      - '.claude-plugin/marketplace.json'
   workflow_dispatch:
+    inputs:
+      full_sync:
+        description: 'Force full sync (ignore incremental)'
+        type: boolean
+        default: false
 
 jobs:
   sync:
@@ -14,6 +18,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -23,10 +29,39 @@ jobs:
       - name: Install dependencies
         run: npm install @supabase/supabase-js
 
+      - name: Detect changed plugins
+        id: changes
+        run: |
+          if [ "${{ inputs.full_sync }}" = "true" ]; then
+            echo "Full sync requested"
+            CHANGED=$(ls -1 plugins/ 2>/dev/null | tr '\n' ' ')
+            echo "mode=full" >> $GITHUB_OUTPUT
+          else
+            CHANGED=$(git diff HEAD~1 --name-only 2>/dev/null | \
+              grep '^plugins/' | \
+              cut -d'/' -f2 | \
+              sort -u | \
+              tr '\n' ' ')
+            echo "mode=incremental" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "changed_plugins=$CHANGED" >> $GITHUB_OUTPUT
+          
+          if [ -z "$CHANGED" ]; then
+            echo "No plugins to sync"
+            echo "skip_sync=true" >> $GITHUB_OUTPUT
+          else
+            echo "Plugins to sync: $CHANGED"
+            echo "skip_sync=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Sync plugins to Supabase
+        if: steps.changes.outputs.skip_sync != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CHANGED_PLUGINS: ${{ steps.changes.outputs.changed_plugins }}
+          SYNC_MODE: ${{ steps.changes.outputs.mode }}
         run: |
           node << 'EOF'
           const { createClient } = require('@supabase/supabase-js');
@@ -39,62 +74,66 @@ jobs:
           );
 
           async function syncPlugins() {
-            const marketplace = JSON.parse(
-              fs.readFileSync('.claude-plugin/marketplace.json', 'utf8')
-            );
+            const changedPlugins = process.env.CHANGED_PLUGINS.trim().split(/\s+/).filter(Boolean);
+            const mode = process.env.SYNC_MODE;
+            
+            console.log(`Sync mode: ${mode}`);
+            console.log(`Syncing ${changedPlugins.length} plugin(s): ${changedPlugins.join(', ')}`);
 
-            console.log(`Syncing ${marketplace.plugins.length} plugins...`);
+            let synced = 0;
+            let errors = 0;
 
-            for (const plugin of marketplace.plugins) {
-              const pluginPath = plugin.path || `plugins/${plugin.name}`;
+            for (const slug of changedPlugins) {
+              const pluginPath = `plugins/${slug}`;
               const reportPath = path.join(pluginPath, 'skill-report.json');
               const manifestPath = path.join(pluginPath, '.claude-plugin', 'plugin.json');
+              const entryPath = path.join(pluginPath, 'marketplace-entry.json');
+
+              if (!fs.existsSync(pluginPath)) {
+                console.log(`Skipping ${slug}: directory not found`);
+                continue;
+              }
 
               let skillReport = null;
               let manifest = null;
+              let entry = null;
 
               if (fs.existsSync(reportPath)) {
                 skillReport = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
               }
-
               if (fs.existsSync(manifestPath)) {
                 manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
               }
+              if (fs.existsSync(entryPath)) {
+                entry = JSON.parse(fs.readFileSync(entryPath, 'utf8'));
+              }
 
               const record = {
-                slug: plugin.name,
-                name: skillReport?.content?.user_title || plugin.name,
-                canonical_name: plugin.name,
-                description: plugin.description,
-                version: plugin.version || '1.0.0',
-                author_name: plugin.author?.name || 'Unknown',
-                author_email: plugin.author?.email || null,
-                homepage: plugin.homepage || null,
-                repository: plugin.repository || null,
-                license: plugin.license || 'MIT',
+                slug: slug,
+                name: skillReport?.content?.user_title || entry?.name || slug,
+                canonical_name: slug,
+                description: entry?.description || skillReport?.content?.value_statement,
+                version: entry?.version || '1.0.0',
+                author_name: entry?.author?.name || 'Community',
                 
                 marketplace_source: 'aiskillstore',
                 plugin_path: pluginPath,
                 
                 security_risk_level: skillReport?.security_audit?.risk_level || null,
-                security_safe_to_publish: skillReport?.security_audit?.safe_to_publish || true,
+                security_safe_to_publish: skillReport?.security_audit?.safe_to_publish ?? true,
                 security_summary: skillReport?.security_audit?.summary || null,
                 
                 user_title: skillReport?.content?.user_title || null,
                 value_statement: skillReport?.content?.value_statement || null,
                 seo_keywords: skillReport?.content?.seo_keywords || [],
                 
-                source_url: skillReport?.meta?.source_url || plugin.repository || null,
+                source_url: skillReport?.meta?.source_url || entry?.repository || null,
                 source_ref: skillReport?.meta?.source_ref || null,
                 
-                status: 'approved',
+                status: 'published',
                 published_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
-                
-                skill_report_url: `https://raw.githubusercontent.com/aiskillstore/marketplace/main/${pluginPath}/skill-report.json`
               };
-
-              console.log(`Upserting: ${record.slug}`);
 
               const { error } = await supabase
                 .schema('skillstore')
@@ -102,13 +141,15 @@ jobs:
                 .upsert(record, { onConflict: 'slug' });
 
               if (error) {
-                console.error(`Error upserting ${record.slug}:`, error.message);
+                console.error(`Error: ${slug} - ${error.message}`);
+                errors++;
               } else {
-                console.log(`Synced: ${record.slug}`);
+                console.log(`✅ Synced: ${slug}`);
+                synced++;
               }
             }
 
-            console.log('Sync complete!');
+            console.log(`\nSync complete: ${synced} synced, ${errors} errors`);
           }
 
           syncPlugins().catch(err => {
@@ -118,4 +159,5 @@ jobs:
           EOF
 
       - name: Report sync status
-        run: echo "Supabase sync completed successfully"
+        run: |
+          echo "::notice::Sync completed - Mode: ${{ steps.changes.outputs.mode }}, Plugins: ${{ steps.changes.outputs.changed_plugins }}"
