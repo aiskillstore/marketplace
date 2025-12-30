@@ -13,15 +13,18 @@ on:
         description: 'Submitter email (optional)'
         required: false
         type: string
+      cli_version:
+        description: 'CLI version (default: latest)'
+        required: false
+        type: string
+        default: 'latest'
 
 env:
   SUBMISSION_ID: ${{ github.event.client_payload.submission_id || github.run_id }}
   GITHUB_URL: ${{ github.event.client_payload.github_url || inputs.github_url }}
   SUBMITTER_EMAIL: ${{ github.event.client_payload.submitter_email || inputs.submitter_email || 'manual@skillstore.io' }}
-  SUBMITTER_NOTES: ${{ github.event.client_payload.notes || '' }}
-  AI_API_BASE: ${{ vars.AI_API_BASE || 'http://192.168.199.7:3001/v1' }}
-  AI_MODEL: ${{ vars.AI_MODEL || 'gpt-5.2:high' }}
-  WORK_DIR: /tmp/skill-submission-${{ github.run_id }}
+  CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
+  CLI_REPO: aiskillstore/skillstore
 
 jobs:
   process:
@@ -32,78 +35,82 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Setup work directory
+      - name: Download Skillstore CLI
         run: |
-          rm -rf "$WORK_DIR"
-          mkdir -p "$WORK_DIR"
-          echo "Work directory: $WORK_DIR"
-
-      - name: Parse GitHub URL
-        id: parse
-        run: |
-          URL="${{ env.GITHUB_URL }}"
-          echo "Parsing URL: $URL"
+          echo "Downloading skillstore-cli..."
           
-          if [[ $URL =~ github\.com/([^/]+)/([^/]+)(/(tree|blob)/([^/]+)(/(.+))?)? ]]; then
-            OWNER="${BASH_REMATCH[1]}"
-            REPO="${BASH_REMATCH[2]}"
-            BRANCH="${BASH_REMATCH[5]:-main}"
-            SKILL_PATH="${BASH_REMATCH[7]:-}"
-            
-            if [[ "$SKILL_PATH" =~ \.(md|txt|json|yaml|yml)$ ]]; then
-              SKILL_PATH=$(dirname "$SKILL_PATH")
-            fi
-            
-            echo "owner=$OWNER" >> $GITHUB_OUTPUT
-            echo "repo=$REPO" >> $GITHUB_OUTPUT
-            echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-            echo "skill_path=$SKILL_PATH" >> $GITHUB_OUTPUT
-            
-            if [ -n "$SKILL_PATH" ]; then
-              SLUG=$(basename "$SKILL_PATH" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-            else
-              SLUG=$(echo "$REPO" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
-            fi
-            echo "slug=$SLUG" >> $GITHUB_OUTPUT
-            
-            echo "Parsed: owner=$OWNER, repo=$REPO, branch=$BRANCH, path=$SKILL_PATH, slug=$SLUG"
+          if [ "$CLI_VERSION" = "latest" ]; then
+            DOWNLOAD_URL="https://github.com/$CLI_REPO/releases/latest/download/skillstore-cli-linux-x64"
           else
-            echo "Failed to parse GitHub URL"
-            exit 1
+            DOWNLOAD_URL="https://github.com/$CLI_REPO/releases/download/cli-v$CLI_VERSION/skillstore-cli-linux-x64"
           fi
+          
+          curl -fsSL "$DOWNLOAD_URL" -o skillstore-cli
+          chmod +x skillstore-cli
+          
+          echo "CLI version:"
+          ./skillstore-cli --version
 
-      - name: Clone source repository
-        run: |
-          git clone --depth 1 --branch ${{ steps.parse.outputs.branch }} \
-            "https://github.com/${{ steps.parse.outputs.owner }}/${{ steps.parse.outputs.repo }}.git" \
-            $WORK_DIR/source-repo
-
-      - name: Process all skills
+      - name: Process submission
         id: process
-        env:
-          SKILL_PATH: ${{ steps.parse.outputs.skill_path }}
-          SOURCE_URL: ${{ env.GITHUB_URL }}
-        run: |
-          chmod +x .github/scripts/process-skills.sh
-          .github/scripts/process-skills.sh
-
-      - name: Create Pull Request
-        if: steps.process.outputs.should_block_all != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SUBMISSION_ID="${{ env.SUBMISSION_ID }}"
-          HIGHEST_RISK="${{ steps.process.outputs.highest_risk }}"
+          echo "Processing: $GITHUB_URL"
+          echo "Submission ID: $SUBMISSION_ID"
+          
+          # Run CLI with output captured
+          ./skillstore-cli skill process "$GITHUB_URL" \
+            --output ./pending \
+            --marketplace-repo "${{ github.repository }}" \
+            --verbose \
+            2>&1 | tee process-output.log
+          
+          # Extract results from CLI output (it outputs structured info)
+          # The CLI handles cloning, discovery, analysis, and packaging
+          
+          # Check if any skills were processed
+          if [ -d "pending" ] && [ "$(ls -A pending 2>/dev/null)" ]; then
+            PROCESSED_SKILLS=$(ls -1 pending | tr '\n' ',' | sed 's/,$//')
+            PROCESSED_COUNT=$(ls -1 pending | wc -l | tr -d ' ')
+            echo "processed_count=$PROCESSED_COUNT" >> $GITHUB_OUTPUT
+            echo "skills_list=$PROCESSED_SKILLS" >> $GITHUB_OUTPUT
+            echo "has_results=true" >> $GITHUB_OUTPUT
+            
+            # Determine highest risk from reports
+            HIGHEST_RISK="safe"
+            for dir in pending/*/; do
+              if [ -f "${dir}skill-report.json" ]; then
+                RISK=$(jq -r '.security_audit.risk_level // "unknown"' "${dir}skill-report.json")
+                case "$RISK" in
+                  critical) HIGHEST_RISK="critical" ;;
+                  high) [ "$HIGHEST_RISK" != "critical" ] && HIGHEST_RISK="high" ;;
+                  medium) [ "$HIGHEST_RISK" = "safe" ] || [ "$HIGHEST_RISK" = "low" ] && HIGHEST_RISK="medium" ;;
+                  low) [ "$HIGHEST_RISK" = "safe" ] && HIGHEST_RISK="low" ;;
+                esac
+              fi
+            done
+            echo "highest_risk=$HIGHEST_RISK" >> $GITHUB_OUTPUT
+            
+            echo "Processed $PROCESSED_COUNT skill(s): $PROCESSED_SKILLS"
+            echo "Highest risk: $HIGHEST_RISK"
+          else
+            echo "has_results=false" >> $GITHUB_OUTPUT
+            echo "::error::No skills processed"
+            exit 1
+          fi
+
+      - name: Create Pull Request
+        if: steps.process.outputs.has_results == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           PROCESSED_COUNT="${{ steps.process.outputs.processed_count }}"
-          BLOCKED_COUNT="${{ steps.process.outputs.blocked_count }}"
           SKILLS_LIST="${{ steps.process.outputs.skills_list }}"
-          SKILL_COUNT="${{ steps.process.outputs.skill_count }}"
-          REPO_NAME="${{ steps.parse.outputs.repo }}"
+          HIGHEST_RISK="${{ steps.process.outputs.highest_risk }}"
+          
+          # Extract repo name from URL
+          REPO_NAME=$(echo "$GITHUB_URL" | sed -E 's|.*/([^/]+)/?$|\1|' | sed 's/\.git$//')
           
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -123,11 +130,14 @@ jobs:
           
           git push origin "$BRANCH_NAME"
           
+          # Build risk badge
           RISK_BADGE="🟢"
           [ "$HIGHEST_RISK" = "critical" ] && RISK_BADGE="🔴"
           [ "$HIGHEST_RISK" = "high" ] && RISK_BADGE="🟠"
           [ "$HIGHEST_RISK" = "medium" ] && RISK_BADGE="🟡"
+          [ "$HIGHEST_RISK" = "low" ] && RISK_BADGE="🟡"
           
+          # Build skills table
           SKILLS_TABLE="| Skill | Risk | Status |
           |-------|------|--------|"
           
@@ -139,16 +149,17 @@ jobs:
             fi
           done
           
-          PR_BODY="## Skill Submission: $REPO_NAME
+          # Create PR body
+          cat > pr-body.md << EOF
+          ## Skill Submission: $REPO_NAME
           
           **Submission ID**: \`$SUBMISSION_ID\`
-          **Source**: ${{ env.GITHUB_URL }}
-          **Submitter**: ${{ env.SUBMITTER_EMAIL }}
+          **Source**: $GITHUB_URL
+          **Submitter**: $SUBMITTER_EMAIL
           
           ### Summary $RISK_BADGE
-          - Skills discovered: $SKILL_COUNT
-          - Skills ready: $PROCESSED_COUNT
-          - Skills blocked: $BLOCKED_COUNT
+          - Skills processed: $PROCESSED_COUNT
+          - Highest risk: $HIGHEST_RISK
           
           ### Skills
           $SKILLS_TABLE
@@ -159,20 +170,17 @@ jobs:
           - [ ] Source repository checked
           
           ---
-          *Automated via skillstore.io | AI Model: $AI_MODEL*"
-          
-          echo "$PR_BODY" > $WORK_DIR/pr-body.md
+          *Processed by skillstore-cli v$(./skillstore-cli --version)*
+          EOF
           
           gh pr create \
             --title "$PR_TITLE" \
-            --body-file $WORK_DIR/pr-body.md \
+            --body-file pr-body.md \
             --label "pending-review" \
             --base main \
             --head "$BRANCH_NAME"
 
-      - name: Handle all blocked
-        if: steps.process.outputs.should_block_all == 'true'
+      - name: Cleanup
+        if: always()
         run: |
-          echo "::error::All skills blocked due to security concerns"
-          echo "Blocked skills: $(cat $WORK_DIR/blocked-skills.txt 2>/dev/null)"
-          exit 1
+          rm -f skillstore-cli process-output.log pr-body.md
