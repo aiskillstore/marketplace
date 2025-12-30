@@ -108,48 +108,194 @@ jobs:
                 entry = JSON.parse(fs.readFileSync(entryPath, 'utf8'));
               }
 
-              const record = {
+              if (!skillReport && !entry) {
+                console.log(`Skipping ${slug}: no skill-report.json or marketplace-entry.json`);
+                continue;
+              }
+
+              // ============================================================
+              // 1. SYNC TO skills TABLE (main skill record)
+              // ============================================================
+              const skillRecord = {
                 slug: slug,
-                name: skillReport?.content?.user_title || entry?.name || slug,
+                
+                // Basic info - prefer skill-report, fallback to entry
+                name: skillReport?.skill?.name || entry?.name || slug,
                 canonical_name: slug,
-                description: entry?.description || skillReport?.content?.value_statement,
-                version: entry?.version || '1.0.0',
-                author_name: entry?.author?.name || 'Community',
+                description: skillReport?.skill?.description || entry?.description || '',
+                summary: skillReport?.skill?.summary || '',
                 
-                marketplace_source: 'aiskillstore',
+                // Categorization
+                category: skillReport?.skill?.category || 'general',
+                tags: skillReport?.skill?.tags || entry?.keywords || [],
+                supported_tools: skillReport?.skill?.supported_tools || entry?.supported_tools || ['claude', 'codex', 'claude-code'],
+                
+                // Version & licensing
+                version: skillReport?.skill?.version || entry?.version || '1.0.0',
+                license: skillReport?.skill?.license || entry?.license || 'MIT',
+                
+                // Author info
+                author: skillReport?.skill?.author || entry?.author?.name || 'Community',
+                author_name: entry?.author?.name || skillReport?.skill?.author || 'Community',
+                author_email: entry?.author?.email || null,
+                
+                // URLs & paths
+                source_url: skillReport?.meta?.source_url || entry?.repository || null,
+                repository: entry?.repository || skillReport?.meta?.source_url || null,
+                source_ref: skillReport?.meta?.source_ref || 'main',
+                ref: skillReport?.meta?.source_ref || 'main',
                 plugin_path: pluginPath,
+                skill_report_url: `https://github.com/aiskillstore/marketplace/blob/main/${pluginPath}/skill-report.json`,
+                homepage: `https://skillstore.io/skills/${slug}`,
                 
+                // Visual
+                icon: skillReport?.skill?.icon || null,
+                
+                // Trust & verification
+                is_verified: skillReport?.meta?.trust_level === 'official',
+                marketplace_source: 'aiskillstore',
+                
+                // Risk assessment (from security audit)
+                risk_level: skillReport?.security_audit?.risk_level || 'low',
+                risk_factors: skillReport?.skill?.risk_factors || [],
                 security_risk_level: skillReport?.security_audit?.risk_level || null,
                 security_safe_to_publish: skillReport?.security_audit?.safe_to_publish ?? true,
                 security_summary: skillReport?.security_audit?.summary || null,
                 
+                // AI-generated content (denormalized for quick access)
                 user_title: skillReport?.content?.user_title || null,
                 value_statement: skillReport?.content?.value_statement || null,
                 seo_keywords: skillReport?.content?.seo_keywords || [],
                 
-                source_url: skillReport?.meta?.source_url || entry?.repository || null,
-                source_ref: skillReport?.meta?.source_ref || null,
-                
+                // Publishing status
                 status: 'approved',
                 published_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
               };
 
-              const { error } = await supabase
+              // Upsert skill record
+              const { data: skillData, error: skillError } = await supabase
                 .schema('skillstore')
                 .from('skills')
-                .upsert(record, { onConflict: 'slug' });
+                .upsert(skillRecord, { onConflict: 'slug' })
+                .select('id')
+                .single();
 
-              if (error) {
-                console.error(`Error: ${slug} - ${error.message}`);
+              if (skillError) {
+                console.error(`Error syncing skill ${slug}: ${skillError.message}`);
                 errors++;
-              } else {
-                console.log(`✅ Synced: ${slug}`);
-                synced++;
+                continue;
               }
+
+              const skillId = skillData.id;
+              console.log(`✅ Synced skill: ${slug} (id: ${skillId})`);
+
+              // ============================================================
+              // 2. SYNC TO skill_ai_content TABLE (rich AI-generated content)
+              // ============================================================
+              if (skillReport?.content) {
+                const aiContentRecord = {
+                  skill_id: skillId,
+                  
+                  // Basic AI content
+                  user_title: skillReport.content.user_title || '',
+                  value_statement: skillReport.content.value_statement || '',
+                  
+                  // Structured content
+                  use_cases: skillReport.content.use_cases || [],
+                  prompt_templates: skillReport.content.prompt_templates || [],
+                  output_examples: skillReport.content.output_examples || [],
+                  faq: skillReport.content.faq || [],
+                  
+                  // Lists
+                  best_practices: skillReport.content.best_practices || [],
+                  anti_patterns: skillReport.content.anti_patterns || [],
+                  actual_capabilities: skillReport.content.actual_capabilities || [],
+                  limitations: skillReport.content.limitations || [],
+                  
+                  // Technical
+                  technical_requirements: skillReport.content.technical_requirements || {},
+                  
+                  // Versioning
+                  content_version: 1,
+                  updated_at: new Date().toISOString(),
+                };
+
+                const { error: aiError } = await supabase
+                  .schema('skillstore')
+                  .from('skill_ai_content')
+                  .upsert(aiContentRecord, { onConflict: 'skill_id' });
+
+                if (aiError) {
+                  console.error(`  ⚠️ Error syncing AI content for ${slug}: ${aiError.message}`);
+                } else {
+                  console.log(`  ✅ Synced AI content for ${slug}`);
+                }
+              }
+
+              // ============================================================
+              // 3. SYNC TO skill_security_audit TABLE (security analysis)
+              // ============================================================
+              if (skillReport?.security_audit) {
+                const audit = skillReport.security_audit;
+                
+                const auditRecord = {
+                  skill_id: skillId,
+                  version: 1,
+                  
+                  // Risk assessment
+                  risk_level: audit.risk_level || 'low',
+                  is_blocked: audit.is_blocked ?? false,
+                  safe_to_publish: audit.safe_to_publish ?? true,
+                  summary: audit.summary || '',
+                  
+                  // Findings by severity
+                  critical_findings: audit.critical_findings || [],
+                  high_findings: audit.high_findings || [],
+                  medium_findings: audit.medium_findings || [],
+                  low_findings: audit.low_findings || [],
+                  
+                  // Patterns detected
+                  dangerous_patterns: audit.dangerous_patterns || [],
+                  
+                  // Metrics
+                  files_scanned: audit.files_scanned || 0,
+                  total_lines: audit.total_lines || 0,
+                  
+                  // Audit metadata
+                  audit_model: audit.audit_model || 'claude',
+                  audited_at: audit.audited_at || new Date().toISOString(),
+                };
+
+                // Delete existing audit and insert new one (simpler than upsert for this table)
+                await supabase
+                  .schema('skillstore')
+                  .from('skill_security_audit')
+                  .delete()
+                  .eq('skill_id', skillId);
+
+                const { error: auditError } = await supabase
+                  .schema('skillstore')
+                  .from('skill_security_audit')
+                  .insert(auditRecord);
+
+                if (auditError) {
+                  console.error(`  ⚠️ Error syncing security audit for ${slug}: ${auditError.message}`);
+                } else {
+                  console.log(`  ✅ Synced security audit for ${slug}`);
+                }
+              }
+
+              synced++;
             }
 
-            console.log(`\nSync complete: ${synced} synced, ${errors} errors`);
+            console.log(`\n========================================`);
+            console.log(`Sync complete: ${synced} synced, ${errors} errors`);
+            console.log(`========================================`);
+            
+            if (errors > 0) {
+              process.exit(1);
+            }
           }
 
           syncPlugins().catch(err => {
