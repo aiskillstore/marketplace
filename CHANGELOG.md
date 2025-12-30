@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+
+## [0.2.1] - 2025-12-30
+
+### Summary
+
+Patch release to sync v0.2.0 release info to Supabase after workflow fix.
+
+### Statistics
+
+- Total plugins: 26
+- New plugins: 0
+- Updated plugins: 0
+
+### Infrastructure Changes
+
+- fix: remove broken JSON.parse on CHANGELOG.md in release sync
+
+
 ## [0.2.0] - 2025-12-30
 
 ### Summary
