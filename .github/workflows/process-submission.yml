@@ -111,27 +111,38 @@ jobs:
           # Extract results from CLI output (it outputs structured info)
           # The CLI handles cloning, discovery, analysis, and packaging
           
-          # Check if any skills were processed
-          if [ -d "pending" ] && [ "$(ls -A pending 2>/dev/null)" ]; then
-            PROCESSED_SKILLS=$(ls -1 pending | tr '\n' ',' | sed 's/,$//')
-            PROCESSED_COUNT=$(ls -1 pending | wc -l | tr -d ' ')
+          SKILL_REPORTS=$(find pending -name "skill-report.json" 2>/dev/null)
+          
+          if [ -n "$SKILL_REPORTS" ]; then
+            PROCESSED_SKILLS=""
+            PROCESSED_COUNT=0
+            HIGHEST_RISK="safe"
+            
+            for report in $SKILL_REPORTS; do
+              NAMESPACED_SLUG=$(jq -r '.meta.owner + "/" + .meta.slug' "$report")
+              SOURCE_TYPE=$(jq -r '.meta.source_type' "$report")
+              
+              if [ "$SOURCE_TYPE" = "official" ]; then
+                NAMESPACED_SLUG=$(jq -r '.meta.slug' "$report")
+              fi
+              
+              PROCESSED_SKILLS="$PROCESSED_SKILLS,$NAMESPACED_SLUG"
+              PROCESSED_COUNT=$((PROCESSED_COUNT + 1))
+              
+              RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$report")
+              case "$RISK" in
+                critical) HIGHEST_RISK="critical" ;;
+                high) [ "$HIGHEST_RISK" != "critical" ] && HIGHEST_RISK="high" ;;
+                medium) [ "$HIGHEST_RISK" = "safe" ] || [ "$HIGHEST_RISK" = "low" ] && HIGHEST_RISK="medium" ;;
+                low) [ "$HIGHEST_RISK" = "safe" ] && HIGHEST_RISK="low" ;;
+              esac
+            done
+            
+            PROCESSED_SKILLS=$(echo "$PROCESSED_SKILLS" | sed 's/^,//')
+            
             echo "processed_count=$PROCESSED_COUNT" >> $GITHUB_OUTPUT
             echo "skills_list=$PROCESSED_SKILLS" >> $GITHUB_OUTPUT
             echo "has_results=true" >> $GITHUB_OUTPUT
-            
-            # Determine highest risk from reports
-            HIGHEST_RISK="safe"
-            for dir in pending/*/; do
-              if [ -f "${dir}skill-report.json" ]; then
-                RISK=$(jq -r '.security_audit.risk_level // "unknown"' "${dir}skill-report.json")
-                case "$RISK" in
-                  critical) HIGHEST_RISK="critical" ;;
-                  high) [ "$HIGHEST_RISK" != "critical" ] && HIGHEST_RISK="high" ;;
-                  medium) [ "$HIGHEST_RISK" = "safe" ] || [ "$HIGHEST_RISK" = "low" ] && HIGHEST_RISK="medium" ;;
-                  low) [ "$HIGHEST_RISK" = "safe" ] && HIGHEST_RISK="low" ;;
-                esac
-              fi
-            done
             echo "highest_risk=$HIGHEST_RISK" >> $GITHUB_OUTPUT
             
             echo "Processed $PROCESSED_COUNT skill(s): $PROCESSED_SKILLS"
@@ -183,16 +194,14 @@ jobs:
           [ "$HIGHEST_RISK" = "medium" ] && RISK_BADGE="🟡"
           [ "$HIGHEST_RISK" = "low" ] && RISK_BADGE="🟡"
           
-          # Build skills table
           SKILLS_TABLE="| Skill | Risk | Status |
           |-------|------|--------|"
           
-          for slug in $(echo "$SKILLS_LIST" | tr ',' '\n'); do
-            if [ -f "pending/$slug/skill-report.json" ]; then
-              SKILL_RISK=$(jq -r '.security_audit.risk_level // "unknown"' "pending/$slug/skill-report.json")
-              SKILLS_TABLE="$SKILLS_TABLE
-          | \`$slug\` | $SKILL_RISK | Ready |"
-            fi
+          for report in $(find pending -name "skill-report.json" 2>/dev/null); do
+            NAMESPACED_SLUG=$(jq -r 'if .meta.source_type == "official" then .meta.slug else .meta.owner + "/" + .meta.slug end' "$report")
+            SKILL_RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$report")
+            SKILLS_TABLE="$SKILLS_TABLE
+          | \`$NAMESPACED_SLUG\` | $SKILL_RISK | Ready |"
           done
           
           # Create PR body

@@ -33,56 +33,54 @@ jobs:
       - name: Find pending plugins to approve
         id: find_pending
         run: |
-          PLUGINS=""
-          for dir in pending/*/; do
-            if [ -d "$dir" ]; then
-              SLUG=$(basename "$dir")
-              PLUGINS="$PLUGINS $SLUG"
-            fi
+          PLUGIN_PATHS=""
+          
+          for entry_file in $(find pending -name "marketplace-entry.json" 2>/dev/null); do
+            PLUGIN_DIR=$(dirname "$entry_file")
+            PLUGIN_PATHS="$PLUGIN_PATHS $PLUGIN_DIR"
           done
-          echo "plugins=$PLUGINS" >> $GITHUB_OUTPUT
-          echo "Found pending plugins:$PLUGINS"
+          
+          echo "plugin_paths=$PLUGIN_PATHS" >> $GITHUB_OUTPUT
+          echo "Found pending plugins:$PLUGIN_PATHS"
 
       - name: Move plugins from pending to plugins
         run: |
-          for SLUG in ${{ steps.find_pending.outputs.plugins }}; do
-            if [ -d "pending/$SLUG" ]; then
-              echo "Moving pending/$SLUG to plugins/$SLUG"
+          for PENDING_DIR in ${{ steps.find_pending.outputs.plugin_paths }}; do
+            if [ -d "$PENDING_DIR" ] && [ -f "$PENDING_DIR/marketplace-entry.json" ]; then
+              NAMESPACED_SLUG=$(jq -r '.slug' "$PENDING_DIR/marketplace-entry.json")
+              TARGET_DIR="plugins/$NAMESPACED_SLUG"
               
-              if [ -d "plugins/$SLUG" ]; then
-                rm -rf "plugins/$SLUG"
+              echo "Moving $PENDING_DIR to $TARGET_DIR (slug: $NAMESPACED_SLUG)"
+              
+              mkdir -p "$(dirname "$TARGET_DIR")"
+              
+              if [ -d "$TARGET_DIR" ]; then
+                rm -rf "$TARGET_DIR"
               fi
               
-              mv "pending/$SLUG" "plugins/$SLUG"
+              mv "$PENDING_DIR" "$TARGET_DIR"
               
-              if [ -f "plugins/$SLUG/marketplace-entry.json" ]; then
-                jq --arg path "plugins/$SLUG" '.path = $path' \
-                  "plugins/$SLUG/marketplace-entry.json" > /tmp/entry.json
-                mv /tmp/entry.json "plugins/$SLUG/marketplace-entry.json"
-              fi
+              jq --arg path "$TARGET_DIR" '.path = $path' \
+                "$TARGET_DIR/marketplace-entry.json" > /tmp/entry.json
+              mv /tmp/entry.json "$TARGET_DIR/marketplace-entry.json"
             fi
           done
 
       - name: Update marketplace.json
         run: |
-          for SLUG in ${{ steps.find_pending.outputs.plugins }}; do
-            ENTRY_FILE="plugins/$SLUG/marketplace-entry.json"
+          for entry_file in $(find plugins -name "marketplace-entry.json" -newer .claude-plugin/marketplace.json 2>/dev/null || find plugins -name "marketplace-entry.json" 2>/dev/null); do
+            NAMESPACED_SLUG=$(jq -r '.slug' "$entry_file")
             
-            if [ ! -f "$ENTRY_FILE" ]; then
-              echo "No marketplace-entry.json for $SLUG, skipping"
-              continue
-            fi
-            
-            EXISTING=$(jq --arg name "$SLUG" '.plugins | map(select(.name == $name)) | length' .claude-plugin/marketplace.json)
+            EXISTING=$(jq --arg name "$NAMESPACED_SLUG" '.plugins | map(select(.name == $name)) | length' .claude-plugin/marketplace.json)
             
             if [ "$EXISTING" -gt "0" ]; then
-              echo "Plugin $SLUG already in marketplace, updating..."
-              jq --arg name "$SLUG" --slurpfile entry "$ENTRY_FILE" \
+              echo "Plugin $NAMESPACED_SLUG already in marketplace, updating..."
+              jq --arg name "$NAMESPACED_SLUG" --slurpfile entry "$entry_file" \
                 '.plugins = [.plugins[] | if .name == $name then $entry[0] else . end]' \
                 .claude-plugin/marketplace.json > /tmp/marketplace.json
             else
-              echo "Adding new plugin $SLUG to marketplace..."
-              jq --slurpfile entry "$ENTRY_FILE" \
+              echo "Adding new plugin $NAMESPACED_SLUG to marketplace..."
+              jq --slurpfile entry "$entry_file" \
                 '.plugins += $entry' \
                 .claude-plugin/marketplace.json > /tmp/marketplace.json
             fi
