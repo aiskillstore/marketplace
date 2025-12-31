@@ -33,6 +33,7 @@ jobs:
       added_plugins: ${{ steps.changelog.outputs.added_plugins }}
       added_count: ${{ steps.changelog.outputs.added_count }}
       updated_count: ${{ steps.changelog.outputs.updated_count }}
+      removed_count: ${{ steps.changelog.outputs.removed_count }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -105,27 +106,51 @@ jobs:
           
           echo "Analyzing commits in range: $RANGE"
           
+          # Get current plugins list
+          CURRENT_PLUGINS=$(find plugins -maxdepth 1 -type d ! -name plugins -exec basename {} \; | sort)
+          PLUGIN_COUNT=$(echo "$CURRENT_PLUGINS" | wc -l | tr -d ' ')
+          
+          # Get previous plugins list (if tag exists)
+          if [ -n "$PREV_TAG" ]; then
+            PREV_PLUGINS=$(git ls-tree --name-only "${PREV_TAG}:plugins" 2>/dev/null | sort || echo "")
+          else
+            PREV_PLUGINS=""
+          fi
+          
+          # Calculate added plugins by comparing directories
           ADDED_PLUGINS=""
           ADDED_COUNT=0
-          UPDATED_COUNT=0
-          INFRA_CHANGES=""
           
+          for plugin in $CURRENT_PLUGINS; do
+            if ! echo "$PREV_PLUGINS" | grep -qx "$plugin"; then
+              if [ -z "$ADDED_PLUGINS" ]; then
+                ADDED_PLUGINS="$plugin"
+              else
+                ADDED_PLUGINS="${ADDED_PLUGINS},$plugin"
+              fi
+              ADDED_COUNT=$((ADDED_COUNT + 1))
+            fi
+          done
+          
+          # Calculate removed plugins
+          REMOVED_COUNT=0
+          for plugin in $PREV_PLUGINS; do
+            [ -z "$plugin" ] && continue
+            if ! echo "$CURRENT_PLUGINS" | grep -qx "$plugin"; then
+              REMOVED_COUNT=$((REMOVED_COUNT + 1))
+            fi
+          done
+          
+          # Updated = plugins that exist in both but have changes (simplified: 0 for now)
+          UPDATED_COUNT=0
+          
+          # Collect infrastructure changes from commits
+          INFRA_CHANGES=""
           while IFS= read -r line; do
             [ -z "$line" ] && continue
             MSG=$(echo "$line" | cut -d' ' -f2-)
             
-            if echo "$MSG" | grep -qE "^Approve plugins:"; then
-              PLUGINS=$(echo "$MSG" | sed 's/Approve plugins: *//')
-              for p in $PLUGINS; do
-                [ -z "$p" ] && continue
-                if [ -z "$ADDED_PLUGINS" ]; then
-                  ADDED_PLUGINS="$p"
-                else
-                  ADDED_PLUGINS="${ADDED_PLUGINS},$p"
-                fi
-                ADDED_COUNT=$((ADDED_COUNT + 1))
-              done
-            elif echo "$MSG" | grep -qE "^(feat|fix|chore|docs|refactor|release):"; then
+            if echo "$MSG" | grep -qE "^(feat|fix|chore|docs|refactor):"; then
               if [ -z "$INFRA_CHANGES" ]; then
                 INFRA_CHANGES="$MSG"
               else
@@ -134,18 +159,17 @@ jobs:
             fi
           done < <(git log --oneline $RANGE 2>/dev/null || git log --oneline)
           
-          PLUGIN_COUNT=$(find plugins -maxdepth 1 -type d ! -name plugins | wc -l | tr -d ' ')
-          
           {
             echo "release_date=$TODAY"
             echo "plugin_count=$PLUGIN_COUNT"
             echo "added_plugins=$ADDED_PLUGINS"
             echo "added_count=$ADDED_COUNT"
             echo "updated_count=$UPDATED_COUNT"
+            echo "removed_count=$REMOVED_COUNT"
             echo "infra_changes=$INFRA_CHANGES"
           } >> $GITHUB_OUTPUT
           
-          echo "Found: $ADDED_COUNT new plugins, $UPDATED_COUNT updates"
+          echo "Found: $ADDED_COUNT new plugins, $UPDATED_COUNT updates, $REMOVED_COUNT removed"
 
       - name: Generate AI summary (if not provided)
         id: ai_summary
@@ -358,6 +382,7 @@ jobs:
             const pluginCount = parseInt('${{ needs.release.outputs.plugin_count }}', 10);
             const addedCount = parseInt('${{ needs.release.outputs.added_count }}', 10);
             const updatedCount = parseInt('${{ needs.release.outputs.updated_count }}', 10);
+            const removedCount = parseInt('${{ needs.release.outputs.removed_count }}' || '0', 10);
             const addedPlugins = '${{ needs.release.outputs.added_plugins }}'.split(',').filter(Boolean);
 
             const changelogData = {
@@ -387,7 +412,7 @@ jobs:
                 changelog: changelogData,
                 added_count: addedCount,
                 updated_count: updatedCount,
-                removed_count: 0,
+                removed_count: removedCount,
                 is_latest: true,
                 language: lang
               };
