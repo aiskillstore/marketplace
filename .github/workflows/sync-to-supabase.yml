@@ -32,14 +32,23 @@ jobs:
       - name: Detect changed plugins
         id: changes
         run: |
+          # Find all plugin slugs (supports both plugins/name and plugins/owner/name)
+          find_all_plugins() {
+            for entry in $(find plugins -name "marketplace-entry.json" 2>/dev/null); do
+              jq -r '.slug' "$entry" 2>/dev/null
+            done | sort -u
+          }
+          
           if [ "${{ inputs.full_sync }}" = "true" ]; then
             echo "Full sync requested"
-            CHANGED=$(ls -1 plugins/ 2>/dev/null | tr '\n' ' ')
+            CHANGED=$(find_all_plugins | tr '\n' ' ')
             echo "mode=full" >> $GITHUB_OUTPUT
           else
+            # Get changed paths and extract namespaced slugs (owner/name format)
             CHANGED=$(git diff HEAD~1 --name-only 2>/dev/null | \
               grep '^plugins/' | \
-              cut -d'/' -f2 | \
+              sed 's|^plugins/||' | \
+              cut -d'/' -f1,2 | \
               sort -u | \
               tr '\n' ' ')
             echo "mode=incremental" >> $GITHUB_OUTPUT
