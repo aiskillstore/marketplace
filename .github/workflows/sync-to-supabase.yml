@@ -32,11 +32,29 @@ jobs:
       - name: Detect changed plugins
         id: changes
         run: |
-          # Find all plugin slugs (supports both plugins/name and plugins/owner/name)
+          # Find all plugin slugs by locating marketplace-entry.json files
           find_all_plugins() {
             for entry in $(find plugins -name "marketplace-entry.json" 2>/dev/null); do
-              jq -r '.name' "$entry" 2>/dev/null
+              # Extract directory path relative to plugins/
+              dir=$(dirname "$entry")
+              echo "${dir#plugins/}"
             done | sort -u
+          }
+          
+          # Get plugin slug from a changed file path
+          # Supports both flat (plugins/name/) and namespaced (plugins/owner/name/)
+          get_plugin_slug() {
+            local path="$1"
+            local first=$(echo "$path" | cut -d'/' -f1)
+            local first_two=$(echo "$path" | cut -d'/' -f1,2)
+            
+            # Check if first segment is a plugin (flat structure)
+            if [ -f "plugins/$first/marketplace-entry.json" ] || [ -d "plugins/$first/.claude-plugin" ]; then
+              echo "$first"
+            # Check if first two segments are a plugin (namespaced: owner/name)
+            elif [ -f "plugins/$first_two/marketplace-entry.json" ] || [ -d "plugins/$first_two/.claude-plugin" ]; then
+              echo "$first_two"
+            fi
           }
           
           if [ "${{ inputs.full_sync }}" = "true" ]; then
@@ -44,13 +62,13 @@ jobs:
             CHANGED=$(find_all_plugins | tr '\n' ' ')
             echo "mode=full" >> $GITHUB_OUTPUT
           else
-            # Get changed paths and extract namespaced slugs (owner/name format)
+            # Get changed paths and extract plugin slugs intelligently
             CHANGED=$(git diff HEAD~1 --name-only 2>/dev/null | \
               grep '^plugins/' | \
               sed 's|^plugins/||' | \
-              cut -d'/' -f1,2 | \
-              sort -u | \
-              tr '\n' ' ')
+              while read -r path; do
+                get_plugin_slug "$path"
+              done | sort -u | tr '\n' ' ')
             echo "mode=incremental" >> $GITHUB_OUTPUT
           fi
           
