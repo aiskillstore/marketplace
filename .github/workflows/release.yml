@@ -34,6 +34,8 @@ jobs:
       added_count: ${{ steps.changelog.outputs.added_count }}
       updated_count: ${{ steps.changelog.outputs.updated_count }}
       removed_count: ${{ steps.changelog.outputs.removed_count }}
+      infra_changes: ${{ steps.changelog.outputs.infra_changes }}
+      ai_summary: ${{ steps.ai_summary.outputs.summary }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -384,10 +386,14 @@ jobs:
             const updatedCount = parseInt('${{ needs.release.outputs.updated_count }}', 10);
             const removedCount = parseInt('${{ needs.release.outputs.removed_count }}' || '0', 10);
             const addedPlugins = '${{ needs.release.outputs.added_plugins }}'.split(',').filter(Boolean);
+            const infraChanges = '${{ needs.release.outputs.infra_changes }}'.split('|').filter(Boolean);
+            const aiSummary = `${{ needs.release.outputs.ai_summary }}`;
 
             const changelogData = {
               added_plugins: addedPlugins,
-              infrastructure: []
+              updated_plugins: [],
+              removed_plugins: [],
+              infrastructure: infraChanges
             };
 
             await supabase
@@ -399,9 +405,7 @@ jobs:
             const languages = ['en', 'zh-hans', 'ja', 'ko', 'de', 'fr', 'es', 'pt', 'ru', 'ar'];
             
             for (const lang of languages) {
-              const summary = lang === 'en' 
-                ? `Marketplace update with ${addedCount} new plugins. Total ${pluginCount} plugins available.`
-                : null;
+              const summary = lang === 'en' ? aiSummary : null;
 
               const record = {
                 tag: `v${version}`,
@@ -418,6 +422,7 @@ jobs:
               };
 
               console.log(`Upserting release v${version} for language: ${lang}`);
+              console.log('Changelog data:', JSON.stringify(changelogData, null, 2));
 
               const { error } = await supabase
                 .schema('skillstore')
