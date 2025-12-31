@@ -40,6 +40,19 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Notify skillstore - Processing started
+        if: github.event_name == 'repository_dispatch'
+        run: |
+          curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
+            -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "submission_id": "'"$SUBMISSION_ID"'",
+              "event": "started",
+              "workflow_run_id": ${{ github.run_id }},
+              "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }' || echo "::warning::Failed to notify skillstore"
+
       - name: Download Skillstore CLI
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
@@ -125,6 +138,7 @@ jobs:
           fi
 
       - name: Create Pull Request
+        id: create_pr
         if: steps.process.outputs.has_results == 'true'
         env:
           # Use PAT_TOKEN instead of GITHUB_TOKEN so the PR can trigger other workflows
@@ -199,12 +213,50 @@ jobs:
           *Processed by skillstore-cli v$(./skillstore-cli --version)*
           EOF
           
-          gh pr create \
+          PR_URL=$(gh pr create \
             --title "$PR_TITLE" \
             --body-file pr-body.md \
             --label "pending-review" \
             --base main \
-            --head "$BRANCH_NAME"
+            --head "$BRANCH_NAME" 2>&1 | tail -1)
+          
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "Created PR: $PR_URL"
+
+      - name: Notify skillstore - PR created
+        if: steps.create_pr.outputs.pr_url && github.event_name == 'repository_dispatch'
+        env:
+          PR_URL: ${{ steps.create_pr.outputs.pr_url }}
+        run: |
+          curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
+            -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "submission_id": "'"$SUBMISSION_ID"'",
+              "event": "pr_created",
+              "pr_url": "'"$PR_URL"'",
+              "workflow_run_id": ${{ github.run_id }},
+              "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }' || echo "::warning::Failed to notify skillstore"
+
+      - name: Notify skillstore - Failed
+        if: failure() && github.event_name == 'repository_dispatch'
+        run: |
+          ERROR_MSG="Processing failed. Check GitHub Actions log for details."
+          if [ -f process-output.log ]; then
+            ERROR_MSG=$(tail -5 process-output.log | tr '\n' ' ' | cut -c1-500)
+          fi
+          
+          curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
+            -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "submission_id": "'"$SUBMISSION_ID"'",
+              "event": "failed",
+              "error_message": "'"${ERROR_MSG//\"/\\\"}"'",
+              "workflow_run_id": ${{ github.run_id }},
+              "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }' || echo "::warning::Failed to notify skillstore"
 
       - name: Cleanup
         if: always()
