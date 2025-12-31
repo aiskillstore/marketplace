@@ -35,7 +35,7 @@ jobs:
           # Find all plugin slugs (supports both plugins/name and plugins/owner/name)
           find_all_plugins() {
             for entry in $(find plugins -name "marketplace-entry.json" 2>/dev/null); do
-              jq -r '.slug' "$entry" 2>/dev/null
+              jq -r '.name' "$entry" 2>/dev/null
             done | sort -u
           }
           
@@ -92,14 +92,14 @@ jobs:
             let synced = 0;
             let errors = 0;
 
-            for (const slug of changedPlugins) {
-              const pluginPath = `plugins/${slug}`;
+            for (const dirPath of changedPlugins) {
+              const pluginPath = `plugins/${dirPath}`;
               const reportPath = path.join(pluginPath, 'skill-report.json');
               const manifestPath = path.join(pluginPath, '.claude-plugin', 'plugin.json');
               const entryPath = path.join(pluginPath, 'marketplace-entry.json');
 
               if (!fs.existsSync(pluginPath)) {
-                console.log(`Skipping ${slug}: directory not found`);
+                console.log(`Skipping ${dirPath}: directory not found`);
                 continue;
               }
 
@@ -118,9 +118,11 @@ jobs:
               }
 
               if (!skillReport && !entry) {
-                console.log(`Skipping ${slug}: no skill-report.json or marketplace-entry.json`);
+                console.log(`Skipping ${dirPath}: no skill-report.json or marketplace-entry.json`);
                 continue;
               }
+
+              const slug = entry?.name || manifest?.name || dirPath.replace(/\//g, '-');
 
               // Helper: Map security audit risk_level to skills table enum
               // skills.risk_level allows: low, medium, high
@@ -152,7 +154,7 @@ jobs:
                 // Categorization - default to 'productivity' (must match skillstore.categories table)
                 category: skillReport?.skill?.category || 'productivity',
                 tags: skillReport?.skill?.tags || entry?.keywords || [],
-                supported_tools: skillReport?.skill?.supported_tools || entry?.supported_tools || ['claude', 'codex', 'claude-code'],
+                supported_tools: skillReport?.skill?.supported_tools || ['claude', 'codex', 'claude-code'],
                 
                 // Version & licensing
                 version: skillReport?.skill?.version || entry?.version || '1.0.0',
