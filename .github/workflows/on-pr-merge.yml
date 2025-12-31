@@ -47,10 +47,14 @@ jobs:
         run: |
           for PENDING_DIR in ${{ steps.find_pending.outputs.plugin_paths }}; do
             if [ -d "$PENDING_DIR" ] && [ -f "$PENDING_DIR/marketplace-entry.json" ]; then
-              NAMESPACED_SLUG=$(jq -r '.name' "$PENDING_DIR/marketplace-entry.json")
-              TARGET_DIR="plugins/$NAMESPACED_SLUG"
+              # Use 'source' field for directory path (e.g., "./payloadcms/payload")
+              # 'name' field must stay hyphenated for plugin.json schema compliance
+              SOURCE_PATH=$(jq -r '.source' "$PENDING_DIR/marketplace-entry.json")
+              # Strip "./" prefix: "./payloadcms/payload" -> "payloadcms/payload"
+              PLUGIN_PATH="${SOURCE_PATH#./}"
+              TARGET_DIR="plugins/$PLUGIN_PATH"
               
-              echo "Moving $PENDING_DIR to $TARGET_DIR (slug: $NAMESPACED_SLUG)"
+              echo "Moving $PENDING_DIR to $TARGET_DIR (source: $SOURCE_PATH)"
               
               mkdir -p "$(dirname "$TARGET_DIR")"
               
@@ -59,10 +63,7 @@ jobs:
               fi
               
               mv "$PENDING_DIR" "$TARGET_DIR"
-              
-              jq --arg source "./$NAMESPACED_SLUG" '.source = $source' \
-                "$TARGET_DIR/marketplace-entry.json" > /tmp/entry.json
-              mv /tmp/entry.json "$TARGET_DIR/marketplace-entry.json"
+              # source field is already correct, no need to update
             fi
           done
 
