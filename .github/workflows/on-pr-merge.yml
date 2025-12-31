@@ -108,4 +108,10 @@ jobs:
           PLUGINS="${{ steps.find_pending.outputs.plugins }}"
           git commit -m "Approve plugins: $PLUGINS" || echo "No changes to commit"
           
-          git push origin main
+          # Handle race conditions: pull --rebase before push
+          # Retry up to 3 times in case of concurrent pushes
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push origin main && break
+            echo "Push failed, retrying ($i/3)..."
+            sleep 2
+          done
