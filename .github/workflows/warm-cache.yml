@@ -18,6 +18,7 @@ on:
         options:
           - skills
           - workflows
+          - releases
           - all
         default: skills
 
@@ -44,8 +45,13 @@ jobs:
             curl -sf "$SITE_URL/api/${type}?limit=1000" | jq -r '.data[].slug' | tr '\n' ' '
           }
           
+          fetch_release_tags() {
+            curl -sf "$SITE_URL/api/releases?limit=1000" | jq -r '.data[].tag' | tr '\n' ' '
+          }
+          
           SKILLS_SLUGS=""
           WORKFLOWS_SLUGS=""
+          RELEASES_TAGS=""
           
           if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
             SKILLS_SLUGS=$(fetch_slugs "skills")
@@ -60,6 +66,13 @@ jobs:
             WORKFLOWS_COUNT=$(echo $WORKFLOWS_SLUGS | wc -w | tr -d ' ')
             echo "Found $WORKFLOWS_COUNT workflows"
           fi
+          
+          if [ "$CONTENT_TYPE" = "releases" ] || [ "$CONTENT_TYPE" = "all" ]; then
+            RELEASES_TAGS=$(fetch_release_tags)
+            echo "releases_tags=$RELEASES_TAGS" >> $GITHUB_OUTPUT
+            RELEASES_COUNT=$(echo $RELEASES_TAGS | wc -w | tr -d ' ')
+            echo "Found $RELEASES_COUNT releases"
+          fi
 
       - name: Invalidate all caches (force mode only)
         if: inputs.mode == 'force'
@@ -67,6 +80,7 @@ jobs:
           CACHE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           SKILLS_SLUGS: ${{ steps.fetch.outputs.skills_slugs }}
           WORKFLOWS_SLUGS: ${{ steps.fetch.outputs.workflows_slugs }}
+          RELEASES_TAGS: ${{ steps.fetch.outputs.releases_tags }}
           CONTENT_TYPE: ${{ inputs.type }}
         run: |
           invalidate() {
@@ -96,6 +110,10 @@ jobs:
           
           if [ "$CONTENT_TYPE" = "workflows" ] || [ "$CONTENT_TYPE" = "all" ]; then
             invalidate "workflows" "$WORKFLOWS_SLUGS"
+          fi
+          
+          if [ "$CONTENT_TYPE" = "releases" ] || [ "$CONTENT_TYPE" = "all" ]; then
+            invalidate "releases" "$RELEASES_TAGS"
           fi
 
       - name: Warm skills cache
@@ -183,20 +201,64 @@ jobs:
           echo ""
           echo "Workflows cache warming complete"
 
+      - name: Warm releases cache
+        if: inputs.type == 'releases' || inputs.type == 'all'
+        env:
+          TAGS: ${{ steps.fetch.outputs.releases_tags }}
+        run: |
+          if [ -z "$TAGS" ]; then
+            echo "No releases to warm"
+            exit 0
+          fi
+          
+          generate_urls() {
+            for tag in $TAGS; do
+              [ -z "$tag" ] && continue
+              for locale in $LOCALES; do
+                if [ "$locale" = "en" ]; then
+                  echo "$SITE_URL/releases/$tag"
+                else
+                  echo "$SITE_URL/$locale/releases/$tag"
+                fi
+              done
+            done
+          }
+          
+          URLS=$(generate_urls)
+          URL_COUNT=$(echo "$URLS" | grep -c . || echo 0)
+          
+          echo "Warming $URL_COUNT release URLs ($(echo $TAGS | wc -w | tr -d ' ') releases × 11 locales)..."
+          echo ""
+          
+          echo "$URLS" | xargs -P $CONCURRENCY -I {} sh -c '
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 "{}" 2>/dev/null || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✓ {}"
+            else
+              echo "✗ {} ($STATUS)" >&2
+            fi
+          '
+          
+          echo ""
+          echo "Releases cache warming complete"
+
       - name: Summary
         env:
           MODE: ${{ inputs.mode }}
           CONTENT_TYPE: ${{ inputs.type }}
           SKILLS_SLUGS: ${{ steps.fetch.outputs.skills_slugs }}
           WORKFLOWS_SLUGS: ${{ steps.fetch.outputs.workflows_slugs }}
+          RELEASES_TAGS: ${{ steps.fetch.outputs.releases_tags }}
         run: |
           SKILLS_COUNT=$(echo $SKILLS_SLUGS | wc -w | tr -d ' ')
           WORKFLOWS_COUNT=$(echo $WORKFLOWS_SLUGS | wc -w | tr -d ' ')
+          RELEASES_COUNT=$(echo $RELEASES_TAGS | wc -w | tr -d ' ')
           LOCALE_COUNT=11
           
           SKILLS_URLS=$((SKILLS_COUNT * LOCALE_COUNT))
           WORKFLOWS_URLS=$((WORKFLOWS_COUNT * LOCALE_COUNT))
-          TOTAL_URLS=$((SKILLS_URLS + WORKFLOWS_URLS))
+          RELEASES_URLS=$((RELEASES_COUNT * LOCALE_COUNT))
+          TOTAL_URLS=$((SKILLS_URLS + WORKFLOWS_URLS + RELEASES_URLS))
           
           echo "## Cache Warming Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -222,6 +284,11 @@ jobs:
           if [ "$CONTENT_TYPE" = "workflows" ] || [ "$CONTENT_TYPE" = "all" ]; then
             echo "| Workflows | $WORKFLOWS_COUNT |" >> $GITHUB_STEP_SUMMARY
             echo "| Workflow URLs | $WORKFLOWS_URLS |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "$CONTENT_TYPE" = "releases" ] || [ "$CONTENT_TYPE" = "all" ]; then
+            echo "| Releases | $RELEASES_COUNT |" >> $GITHUB_STEP_SUMMARY
+            echo "| Release URLs | $RELEASES_URLS |" >> $GITHUB_STEP_SUMMARY
           fi
           
           echo "| **Total URLs** | **$TOTAL_URLS** |" >> $GITHUB_STEP_SUMMARY
