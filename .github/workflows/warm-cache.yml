@@ -116,7 +116,7 @@ jobs:
             invalidate "releases" "$RELEASES_TAGS"
           fi
 
-      - name: Warm skills cache
+      - name: Warm skills page cache
         if: inputs.type == 'skills' || inputs.type == 'all'
         env:
           SLUGS: ${{ steps.fetch.outputs.skills_slugs }}
@@ -158,7 +158,35 @@ jobs:
           '
           
           echo ""
-          echo "Skills cache warming complete"
+          echo "Skills page cache warming complete"
+
+      - name: Warm skills ZIP download cache
+        if: inputs.type == 'skills' || inputs.type == 'all'
+        env:
+          SLUGS: ${{ steps.fetch.outputs.skills_slugs }}
+        run: |
+          if [ -z "$SLUGS" ]; then
+            echo "No skills to warm ZIP cache"
+            exit 0
+          fi
+          
+          SLUG_COUNT=$(echo $SLUGS | wc -w | tr -d ' ')
+          echo "Warming ZIP cache for $SLUG_COUNT skills..."
+          echo ""
+          
+          for slug in $SLUGS; do
+            [ -z "$slug" ] && continue
+            URL="$SITE_URL/api/skills/$slug/download"
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 120 "$URL" 2>/dev/null || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✓ ZIP: $slug"
+            else
+              echo "✗ ZIP: $slug ($STATUS)" >&2
+            fi
+          done
+          
+          echo ""
+          echo "Skills ZIP cache warming complete"
 
       - name: Warm workflows cache
         if: inputs.type == 'workflows' || inputs.type == 'all'
@@ -256,9 +284,10 @@ jobs:
           LOCALE_COUNT=11
           
           SKILLS_URLS=$((SKILLS_COUNT * LOCALE_COUNT))
+          SKILLS_ZIPS=$SKILLS_COUNT
           WORKFLOWS_URLS=$((WORKFLOWS_COUNT * LOCALE_COUNT))
           RELEASES_URLS=$((RELEASES_COUNT * LOCALE_COUNT))
-          TOTAL_URLS=$((SKILLS_URLS + WORKFLOWS_URLS + RELEASES_URLS))
+          TOTAL_URLS=$((SKILLS_URLS + SKILLS_ZIPS + WORKFLOWS_URLS + RELEASES_URLS))
           
           echo "## Cache Warming Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -278,7 +307,8 @@ jobs:
           
           if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
             echo "| Skills | $SKILLS_COUNT |" >> $GITHUB_STEP_SUMMARY
-            echo "| Skill URLs | $SKILLS_URLS |" >> $GITHUB_STEP_SUMMARY
+            echo "| Skill Page URLs | $SKILLS_URLS |" >> $GITHUB_STEP_SUMMARY
+            echo "| Skill ZIP Downloads | $SKILLS_COUNT |" >> $GITHUB_STEP_SUMMARY
           fi
           
           if [ "$CONTENT_TYPE" = "workflows" ] || [ "$CONTENT_TYPE" = "all" ]; then
