@@ -7,6 +7,140 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [0.2.0] - 2026-01-02
+
+### Summary
+
+AI Skillstore marketplace v0.2.0 expands the catalog to 136 plugins with 108 new additions spanning engineering patterns, security/compliance, DevOps/cloud, and LLM/ML workflows. This release also hardens metadata and summary generation (safer backtick handling, improved security finding modeling, correct risk levels, and removed unauthorized fields) and streamlines delivery with an automated Cloudflare deploy triggered after Supabase sync. 
+
+### Statistics
+
+- Total plugins: 136
+- New plugins: 108
+- Updated plugins: 0
+
+### New Plugins
+
+- `wshobson-airflow-dag-patterns`
+- `wshobson-angular-migration`
+- `wshobson-api-design-principles`
+- `wshobson-architecture-decision-records`
+- `wshobson-architecture-patterns`
+- `wshobson-async-python-patterns`
+- `wshobson-attack-tree-construction`
+- `wshobson-auth-implementation-patterns`
+- `wshobson-backtesting-frameworks`
+- `wshobson-bash-defensive-patterns`
+- `wshobson-bats-testing-patterns`
+- `wshobson-bazel-build-optimization`
+- `wshobson-billing-automation`
+- `wshobson-changelog-automation`
+- `wshobson-code-review-excellence`
+- `wshobson-cost-optimization`
+- `wshobson-cqrs-implementation`
+- `wshobson-data-quality-frameworks`
+- `wshobson-data-storytelling`
+- `wshobson-database-migration`
+- `wshobson-dbt-transformation-patterns`
+- `wshobson-debugging-strategies`
+- `wshobson-defi-protocol-templates`
+- `wshobson-dependency-upgrade`
+- `wshobson-deployment-pipeline-design`
+- `wshobson-distributed-tracing`
+- `wshobson-dotnet-backend-patterns`
+- `wshobson-e2e-testing-patterns`
+- `wshobson-embedding-strategies`
+- `wshobson-employment-contract-templates`
+- `wshobson-error-handling-patterns`
+- `wshobson-event-store-design`
+- `wshobson-fastapi-templates`
+- `wshobson-gdpr-data-handling`
+- `wshobson-git-advanced-workflows`
+- `wshobson-github-actions-templates`
+- `wshobson-gitlab-ci-patterns`
+- `wshobson-gitops-workflow`
+- `wshobson-go-concurrency-patterns`
+- `wshobson-godot-gdscript-patterns`
+- `wshobson-grafana-dashboards`
+- `wshobson-helm-chart-scaffolding`
+- `wshobson-hybrid-cloud-networking`
+- `wshobson-hybrid-search-implementation`
+- `wshobson-incident-runbook-templates`
+- `wshobson-istio-traffic-management`
+- `wshobson-javascript-testing-patterns`
+- `wshobson-k8s-manifest-generator`
+- `wshobson-k8s-security-policies`
+- `wshobson-kpi-dashboard-design`
+- `wshobson-langchain-architecture`
+- `wshobson-linkerd-patterns`
+- `wshobson-llm-evaluation`
+- `wshobson-memory-safety-patterns`
+- `wshobson-microservices-patterns`
+- `wshobson-ml-pipeline-workflow`
+- `wshobson-modern-javascript-patterns`
+- `wshobson-monorepo-management`
+- `wshobson-mtls-configuration`
+- `wshobson-multi-cloud-architecture`
+- `wshobson-nextjs-app-router-patterns`
+- `wshobson-nft-standards`
+- `wshobson-nodejs-backend-patterns`
+- `wshobson-nx-workspace-patterns`
+- `wshobson-on-call-handoff-patterns`
+- `wshobson-openapi-spec-generation`
+- `wshobson-paypal-integration`
+- `wshobson-pci-compliance`
+- `wshobson-postgresql-table-design`
+- `wshobson-postmortem-writing`
+- `wshobson-projection-patterns`
+- `wshobson-prometheus-configuration`
+- `wshobson-prompt-engineering-patterns`
+- `wshobson-python-packaging`
+- `wshobson-python-performance-optimization`
+- `wshobson-python-testing-patterns`
+- `wshobson-rag-implementation`
+- `wshobson-react-modernization`
+- `wshobson-react-native-architecture`
+- `wshobson-react-state-management`
+- `wshobson-risk-metrics-calculation`
+- `wshobson-rust-async-patterns`
+- `wshobson-saga-orchestration`
+- `wshobson-sast-configuration`
+- `wshobson-screen-reader-testing`
+- `wshobson-secrets-management`
+- `wshobson-security-requirement-extraction`
+- `wshobson-service-mesh-observability`
+- `wshobson-shellcheck-configuration`
+- `wshobson-similarity-search-patterns`
+- `wshobson-slo-implementation`
+- `wshobson-solidity-security`
+- `wshobson-spark-optimization`
+- `wshobson-sql-optimization-patterns`
+- `wshobson-stride-analysis-patterns`
+- `wshobson-stripe-integration`
+- `wshobson-tailwind-design-system`
+- `wshobson-temporal-python-testing`
+- `wshobson-terraform-module-library`
+- `wshobson-threat-mitigation-mapping`
+- `wshobson-turborepo-caching`
+- `wshobson-typescript-advanced-types`
+- `wshobson-unity-ecs-patterns`
+- `wshobson-uv-package-manager`
+- `wshobson-vector-index-tuning`
+- `wshobson-wcag-audit-patterns`
+- `wshobson-web3-testing`
+- `wshobson-workflow-orchestration-patterns`
+
+### Changes
+
+- fix: escape backticks in AI summary to prevent command substitution
+- fix: convert dangerous_patterns strings to SecurityFinding objects
+- fix: use 5-tier risk_level directly without mapping
+- fix: remove unauthorized released_at field from marketplace metadata
+- feat: trigger Cloudflare deploy after plugin sync to Supabase
+- refactor: merge deploy-skillstore into sync-to-supabase job
+
+
 ## [0.1.0] - 2026-01-01
 
 ### Summary
