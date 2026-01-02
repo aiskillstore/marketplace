@@ -1,4 +1,4 @@
-name: Re-audit All Skills
+name: Audit All Skills
 
 on:
   workflow_dispatch:
@@ -34,14 +34,14 @@ env:
   CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
 
 concurrency:
-  group: reaudit-skills
+  group: audit-skills
   cancel-in-progress: false
 
 jobs:
-  reaudit:
+  audit:
     runs-on: self-hosted
     outputs:
-      updated_count: ${{ steps.reaudit.outputs.updated_count }}
+      updated_count: ${{ steps.audit.outputs.updated_count }}
       pr_url: ${{ steps.pr.outputs.pr_url }}
     steps:
       - name: Checkout repository
@@ -80,12 +80,12 @@ jobs:
           echo "CLI version:"
           ./skillstore-cli --version
 
-      - name: Re-audit skills
-        id: reaudit
+      - name: Audit skills
+        id: audit
         env:
           SKILLSTORE_AGENTS: ${{ secrets.SKILLSTORE_AGENTS }}
         run: |
-          echo "Re-auditing skills..."
+          echo "Auditing skills..."
           echo "Agent: ${{ inputs.agent }}"
           echo "Dry run: ${{ inputs.dry_run }}"
           
@@ -109,15 +109,15 @@ jobs:
             DRY_RUN_FLAG="--dry-run"
           fi
           
-          ./skillstore-cli skill reaudit ./plugins \
+          ./skillstore-cli skill audit ./plugins \
             $AGENT_FLAG \
             $SLUG_FLAG \
             $LIMIT_FLAG \
             $DRY_RUN_FLAG \
             --verbose \
-            2>&1 | tee reaudit-output.log
+            2>&1 | tee audit-output.log
           
-          UPDATED_COUNT=$(grep -c "✅ updated" reaudit-output.log || echo "0")
+          UPDATED_COUNT=$(grep -c "✅ updated" audit-output.log || echo "0")
           echo "updated_count=$UPDATED_COUNT" >> $GITHUB_OUTPUT
           echo "Updated $UPDATED_COUNT skill(s)"
 
@@ -140,16 +140,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          BRANCH_NAME="reaudit/$(date +%Y%m%d-%H%M%S)"
+          BRANCH_NAME="audit/$(date +%Y%m%d-%H%M%S)"
           git checkout -b "$BRANCH_NAME"
           
           git add plugins/*/skill-report.json
           git add plugins/*/*/skill-report.json 2>/dev/null || true
           
-          UPDATED_COUNT="${{ steps.reaudit.outputs.updated_count }}"
+          UPDATED_COUNT="${{ steps.audit.outputs.updated_count }}"
           AGENT="${{ inputs.agent }}"
           
-          git commit -m "chore(audit): re-audit ${UPDATED_COUNT} skills with AI risk factor detection
+          git commit -m "chore(audit): audit ${UPDATED_COUNT} skills with AI risk factor detection
 
           - Agent: ${AGENT}
           - Updated risk_factors field with: scripts, network, filesystem, env_access, external_commands
@@ -158,11 +158,11 @@ jobs:
           git push origin "$BRANCH_NAME"
           
           PR_URL=$(gh pr create \
-            --title "Re-audit ${UPDATED_COUNT} skills with AI risk factor detection" \
+            --title "Audit ${UPDATED_COUNT} skills with AI risk factor detection" \
             --body "$(cat <<'EOF'
           ## Summary
 
-          This PR re-audits skills in the marketplace using AI-powered security analysis.
+          This PR audits skills in the marketplace using AI-powered security analysis.
 
           ### Changes
           - Updated `risk_factors` field in each skill's `skill-report.json`
@@ -175,7 +175,7 @@ jobs:
           - **CLI Version**: ${{ env.CLI_VERSION }}
 
           ### Updated Skills
-          ${{ steps.reaudit.outputs.updated_count }} skill(s) updated
+          ${{ steps.audit.outputs.updated_count }} skill(s) updated
 
           ### After Merge
           The `sync-to-supabase.yml` workflow will automatically update the database with new risk factors.
@@ -189,20 +189,20 @@ jobs:
 
       - name: Summary
         run: |
-          echo "## Re-audit Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## Audit Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Agent | \`${{ inputs.agent }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Skills Updated | ${{ steps.reaudit.outputs.updated_count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Skills Updated | ${{ steps.audit.outputs.updated_count }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Dry Run | ${{ inputs.dry_run }} |" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.pr.outputs.pr_url }}" != "" ]; then
             echo "| PR | ${{ steps.pr.outputs.pr_url }} |" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Re-audit workflow completed." >> $GITHUB_STEP_SUMMARY
+          echo "✅ Audit workflow completed." >> $GITHUB_STEP_SUMMARY
 
       - name: Cleanup
         if: always()
         run: |
-          rm -f skillstore-cli reaudit-output.log
+          rm -f skillstore-cli audit-output.log
