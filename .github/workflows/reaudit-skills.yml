@@ -3,21 +3,35 @@ name: Re-audit All Skills
 on:
   workflow_dispatch:
     inputs:
-      model:
-        description: 'AI model for audit'
+      agent:
+        description: 'AI agent for audit'
         type: choice
         options:
-          - 'gpt-5.2:high'
-          - 'claude-3-5-sonnet-20241022'
-        default: 'gpt-5.2:high'
+          - 'auto'
+          - 'codex'
+          - 'claude'
+          - 'gemini'
+        default: 'auto'
       slug:
         description: 'Audit specific skill only (leave empty for all)'
         type: string
         default: ''
+      limit:
+        description: 'Maximum skills to process (leave empty for all)'
+        type: string
+        default: ''
+      cli_version:
+        description: 'CLI version (default: latest)'
+        type: string
+        default: 'latest'
       dry_run:
         description: 'Preview changes without creating PR'
         type: boolean
         default: false
+
+env:
+  CLI_REPO: aiskillstore/skillstore
+  CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
 
 concurrency:
   group: reaudit-skills
@@ -27,7 +41,7 @@ jobs:
   reaudit:
     runs-on: self-hosted
     outputs:
-      updated_count: ${{ steps.audit.outputs.updated_count }}
+      updated_count: ${{ steps.reaudit.outputs.updated_count }}
       pr_url: ${{ steps.pr.outputs.pr_url }}
     steps:
       - name: Checkout repository
@@ -36,402 +50,76 @@ jobs:
           token: ${{ secrets.PAT_TOKEN }}
           fetch-depth: 1
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Download Skillstore CLI
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          echo "Downloading skillstore-cli..."
+          
+          if [ "$CLI_VERSION" = "latest" ]; then
+            echo "Fetching latest release tag..."
+            RELEASE_TAG=$(gh release view --repo "$CLI_REPO" --json tagName -q '.tagName')
+            echo "Latest release: $RELEASE_TAG"
+          else
+            RELEASE_TAG="cli-v$CLI_VERSION"
+            echo "Using specified version: $RELEASE_TAG"
+          fi
+          
+          gh release download "$RELEASE_TAG" \
+            --repo "$CLI_REPO" \
+            --pattern "skillstore-cli-linux-x64" \
+            --output skillstore-cli
+          
+          chmod +x skillstore-cli
+          
+          echo "CLI version:"
+          ./skillstore-cli --version
 
       - name: Re-audit skills
-        id: audit
+        id: reaudit
         env:
-          AI_API_BASE: http://192.168.199.7:3001/v1
-          AI_MODEL: ${{ inputs.model }}
-          TARGET_SLUG: ${{ inputs.slug }}
-          DRY_RUN: ${{ inputs.dry_run }}
+          SKILLSTORE_AGENTS: ${{ secrets.SKILLSTORE_AGENTS }}
         run: |
-          UPDATED_COUNT=$(node << 'SCRIPT_EOF'
-          const fs = require('fs');
-          const path = require('path');
-
-          const AI_API_BASE = process.env.AI_API_BASE;
-          const AI_MODEL = process.env.AI_MODEL;
-          const TARGET_SLUG = process.env.TARGET_SLUG || '';
-          const DRY_RUN = process.env.DRY_RUN === 'true';
-
-          const MAX_FILE_SIZE = 50000;
-          const MAX_TOTAL_SIZE = 200000;
-          const AUDIT_DELAY_MS = 2000;
-
-          // ============================================================
-          // RISK LEVEL & CATEGORY ENUMS
-          // ============================================================
-          const RISK_LEVELS = ['safe', 'low', 'medium', 'high', 'critical'];
-          const CATEGORIES = [
-            'productivity', 'development', 'documentation', 'testing',
-            'code-review', 'devops', 'design', 'data', 'ai-ml',
-            'security', 'communication', 'learning', 'other'
-          ];
-
-          // ============================================================
-          // AUDIT PROMPT BUILDER
-          // ============================================================
-          function buildAuditPrompt(slug, pluginDir, files) {
-            const sourceType = 'official'; // All plugins in marketplace are official
-            const sourceUrl = `https://github.com/aiskillstore/marketplace/tree/main/plugins/${slug}`;
-            
-            const fileContents = files.map(f => 
-              `### File: ${f.path} (${f.lines} lines)\n\`\`\`${f.extension}\n${f.content}\n\`\`\``
-            ).join('\n\n');
-            
-            const totalLines = files.reduce((sum, f) => sum + f.lines, 0);
-
-            return `You are a security auditor and content specialist for an AI skill marketplace.
-
-          TASK: Perform security audit and generate marketplace content for this skill.
-
-          ═══════════════════════════════════════════════════════════════════════════════
-          SKILL INFO
-          ═══════════════════════════════════════════════════════════════════════════════
-          Slug: ${slug}
-          Source: ${sourceUrl}
-          Source Type: OFFICIAL (from aiskillstore/marketplace)
-          Files: ${files.length} files, ${totalLines} lines
-
-          ═══════════════════════════════════════════════════════════════════════════════
-          SOURCE CODE
-          ═══════════════════════════════════════════════════════════════════════════════
-          ${fileContents}
-
-          ═══════════════════════════════════════════════════════════════════════════════
-          SECURITY AUDIT (Official Source - Minimal Audit)
-          ═══════════════════════════════════════════════════════════════════════════════
-          Official skills are pre-reviewed. Perform minimal security scan but MUST detect risk factors.
-
-          RISK FACTORS DETECTION (MANDATORY - analyze carefully):
-
-          "scripts" - Contains executable scripts:
-            - Shell scripts: .sh, .bash, .zsh files
-            - Python scripts with shebang or executable intent
-            - PowerShell: .ps1, Batch: .bat, .cmd
-            - Files in scripts/, bin/ directories
-
-          "network" - Performs network operations:
-            - HTTP: fetch(), axios, requests, urllib, http.get
-            - WebSocket, API endpoints, URLs in code
-            - cURL, wget, Cloud SDK calls
-
-          "filesystem" - Accesses filesystem beyond skill directory:
-            - File I/O: fs.readFile, open(), file operations
-            - Home directory: ~/, $HOME
-            - System paths: /etc/, /var/, /tmp/
-
-          "env_access" - Reads environment variables:
-            - process.env, os.environ, getenv(), $ENV:
-
-          "external_commands" - Executes external processes:
-            - exec(), spawn(), system(), popen(), subprocess
-
-          ═══════════════════════════════════════════════════════════════════════════════
-          OUTPUT FORMAT (JSON ONLY - NO MARKDOWN WRAPPER)
-          ═══════════════════════════════════════════════════════════════════════════════
-
-          Return ONLY this JSON structure:
-
-          {
-            "skill": {
-              "name": "string",
-              "description": "string - from SKILL.md",
-              "summary": "string - one liner max 100 chars",
-              "icon": "emoji",
-              "version": "semver or 0.1.0",
-              "author": "string or unknown",
-              "license": "SPDX identifier or unknown",
-              "category": "one of: ${CATEGORIES.join(', ')}",
-              "tags": ["3-5 relevant tags"],
-              "supported_tools": ["claude", "codex", "claude-code"],
-              "risk_factors": []  // MUST include all detected: scripts, network, filesystem, env_access, external_commands
-            },
-            "security_audit": {
-              "risk_level": "safe",
-              "is_blocked": false,
-              "safe_to_publish": true,
-              "summary": "Official skill with minimal audit. [describe what you found]",
-              "critical_findings": [],
-              "high_findings": [],
-              "medium_findings": [],
-              "low_findings": [],
-              "dangerous_patterns": [],
-              "files_scanned": ${files.length},
-              "total_lines": ${totalLines}
-            },
-            "content": {
-              "user_title": "max 60 chars, action verb",
-              "value_statement": "2 sentences: problem + solution",
-              "seo_keywords": ["8-10 terms including Claude, Codex, Claude Code"],
-              "actual_capabilities": ["4-6 specific capabilities"],
-              "limitations": ["3-4 honest limitations"],
-              "use_cases": [
-                {"target_user": "string", "title": "max 40 chars", "description": "max 120 chars"}
-              ],
-              "prompt_templates": [
-                {"title": "max 30 chars", "scenario": "max 60 chars", "prompt": "max 200 chars"}
-              ],
-              "output_examples": [
-                {"input": "natural language", "output": ["bullet points"]}
-              ],
-              "best_practices": ["3 items"],
-              "anti_patterns": ["3 items"],
-              "faq": [
-                {"question": "string", "answer": "max 150 chars"}
-              ]
-            }
-          }
-
-          NOW: Analyze the source code above and return JSON.`;
-          }
-
-          // ============================================================
-          // FILE COLLECTION
-          // ============================================================
-          function collectFiles(dir, basePath = '') {
-            const files = [];
-            let totalSize = 0;
-            
-            const textExtensions = [
-              'md', 'txt', 'js', 'ts', 'mjs', 'cjs', 'jsx', 'tsx',
-              'py', 'sh', 'bash', 'zsh', 'ps1', 'bat', 'cmd',
-              'json', 'yaml', 'yml', 'toml', 'xml', 'html', 'css',
-              'sql', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'hpp',
-              'svelte', 'vue', 'astro'
-            ];
-            
-            function traverse(currentDir, relativePath) {
-              if (totalSize >= MAX_TOTAL_SIZE) return;
-              
-              const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-              
-              for (const entry of entries) {
-                if (totalSize >= MAX_TOTAL_SIZE) break;
-                
-                const fullPath = path.join(currentDir, entry.name);
-                const relPath = path.join(relativePath, entry.name);
-                
-                // Skip hidden files and common non-essential directories
-                if (entry.name.startsWith('.') && entry.name !== '.claude-plugin') continue;
-                if (['node_modules', '__pycache__', 'dist', 'build'].includes(entry.name)) continue;
-                
-                if (entry.isDirectory()) {
-                  traverse(fullPath, relPath);
-                } else if (entry.isFile()) {
-                  const ext = entry.name.split('.').pop()?.toLowerCase() || '';
-                  
-                  if (!textExtensions.includes(ext)) continue;
-                  
-                  try {
-                    const content = fs.readFileSync(fullPath, 'utf8');
-                    if (content.length > MAX_FILE_SIZE) continue;
-                    
-                    const lines = content.split('\n').length;
-                    files.push({
-                      path: relPath,
-                      content: content,
-                      extension: ext,
-                      lines: lines
-                    });
-                    totalSize += content.length;
-                  } catch (e) {
-                    // Skip unreadable files
-                  }
-                }
-              }
-            }
-            
-            traverse(dir, basePath);
-            return files;
-          }
-
-          // ============================================================
-          // AI API CALL
-          // ============================================================
-          async function callAI(prompt) {
-            const response = await fetch(`${AI_API_BASE}/chat/completions`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                model: AI_MODEL,
-                messages: [{ role: 'user', content: prompt }],
-                temperature: 0.3,
-                max_tokens: 32000,
-              }),
-            });
-
-            if (!response.ok) {
-              const text = await response.text();
-              throw new Error(`AI API error: ${response.status} - ${text}`);
-            }
-
-            const data = await response.json();
-            return data.choices[0].message.content;
-          }
-
-          // ============================================================
-          // PARSE AI RESPONSE
-          // ============================================================
-          function parseAIResponse(response) {
-            let jsonStr = response.trim();
-            
-            // Remove markdown code blocks if present
-            if (jsonStr.startsWith('```json')) jsonStr = jsonStr.slice(7);
-            else if (jsonStr.startsWith('```')) jsonStr = jsonStr.slice(3);
-            if (jsonStr.endsWith('```')) jsonStr = jsonStr.slice(0, -3);
-            
-            // Extract JSON object
-            const match = jsonStr.match(/\{[\s\S]*\}/);
-            if (!match) throw new Error('No JSON object found in response');
-            
-            return JSON.parse(match[0]);
-          }
-
-          // ============================================================
-          // MERGE WITH EXISTING REPORT
-          // ============================================================
-          function mergeReport(existing, aiResult, files) {
-            const now = new Date().toISOString();
-            
-            // Validate risk_factors
-            const validRiskFactors = ['scripts', 'network', 'filesystem', 'env_access', 'external_commands'];
-            const riskFactors = (aiResult.skill?.risk_factors || [])
-              .filter(f => validRiskFactors.includes(f));
-            
-            return {
-              schema_version: existing.schema_version || '2.0',
-              meta: {
-                ...existing.meta,
-                generated_at: now,
-                model: AI_MODEL.split(':')[0],
-                analysis_version: '2.0.0',
-              },
-              skill: {
-                ...existing.skill,
-                ...aiResult.skill,
-                risk_factors: riskFactors,
-              },
-              security_audit: {
-                ...aiResult.security_audit,
-                audit_model: AI_MODEL.split(':')[0],
-                audited_at: now,
-                files_scanned: files.length,
-                total_lines: files.reduce((sum, f) => sum + f.lines, 0),
-              },
-              content: aiResult.content || existing.content,
-              file_structure: existing.file_structure,
-            };
-          }
-
-          // ============================================================
-          // MAIN EXECUTION
-          // ============================================================
-          async function main() {
-            const pluginsDir = 'plugins';
-            let updatedCount = 0;
-            let errorCount = 0;
-            
-            // Discover all plugins
-            const plugins = fs.readdirSync(pluginsDir, { withFileTypes: true })
-              .filter(d => d.isDirectory())
-              .filter(d => !d.name.startsWith('.'))
-              .map(d => d.name);
-            
-            // Filter by target slug if specified
-            const targetPlugins = TARGET_SLUG 
-              ? plugins.filter(p => p === TARGET_SLUG)
-              : plugins;
-            
-            console.error(`Found ${targetPlugins.length} plugin(s) to audit`);
-            console.error(`Model: ${AI_MODEL}`);
-            console.error(`Dry run: ${DRY_RUN}`);
-            console.error('');
-            
-            for (const slug of targetPlugins) {
-              const pluginDir = path.join(pluginsDir, slug);
-              const reportPath = path.join(pluginDir, 'skill-report.json');
-              
-              // Skip if no skill-report.json exists
-              if (!fs.existsSync(reportPath)) {
-                console.error(`⏭️  ${slug}: no skill-report.json, skipping`);
-                continue;
-              }
-              
-              process.stderr.write(`🔍 ${slug}: `);
-              
-              try {
-                // Collect files
-                const files = collectFiles(pluginDir);
-                process.stderr.write(`${files.length} files `);
-                
-                if (files.length === 0) {
-                  console.error('- no text files found');
-                  continue;
-                }
-                
-                // Build prompt and call AI
-                const prompt = buildAuditPrompt(slug, pluginDir, files);
-                process.stderr.write('→ AI ');
-                
-                const aiResponse = await callAI(prompt);
-                const aiResult = parseAIResponse(aiResponse);
-                
-                // Get risk factors for display
-                const riskFactors = aiResult.skill?.risk_factors || [];
-                const riskDisplay = riskFactors.length > 0 
-                  ? `[${riskFactors.join(', ')}]` 
-                  : '[none]';
-                
-                process.stderr.write(`→ ${aiResult.security_audit?.risk_level || 'unknown'} ${riskDisplay} `);
-                
-                // Load existing report and merge
-                const existing = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-                const merged = mergeReport(existing, aiResult, files);
-                
-                if (!DRY_RUN) {
-                  fs.writeFileSync(reportPath, JSON.stringify(merged, null, 2) + '\n');
-                  console.error('✅ updated');
-                } else {
-                  console.error('✅ would update (dry-run)');
-                }
-                
-                updatedCount++;
-                
-                // Rate limiting delay
-                await new Promise(r => setTimeout(r, AUDIT_DELAY_MS));
-                
-              } catch (err) {
-                console.error(`❌ error: ${err.message}`);
-                errorCount++;
-              }
-            }
-            
-            console.error('');
-            console.error('========================================');
-            console.error(`Audit complete: ${updatedCount} updated, ${errorCount} errors`);
-            console.error('========================================');
-            
-            // Output count to stdout for GitHub Actions
-            console.log(updatedCount);
-            
-            if (errorCount > 0) {
-              process.exit(1);
-            }
-          }
-
-          main().catch(err => {
-            console.error('Fatal error:', err);
-            process.exit(1);
-          });
-          SCRIPT_EOF
-          )
+          echo "Re-auditing skills..."
+          echo "Agent: ${{ inputs.agent }}"
+          echo "Dry run: ${{ inputs.dry_run }}"
           
+          AGENT_FLAG=""
+          if [ -n "${{ inputs.agent }}" ] && [ "${{ inputs.agent }}" != "auto" ]; then
+            AGENT_FLAG="--agent ${{ inputs.agent }}"
+          fi
+          
+          SLUG_FLAG=""
+          if [ -n "${{ inputs.slug }}" ]; then
+            SLUG_FLAG="--slug ${{ inputs.slug }}"
+          fi
+          
+          LIMIT_FLAG=""
+          if [ -n "${{ inputs.limit }}" ]; then
+            LIMIT_FLAG="--limit ${{ inputs.limit }}"
+          fi
+          
+          DRY_RUN_FLAG=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          
+          ./skillstore-cli skill reaudit ./plugins \
+            $AGENT_FLAG \
+            $SLUG_FLAG \
+            $LIMIT_FLAG \
+            $DRY_RUN_FLAG \
+            --verbose \
+            2>&1 | tee reaudit-output.log
+          
+          UPDATED_COUNT=$(grep -c "✅ updated" reaudit-output.log || echo "0")
           echo "updated_count=$UPDATED_COUNT" >> $GITHUB_OUTPUT
+          echo "Updated $UPDATED_COUNT skill(s)"
 
       - name: Check for changes
         id: changes
@@ -452,51 +140,45 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          # Configure git
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Create branch
           BRANCH_NAME="reaudit/$(date +%Y%m%d-%H%M%S)"
           git checkout -b "$BRANCH_NAME"
           
-          # Stage and commit
           git add plugins/*/skill-report.json
+          git add plugins/*/*/skill-report.json 2>/dev/null || true
           
-          UPDATED_COUNT="${{ steps.audit.outputs.updated_count }}"
-          MODEL="${{ inputs.model }}"
+          UPDATED_COUNT="${{ steps.reaudit.outputs.updated_count }}"
+          AGENT="${{ inputs.agent }}"
           
           git commit -m "chore(audit): re-audit ${UPDATED_COUNT} skills with AI risk factor detection
 
-          - Model: ${MODEL}
+          - Agent: ${AGENT}
           - Updated risk_factors field with: scripts, network, filesystem, env_access, external_commands
           - Refreshed security_audit and content sections"
           
-          # Push branch
           git push origin "$BRANCH_NAME"
           
-          # Create PR
           PR_URL=$(gh pr create \
             --title "Re-audit ${UPDATED_COUNT} skills with AI risk factor detection" \
             --body "$(cat <<'EOF'
           ## Summary
 
-          This PR re-audits all skills in the marketplace using AI-powered security analysis.
+          This PR re-audits skills in the marketplace using AI-powered security analysis.
 
           ### Changes
-          - Updated \`risk_factors\` field in each skill's \`skill-report.json\`
-          - Risk factors detected: \`scripts\`, \`network\`, \`filesystem\`, \`env_access\`, \`external_commands\`
-          - Refreshed \`security_audit\` section with latest analysis
-          - Updated \`content\` section with AI-generated marketplace content
+          - Updated `risk_factors` field in each skill's `skill-report.json`
+          - Risk factors detected: `scripts`, `network`, `filesystem`, `env_access`, `external_commands`
+          - Refreshed `security_audit` section with latest analysis
+          - Updated `content` section with AI-generated marketplace content
 
-          ### Model Used
-          \`${{ inputs.model }}\`
+          ### Configuration
+          - **Agent**: ${{ inputs.agent }}
+          - **CLI Version**: ${{ env.CLI_VERSION }}
 
           ### Updated Skills
-          ${{ steps.audit.outputs.updated_count }} skill(s) updated
+          ${{ steps.reaudit.outputs.updated_count }} skill(s) updated
 
           ### After Merge
-          The \`sync-to-supabase.yml\` workflow will automatically update the database with new risk factors.
+          The `sync-to-supabase.yml` workflow will automatically update the database with new risk factors.
           EOF
           )" \
             --base main \
@@ -511,11 +193,16 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Model | \`${{ inputs.model }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Skills Updated | ${{ steps.audit.outputs.updated_count }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Agent | \`${{ inputs.agent }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Skills Updated | ${{ steps.reaudit.outputs.updated_count }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Dry Run | ${{ inputs.dry_run }} |" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.pr.outputs.pr_url }}" != "" ]; then
             echo "| PR | ${{ steps.pr.outputs.pr_url }} |" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ Re-audit workflow completed." >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f skillstore-cli reaudit-output.log
