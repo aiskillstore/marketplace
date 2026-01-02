@@ -35,18 +35,39 @@ jobs:
   warm:
     runs-on: ubuntu-latest
     steps:
-      - name: Fetch all slugs from API
+      - name: Fetch all slugs from Supabase
         id: fetch
         env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           CONTENT_TYPE: ${{ inputs.type }}
         run: |
-          fetch_slugs() {
-            local type=$1
-            curl -sf "$SITE_URL/api/${type}?limit=1000" | jq -r '.data[].slug' | tr '\n' ' '
-          }
-          
-          fetch_release_tags() {
-            curl -sf "$SITE_URL/api/releases?limit=1000" | jq -r '.data[].tag' | tr '\n' ' '
+          # Paginated fetch from Supabase REST API (no limit)
+          fetch_all_from_supabase() {
+            local table=$1
+            local column=${2:-slug}
+            local offset=0
+            local limit=1000
+            local all_items=""
+            
+            while true; do
+              response=$(curl -sf "${SUPABASE_URL}/rest/v1/${table}?select=${column}&offset=${offset}&limit=${limit}" \
+                -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+                -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}")
+              
+              items=$(echo "$response" | jq -r ".[].${column}" | tr '\n' ' ')
+              count=$(echo "$items" | wc -w | tr -d ' ')
+              
+              if [ "$count" -eq 0 ]; then
+                break
+              fi
+              
+              all_items="$all_items $items"
+              offset=$((offset + limit))
+              echo "  Fetched $count items (offset: $((offset - limit)))" >&2
+            done
+            
+            echo "$all_items" | tr -s ' '
           }
           
           SKILLS_SLUGS=""
@@ -54,21 +75,24 @@ jobs:
           RELEASES_TAGS=""
           
           if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
-            SKILLS_SLUGS=$(fetch_slugs "skills")
+            echo "Fetching all skills from Supabase..."
+            SKILLS_SLUGS=$(fetch_all_from_supabase "skillstore.skills" "slug")
             echo "skills_slugs=$SKILLS_SLUGS" >> $GITHUB_OUTPUT
             SKILLS_COUNT=$(echo $SKILLS_SLUGS | wc -w | tr -d ' ')
             echo "Found $SKILLS_COUNT skills"
           fi
           
           if [ "$CONTENT_TYPE" = "workflows" ] || [ "$CONTENT_TYPE" = "all" ]; then
-            WORKFLOWS_SLUGS=$(fetch_slugs "workflows")
+            echo "Fetching all workflows from Supabase..."
+            WORKFLOWS_SLUGS=$(fetch_all_from_supabase "skillstore.workflows" "slug")
             echo "workflows_slugs=$WORKFLOWS_SLUGS" >> $GITHUB_OUTPUT
             WORKFLOWS_COUNT=$(echo $WORKFLOWS_SLUGS | wc -w | tr -d ' ')
             echo "Found $WORKFLOWS_COUNT workflows"
           fi
           
           if [ "$CONTENT_TYPE" = "releases" ] || [ "$CONTENT_TYPE" = "all" ]; then
-            RELEASES_TAGS=$(fetch_release_tags)
+            echo "Fetching all releases from Supabase..."
+            RELEASES_TAGS=$(fetch_all_from_supabase "skillstore.releases" "tag")
             echo "releases_tags=$RELEASES_TAGS" >> $GITHUB_OUTPUT
             RELEASES_COUNT=$(echo $RELEASES_TAGS | wc -w | tr -d ' ')
             echo "Found $RELEASES_COUNT releases"
