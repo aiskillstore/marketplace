@@ -1,0 +1,338 @@
+name: Audit All Skills (Sharded)
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: 'AI agent for audit'
+        type: choice
+        options:
+          - 'auto'
+          - 'codex'
+          - 'claude'
+          - 'gemini'
+        default: 'auto'
+      slug:
+        description: 'Audit specific skill only (leave empty for all)'
+        type: string
+        default: ''
+      shard_size:
+        description: 'Skills per shard (default: 50)'
+        type: string
+        default: '50'
+      max_parallel:
+        description: 'Max parallel shards (default: 4)'
+        type: string
+        default: '4'
+      cli_version:
+        description: 'CLI version (default: latest)'
+        type: string
+        default: 'latest'
+      dry_run:
+        description: 'Preview changes without creating PR'
+        type: boolean
+        default: false
+
+env:
+  CLI_REPO: aiskillstore/skillstore
+  CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
+
+concurrency:
+  group: audit-skills-sharded
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: self-hosted
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+      total_skills: ${{ steps.generate.outputs.total_skills }}
+      shard_count: ${{ steps.generate.outputs.shard_count }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          fetch-depth: 1
+
+      - name: Discover all skills
+        id: discover
+        run: |
+          TOTAL=$(find plugins -name "skill-report.json" -type f | wc -l | tr -d ' ')
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "Found $TOTAL skills"
+
+      - name: Generate shard matrix
+        id: generate
+        env:
+          TOTAL_SKILLS: ${{ steps.discover.outputs.total }}
+          SHARD_SIZE: ${{ inputs.shard_size || '50' }}
+          TARGET_SLUG: ${{ inputs.slug }}
+        run: |
+          if [ -n "$TARGET_SLUG" ]; then
+            echo 'matrix={"include":[{"shard":0,"offset":0,"limit":1}]}' >> $GITHUB_OUTPUT
+            echo "total_skills=1" >> $GITHUB_OUTPUT
+            echo "shard_count=1" >> $GITHUB_OUTPUT
+            echo "Single skill mode: $TARGET_SLUG"
+            exit 0
+          fi
+          
+          TOTAL=$TOTAL_SKILLS
+          SIZE=$SHARD_SIZE
+          SHARDS=$(( (TOTAL + SIZE - 1) / SIZE ))
+          
+          echo "Total skills: $TOTAL"
+          echo "Shard size: $SIZE"
+          echo "Shards needed: $SHARDS"
+          
+          MATRIX='{"include":['
+          for i in $(seq 0 $((SHARDS - 1))); do
+            OFFSET=$((i * SIZE))
+            [ $i -gt 0 ] && MATRIX+=','
+            MATRIX+="{\"shard\":$i,\"offset\":$OFFSET,\"limit\":$SIZE}"
+          done
+          MATRIX+=']}'
+          
+          echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+          echo "total_skills=$TOTAL" >> $GITHUB_OUTPUT
+          echo "shard_count=$SHARDS" >> $GITHUB_OUTPUT
+          
+          echo "Matrix: $MATRIX"
+
+  audit:
+    needs: discover
+    runs-on: self-hosted
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.max_parallel || '4') }}
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          fetch-depth: 1
+
+      - name: Download Skillstore CLI
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          echo "Downloading skillstore-cli..."
+          
+          if [ "$CLI_VERSION" = "latest" ]; then
+            RELEASE_TAG=$(gh release view --repo "$CLI_REPO" --json tagName -q '.tagName')
+          else
+            RELEASE_TAG="cli-v$CLI_VERSION"
+          fi
+          
+          gh release download "$RELEASE_TAG" \
+            --repo "$CLI_REPO" \
+            --pattern "skillstore-cli-linux-x64" \
+            --output skillstore-cli
+          
+          chmod +x skillstore-cli
+          ./skillstore-cli --version
+
+      - name: Audit shard ${{ matrix.shard }}
+        id: audit
+        env:
+          SKILLSTORE_AGENTS: ${{ secrets.SKILLSTORE_AGENTS }}
+        run: |
+          echo "=== Shard ${{ matrix.shard }} ==="
+          echo "Offset: ${{ matrix.offset }}"
+          echo "Limit: ${{ matrix.limit }}"
+          
+          AGENT_FLAG=""
+          if [ -n "${{ inputs.agent }}" ] && [ "${{ inputs.agent }}" != "auto" ]; then
+            AGENT_FLAG="--agent ${{ inputs.agent }}"
+          fi
+          
+          SLUG_FLAG=""
+          if [ -n "${{ inputs.slug }}" ]; then
+            SLUG_FLAG="--slug ${{ inputs.slug }}"
+          fi
+          
+          DRY_RUN_FLAG=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          
+          ./skillstore-cli skill audit ./plugins \
+            $AGENT_FLAG \
+            $SLUG_FLAG \
+            $DRY_RUN_FLAG \
+            --offset ${{ matrix.offset }} \
+            --limit ${{ matrix.limit }} \
+            --verbose \
+            2>&1 | tee audit-output-${{ matrix.shard }}.log
+          
+          UPDATED=$(grep -c "✅ updated" audit-output-${{ matrix.shard }}.log 2>/dev/null || echo "0")
+          ERRORS=$(grep -c "❌ error" audit-output-${{ matrix.shard }}.log 2>/dev/null || echo "0")
+          
+          echo "updated=$UPDATED" >> $GITHUB_OUTPUT
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+          
+          echo "Shard ${{ matrix.shard }}: Updated $UPDATED, Errors $ERRORS"
+
+      - name: Upload shard results
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-${{ matrix.shard }}-results
+          path: |
+            plugins/*/skill-report.json
+            plugins/*/*/skill-report.json
+            audit-output-${{ matrix.shard }}.log
+          retention-days: 1
+          overwrite: true
+
+      - name: Cleanup
+        if: always()
+        run: rm -f skillstore-cli
+
+  merge:
+    needs: [discover, audit]
+    runs-on: self-hosted
+    if: always() && needs.discover.result == 'success'
+    outputs:
+      pr_url: ${{ steps.pr.outputs.pr_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          fetch-depth: 1
+
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Download all shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: shard-*-results
+          merge-multiple: true
+          path: ./merged-results
+
+      - name: Apply merged results
+        id: apply
+        run: |
+          echo "Applying results from all shards..."
+          
+          if [ -d "./merged-results/plugins" ]; then
+            cp -r ./merged-results/plugins/* ./plugins/ 2>/dev/null || true
+          fi
+          
+          TOTAL_UPDATED=0
+          TOTAL_ERRORS=0
+          for log in ./merged-results/audit-output-*.log; do
+            if [ -f "$log" ]; then
+              COUNT=$(grep -c "✅ updated" "$log" 2>/dev/null || echo "0")
+              ERRORS=$(grep -c "❌ error" "$log" 2>/dev/null || echo "0")
+              TOTAL_UPDATED=$((TOTAL_UPDATED + COUNT))
+              TOTAL_ERRORS=$((TOTAL_ERRORS + ERRORS))
+            fi
+          done
+          
+          echo "Total skills updated: $TOTAL_UPDATED"
+          echo "Total errors: $TOTAL_ERRORS"
+          echo "updated_count=$TOTAL_UPDATED" >> $GITHUB_OUTPUT
+          echo "error_count=$TOTAL_ERRORS" >> $GITHUB_OUTPUT
+
+      - name: Check for changes
+        id: changes
+        if: inputs.dry_run != true
+        run: |
+          if git diff --quiet plugins/; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes detected"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            CHANGED_FILES=$(git diff --name-only plugins/ | wc -l | tr -d ' ')
+            echo "Changed files: $CHANGED_FILES"
+          fi
+
+      - name: Create Pull Request
+        id: pr
+        if: inputs.dry_run != true && steps.changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          BRANCH_NAME="audit/sharded-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH_NAME"
+          
+          git add plugins/*/skill-report.json
+          git add plugins/*/*/skill-report.json 2>/dev/null || true
+          
+          UPDATED_COUNT="${{ steps.apply.outputs.updated_count }}"
+          ERROR_COUNT="${{ steps.apply.outputs.error_count }}"
+          SHARD_COUNT="${{ needs.discover.outputs.shard_count }}"
+          AGENT="${{ inputs.agent }}"
+          
+          git commit -m "chore(audit): sharded audit of ${UPDATED_COUNT} skills
+
+          - Agent: ${AGENT}
+          - Shards: ${SHARD_COUNT}
+          - Updated: ${UPDATED_COUNT}
+          - Errors: ${ERROR_COUNT}"
+          
+          git push origin "$BRANCH_NAME"
+          
+          PR_URL=$(gh pr create \
+            --title "Sharded Audit: ${UPDATED_COUNT} skills across ${SHARD_COUNT} shards" \
+            --body "$(cat <<EOF
+          ## Summary
+          
+          Sharded batch audit using parallel matrix processing.
+          
+          | Metric | Value |
+          |--------|-------|
+          | Total Skills | ${{ needs.discover.outputs.total_skills }} |
+          | Shards | ${SHARD_COUNT} |
+          | Max Parallel | ${{ inputs.max_parallel || '4' }} |
+          | Updated | ${UPDATED_COUNT} |
+          | Errors | ${ERROR_COUNT} |
+          | Agent | \`${AGENT}\` |
+          | CLI Version | \`${{ env.CLI_VERSION }}\` |
+          
+          ### Changes
+          - Updated \`risk_factors\` field in each skill's \`skill-report.json\`
+          - Risk factors detected: \`scripts\`, \`network\`, \`filesystem\`, \`env_access\`, \`external_commands\`
+          - Refreshed \`security_audit\` section with latest analysis
+          
+          ### After Merge
+          The \`sync-to-supabase.yml\` workflow will automatically update the database.
+          EOF
+          )" \
+            --base main \
+            --head "$BRANCH_NAME")
+          
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "::notice::Created PR: $PR_URL"
+
+      - name: Summary
+        if: always()
+        run: |
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          ## Sharded Audit Summary
+          
+          | Metric | Value |
+          |--------|-------|
+          | Total Skills | ${{ needs.discover.outputs.total_skills }} |
+          | Shards | ${{ needs.discover.outputs.shard_count }} |
+          | Max Parallel | ${{ inputs.max_parallel || '4' }} |
+          | Agent | \`${{ inputs.agent }}\` |
+          | Updated | ${{ steps.apply.outputs.updated_count }} |
+          | Errors | ${{ steps.apply.outputs.error_count }} |
+          | Dry Run | ${{ inputs.dry_run }} |
+          
+          EOF
+          
+          if [ -n "${{ steps.pr.outputs.pr_url }}" ]; then
+            echo "🔗 **PR Created**: ${{ steps.pr.outputs.pr_url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "✅ Sharded audit workflow completed." >> $GITHUB_STEP_SUMMARY
