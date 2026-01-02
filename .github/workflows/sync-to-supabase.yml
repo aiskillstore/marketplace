@@ -11,6 +11,10 @@ on:
         description: 'Force full sync (ignore incremental)'
         type: boolean
         default: false
+      skip_cache_warm:
+        description: 'Skip cache warming after sync'
+        type: boolean
+        default: false
 
 concurrency:
   group: sync-supabase
@@ -19,6 +23,9 @@ concurrency:
 jobs:
   sync:
     runs-on: self-hosted
+    outputs:
+      synced_slugs: ${{ steps.sync.outputs.synced_slugs }}
+      skip_sync: ${{ steps.changes.outputs.skip_sync }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -87,6 +94,7 @@ jobs:
           fi
 
       - name: Sync plugins to Supabase
+        id: sync
         if: steps.changes.outputs.skip_sync != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -94,7 +102,7 @@ jobs:
           CHANGED_PLUGINS: ${{ steps.changes.outputs.changed_plugins }}
           SYNC_MODE: ${{ steps.changes.outputs.mode }}
         run: |
-          node << 'EOF'
+          SYNCED_SLUGS=$(node << 'EOF'
           const { createClient } = require('@supabase/supabase-js');
           const fs = require('fs');
           const path = require('path');
@@ -108,11 +116,12 @@ jobs:
             const changedPlugins = process.env.CHANGED_PLUGINS.trim().split(/\s+/).filter(Boolean);
             const mode = process.env.SYNC_MODE;
             
-            console.log(`Sync mode: ${mode}`);
-            console.log(`Syncing ${changedPlugins.length} plugin(s): ${changedPlugins.join(', ')}`);
+            console.error(`Sync mode: ${mode}`);
+            console.error(`Syncing ${changedPlugins.length} plugin(s): ${changedPlugins.join(', ')}`);
 
             let synced = 0;
             let errors = 0;
+            const syncedSlugs = [];
 
             for (const dirPath of changedPlugins) {
               const pluginPath = `plugins/${dirPath}`;
@@ -121,7 +130,7 @@ jobs:
               const entryPath = path.join(pluginPath, 'marketplace-entry.json');
 
               if (!fs.existsSync(pluginPath)) {
-                console.log(`Skipping ${dirPath}: directory not found`);
+                console.error(`Skipping ${dirPath}: directory not found`);
                 continue;
               }
 
@@ -140,7 +149,7 @@ jobs:
               }
 
               if (!skillReport && !entry) {
-                console.log(`Skipping ${dirPath}: no skill-report.json or marketplace-entry.json`);
+                console.error(`Skipping ${dirPath}: no skill-report.json or marketplace-entry.json`);
                 continue;
               }
 
@@ -191,8 +200,10 @@ jobs:
                 risk_level: skillReport?.security_audit?.risk_level || 'safe',
                 risk_factors: skillReport?.skill?.risk_factors || [],
                 
-                // Publishing status (building = hidden until Cloudflare build completes)
-                status: 'building',
+                // Publishing status - directly approved with KV-based ISR
+                // No more 'building' status needed since pages render on-demand
+                status: 'approved',
+                published_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
               };
 
@@ -211,7 +222,8 @@ jobs:
               }
 
               const skillId = skillData.id;
-              console.log(`✅ Synced skill: ${slug} (id: ${skillId})`);
+              console.error(`✅ Synced skill: ${slug} (id: ${skillId})`);
+              syncedSlugs.push(slug);
 
               // ============================================================
               // 2. SYNC TO skill_ai_content TABLE (rich AI-generated content)
@@ -263,7 +275,7 @@ jobs:
                 if (aiError) {
                   console.error(`  ⚠️ Error syncing AI content for ${slug}: ${aiError.message}`);
                 } else {
-                  console.log(`  ✅ Synced AI content for ${slug}`);
+                  console.error(`  ✅ Synced AI content for ${slug}`);
                 }
               }
 
@@ -316,16 +328,19 @@ jobs:
                 if (auditError) {
                   console.error(`  ⚠️ Error syncing security audit for ${slug}: ${auditError.message}`);
                 } else {
-                  console.log(`  ✅ Synced security audit for ${slug}`);
+                  console.error(`  ✅ Synced security audit for ${slug}`);
                 }
               }
 
               synced++;
             }
 
-            console.log(`\n========================================`);
-            console.log(`Sync complete: ${synced} synced, ${errors} errors`);
-            console.log(`========================================`);
+            console.error(`\n========================================`);
+            console.error(`Sync complete: ${synced} synced, ${errors} errors`);
+            console.error(`========================================`);
+            
+            // Output synced slugs to stdout (for GitHub Actions)
+            console.log(syncedSlugs.join(' '));
             
             if (errors > 0) {
               process.exit(1);
@@ -337,103 +352,93 @@ jobs:
             process.exit(1);
           });
           EOF
+          )
+          
+          echo "synced_slugs=$SYNCED_SLUGS" >> $GITHUB_OUTPUT
+          echo "::notice::Synced skills: $SYNCED_SLUGS"
 
       - name: Report sync status
         run: |
           echo "::notice::Sync completed - Mode: ${{ steps.changes.outputs.mode }}, Plugins: ${{ steps.changes.outputs.changed_plugins }}"
 
-      - name: Trigger Cloudflare Pages deployment
-        id: trigger
-        if: steps.changes.outputs.skip_sync != 'true'
+  # ============================================================
+  # CACHE WARMING JOB
+  # Warms KV cache for synced skills across all locales
+  # ============================================================
+  cache-warm:
+    needs: sync
+    if: needs.sync.outputs.skip_sync != 'true' && inputs.skip_cache_warm != true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warm KV cache for synced skills
+        env:
+          SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
+          SITE_URL: https://skillstore.io
         run: |
-          echo "Triggering Cloudflare Pages deployment for skillstore.io..."
-          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}")
-          if [ "$HTTP_STATUS" -eq 200 ]; then
-            echo "✅ Deployment triggered successfully"
-            echo "triggered=true" >> $GITHUB_OUTPUT
-          else
-            echo "::error::Failed to trigger deployment: HTTP $HTTP_STATUS"
-            exit 1
+          if [ -z "$SYNCED_SLUGS" ]; then
+            echo "No slugs to warm"
+            exit 0
           fi
+          
+          LOCALES="en zh-hans zh-hant ja ko de fr es pt ru ar"
+          CONCURRENCY=5
+          
+          echo "Warming cache for: $SYNCED_SLUGS"
+          echo "Locales: $LOCALES"
+          echo ""
+          
+          # Generate URLs for all slugs × locales
+          generate_urls() {
+            for slug in $SYNCED_SLUGS; do
+              [ -z "$slug" ] && continue
+              for locale in $LOCALES; do
+                if [ "$locale" = "en" ]; then
+                  echo "$SITE_URL/skills/$slug"
+                else
+                  echo "$SITE_URL/$locale/skills/$slug"
+                fi
+              done
+            done
+          }
+          
+          URLS=$(generate_urls)
+          URL_COUNT=$(echo "$URLS" | grep -c . || echo 0)
+          
+          echo "Total URLs to warm: $URL_COUNT"
+          echo ""
+          
+          if [ "$URL_COUNT" -gt 0 ]; then
+            SUCCESS=0
+            FAILED=0
+            
+            echo "$URLS" | xargs -P $CONCURRENCY -I {} sh -c '
+              STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 30 "{}" 2>/dev/null || echo "000")
+              if [ "$STATUS" = "200" ]; then
+                echo "✓ {}"
+              else
+                echo "✗ {} ($STATUS)" >&2
+              fi
+            '
+          fi
+          
+          echo ""
+          echo "Cache warming complete!"
 
-      - name: Wait for Cloudflare deployment
-        id: wait_deploy
-        if: steps.trigger.outputs.triggered == 'true'
+      - name: Summary
         env:
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
         run: |
-          PROJECT="skillstore"
-          MAX_ATTEMPTS=36
+          SLUG_COUNT=$(echo "$SYNCED_SLUGS" | wc -w | tr -d ' ')
+          LOCALE_COUNT=11
+          TOTAL_URLS=$((SLUG_COUNT * LOCALE_COUNT))
           
-          echo "Waiting for deployment to complete..."
-          sleep 10
-          
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            RESPONSE=$(curl -sf -H "Authorization: Bearer $CF_API_TOKEN" \
-              "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT_ID/pages/projects/$PROJECT/deployments?per_page=1" 2>/dev/null)
-            
-            if [ $? -ne 0 ]; then
-              echo "::warning::Failed to fetch deployment status, retrying..."
-              sleep 10
-              continue
-            fi
-            
-            STAGE=$(echo "$RESPONSE" | jq -r '.result[0].latest_stage.name // "unknown"')
-            STATUS=$(echo "$RESPONSE" | jq -r '.result[0].latest_stage.status // "unknown"')
-            DEPLOY_ID=$(echo "$RESPONSE" | jq -r '.result[0].id // "unknown"')
-            
-            echo "[$i/$MAX_ATTEMPTS] Deployment $DEPLOY_ID - Stage: $STAGE, Status: $STATUS"
-            
-            if [ "$STAGE" = "deploy" ] && [ "$STATUS" = "success" ]; then
-              echo "deploy_success=true" >> $GITHUB_OUTPUT
-              echo "::notice::Deployment completed successfully"
-              exit 0
-            elif [ "$STATUS" = "failure" ] || [ "$STATUS" = "canceled" ]; then
-              echo "deploy_success=false" >> $GITHUB_OUTPUT
-              echo "::error::Deployment failed with status: $STATUS"
-              exit 1
-            fi
-            
-            sleep 10
-          done
-          
-          echo "deploy_success=false" >> $GITHUB_OUTPUT
-          echo "::error::Deployment timeout after 6 minutes"
-          exit 1
-
-      - name: Update status to APPROVED
-        if: steps.wait_deploy.outputs.deploy_success == 'true'
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: |
-          echo "Updating skills to approved status..."
-          
-          RESPONSE=$(curl -sf -X PATCH \
-            "$SUPABASE_URL/rest/v1/skills?status=eq.building" \
-            -H "apikey: $SUPABASE_SERVICE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
-            -H "Content-Type: application/json" \
-            -H "Prefer: return=representation" \
-            -d '{"status": "approved", "published_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}')
-          
-          COUNT=$(echo "$RESPONSE" | jq -r 'length // 0')
-          echo "::notice::Updated $COUNT skills to approved status"
-
-      - name: Revert status on failure
-        if: failure() || steps.wait_deploy.outputs.deploy_success == 'false'
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: |
-          echo "::warning::Reverting skills to pending status due to build failure"
-          
-          curl -sf -X PATCH \
-            "$SUPABASE_URL/rest/v1/skills?status=eq.building" \
-            -H "apikey: $SUPABASE_SERVICE_KEY" \
-            -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{"status": "pending"}' || true
-          
-          echo "Skills reverted to pending status"
+          echo "## Cache Warming Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Skills synced | $SLUG_COUNT |" >> $GITHUB_STEP_SUMMARY
+          echo "| Locales | $LOCALE_COUNT |" >> $GITHUB_STEP_SUMMARY
+          echo "| URLs warmed | $TOTAL_URLS |" >> $GITHUB_STEP_SUMMARY
+          echo "| Slugs | $SYNCED_SLUGS |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ KV cache warming completed." >> $GITHUB_STEP_SUMMARY
