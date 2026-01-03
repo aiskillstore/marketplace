@@ -164,9 +164,19 @@ jobs:
 
             echo "📊 Results: $TRANSLATED translated, $SKIPPED skipped, $ERRORS errors (${DURATION_SEC}s)"
 
-            echo "result_json<<EOF" >> $GITHUB_OUTPUT
-            echo "$RESULT" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+            # Output only summary metrics (not full content) to avoid "Argument list too long" error
+            SUMMARY=$(echo "$RESULT" | jq -c '{
+              totalSkills: .totalSkills,
+              translated: .translated,
+              skipped: .skipped,
+              errors: .errors,
+              durationMs: .durationMs,
+              errorDetails: [.skills[]? | select(.errors > 0) | {
+                slug: .slug,
+                failures: [.languages[]? | select(.status == "error") | {lang: .language, msg: .message}]
+              }]
+            }')
+            echo "result_json=$SUMMARY" >> $GITHUB_OUTPUT
 
             if [ "$ERRORS" -gt 0 ] && [ "$TRANSLATED" -eq 0 ]; then
               echo "❌ All translations failed"
@@ -237,7 +247,7 @@ jobs:
             if [ "$ERRORS" -gt 0 ]; then
               echo "### Errors" >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
-              echo "$RESULT_JSON" | jq -r '.skills[] | select(.errors > 0) | .slug + ": " + (.languages[] | select(.status == "error") | .language + " - " + .message)' >> $GITHUB_STEP_SUMMARY
+              echo "$RESULT_JSON" | jq -r '.errorDetails[] | .slug + ": " + (.failures[] | .lang + " - " + .msg)' >> $GITHUB_STEP_SUMMARY
               echo '```' >> $GITHUB_STEP_SUMMARY
             fi
           else
