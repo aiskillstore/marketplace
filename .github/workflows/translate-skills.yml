@@ -7,14 +7,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'plugins/**/skill-report.json'
+      - "plugins/**/skill-report.json"
   workflow_dispatch:
     inputs:
       plugin_slug:
-        description: 'Specific plugin to translate (e.g., payloadcms/payload)'
+        description: "Specific plugin to translate (e.g., payloadcms-payload)"
         required: false
       force:
-        description: 'Force re-translation of existing translations'
+        description: "Force re-translation of existing translations"
         type: boolean
         default: false
 
@@ -89,7 +89,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
 
       - name: Install skillstore-cli
         run: npm install -g @skillstore/cli@latest
@@ -99,8 +99,6 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_ENDPOINT: ${{ secrets.OPENAI_API_ENDPOINT }}
         run: |
           # Convert plugin path (owner/name) to skill slug (owner-name)
           SKILL_SLUG=$(echo "${{ matrix.plugin }}" | tr '/' '-')
@@ -116,7 +114,8 @@ jobs:
               FORCE_FLAG="--force"
             fi
 
-            if skillstore-cli skill translate-content --slug "$SKILL_SLUG" $FORCE_FLAG; then
+            # --no-purge-cache: cache invalidation handled by separate job
+            if skillstore-cli skill translate-content --slug "$SKILL_SLUG" --no-purge-cache $FORCE_FLAG; then
               echo "✅ Translation successful for $SKILL_SLUG"
               exit 0
             fi
@@ -131,8 +130,36 @@ jobs:
           echo "❌ All translation attempts failed for $SKILL_SLUG"
           exit 1
 
-  notify:
+  invalidate-cache:
     needs: [detect-changes, translate]
+    if: needs.translate.result == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Invalidate cache for translated skills
+        env:
+          CACHE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          PLUGINS_JSON: ${{ needs.detect-changes.outputs.plugins_json }}
+        run: |
+          SITE_URL="https://skillstore.io"
+          
+          # Convert plugin paths (owner/name) to skill slugs (owner-name)
+          SLUGS=$(echo "$PLUGINS_JSON" | jq -r '.[]' | tr '/' '-' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          
+          echo "Invalidating cache for: $SLUGS"
+          
+          RESPONSE=$(curl -sf -X POST "$SITE_URL/api/cache/invalidate" \
+            -H "Authorization: Bearer $CACHE_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\": \"skills\", \"slugs\": $SLUGS}" 2>&1) || {
+            echo "⚠️ Cache invalidation failed: $RESPONSE"
+            exit 0  # Don't fail the workflow for cache issues
+          }
+          
+          echo "✅ Cache invalidated: $RESPONSE"
+
+  notify:
+    needs: [detect-changes, translate, invalidate-cache]
     if: always() && needs.detect-changes.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -149,4 +176,12 @@ jobs:
             echo "❌ Some translations failed. Check the job logs for details." >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ Translation job status: ${{ needs.translate.result }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ needs.invalidate-cache.result }}" = "success" ]; then
+            echo "✅ Cache invalidated" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.invalidate-cache.result }}" = "skipped" ]; then
+            echo "⏭️ Cache invalidation skipped (translation failed)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Cache invalidation: ${{ needs.invalidate-cache.result }}" >> $GITHUB_STEP_SUMMARY
           fi
