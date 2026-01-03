@@ -135,28 +135,67 @@ jobs:
     if: needs.translate.result == 'success'
     runs-on: ubuntu-latest
     environment: production
+    env:
+      SITE_URL: https://skillstore.io
+      BATCH_SIZE: 30
     steps:
       - name: Invalidate cache for translated skills
         env:
           CACHE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           PLUGINS_JSON: ${{ needs.detect-changes.outputs.plugins_json }}
         run: |
-          SITE_URL="https://skillstore.io"
-          
           # Convert plugin paths (owner/name) to skill slugs (owner-name)
-          SLUGS=$(echo "$PLUGINS_JSON" | jq -r '.[]' | tr '/' '-' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          SLUGS_STR=$(echo "$PLUGINS_JSON" | jq -r '.[]' | tr '/' '-' | tr '\n' ' ')
+          read -ra SLUGS <<< "$SLUGS_STR"
           
-          echo "Invalidating cache for: $SLUGS"
+          TOTAL=${#SLUGS[@]}
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "No skills to invalidate"
+            exit 0
+          fi
           
-          RESPONSE=$(curl -sf -X POST "$SITE_URL/api/cache/invalidate" \
-            -H "Authorization: Bearer $CACHE_SECRET" \
-            -H "Content-Type: application/json" \
-            -d "{\"type\": \"skills\", \"slugs\": $SLUGS}" 2>&1) || {
-            echo "⚠️ Cache invalidation failed: $RESPONSE"
-            exit 0  # Don't fail the workflow for cache issues
+          # Batch invalidation function
+          invalidate_batch() {
+            local batch_slugs=("$@")
+            local json_array=$(printf '%s\n' "${batch_slugs[@]}" | jq -R . | jq -s .)
+            
+            curl -sf -X POST "$SITE_URL/api/cache/invalidate" \
+              -H "Authorization: Bearer $CACHE_SECRET" \
+              -H "Content-Type: application/json" \
+              -d "{\"type\": \"skills\", \"slugs\": $json_array}"
           }
           
-          echo "✅ Cache invalidated: $RESPONSE"
+          BATCHES=$(( (TOTAL + BATCH_SIZE - 1) / BATCH_SIZE ))
+          echo "Invalidating $TOTAL skills in $BATCHES batch(es) (batch size: $BATCH_SIZE)..."
+          
+          SUCCESS=0
+          FAILED=0
+          
+          for ((i=0; i<TOTAL; i+=BATCH_SIZE)); do
+            BATCH=("${SLUGS[@]:i:BATCH_SIZE}")
+            BATCH_NUM=$(( i / BATCH_SIZE + 1 ))
+            BATCH_COUNT=${#BATCH[@]}
+            
+            echo -n "  Batch $BATCH_NUM/$BATCHES ($BATCH_COUNT items)... "
+            
+            if invalidate_batch "${BATCH[@]}"; then
+              echo "✓"
+              SUCCESS=$((SUCCESS + BATCH_COUNT))
+            else
+              echo "✗ (retrying)"
+              sleep 2
+              if invalidate_batch "${BATCH[@]}"; then
+                echo "    Retry ✓"
+                SUCCESS=$((SUCCESS + BATCH_COUNT))
+              else
+                echo "    Retry ✗ (skipping)"
+                FAILED=$((FAILED + BATCH_COUNT))
+              fi
+            fi
+          done
+          
+          echo ""
+          echo "✅ Cache invalidation complete: $SUCCESS succeeded, $FAILED failed"
 
   notify:
     needs: [detect-changes, translate, invalidate-cache]
