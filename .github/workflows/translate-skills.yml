@@ -1,5 +1,5 @@
 # GitHub Action Workflow for Marketplace Repository
-# Copy this file to: /Users/lukin/Projects/marketplace/.github/workflows/translate-skills.yml
+# Batch translation mode: single job processes all skills with parallel language translation
 
 name: Auto-Translate Skill Content
 
@@ -10,13 +10,21 @@ on:
       - "plugins/**/skill-report.json"
   workflow_dispatch:
     inputs:
-      plugin_slug:
-        description: "Specific plugin to translate (e.g., payloadcms-payload)"
+      plugin_slugs:
+        description: "Specific plugins to translate, comma-separated (e.g., owner-repo1,owner-repo2)"
         required: false
+      model:
+        description: "Model to use (e.g., gpt-5.2-codex:high, claude-sonnet-4.5). Auto-detects agent."
+        type: string
+        default: ""
       force:
         description: "Force re-translation of existing translations"
         type: boolean
         default: false
+      concurrency:
+        description: "Parallel language translations per skill (1-10)"
+        type: string
+        default: "3"
       cli_version:
         description: "CLI version (default: latest)"
         required: false
@@ -34,8 +42,10 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      plugins_json: ${{ steps.detect.outputs.plugins_json }}
+      slugs_csv: ${{ steps.detect.outputs.slugs_csv }}
+      slugs_json: ${{ steps.detect.outputs.slugs_json }}
       has_changes: ${{ steps.detect.outputs.has_changes }}
+      skill_count: ${{ steps.detect.outputs.skill_count }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -45,54 +55,58 @@ jobs:
       - name: Detect changed plugins
         id: detect
         run: |
-          # Manual trigger with specific plugin
-          if [ -n "${{ github.event.inputs.plugin_slug }}" ]; then
-            PLUGINS_JSON='["${{ github.event.inputs.plugin_slug }}"]'
-            echo "plugins_json=$PLUGINS_JSON" >> $GITHUB_OUTPUT
+          if [ -n "${{ github.event.inputs.plugin_slugs }}" ]; then
+            SLUGS_CSV="${{ github.event.inputs.plugin_slugs }}"
+            SLUGS_JSON=$(echo "$SLUGS_CSV" | tr ',' '\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            SKILL_COUNT=$(echo "$SLUGS_CSV" | tr ',' '\n' | wc -l | tr -d ' ')
+            echo "slugs_csv=$SLUGS_CSV" >> $GITHUB_OUTPUT
+            echo "slugs_json=$SLUGS_JSON" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "Manual trigger for: ${{ github.event.inputs.plugin_slug }}"
+            echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
+            echo "Manual trigger for: $SLUGS_CSV"
             exit 0
           fi
 
-          # Detect changed skill-report.json files
           if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-            # Initial commit or force push - find all skill reports
             CHANGED=$(find plugins -name "skill-report.json" -type f 2>/dev/null || true)
           else
-            # Normal push - diff against previous commit
             CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | grep 'skill-report.json' || true)
           fi
 
-          PLUGINS=""
+          SLUGS=""
           for file in $CHANGED; do
-            # Extract plugin path: plugins/owner/name/skill-report.json -> owner/name
             PLUGIN=$(echo "$file" | sed -n 's|plugins/\([^/]*/[^/]*\)/skill-report.json|\1|p')
-            [ -n "$PLUGIN" ] && PLUGINS="$PLUGINS $PLUGIN"
+            if [ -n "$PLUGIN" ]; then
+              SLUG=$(echo "$PLUGIN" | tr '/' '-')
+              [ -n "$SLUGS" ] && SLUGS="$SLUGS,$SLUG" || SLUGS="$SLUG"
+            fi
           done
 
-          # Convert to JSON array
-          if [ -z "$(echo "$PLUGINS" | tr -d ' ')" ]; then
-            PLUGINS_JSON='[]'
+          if [ -z "$SLUGS" ]; then
+            echo "slugs_csv=" >> $GITHUB_OUTPUT
+            echo "slugs_json=[]" >> $GITHUB_OUTPUT
             echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "skill_count=0" >> $GITHUB_OUTPUT
           else
-            PLUGINS_JSON=$(echo "$PLUGINS" | xargs | tr ' ' '\n' | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            SLUGS_JSON=$(echo "$SLUGS" | tr ',' '\n' | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            SLUGS_CSV=$(echo "$SLUGS" | tr ',' '\n' | sort -u | paste -sd,)
+            SKILL_COUNT=$(echo "$SLUGS" | tr ',' '\n' | sort -u | wc -l | tr -d ' ')
+            echo "slugs_csv=$SLUGS_CSV" >> $GITHUB_OUTPUT
+            echo "slugs_json=$SLUGS_JSON" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
           fi
 
-          echo "plugins_json=$PLUGINS_JSON" >> $GITHUB_OUTPUT
-          echo "Detected plugins: $PLUGINS_JSON"
+          echo "Detected skills: $SLUGS_CSV (count: $SKILL_COUNT)"
 
   translate:
     needs: detect-changes
     if: needs.detect-changes.outputs.has_changes == 'true'
     runs-on: self-hosted
     environment: production
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      max-parallel: 3
-      matrix:
-        plugin: ${{ fromJson(needs.detect-changes.outputs.plugins_json) }}
+    timeout-minutes: 120
+    outputs:
+      result_json: ${{ steps.translate.outputs.result_json }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -105,46 +119,72 @@ jobs:
           version: ${{ inputs.cli_version || 'latest' }}
           token: ${{ secrets.PAT_TOKEN }}
 
-      - name: Translate ${{ matrix.plugin }}
-        timeout-minutes: 30
+      - name: Translate skills (batch mode)
+        id: translate
+        timeout-minutes: 90
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SKILLSTORE_AGENTS: ${{ secrets.SKILLSTORE_AGENTS }}
+          SLUGS_CSV: ${{ needs.detect-changes.outputs.slugs_csv }}
+          SKILL_COUNT: ${{ needs.detect-changes.outputs.skill_count }}
+          CONCURRENCY: ${{ inputs.concurrency || '3' }}
         run: |
-          # Convert plugin path (owner/name) to skill slug (owner-name)
-          SKILL_SLUG=$(echo "${{ matrix.plugin }}" | tr '/' '-')
+          echo "🚀 Translating $SKILL_COUNT skill(s) with concurrency $CONCURRENCY"
+          echo "Skills: $SLUGS_CSV"
 
-          echo "Translating skill: $SKILL_SLUG"
+          MODEL_FLAG=""
+          if [ -n "${{ inputs.model }}" ]; then
+            MODEL_FLAG="--model ${{ inputs.model }}"
+          fi
 
-          # Retry logic with exponential backoff
-          for attempt in 1 2 3; do
-            echo "Attempt $attempt/3..."
+          FORCE_FLAG=""
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            FORCE_FLAG="--force"
+          fi
 
-            FORCE_FLAG=""
-            if [ "${{ github.event.inputs.force }}" = "true" ]; then
-              FORCE_FLAG="--force"
+          set +e
+          RESULT=$(./skillstore-cli skill translate-content \
+            --slugs "$SLUGS_CSV" \
+            --concurrency "$CONCURRENCY" \
+            --output json \
+            $MODEL_FLAG \
+            $FORCE_FLAG 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          echo "$RESULT" > translation-result.json
+
+          if echo "$RESULT" | jq -e '.totalSkills' > /dev/null 2>&1; then
+            TRANSLATED=$(echo "$RESULT" | jq -r '.translated')
+            SKIPPED=$(echo "$RESULT" | jq -r '.skipped')
+            ERRORS=$(echo "$RESULT" | jq -r '.errors')
+            DURATION=$(echo "$RESULT" | jq -r '.durationMs')
+            DURATION_SEC=$((DURATION / 1000))
+
+            echo "📊 Results: $TRANSLATED translated, $SKIPPED skipped, $ERRORS errors (${DURATION_SEC}s)"
+
+            echo "result_json<<EOF" >> $GITHUB_OUTPUT
+            echo "$RESULT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+
+            if [ "$ERRORS" -gt 0 ] && [ "$TRANSLATED" -eq 0 ]; then
+              echo "❌ All translations failed"
+              exit 1
+            elif [ "$ERRORS" -gt 0 ]; then
+              echo "⚠️ Some translations failed, but continuing"
+            else
+              echo "✅ All translations successful"
             fi
-
-            # cache invalidation handled by separate job
-            if ./skillstore-cli skill translate-content --slug "$SKILL_SLUG" $FORCE_FLAG; then
-              echo "✅ Translation successful for $SKILL_SLUG"
-              exit 0
-            fi
-
-            if [ $attempt -lt 3 ]; then
-              WAIT_TIME=$((2 ** attempt * 10))
-              echo "⚠️ Attempt $attempt failed, waiting ${WAIT_TIME}s before retry..."
-              sleep $WAIT_TIME
-            fi
-          done
-
-          echo "❌ All translation attempts failed for $SKILL_SLUG"
-          exit 1
+          else
+            echo "❌ Translation failed with unexpected output"
+            echo "$RESULT"
+            exit 1
+          fi
 
       - name: Cleanup
         if: always()
-        run: rm -f skillstore-cli
+        run: rm -f skillstore-cli translation-result.json
 
   invalidate-cache:
     needs: [detect-changes, translate]
@@ -157,20 +197,11 @@ jobs:
         with:
           sparse-checkout: .github/actions
 
-      - name: Convert plugin paths to slugs
-        id: slugs
-        env:
-          PLUGINS_JSON: ${{ needs.detect-changes.outputs.plugins_json }}
-        run: |
-          # Convert plugin paths (owner/name) to skill slugs (owner-name)
-          SLUGS_STR=$(echo "$PLUGINS_JSON" | jq -r '.[]' | tr '/' '-' | tr '\n' ' ')
-          echo "slugs=$SLUGS_STR" >> $GITHUB_OUTPUT
-
       - name: Invalidate cache for translated skills
         uses: ./.github/actions/invalidate-cache
         with:
           type: skills
-          slugs: ${{ steps.slugs.outputs.slugs }}
+          slugs: ${{ needs.detect-changes.outputs.slugs_csv }}
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
 
   notify:
@@ -179,24 +210,51 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Summary
+        env:
+          RESULT_JSON: ${{ needs.translate.outputs.result_json }}
         run: |
           echo "# Translation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Plugins processed:** ${{ needs.detect-changes.outputs.plugins_json }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Skills:** ${{ needs.detect-changes.outputs.skill_count }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ needs.translate.result }}" = "success" ]; then
-            echo "✅ All translations completed successfully" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.translate.result }}" = "failure" ]; then
-            echo "❌ Some translations failed. Check the job logs for details." >> $GITHUB_STEP_SUMMARY
+          if [ -n "$RESULT_JSON" ] && echo "$RESULT_JSON" | jq -e '.totalSkills' > /dev/null 2>&1; then
+            TRANSLATED=$(echo "$RESULT_JSON" | jq -r '.translated')
+            SKIPPED=$(echo "$RESULT_JSON" | jq -r '.skipped')
+            ERRORS=$(echo "$RESULT_JSON" | jq -r '.errors')
+            DURATION=$(echo "$RESULT_JSON" | jq -r '.durationMs')
+            DURATION_MIN=$((DURATION / 60000))
+            DURATION_SEC=$(((DURATION % 60000) / 1000))
+
+            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| ✅ Translated | $TRANSLATED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "| ❌ Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⏱️ Duration | ${DURATION_MIN}m ${DURATION_SEC}s |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$ERRORS" -gt 0 ]; then
+              echo "### Errors" >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "$RESULT_JSON" | jq -r '.skills[] | select(.errors > 0) | .slug + ": " + (.languages[] | select(.status == "error") | .language + " - " + .message)' >> $GITHUB_STEP_SUMMARY
+              echo '```' >> $GITHUB_STEP_SUMMARY
+            fi
           else
-            echo "⚠️ Translation job status: ${{ needs.translate.result }}" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ needs.translate.result }}" = "success" ]; then
+              echo "✅ Translation completed" >> $GITHUB_STEP_SUMMARY
+            elif [ "${{ needs.translate.result }}" = "failure" ]; then
+              echo "❌ Translation failed. Check job logs." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "⚠️ Translation status: ${{ needs.translate.result }}" >> $GITHUB_STEP_SUMMARY
+            fi
           fi
 
+          echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ needs.invalidate-cache.result }}" = "success" ]; then
             echo "✅ Cache invalidated" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ needs.invalidate-cache.result }}" = "skipped" ]; then
-            echo "⏭️ Cache invalidation skipped (translation failed)" >> $GITHUB_STEP_SUMMARY
+            echo "⏭️ Cache invalidation skipped" >> $GITHUB_STEP_SUMMARY
           else
             echo "⚠️ Cache invalidation: ${{ needs.invalidate-cache.result }}" >> $GITHUB_STEP_SUMMARY
           fi

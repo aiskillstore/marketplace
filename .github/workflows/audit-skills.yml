@@ -3,15 +3,10 @@ name: Audit All Skills
 on:
   workflow_dispatch:
     inputs:
-      agent:
-        description: 'AI agent for audit'
-        type: choice
-        options:
-          - 'auto'
-          - 'codex'
-          - 'claude'
-          - 'gemini'
-        default: 'auto'
+      model:
+        description: 'Model to use (e.g., gpt-5.2-codex:high, claude-sonnet-4.5). Auto-detects agent.'
+        type: string
+        default: ''
       slug:
         description: 'Audit specific skill only (leave empty for all)'
         type: string
@@ -110,9 +105,9 @@ jobs:
           MAX_RUNTIME_MS=$(( ${{ inputs.max_runtime_minutes || '330' }} * 60000 ))
           echo "Max runtime: $(( MAX_RUNTIME_MS / 60000 )) minutes"
           
-          AGENT_FLAG=""
-          if [ -n "${{ inputs.agent }}" ] && [ "${{ inputs.agent }}" != "auto" ]; then
-            AGENT_FLAG="--agent ${{ inputs.agent }}"
+          MODEL_FLAG=""
+          if [ -n "${{ inputs.model }}" ]; then
+            MODEL_FLAG="--model ${{ inputs.model }}"
           fi
           
           SLUG_FLAG=""
@@ -137,7 +132,7 @@ jobs:
           fi
           
           ./skillstore-cli skill audit ./plugins \
-            $AGENT_FLAG \
+            $MODEL_FLAG \
             $SLUG_FLAG \
             $LIMIT_FLAG \
             $DRY_RUN_FLAG \
@@ -197,7 +192,7 @@ jobs:
           
           gh workflow run audit-skills.yml \
             --ref ${{ github.ref }} \
-            -f agent=${{ inputs.agent }} \
+            -f model="${{ inputs.model }}" \
             -f correlation_id=${{ steps.correlation.outputs.id }} \
             -f resume_from_run=${{ github.run_id }} \
             -f cli_version=${{ inputs.cli_version || 'latest' }} \
@@ -232,11 +227,11 @@ jobs:
           
           COMPLETED="${{ steps.audit.outputs.completed }}"
           FAILED="${{ steps.audit.outputs.failed }}"
-          AGENT="${{ inputs.agent }}"
+          MODEL="${{ inputs.model || 'auto' }}"
           
           git commit -m "chore(audit): audit ${COMPLETED} skills with AI risk factor detection
 
-          - Agent: ${AGENT}
+          - Model: ${MODEL}
           - Updated: ${COMPLETED}
           - Failed: ${FAILED}
           - Correlation: ${{ steps.correlation.outputs.id }}"
@@ -254,7 +249,7 @@ jobs:
           |--------|-------|
           | Completed | ${COMPLETED} |
           | Failed | ${FAILED} |
-          | Agent | \`${AGENT}\` |
+          | Model | \`${MODEL}\` |
           | Correlation ID | \`${{ steps.correlation.outputs.id }}\` |
           | CLI Version | \`${{ env.CLI_VERSION }}\` |
           
@@ -281,7 +276,7 @@ jobs:
           
           | Metric | Value |
           |--------|-------|
-          | Agent | \`${{ inputs.agent }}\` |
+          | Model | \`${{ inputs.model || 'auto' }}\` |
           | Completed | ${{ steps.audit.outputs.completed }} |
           | Failed | ${{ steps.audit.outputs.failed }} |
           | Remaining | ${{ steps.audit.outputs.remaining }} |

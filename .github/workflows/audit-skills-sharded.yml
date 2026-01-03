@@ -3,15 +3,10 @@ name: Audit All Skills (Sharded)
 on:
   workflow_dispatch:
     inputs:
-      agent:
-        description: 'AI agent for audit'
-        type: choice
-        options:
-          - 'auto'
-          - 'codex'
-          - 'claude'
-          - 'gemini'
-        default: 'auto'
+      model:
+        description: 'Model to use (e.g., gpt-5.2-codex:high, claude-sonnet-4.5). Auto-detects agent.'
+        type: string
+        default: ''
       slug:
         description: 'Audit specific skill only (leave empty for all)'
         type: string
@@ -139,9 +134,9 @@ jobs:
           echo "Offset: ${{ matrix.offset }}"
           echo "Limit: ${{ matrix.limit }}"
           
-          AGENT_FLAG=""
-          if [ -n "${{ inputs.agent }}" ] && [ "${{ inputs.agent }}" != "auto" ]; then
-            AGENT_FLAG="--agent ${{ inputs.agent }}"
+          MODEL_FLAG=""
+          if [ -n "${{ inputs.model }}" ]; then
+            MODEL_FLAG="--model ${{ inputs.model }}"
           fi
           
           SLUG_FLAG=""
@@ -155,7 +150,7 @@ jobs:
           fi
           
           ./skillstore-cli skill audit ./plugins \
-            $AGENT_FLAG \
+            $MODEL_FLAG \
             $SLUG_FLAG \
             $DRY_RUN_FLAG \
             --offset ${{ matrix.offset }} \
@@ -266,11 +261,11 @@ jobs:
           UPDATED_COUNT="${{ steps.apply.outputs.updated_count }}"
           ERROR_COUNT="${{ steps.apply.outputs.error_count }}"
           SHARD_COUNT="${{ needs.discover.outputs.shard_count }}"
-          AGENT="${{ inputs.agent }}"
+          MODEL="${{ inputs.model || 'auto' }}"
           
           git commit -m "chore(audit): sharded audit of ${UPDATED_COUNT} skills
 
-          - Agent: ${AGENT}
+          - Model: ${MODEL}
           - Shards: ${SHARD_COUNT}
           - Updated: ${UPDATED_COUNT}
           - Errors: ${ERROR_COUNT}"
@@ -291,7 +286,7 @@ jobs:
           | Max Parallel | ${{ inputs.max_parallel || '4' }} |
           | Updated | ${UPDATED_COUNT} |
           | Errors | ${ERROR_COUNT} |
-          | Agent | \`${AGENT}\` |
+          | Model | \`${MODEL}\` |
           | CLI Version | \`${{ env.CLI_VERSION }}\` |
           
           ### Changes
@@ -320,7 +315,7 @@ jobs:
           | Total Skills | ${{ needs.discover.outputs.total_skills }} |
           | Shards | ${{ needs.discover.outputs.shard_count }} |
           | Max Parallel | ${{ inputs.max_parallel || '4' }} |
-          | Agent | \`${{ inputs.agent }}\` |
+          | Model | \`${{ inputs.model || 'auto' }}\` |
           | Updated | ${{ steps.apply.outputs.updated_count }} |
           | Errors | ${{ steps.apply.outputs.error_count }} |
           | Dry Run | ${{ inputs.dry_run }} |
