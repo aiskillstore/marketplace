@@ -79,9 +79,7 @@ Skills that fail security checks will not be published.
 
 ## Available Plugins
 
-| Plugin | Description | Category | Status |
-|--------|-------------|----------|--------|
-| *Coming soon* | We're importing skills from Anthropic's official collection | - | - |
+Browse all available plugins at [skillstore.io](https://skillstore.io) or use the `/plugin` command in Claude Code to discover and install plugins directly.
 
 ## Links
 
