@@ -21,6 +21,11 @@ on:
           - releases
           - all
         default: skills
+      warm_zip:
+        description: 'Warm ZIP download cache for skills'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: warm-cache
@@ -217,7 +222,7 @@ jobs:
           echo "Skills page cache warming complete"
 
       - name: Warm skills ZIP download cache
-        if: inputs.type == 'skills' || inputs.type == 'all'
+        if: inputs.warm_zip && (inputs.type == 'skills' || inputs.type == 'all')
         env:
           SLUGS: ${{ steps.fetch.outputs.skills_slugs }}
         run: |
@@ -330,6 +335,7 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           CONTENT_TYPE: ${{ inputs.type }}
+          WARM_ZIP: ${{ inputs.warm_zip }}
           SKILLS_SLUGS: ${{ steps.fetch.outputs.skills_slugs }}
           WORKFLOWS_SLUGS: ${{ steps.fetch.outputs.workflows_slugs }}
           RELEASES_TAGS: ${{ steps.fetch.outputs.releases_tags }}
@@ -340,7 +346,11 @@ jobs:
           LOCALE_COUNT=11
           
           SKILLS_URLS=$((SKILLS_COUNT * LOCALE_COUNT))
-          SKILLS_ZIPS=$SKILLS_COUNT
+          if [ "$WARM_ZIP" = "true" ]; then
+            SKILLS_ZIPS=$SKILLS_COUNT
+          else
+            SKILLS_ZIPS=0
+          fi
           WORKFLOWS_URLS=$((WORKFLOWS_COUNT * LOCALE_COUNT))
           RELEASES_URLS=$((RELEASES_COUNT * LOCALE_COUNT))
           TOTAL_URLS=$((SKILLS_URLS + SKILLS_ZIPS + WORKFLOWS_URLS + RELEASES_URLS))
@@ -364,7 +374,9 @@ jobs:
           if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
             echo "| Skills | $SKILLS_COUNT |" >> $GITHUB_STEP_SUMMARY
             echo "| Skill Page URLs | $SKILLS_URLS |" >> $GITHUB_STEP_SUMMARY
-            echo "| Skill ZIP Downloads | $SKILLS_COUNT |" >> $GITHUB_STEP_SUMMARY
+            if [ "$WARM_ZIP" = "true" ]; then
+              echo "| Skill ZIP Downloads | $SKILLS_COUNT |" >> $GITHUB_STEP_SUMMARY
+            fi
           fi
           
           if [ "$CONTENT_TYPE" = "workflows" ] || [ "$CONTENT_TYPE" = "all" ]; then
