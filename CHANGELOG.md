@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [0.3.1] - 2026-01-03
+
+### Summary
+
+AI Skillstore marketplace v0.3.1 expands the catalog to 283 plugins, adding four new JetBrains integrations for changelog management, documentation sync, test maintenance, and YouTrack workflows to streamline common development and project-tracking tasks. 
+
+### Statistics
+
+- Total plugins: 283
+- New plugins: 4
+- Updated plugins: 0
+
+### New Plugins
+
+- `jetbrains-changelog`
+- `jetbrains-doc-sync`
+- `jetbrains-tests-maintenance`
+- `jetbrains-youtrack`
+
+
 ## [0.3.0] - 2026-01-03
 
 ### Summary
