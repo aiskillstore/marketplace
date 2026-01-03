@@ -281,13 +281,25 @@ jobs:
 
               // ============================================================
               // 3. SYNC TO skill_security_audit TABLE (security analysis)
+              // Each audit creates a new version (history preserved)
               // ============================================================
               if (skillReport?.security_audit) {
                 const audit = skillReport.security_audit;
                 
+                // Get current max version for this skill
+                const { data: existingAudits } = await supabase
+                  .schema('skillstore')
+                  .from('skill_security_audit')
+                  .select('version')
+                  .eq('skill_id', skillId)
+                  .order('version', { ascending: false })
+                  .limit(1);
+                
+                const nextVersion = (existingAudits?.[0]?.version ?? 0) + 1;
+                
                 const auditRecord = {
                   skill_id: skillId,
-                  version: 1,
+                  version: nextVersion,
                   
                   // Risk assessment
                   risk_level: audit.risk_level || 'low',
@@ -316,13 +328,7 @@ jobs:
                   audited_at: audit.audited_at || new Date().toISOString(),
                 };
 
-                // Delete existing audit and insert new one (simpler than upsert for this table)
-                await supabase
-                  .schema('skillstore')
-                  .from('skill_security_audit')
-                  .delete()
-                  .eq('skill_id', skillId);
-
+                // Insert new audit version (preserves history)
                 const { error: auditError } = await supabase
                   .schema('skillstore')
                   .from('skill_security_audit')
@@ -331,7 +337,7 @@ jobs:
                 if (auditError) {
                   console.error(`  ⚠️ Error syncing security audit for ${slug}: ${auditError.message}`);
                 } else {
-                  console.error(`  ✅ Synced security audit for ${slug}`);
+                  console.error(`  ✅ Synced security audit v${nextVersion} for ${slug}`);
                 }
               }
 
