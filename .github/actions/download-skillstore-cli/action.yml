@@ -1,0 +1,49 @@
+name: Download Skillstore CLI
+description: Download and setup skillstore-cli binary
+
+inputs:
+  version:
+    description: 'CLI version (default: latest)'
+    required: false
+    default: 'latest'
+  token:
+    description: 'GitHub token with repo access'
+    required: true
+
+outputs:
+  cli-path:
+    description: 'Path to the CLI binary'
+    value: ${{ steps.download.outputs.cli-path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Download CLI
+      id: download
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CLI_VERSION: ${{ inputs.version }}
+        CLI_REPO: aiskillstore/skillstore
+      run: |
+        echo "Downloading skillstore-cli..."
+
+        if [ "$CLI_VERSION" = "latest" ]; then
+          echo "Fetching latest release tag..."
+          RELEASE_TAG=$(gh release view --repo "$CLI_REPO" --json tagName -q '.tagName')
+          echo "Latest release: $RELEASE_TAG"
+        else
+          RELEASE_TAG="cli-v$CLI_VERSION"
+          echo "Using specified version: $RELEASE_TAG"
+        fi
+
+        gh release download "$RELEASE_TAG" \
+          --repo "$CLI_REPO" \
+          --pattern "skillstore-cli-linux-x64" \
+          --output skillstore-cli
+
+        chmod +x skillstore-cli
+        echo "cli-path=$(pwd)/skillstore-cli" >> $GITHUB_OUTPUT
+
+        echo "CLI version:"
+        ./skillstore-cli --version

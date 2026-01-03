@@ -1,0 +1,81 @@
+name: Invalidate Cache
+description: Batch invalidate cache for skills/workflows/releases
+
+inputs:
+  type:
+    description: 'Content type (skills, workflows, releases)'
+    required: true
+  slugs:
+    description: 'Space-separated list of slugs to invalidate'
+    required: true
+  site-url:
+    description: 'Site URL'
+    required: false
+    default: 'https://skillstore.io'
+  secret:
+    description: 'Cache invalidation secret'
+    required: true
+  batch-size:
+    description: 'Batch size for API calls'
+    required: false
+    default: '30'
+
+runs:
+  using: composite
+  steps:
+    - name: Invalidate cache
+      shell: bash
+      env:
+        CACHE_SECRET: ${{ inputs.secret }}
+        SITE_URL: ${{ inputs.site-url }}
+        BATCH_SIZE: ${{ inputs.batch-size }}
+        CONTENT_TYPE: ${{ inputs.type }}
+        SLUGS_STR: ${{ inputs.slugs }}
+      run: |
+        read -ra SLUGS <<< "$SLUGS_STR"
+        TOTAL=${#SLUGS[@]}
+
+        if [ "$TOTAL" -eq 0 ]; then
+          echo "No items to invalidate"
+          exit 0
+        fi
+
+        invalidate_batch() {
+          local batch_slugs=("$@")
+          local json_array=$(printf '%s\n' "${batch_slugs[@]}" | jq -R . | jq -s .)
+
+          curl -sf -X POST "$SITE_URL/api/cache/invalidate" \
+            -H "Authorization: Bearer $CACHE_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "{\"type\": \"$CONTENT_TYPE\", \"slugs\": $json_array}"
+        }
+
+        BATCHES=$(( (TOTAL + BATCH_SIZE - 1) / BATCH_SIZE ))
+        echo "Invalidating $TOTAL $CONTENT_TYPE in $BATCHES batch(es)..."
+
+        SUCCESS=0
+        FAILED=0
+
+        for ((i=0; i<TOTAL; i+=BATCH_SIZE)); do
+          BATCH=("${SLUGS[@]:i:BATCH_SIZE}")
+          BATCH_NUM=$(( i / BATCH_SIZE + 1 ))
+
+          echo -n "  Batch $BATCH_NUM/$BATCHES (${#BATCH[@]} items)... "
+
+          if invalidate_batch "${BATCH[@]}"; then
+            echo "✓"
+            SUCCESS=$((SUCCESS + ${#BATCH[@]}))
+          else
+            echo "✗ (retrying)"
+            sleep 2
+            if invalidate_batch "${BATCH[@]}"; then
+              echo "    Retry ✓"
+              SUCCESS=$((SUCCESS + ${#BATCH[@]}))
+            else
+              echo "    Retry ✗ (skipping)"
+              FAILED=$((FAILED + ${#BATCH[@]}))
+            fi
+          fi
+        done
+
+        echo "✅ Complete: $SUCCESS succeeded, $FAILED failed"

@@ -25,7 +25,6 @@ on:
 
 env:
   CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
-  CLI_REPO: aiskillstore/skillstore
 
 concurrency:
   group: translate-${{ github.ref }}
@@ -95,38 +94,22 @@ jobs:
       matrix:
         plugin: ${{ fromJson(needs.detect-changes.outputs.plugins_json) }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+
       - name: Download Skillstore CLI
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          echo "Downloading skillstore-cli..."
-
-          # Resolve version (latest → actual tag)
-          if [ "$CLI_VERSION" = "latest" ]; then
-            echo "Fetching latest release tag..."
-            RELEASE_TAG=$(gh release view --repo "$CLI_REPO" --json tagName -q '.tagName')
-            echo "Latest release: $RELEASE_TAG"
-          else
-            RELEASE_TAG="cli-v$CLI_VERSION"
-            echo "Using specified version: $RELEASE_TAG"
-          fi
-
-          # Download binary
-          gh release download "$RELEASE_TAG" \
-            --repo "$CLI_REPO" \
-            --pattern "skillstore-cli-linux-x64" \
-            --output skillstore-cli
-
-          chmod +x skillstore-cli
-
-          echo "CLI version:"
-          ./skillstore-cli --version
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ inputs.cli_version || 'latest' }}
+          token: ${{ secrets.PAT_TOKEN }}
 
       - name: Translate ${{ matrix.plugin }}
         timeout-minutes: 30
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           # Convert plugin path (owner/name) to skill slug (owner-name)
           SKILL_SLUG=$(echo "${{ matrix.plugin }}" | tr '/' '-')
@@ -167,67 +150,27 @@ jobs:
     if: needs.translate.result == 'success'
     runs-on: ubuntu-latest
     environment: production
-    env:
-      SITE_URL: https://skillstore.io
-      BATCH_SIZE: 30
     steps:
-      - name: Invalidate cache for translated skills
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+
+      - name: Convert plugin paths to slugs
+        id: slugs
         env:
-          CACHE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           PLUGINS_JSON: ${{ needs.detect-changes.outputs.plugins_json }}
         run: |
           # Convert plugin paths (owner/name) to skill slugs (owner-name)
           SLUGS_STR=$(echo "$PLUGINS_JSON" | jq -r '.[]' | tr '/' '-' | tr '\n' ' ')
-          read -ra SLUGS <<< "$SLUGS_STR"
+          echo "slugs=$SLUGS_STR" >> $GITHUB_OUTPUT
 
-          TOTAL=${#SLUGS[@]}
-          if [ "$TOTAL" -eq 0 ]; then
-            echo "No skills to invalidate"
-            exit 0
-          fi
-
-          # Batch invalidation function
-          invalidate_batch() {
-            local batch_slugs=("$@")
-            local json_array=$(printf '%s\n' "${batch_slugs[@]}" | jq -R . | jq -s .)
-            
-            curl -sf -X POST "$SITE_URL/api/cache/invalidate" \
-              -H "Authorization: Bearer $CACHE_SECRET" \
-              -H "Content-Type: application/json" \
-              -d "{\"type\": \"skills\", \"slugs\": $json_array}"
-          }
-
-          BATCHES=$(( (TOTAL + BATCH_SIZE - 1) / BATCH_SIZE ))
-          echo "Invalidating $TOTAL skills in $BATCHES batch(es) (batch size: $BATCH_SIZE)..."
-
-          SUCCESS=0
-          FAILED=0
-
-          for ((i=0; i<TOTAL; i+=BATCH_SIZE)); do
-            BATCH=("${SLUGS[@]:i:BATCH_SIZE}")
-            BATCH_NUM=$(( i / BATCH_SIZE + 1 ))
-            BATCH_COUNT=${#BATCH[@]}
-            
-            echo -n "  Batch $BATCH_NUM/$BATCHES ($BATCH_COUNT items)... "
-            
-            if invalidate_batch "${BATCH[@]}"; then
-              echo "✓"
-              SUCCESS=$((SUCCESS + BATCH_COUNT))
-            else
-              echo "✗ (retrying)"
-              sleep 2
-              if invalidate_batch "${BATCH[@]}"; then
-                echo "    Retry ✓"
-                SUCCESS=$((SUCCESS + BATCH_COUNT))
-              else
-                echo "    Retry ✗ (skipping)"
-                FAILED=$((FAILED + BATCH_COUNT))
-              fi
-            fi
-          done
-
-          echo ""
-          echo "✅ Cache invalidation complete: $SUCCESS succeeded, $FAILED failed"
+      - name: Invalidate cache for translated skills
+        uses: ./.github/actions/invalidate-cache
+        with:
+          type: skills
+          slugs: ${{ steps.slugs.outputs.slugs }}
+          secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
 
   notify:
     needs: [detect-changes, translate, invalidate-cache]

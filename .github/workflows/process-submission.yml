@@ -29,7 +29,6 @@ env:
   GITHUB_URL: ${{ github.event.client_payload.github_url || inputs.github_url }}
   SUBMITTER_EMAIL: ${{ github.event.client_payload.submitter_email || inputs.submitter_email || 'manual@skillstore.io' }}
   CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
-  CLI_REPO: aiskillstore/skillstore
 
 jobs:
   process:
@@ -59,31 +58,10 @@ jobs:
             }' || echo "::warning::Failed to notify skillstore"
 
       - name: Download Skillstore CLI
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          echo "Downloading skillstore-cli..."
-          
-          # Resolve version (latest → actual tag)
-          if [ "$CLI_VERSION" = "latest" ]; then
-            echo "Fetching latest release tag..."
-            RELEASE_TAG=$(gh release view --repo "$CLI_REPO" --json tagName -q '.tagName')
-            echo "Latest release: $RELEASE_TAG"
-          else
-            RELEASE_TAG="cli-v$CLI_VERSION"
-            echo "Using specified version: $RELEASE_TAG"
-          fi
-          
-          # Download binary
-          gh release download "$RELEASE_TAG" \
-            --repo "$CLI_REPO" \
-            --pattern "skillstore-cli-linux-x64" \
-            --output skillstore-cli
-          
-          chmod +x skillstore-cli
-          
-          echo "CLI version:"
-          ./skillstore-cli --version
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ inputs.cli_version || 'latest' }}
+          token: ${{ secrets.PAT_TOKEN }}
 
       - name: Process submission
         id: process

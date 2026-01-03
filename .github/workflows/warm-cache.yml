@@ -41,6 +41,11 @@ jobs:
   warm:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+
       - name: Fetch all slugs from Supabase
         id: fetch
         env:
@@ -104,78 +109,32 @@ jobs:
             echo "Found $RELEASES_COUNT releases"
           fi
 
-      - name: Invalidate all caches (force mode only)
-        if: inputs.mode == 'force'
-        env:
-          CACHE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
-          SKILLS_SLUGS: ${{ steps.fetch.outputs.skills_slugs }}
-          WORKFLOWS_SLUGS: ${{ steps.fetch.outputs.workflows_slugs }}
-          RELEASES_TAGS: ${{ steps.fetch.outputs.releases_tags }}
-          CONTENT_TYPE: ${{ inputs.type }}
-        run: |
-          invalidate_batch() {
-            local type=$1
-            shift
-            local slugs=("$@")
-            
-            local json_array=$(printf '%s\n' "${slugs[@]}" | jq -R . | jq -s .)
-            
-            curl -sf -X POST "$SITE_URL/api/cache/invalidate" \
-              -H "Authorization: Bearer $CACHE_SECRET" \
-              -H "Content-Type: application/json" \
-              -d "{\"type\": \"$type\", \"slugs\": $json_array}"
-          }
-          
-          invalidate() {
-            local type=$1
-            local slugs_str=$2
-            
-            if [ -z "$slugs_str" ]; then
-              echo "No $type to invalidate"
-              return
-            fi
-            
-            read -ra slugs <<< "$slugs_str"
-            local total=${#slugs[@]}
-            local batch_size=$INVALIDATE_BATCH_SIZE
-            local batches=$(( (total + batch_size - 1) / batch_size ))
-            
-            echo "Invalidating $total $type in $batches batches (batch size: $batch_size)..."
-            
-            for ((i=0; i<total; i+=batch_size)); do
-              local batch=("${slugs[@]:i:batch_size}")
-              local batch_num=$(( i / batch_size + 1 ))
-              local batch_count=${#batch[@]}
-              
-              echo -n "  Batch $batch_num/$batches ($batch_count items)... "
-              
-              if invalidate_batch "$type" "${batch[@]}"; then
-                echo "✓"
-              else
-                echo "✗ (will retry)"
-                sleep 2
-                if invalidate_batch "$type" "${batch[@]}"; then
-                  echo "    Retry ✓"
-                else
-                  echo "    Retry ✗ (skipping)"
-                fi
-              fi
-            done
-            
-            echo "✓ Invalidated $type cache"
-          }
-          
-          if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
-            invalidate "skills" "$SKILLS_SLUGS"
-          fi
-          
-          if [ "$CONTENT_TYPE" = "workflows" ] || [ "$CONTENT_TYPE" = "all" ]; then
-            invalidate "workflows" "$WORKFLOWS_SLUGS"
-          fi
-          
-          if [ "$CONTENT_TYPE" = "releases" ] || [ "$CONTENT_TYPE" = "all" ]; then
-            invalidate "releases" "$RELEASES_TAGS"
-          fi
+      - name: Invalidate skills cache (force mode only)
+        if: inputs.mode == 'force' && (inputs.type == 'skills' || inputs.type == 'all') && steps.fetch.outputs.skills_slugs != ''
+        uses: ./.github/actions/invalidate-cache
+        with:
+          type: skills
+          slugs: ${{ steps.fetch.outputs.skills_slugs }}
+          secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          batch-size: ${{ env.INVALIDATE_BATCH_SIZE }}
+
+      - name: Invalidate workflows cache (force mode only)
+        if: inputs.mode == 'force' && (inputs.type == 'workflows' || inputs.type == 'all') && steps.fetch.outputs.workflows_slugs != ''
+        uses: ./.github/actions/invalidate-cache
+        with:
+          type: workflows
+          slugs: ${{ steps.fetch.outputs.workflows_slugs }}
+          secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          batch-size: ${{ env.INVALIDATE_BATCH_SIZE }}
+
+      - name: Invalidate releases cache (force mode only)
+        if: inputs.mode == 'force' && (inputs.type == 'releases' || inputs.type == 'all') && steps.fetch.outputs.releases_tags != ''
+        uses: ./.github/actions/invalidate-cache
+        with:
+          type: releases
+          slugs: ${{ steps.fetch.outputs.releases_tags }}
+          secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          batch-size: ${{ env.INVALIDATE_BATCH_SIZE }}
 
       - name: Warm skills page cache
         if: inputs.type == 'skills' || inputs.type == 'all'
