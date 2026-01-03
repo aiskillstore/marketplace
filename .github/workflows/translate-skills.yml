@@ -1,0 +1,152 @@
+# GitHub Action Workflow for Marketplace Repository
+# Copy this file to: /Users/lukin/Projects/marketplace/.github/workflows/translate-skills.yml
+
+name: Auto-Translate Skill Content
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugins/**/skill-report.json'
+  workflow_dispatch:
+    inputs:
+      plugin_slug:
+        description: 'Specific plugin to translate (e.g., payloadcms/payload)'
+        required: false
+      force:
+        description: 'Force re-translation of existing translations'
+        type: boolean
+        default: false
+
+concurrency:
+  group: translate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      plugins_json: ${{ steps.detect.outputs.plugins_json }}
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed plugins
+        id: detect
+        run: |
+          # Manual trigger with specific plugin
+          if [ -n "${{ github.event.inputs.plugin_slug }}" ]; then
+            PLUGINS_JSON='["${{ github.event.inputs.plugin_slug }}"]'
+            echo "plugins_json=$PLUGINS_JSON" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Manual trigger for: ${{ github.event.inputs.plugin_slug }}"
+            exit 0
+          fi
+
+          # Detect changed skill-report.json files
+          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            # Initial commit or force push - find all skill reports
+            CHANGED=$(find plugins -name "skill-report.json" -type f 2>/dev/null || true)
+          else
+            # Normal push - diff against previous commit
+            CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | grep 'skill-report.json' || true)
+          fi
+
+          PLUGINS=""
+          for file in $CHANGED; do
+            # Extract plugin path: plugins/owner/name/skill-report.json -> owner/name
+            PLUGIN=$(echo "$file" | sed -n 's|plugins/\([^/]*/[^/]*\)/skill-report.json|\1|p')
+            [ -n "$PLUGIN" ] && PLUGINS="$PLUGINS $PLUGIN"
+          done
+
+          # Convert to JSON array
+          if [ -z "$(echo "$PLUGINS" | tr -d ' ')" ]; then
+            PLUGINS_JSON='[]'
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            PLUGINS_JSON=$(echo "$PLUGINS" | xargs | tr ' ' '\n' | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+          echo "plugins_json=$PLUGINS_JSON" >> $GITHUB_OUTPUT
+          echo "Detected plugins: $PLUGINS_JSON"
+
+  translate:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        plugin: ${{ fromJson(needs.detect-changes.outputs.plugins_json) }}
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install skillstore-cli
+        run: npm install -g @skillstore/cli@latest
+
+      - name: Translate ${{ matrix.plugin }}
+        timeout-minutes: 30
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_ENDPOINT: ${{ secrets.OPENAI_API_ENDPOINT }}
+        run: |
+          # Convert plugin path (owner/name) to skill slug (owner-name)
+          SKILL_SLUG=$(echo "${{ matrix.plugin }}" | tr '/' '-')
+
+          echo "Translating skill: $SKILL_SLUG"
+
+          # Retry logic with exponential backoff
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt/3..."
+
+            FORCE_FLAG=""
+            if [ "${{ github.event.inputs.force }}" = "true" ]; then
+              FORCE_FLAG="--force"
+            fi
+
+            if skillstore-cli skill translate-content --slug "$SKILL_SLUG" $FORCE_FLAG; then
+              echo "✅ Translation successful for $SKILL_SLUG"
+              exit 0
+            fi
+
+            if [ $attempt -lt 3 ]; then
+              WAIT_TIME=$((2 ** attempt * 10))
+              echo "⚠️ Attempt $attempt failed, waiting ${WAIT_TIME}s before retry..."
+              sleep $WAIT_TIME
+            fi
+          done
+
+          echo "❌ All translation attempts failed for $SKILL_SLUG"
+          exit 1
+
+  notify:
+    needs: [detect-changes, translate]
+    if: always() && needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "# Translation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Plugins processed:** ${{ needs.detect-changes.outputs.plugins_json }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ needs.translate.result }}" = "success" ]; then
+            echo "✅ All translations completed successfully" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.translate.result }}" = "failure" ]; then
+            echo "❌ Some translations failed. Check the job logs for details." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Translation job status: ${{ needs.translate.result }}" >> $GITHUB_STEP_SUMMARY
+          fi
