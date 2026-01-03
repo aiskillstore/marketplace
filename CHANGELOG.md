@@ -8,6 +8,180 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [0.3.0] - 2026-01-03
+
+### Summary
+
+AI Skillstore marketplace v0.3.0 expands the catalog to 283 plugins (+147 new), including JetBrains integrations and a large K-Dense-AI scientific/biomedical toolkit. Release workflows are more reliable and faster with full cache-warming (warm/force), publish-after-build pre-rendering, KV-based ISR sync, and broad normalization of versions, slugs, names, and paths to consistent semver and lowercase kebab-case. 
+
+### Statistics
+
+- Total plugins: 283
+- New plugins: 147
+- Updated plugins: 0
+
+### New Plugins
+
+- `jetbrains-changelog`
+- `jetbrains-doc-sync`
+- `jetbrains-tests-maintenance`
+- `jetbrains-youtrack`
+- `k-dense-ai-adaptyv`
+- `k-dense-ai-aeon`
+- `k-dense-ai-alphafold-database`
+- `k-dense-ai-anndata`
+- `k-dense-ai-arboreto`
+- `k-dense-ai-astropy`
+- `k-dense-ai-benchling-integration`
+- `k-dense-ai-biomni`
+- `k-dense-ai-biopython`
+- `k-dense-ai-biorxiv-database`
+- `k-dense-ai-bioservices`
+- `k-dense-ai-brenda-database`
+- `k-dense-ai-cellxgene-census`
+- `k-dense-ai-chembl-database`
+- `k-dense-ai-cirq`
+- `k-dense-ai-citation-management`
+- `k-dense-ai-clinical-decision-support`
+- `k-dense-ai-clinical-reports`
+- `k-dense-ai-clinicaltrials-database`
+- `k-dense-ai-clinpgx-database`
+- `k-dense-ai-clinvar-database`
+- `k-dense-ai-cobrapy`
+- `k-dense-ai-cosmic-database`
+- `k-dense-ai-dask`
+- `k-dense-ai-datacommons-client`
+- `k-dense-ai-datamol`
+- `k-dense-ai-deepchem`
+- `k-dense-ai-deeptools`
+- `k-dense-ai-denario`
+- `k-dense-ai-diffdock`
+- `k-dense-ai-dnanexus-integration`
+- `k-dense-ai-docx`
+- `k-dense-ai-drugbank-database`
+- `k-dense-ai-ena-database`
+- `k-dense-ai-ensembl-database`
+- `k-dense-ai-esm`
+- `k-dense-ai-etetoolkit`
+- `k-dense-ai-exploratory-data-analysis`
+- `k-dense-ai-fda-database`
+- `k-dense-ai-flowio`
+- `k-dense-ai-fluidsim`
+- `k-dense-ai-gene-database`
+- `k-dense-ai-generate-image`
+- `k-dense-ai-geniml`
+- `k-dense-ai-geo-database`
+- `k-dense-ai-geopandas`
+- `k-dense-ai-get-available-resources`
+- `k-dense-ai-gget`
+- `k-dense-ai-gtars`
+- `k-dense-ai-gwas-database`
+- `k-dense-ai-histolab`
+- `k-dense-ai-hmdb-database`
+- `k-dense-ai-hypogenic`
+- `k-dense-ai-hypothesis-generation`
+- `k-dense-ai-iso-13485-certification`
+- `k-dense-ai-kegg-database`
+- `k-dense-ai-labarchive-integration`
+- `k-dense-ai-lamindb`
+- `k-dense-ai-latchbio-integration`
+- `k-dense-ai-latex-posters`
+- `k-dense-ai-literature-review`
+- `k-dense-ai-market-research-reports`
+- `k-dense-ai-markitdown`
+- `k-dense-ai-matchms`
+- `k-dense-ai-matplotlib`
+- `k-dense-ai-medchem`
+- `k-dense-ai-metabolomics-workbench-database`
+- `k-dense-ai-modal`
+- `k-dense-ai-molfeat`
+- `k-dense-ai-networkx`
+- `k-dense-ai-neurokit2`
+- `k-dense-ai-neuropixels-analysis`
+- `k-dense-ai-omero-integration`
+- `k-dense-ai-openalex-database`
+- `k-dense-ai-opentargets-database`
+- `k-dense-ai-opentrons-integration`
+- `k-dense-ai-paper-2-web`
+- `k-dense-ai-pathml`
+- `k-dense-ai-pdb-database`
+- `k-dense-ai-pdf`
+- `k-dense-ai-peer-review`
+- `k-dense-ai-pennylane`
+- `k-dense-ai-perplexity-search`
+- `k-dense-ai-plotly`
+- `k-dense-ai-polars`
+- `k-dense-ai-pptx`
+- `k-dense-ai-protocolsio-integration`
+- `k-dense-ai-pubchem-database`
+- `k-dense-ai-pubmed-database`
+- `k-dense-ai-pufferlib`
+- `k-dense-ai-pydeseq2`
+- `k-dense-ai-pydicom`
+- `k-dense-ai-pyhealth`
+- `k-dense-ai-pylabrobot`
+- `k-dense-ai-pymatgen`
+- `k-dense-ai-pymc-bayesian-modeling`
+- `k-dense-ai-pymoo`
+- `k-dense-ai-pyopenms`
+- `k-dense-ai-pysam`
+- `k-dense-ai-pytdc`
+- `k-dense-ai-pytorch-lightning`
+- `k-dense-ai-qiskit`
+- `k-dense-ai-qutip`
+- `k-dense-ai-rdkit`
+- `k-dense-ai-reactome-database`
+- `k-dense-ai-research-grants`
+- `k-dense-ai-research-lookup`
+- `k-dense-ai-scanpy`
+- `k-dense-ai-scholar-evaluation`
+- `k-dense-ai-scientific-brainstorming`
+- `k-dense-ai-scientific-critical-thinking`
+- `k-dense-ai-scientific-schematics`
+- `k-dense-ai-scientific-slides`
+- `k-dense-ai-scientific-visualization`
+- `k-dense-ai-scientific-writing`
+- `k-dense-ai-scikit-bio`
+- `k-dense-ai-scikit-learn`
+- `k-dense-ai-scikit-survival`
+- `k-dense-ai-scvi-tools`
+- `k-dense-ai-seaborn`
+- `k-dense-ai-shap`
+- `k-dense-ai-simpy`
+- `k-dense-ai-stable-baselines3`
+- `k-dense-ai-statistical-analysis`
+- `k-dense-ai-statsmodels`
+- `k-dense-ai-string-database`
+- `k-dense-ai-sympy`
+- `k-dense-ai-torch-geometric`
+- `k-dense-ai-torchdrug`
+- `k-dense-ai-transformers`
+- `k-dense-ai-treatment-plans`
+- `k-dense-ai-umap-learn`
+- `k-dense-ai-uniprot-database`
+- `k-dense-ai-uspto-database`
+- `k-dense-ai-vaex`
+- `k-dense-ai-venue-templates`
+- `k-dense-ai-xlsx`
+- `k-dense-ai-zarr-python`
+- `k-dense-ai-zinc-database`
+- `yamadashy-agent-memory`
+- `yamadashy-browser-extension-developer`
+- `yamadashy-lint-fixer`
+- `yamadashy-website-maintainer`
+
+### Changes
+
+- fix: normalize all version values to valid semver format
+- feat: add full cache warming workflow with warm/force modes
+- refactor: simplify sync workflow with KV-based ISR
+- fix: normalize K-Dense-AI slugs in skill-report.json to lowercase
+- fix: normalize plugin names and source paths in marketplace.json to lowercase
+- fix: normalize plugin names and paths to lowercase kebab-case
+- feat: add publish-after-build workflow for pre-rendering
+
+
 ## [0.2.0] - 2026-01-02
 
 ### Summary
