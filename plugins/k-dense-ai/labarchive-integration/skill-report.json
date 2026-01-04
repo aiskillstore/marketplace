@@ -1,15 +1,15 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-02T02:43:48.260Z",
+    "generated_at": "2026-01-04T16:43:46.112Z",
     "slug": "k-dense-ai-labarchive-integration",
     "source_url": "https://github.com/K-Dense-AI/claude-scientific-skills/tree/main/scientific-skills/labarchive-integration",
     "source_ref": "main",
-    "model": "codex",
+    "model": "claude",
     "analysis_version": "2.0.0",
     "source_type": "community",
     "content_hash": "4a5187f3ee0119b8789643cf2d02db6070f6de9fdbf6678a15b23beb1810795e",
-    "tree_hash": "90f7914eaf8c7f9e5fb473f349e9e6eec5997ebc109005da365e9ba39b8f56b0"
+    "tree_hash": "8dbe52c5c24b8626360d901333f956c4bc32fa0e7f52bcb1f62257a7c6772350"
   },
   "skill": {
     "name": "labarchive-integration",
@@ -18,7 +18,7 @@
     "icon": "🧪",
     "version": "1.0.0",
     "author": "K-Dense Inc.",
-    "license": "Unknown",
+    "license": "MIT",
     "category": "research",
     "tags": [
       "labarchives",
@@ -34,23 +34,125 @@
     ],
     "risk_factors": [
       "scripts",
-      "network"
+      "network",
+      "filesystem",
+      "env_access"
     ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "No credential harvesting or exfiltration patterns were detected. Network usage is limited to LabArchives API calls that match the documented purpose. Local credential storage uses a permissions-restricted config file.",
+    "summary": "This is a legitimate LabArchives API integration skill for electronic lab notebooks. Scripts make documented API calls to LabArchives endpoints only. Credentials are stored in config.yaml with restrictive 600 file permissions. No credential harvesting, exfiltration, or unexpected network destinations detected.",
+    "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/entry_operations.py",
+            "line_start": 1,
+            "line_end": 335
+          },
+          {
+            "file": "scripts/setup_config.py",
+            "line_start": 1,
+            "line_end": 206
+          },
+          {
+            "file": "scripts/notebook_operations.py",
+            "line_start": 1,
+            "line_end": 270
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/entry_operations.py",
+            "line_start": 158,
+            "line_end": 172
+          },
+          {
+            "file": "scripts/notebook_operations.py",
+            "line_start": 131,
+            "line_end": 131
+          },
+          {
+            "file": "references/api_reference.md",
+            "line_start": 1,
+            "line_end": 20
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/setup_config.py",
+            "line_start": 72,
+            "line_end": 79
+          },
+          {
+            "file": "scripts/notebook_operations.py",
+            "line_start": 113,
+            "line_end": 162
+          },
+          {
+            "file": "scripts/entry_operations.py",
+            "line_start": 145,
+            "line_end": 184
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "references/authentication_guide.md",
+            "line_start": 57,
+            "line_end": 67
+          },
+          {
+            "file": "scripts/setup_config.py",
+            "line_start": 49,
+            "line_end": 67
+          }
+        ]
+      }
+    ],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [],
-    "low_findings": [],
+    "low_findings": [
+      {
+        "title": "Credentials stored in local config file",
+        "description": "The setup_config.py script collects API credentials (access_key_id, access_password, user_email, user_external_password) and stores them in config.yaml. While file permissions are set to 600 (user read/write only), sensitive credentials are written to disk.\n\nLocation: scripts/setup_config.py:72-79\n\n```python\ndef create_config_file(config_data, output_path='config.yaml'):\n    with open(output_path, 'w') as f:\n        yaml.dump(config_data, f, default_flow_style=False, sort_keys=False)\n    os.chmod(output_path, 0o600)\n```\n\nMitigation: The documentation recommends adding config.yaml to .gitignore and provides an environment variable alternative for credential storage.",
+        "locations": [
+          {
+            "file": "scripts/setup_config.py",
+            "line_start": 70,
+            "line_end": 79
+          }
+        ]
+      },
+      {
+        "title": "Credentials transmitted in API requests",
+        "description": "The entry_operations.py script sends access credentials (access_key_id, access_password) as form data in HTTP POST requests to upload attachments.\n\nLocation: scripts/entry_operations.py:163-172\n\n```python\ndata = {\n    'uid': uid,\n    'nbid': nbid,\n    'entry_id': entry_id,\n    'filename': file_path.name,\n    'access_key_id': config['access_key_id'],\n    'access_password': config['access_password']\n}\nresponse = requests.post(url, files=files, data=data)\n```\n\nThis is standard API authentication behavior but credentials transit through the network.",
+        "locations": [
+          {
+            "file": "scripts/entry_operations.py",
+            "line_start": 163,
+            "line_end": 172
+          }
+        ]
+      }
+    ],
     "dangerous_patterns": [],
-    "files_scanned": 7,
-    "total_lines": 2197,
-    "audit_model": "codex",
-    "audited_at": "2026-01-02T02:43:48.260Z"
+    "files_scanned": 10,
+    "total_lines": 2473,
+    "audit_model": "claude",
+    "audited_at": "2026-01-04T16:43:46.112Z"
   },
   "content": {
     "user_title": "Automate LabArchives notebooks",
