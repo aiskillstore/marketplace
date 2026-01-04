@@ -348,8 +348,8 @@ jobs:
             console.error(`Sync complete: ${synced} synced, ${errors} errors`);
             console.error(`========================================`);
             
-            // Output synced slugs to stdout (for GitHub Actions)
-            console.log(syncedSlugs.join(' '));
+            // Output synced slugs to stdout (comma-separated for translate workflow)
+            console.log(syncedSlugs.join(','));
             
             if (errors > 0) {
               process.exit(1);
@@ -392,13 +392,15 @@ jobs:
           LOCALES="en zh-hans zh-hant ja ko de fr es pt ru ar"
           CONCURRENCY=5
           
-          echo "Warming cache for: $SYNCED_SLUGS"
+          # Convert comma-separated to space-separated for iteration
+          SLUGS_SPACE=$(echo "$SYNCED_SLUGS" | tr ',' ' ')
+          echo "Warming cache for: $SLUGS_SPACE"
           echo "Locales: $LOCALES"
           echo ""
           
           # Generate URLs for all slugs × locales
           generate_urls() {
-            for slug in $SYNCED_SLUGS; do
+            for slug in $SLUGS_SPACE; do
               [ -z "$slug" ] && continue
               for locale in $LOCALES; do
                 if [ "$locale" = "en" ]; then
@@ -437,7 +439,7 @@ jobs:
         env:
           SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
         run: |
-          SLUG_COUNT=$(echo "$SYNCED_SLUGS" | wc -w | tr -d ' ')
+          SLUG_COUNT=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
           LOCALE_COUNT=11
           TOTAL_URLS=$((SLUG_COUNT * LOCALE_COUNT))
           
@@ -451,3 +453,16 @@ jobs:
           echo "| Slugs | $SYNCED_SLUGS |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ KV cache warming completed." >> $GITHUB_STEP_SUMMARY
+
+  translate:
+    needs: [sync, cache-warm]
+    if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != ''
+    uses: ./.github/workflows/translate-skills.yml
+    with:
+      plugin_slugs: ${{ needs.sync.outputs.synced_slugs }}
+    secrets:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      SKILLSTORE_AGENTS: ${{ secrets.SKILLSTORE_AGENTS }}
+      PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+      CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}

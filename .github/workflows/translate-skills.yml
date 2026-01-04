@@ -1,13 +1,55 @@
 # GitHub Action Workflow for Marketplace Repository
 # Auto-sharding: switches to batch mode when skill count exceeds threshold
+#
+# IMPORTANT: This workflow is triggered BY sync-to-supabase.yml after data sync completes.
+# This ensures translation reads fresh data from the database, avoiding race conditions.
 
 name: Auto-Translate Skill Content
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "plugins/**/skill-report.json"
+  # Triggered by sync-to-supabase.yml after sync completes (avoids race condition)
+  workflow_call:
+    inputs:
+      plugin_slugs:
+        description: "Plugins to translate, comma-separated"
+        type: string
+        required: true
+      model:
+        description: "Model to use"
+        type: string
+        default: ""
+      force:
+        description: "Force re-translation"
+        type: boolean
+        default: false
+      concurrency:
+        description: "Parallel translations per skill"
+        type: string
+        default: "3"
+      shard_size:
+        description: "Skills per shard"
+        type: string
+        default: "30"
+      max_parallel:
+        description: "Max parallel shards"
+        type: string
+        default: "4"
+      cli_version:
+        description: "CLI version"
+        type: string
+        default: "latest"
+    secrets:
+      SUPABASE_URL:
+        required: true
+      SUPABASE_SERVICE_KEY:
+        required: true
+      SKILLSTORE_AGENTS:
+        required: true
+      PAT_TOKEN:
+        required: true
+      CACHE_INVALIDATE_SECRET:
+        required: true
+  # Manual trigger for ad-hoc translations
   workflow_dispatch:
     inputs:
       plugin_slugs:
@@ -64,62 +106,31 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Detect changed plugins
+      - name: Detect plugins to translate
         id: detect
         run: |
-          # Case 1: Specific slugs provided via workflow_dispatch
-          if [ -n "${{ github.event.inputs.plugin_slugs }}" ]; then
-            SLUGS_CSV="${{ github.event.inputs.plugin_slugs }}"
+          # Get slugs from input (workflow_call or workflow_dispatch)
+          SLUGS_CSV="${{ inputs.plugin_slugs }}"
+          
+          if [ -n "$SLUGS_CSV" ]; then
             SKILL_COUNT=$(echo "$SLUGS_CSV" | tr ',' '\n' | grep -c . || echo 0)
             echo "slugs_csv=$SLUGS_CSV" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
             echo "translate_all=false" >> $GITHUB_OUTPUT
-            echo "Manual trigger for $SKILL_COUNT specific skill(s): $SLUGS_CSV"
-            exit 0
-          fi
-
-          # Case 2: workflow_dispatch without slugs = translate ALL skills from database
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "📦 Translating $SKILL_COUNT skill(s): $SLUGS_CSV"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "🌍 Manual trigger without slugs - will translate ALL approved skills from database"
             echo "slugs_csv=" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "skill_count=all" >> $GITHUB_OUTPUT
             echo "translate_all=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          # Case 3: Push event - detect changed skill-report.json files
-          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-            CHANGED=$(find plugins -name "skill-report.json" -type f 2>/dev/null || true)
           else
-            CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | grep 'skill-report.json' || true)
-          fi
-
-          SLUGS=""
-          for file in $CHANGED; do
-            # Extract plugin path: supports both single-level (plugin-name) and multi-level (org/plugin-name)
-            PLUGIN=$(echo "$file" | sed -n 's|plugins/\(.*\)/skill-report.json|\1|p')
-            if [ -n "$PLUGIN" ]; then
-              SLUG=$(echo "$PLUGIN" | tr '/' '-')
-              [ -n "$SLUGS" ] && SLUGS="$SLUGS,$SLUG" || SLUGS="$SLUG"
-            fi
-          done
-
-          if [ -z "$SLUGS" ]; then
+            echo "❌ No slugs provided and not a manual trigger"
             echo "slugs_csv=" >> $GITHUB_OUTPUT
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "skill_count=0" >> $GITHUB_OUTPUT
             echo "translate_all=false" >> $GITHUB_OUTPUT
-            echo "No skill changes detected"
-          else
-            SLUGS_CSV=$(echo "$SLUGS" | tr ',' '\n' | sort -u | paste -sd,)
-            SKILL_COUNT=$(echo "$SLUGS" | tr ',' '\n' | sort -u | wc -l | tr -d ' ')
-            echo "slugs_csv=$SLUGS_CSV" >> $GITHUB_OUTPUT
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
-            echo "translate_all=false" >> $GITHUB_OUTPUT
-            echo "Detected $SKILL_COUNT changed skill(s): $SLUGS_CSV"
           fi
 
       - name: Plan translation strategy
@@ -251,7 +262,7 @@ jobs:
           fi
 
           FORCE_FLAG=""
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+          if [ "${{ inputs.force }}" = "true" ]; then
             FORCE_FLAG="--force"
           fi
 
