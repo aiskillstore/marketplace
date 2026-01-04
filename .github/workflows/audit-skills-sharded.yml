@@ -167,14 +167,43 @@ jobs:
           
           echo "Shard ${{ matrix.shard }}: Updated $UPDATED, Errors $ERRORS"
 
+      - name: Collect modified files for upload
+        id: collect
+        run: |
+          # Create shard-specific output directory
+          mkdir -p shard-output-${{ matrix.shard }}/plugins
+          
+          # Find files modified by this shard using git diff
+          MODIFIED_FILES=$(git diff --name-only -- 'plugins/*/skill-report.json' 'plugins/*/*/skill-report.json' 2>/dev/null || true)
+          
+          if [ -z "$MODIFIED_FILES" ]; then
+            echo "No files modified by shard ${{ matrix.shard }}"
+            echo "file_count=0" >> $GITHUB_OUTPUT
+          else
+            # Copy only modified files, preserving directory structure
+            for file in $MODIFIED_FILES; do
+              if [ -f "$file" ]; then
+                # Create parent directory and copy
+                mkdir -p "shard-output-${{ matrix.shard }}/$(dirname "$file")"
+                cp "$file" "shard-output-${{ matrix.shard }}/$file"
+              fi
+            done
+            
+            FILE_COUNT=$(echo "$MODIFIED_FILES" | wc -l | tr -d ' ')
+            echo "Modified files in shard ${{ matrix.shard }}: $FILE_COUNT"
+            echo "$MODIFIED_FILES" | head -10
+            [ "$FILE_COUNT" -gt 10 ] && echo "... and $((FILE_COUNT - 10)) more"
+            echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+          fi
+          
+          # Also copy the log file
+          cp audit-output-${{ matrix.shard }}.log shard-output-${{ matrix.shard }}/
+
       - name: Upload shard results
         uses: actions/upload-artifact@v4
         with:
           name: shard-${{ matrix.shard }}-results
-          path: |
-            plugins/*/skill-report.json
-            plugins/*/*/skill-report.json
-            audit-output-${{ matrix.shard }}.log
+          path: shard-output-${{ matrix.shard }}/
           retention-days: 1
           overwrite: true
 
@@ -208,13 +237,31 @@ jobs:
           merge-multiple: true
           path: ./merged-results
 
+      - name: Debug merged artifacts
+        run: |
+          echo "=== Merged artifacts structure ==="
+          echo "Log files:"
+          ls -la ./merged-results/*.log 2>/dev/null || echo "No log files found"
+          echo ""
+          echo "Skill report files:"
+          find ./merged-results/plugins -name "skill-report.json" 2>/dev/null | wc -l | xargs echo "Total skill-report.json files:"
+          echo ""
+          echo "Sample files (first 10):"
+          find ./merged-results/plugins -name "skill-report.json" 2>/dev/null | head -10
+
       - name: Apply merged results
         id: apply
         run: |
           echo "Applying results from all shards..."
           
           if [ -d "./merged-results/plugins" ]; then
+            # Count files before copying
+            MERGED_COUNT=$(find ./merged-results/plugins -name "skill-report.json" | wc -l | tr -d ' ')
+            echo "Files to apply from merged artifacts: $MERGED_COUNT"
+            
             cp -r ./merged-results/plugins/* ./plugins/ 2>/dev/null || true
+          else
+            echo "Warning: No plugins directory found in merged results"
           fi
           
           TOTAL_UPDATED=0
@@ -225,10 +272,11 @@ jobs:
               ERRORS=$(grep -c "❌ error" "$log" 2>/dev/null) || ERRORS=0
               TOTAL_UPDATED=$((TOTAL_UPDATED + COUNT))
               TOTAL_ERRORS=$((TOTAL_ERRORS + ERRORS))
+              echo "Log $log: $COUNT updated, $ERRORS errors"
             fi
           done
           
-          echo "Total skills updated: $TOTAL_UPDATED"
+          echo "Total skills updated (from logs): $TOTAL_UPDATED"
           echo "Total errors: $TOTAL_ERRORS"
           echo "updated_count=$TOTAL_UPDATED" >> $GITHUB_OUTPUT
           echo "error_count=$TOTAL_ERRORS" >> $GITHUB_OUTPUT
@@ -243,7 +291,13 @@ jobs:
           else
             echo "has_changes=true" >> $GITHUB_OUTPUT
             CHANGED_FILES=$(git diff --name-only plugins/ | wc -l | tr -d ' ')
-            echo "Changed files: $CHANGED_FILES"
+            echo "Changed files (git diff): $CHANGED_FILES"
+            echo "changed_count=$CHANGED_FILES" >> $GITHUB_OUTPUT
+            
+            # Show sample of changed files
+            echo "Sample changed files:"
+            git diff --name-only plugins/ | head -10
+            [ "$CHANGED_FILES" -gt 10 ] && echo "... and $((CHANGED_FILES - 10)) more"
           fi
 
       - name: Create Pull Request
