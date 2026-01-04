@@ -67,7 +67,10 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual trigger without slugs - translating ALL skills"
+            CHANGED=$(find plugins -name "skill-report.json" -type f 2>/dev/null || true)
+          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
             CHANGED=$(find plugins -name "skill-report.json" -type f 2>/dev/null || true)
           else
             CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | grep 'skill-report.json' || true)
@@ -171,6 +174,7 @@ jobs:
               skipped: .skipped,
               errors: .errors,
               durationMs: .durationMs,
+              modelUsed: .modelUsed,
               errorDetails: [.skills[]? | select(.errors > 0) | {
                 slug: .slug,
                 failures: [.languages[]? | select(.status == "error") | {lang: .language, msg: .message}]
@@ -233,11 +237,13 @@ jobs:
             SKIPPED=$(echo "$RESULT_JSON" | jq -r '.skipped')
             ERRORS=$(echo "$RESULT_JSON" | jq -r '.errors')
             DURATION=$(echo "$RESULT_JSON" | jq -r '.durationMs')
+            MODEL_USED=$(echo "$RESULT_JSON" | jq -r '.modelUsed // "auto"')
             DURATION_MIN=$((DURATION / 60000))
             DURATION_SEC=$(((DURATION % 60000) / 1000))
 
-            echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
             echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🤖 Model | $MODEL_USED |" >> $GITHUB_STEP_SUMMARY
             echo "| ✅ Translated | $TRANSLATED |" >> $GITHUB_STEP_SUMMARY
             echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
             echo "| ❌ Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
