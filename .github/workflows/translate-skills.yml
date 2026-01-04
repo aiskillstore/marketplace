@@ -172,23 +172,32 @@ jobs:
             echo "is_sharded=false" >> $GITHUB_OUTPUT
             echo "shard_count=1" >> $GITHUB_OUTPUT
           else
-            # Sharded mode: split slugs into batches
+            # Sharded mode: even distribution across shards
             echo "🔀 Sharded mode: $COUNT skills (>= threshold $THRESHOLD)"
             
             SIZE=$SHARD_SIZE
             SHARDS=$(( (COUNT + SIZE - 1) / SIZE ))
-            echo "Shard size: $SIZE, Shards needed: $SHARDS"
             
-            # Convert CSV to array
+            # Even distribution: first REMAINDER shards get (BASE_SIZE + 1) items
+            BASE_SIZE=$((COUNT / SHARDS))
+            REMAINDER=$((COUNT % SHARDS))
+            echo "Shards: $SHARDS, base size: $BASE_SIZE, remainder: $REMAINDER"
+            
             IFS=',' read -ra SLUG_ARRAY <<< "$SLUGS_CSV"
             
             MATRIX='{"include":['
+            CURRENT_IDX=0
             for i in $(seq 0 $((SHARDS - 1))); do
-              START=$((i * SIZE))
-              END=$((START + SIZE))
-              [ $END -gt $COUNT ] && END=$COUNT
+              if [ $i -lt $REMAINDER ]; then
+                THIS_SIZE=$((BASE_SIZE + 1))
+              else
+                THIS_SIZE=$BASE_SIZE
+              fi
               
-              # Extract slugs for this shard
+              START=$CURRENT_IDX
+              END=$((CURRENT_IDX + THIS_SIZE))
+              CURRENT_IDX=$END
+              
               SHARD_SLUGS=""
               for j in $(seq $START $((END - 1))); do
                 [ -n "$SHARD_SLUGS" ] && SHARD_SLUGS="$SHARD_SLUGS,"
@@ -199,7 +208,7 @@ jobs:
               ESCAPED_SHARD_SLUGS=$(echo "$SHARD_SLUGS" | sed 's/"/\\"/g')
               MATRIX+="{\"shard\":$i,\"slugs\":\"$ESCAPED_SHARD_SLUGS\",\"is_all\":\"false\"}"
               
-              echo "Shard $i: skills $START-$((END-1)) ($((END - START)) skills)"
+              echo "Shard $i: $THIS_SIZE skills [$START-$((END-1))]"
             done
             MATRIX+=']}'
             
