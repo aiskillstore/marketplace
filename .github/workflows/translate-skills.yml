@@ -1,5 +1,5 @@
 # GitHub Action Workflow for Marketplace Repository
-# Batch translation mode: single job processes all skills with parallel language translation
+# Auto-sharding: switches to batch mode when skill count exceeds threshold
 
 name: Auto-Translate Skill Content
 
@@ -25,6 +25,14 @@ on:
         description: "Parallel language translations per skill (1-10)"
         type: string
         default: "3"
+      shard_size:
+        description: "Skills per shard when auto-sharding (default: 30)"
+        type: string
+        default: "30"
+      max_parallel:
+        description: "Max parallel shards (default: 4)"
+        type: string
+        default: "4"
       cli_version:
         description: "CLI version (default: latest)"
         required: false
@@ -33,20 +41,23 @@ on:
 
 env:
   CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
+  SHARD_THRESHOLD: 30
 
 concurrency:
   group: translate-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  detect-changes:
+  detect-and-plan:
     runs-on: ubuntu-latest
     outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
       slugs_csv: ${{ steps.detect.outputs.slugs_csv }}
-      slugs_json: ${{ steps.detect.outputs.slugs_json }}
       has_changes: ${{ steps.detect.outputs.has_changes }}
       skill_count: ${{ steps.detect.outputs.skill_count }}
       translate_all: ${{ steps.detect.outputs.translate_all }}
+      is_sharded: ${{ steps.plan.outputs.is_sharded }}
+      shard_count: ${{ steps.plan.outputs.shard_count }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -59,14 +70,12 @@ jobs:
           # Case 1: Specific slugs provided via workflow_dispatch
           if [ -n "${{ github.event.inputs.plugin_slugs }}" ]; then
             SLUGS_CSV="${{ github.event.inputs.plugin_slugs }}"
-            SLUGS_JSON=$(echo "$SLUGS_CSV" | tr ',' '\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')
-            SKILL_COUNT=$(echo "$SLUGS_CSV" | tr ',' '\n' | wc -l | tr -d ' ')
+            SKILL_COUNT=$(echo "$SLUGS_CSV" | tr ',' '\n' | grep -c . || echo 0)
             echo "slugs_csv=$SLUGS_CSV" >> $GITHUB_OUTPUT
-            echo "slugs_json=$SLUGS_JSON" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
             echo "translate_all=false" >> $GITHUB_OUTPUT
-            echo "Manual trigger for specific skills: $SLUGS_CSV"
+            echo "Manual trigger for $SKILL_COUNT specific skill(s): $SLUGS_CSV"
             exit 0
           fi
 
@@ -74,7 +83,6 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "🌍 Manual trigger without slugs - will translate ALL approved skills from database"
             echo "slugs_csv=" >> $GITHUB_OUTPUT
-            echo "slugs_json=[]" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "skill_count=all" >> $GITHUB_OUTPUT
             echo "translate_all=true" >> $GITHUB_OUTPUT
@@ -99,31 +107,108 @@ jobs:
 
           if [ -z "$SLUGS" ]; then
             echo "slugs_csv=" >> $GITHUB_OUTPUT
-            echo "slugs_json=[]" >> $GITHUB_OUTPUT
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "skill_count=0" >> $GITHUB_OUTPUT
             echo "translate_all=false" >> $GITHUB_OUTPUT
             echo "No skill changes detected"
           else
-            SLUGS_JSON=$(echo "$SLUGS" | tr ',' '\n' | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))')
             SLUGS_CSV=$(echo "$SLUGS" | tr ',' '\n' | sort -u | paste -sd,)
             SKILL_COUNT=$(echo "$SLUGS" | tr ',' '\n' | sort -u | wc -l | tr -d ' ')
             echo "slugs_csv=$SLUGS_CSV" >> $GITHUB_OUTPUT
-            echo "slugs_json=$SLUGS_JSON" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
             echo "translate_all=false" >> $GITHUB_OUTPUT
-            echo "Detected changed skills: $SLUGS_CSV (count: $SKILL_COUNT)"
+            echo "Detected $SKILL_COUNT changed skill(s): $SLUGS_CSV"
+          fi
+
+      - name: Plan translation strategy
+        id: plan
+        env:
+          SKILL_COUNT: ${{ steps.detect.outputs.skill_count }}
+          TRANSLATE_ALL: ${{ steps.detect.outputs.translate_all }}
+          SLUGS_CSV: ${{ steps.detect.outputs.slugs_csv }}
+          SHARD_SIZE: ${{ inputs.shard_size || '30' }}
+        run: |
+          # Determine if sharding is needed
+          if [ "$TRANSLATE_ALL" = "true" ]; then
+            # For translate_all, always use sharded mode (assume large count)
+            # CLI will query database and handle batching internally
+            echo "🌍 Translate ALL mode - using sharded approach"
+            echo 'matrix={"include":[{"shard":0,"slugs":"","is_all":"true"}]}' >> $GITHUB_OUTPUT
+            echo "is_sharded=false" >> $GITHUB_OUTPUT
+            echo "shard_count=1" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          COUNT=$SKILL_COUNT
+          if [ "$COUNT" = "0" ] || [ -z "$COUNT" ]; then
+            echo "No skills to translate"
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+            echo "is_sharded=false" >> $GITHUB_OUTPUT
+            echo "shard_count=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          THRESHOLD=${{ env.SHARD_THRESHOLD }}
+          
+          if [ "$COUNT" -lt "$THRESHOLD" ]; then
+            # Simple mode: single shard with all slugs
+            echo "📦 Simple mode: $COUNT skills (below threshold $THRESHOLD)"
+            # Escape the slugs for JSON
+            ESCAPED_SLUGS=$(echo "$SLUGS_CSV" | sed 's/"/\\"/g')
+            echo "matrix={\"include\":[{\"shard\":0,\"slugs\":\"$ESCAPED_SLUGS\",\"is_all\":\"false\"}]}" >> $GITHUB_OUTPUT
+            echo "is_sharded=false" >> $GITHUB_OUTPUT
+            echo "shard_count=1" >> $GITHUB_OUTPUT
+          else
+            # Sharded mode: split slugs into batches
+            echo "🔀 Sharded mode: $COUNT skills (>= threshold $THRESHOLD)"
+            
+            SIZE=$SHARD_SIZE
+            SHARDS=$(( (COUNT + SIZE - 1) / SIZE ))
+            echo "Shard size: $SIZE, Shards needed: $SHARDS"
+            
+            # Convert CSV to array
+            IFS=',' read -ra SLUG_ARRAY <<< "$SLUGS_CSV"
+            
+            MATRIX='{"include":['
+            for i in $(seq 0 $((SHARDS - 1))); do
+              START=$((i * SIZE))
+              END=$((START + SIZE))
+              [ $END -gt $COUNT ] && END=$COUNT
+              
+              # Extract slugs for this shard
+              SHARD_SLUGS=""
+              for j in $(seq $START $((END - 1))); do
+                [ -n "$SHARD_SLUGS" ] && SHARD_SLUGS="$SHARD_SLUGS,"
+                SHARD_SLUGS="$SHARD_SLUGS${SLUG_ARRAY[$j]}"
+              done
+              
+              [ $i -gt 0 ] && MATRIX+=','
+              ESCAPED_SHARD_SLUGS=$(echo "$SHARD_SLUGS" | sed 's/"/\\"/g')
+              MATRIX+="{\"shard\":$i,\"slugs\":\"$ESCAPED_SHARD_SLUGS\",\"is_all\":\"false\"}"
+              
+              echo "Shard $i: skills $START-$((END-1)) ($((END - START)) skills)"
+            done
+            MATRIX+=']}'
+            
+            echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+            echo "is_sharded=true" >> $GITHUB_OUTPUT
+            echo "shard_count=$SHARDS" >> $GITHUB_OUTPUT
           fi
 
   translate:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.has_changes == 'true'
+    needs: detect-and-plan
+    if: needs.detect-and-plan.outputs.has_changes == 'true' && needs.detect-and-plan.outputs.shard_count != '0'
     runs-on: self-hosted
     environment: production
     timeout-minutes: 120
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.max_parallel || '4') }}
+      matrix: ${{ fromJSON(needs.detect-and-plan.outputs.matrix) }}
     outputs:
-      result_json: ${{ steps.translate.outputs.result_json }}
+      shard_count: ${{ needs.detect-and-plan.outputs.shard_count }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -136,23 +221,27 @@ jobs:
           version: ${{ inputs.cli_version || 'latest' }}
           token: ${{ secrets.PAT_TOKEN }}
 
-      - name: Translate skills (batch mode)
+      - name: Translate shard ${{ matrix.shard }}
         id: translate
         timeout-minutes: 90
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SKILLSTORE_AGENTS: ${{ secrets.SKILLSTORE_AGENTS }}
-          SLUGS_CSV: ${{ needs.detect-changes.outputs.slugs_csv }}
-          SKILL_COUNT: ${{ needs.detect-changes.outputs.skill_count }}
-          TRANSLATE_ALL: ${{ needs.detect-changes.outputs.translate_all }}
+          SLUGS: ${{ matrix.slugs }}
+          IS_ALL: ${{ matrix.is_all }}
           CONCURRENCY: ${{ inputs.concurrency || '3' }}
         run: |
-          if [ "$TRANSLATE_ALL" = "true" ]; then
-            echo "🌍 Translating ALL approved skills with concurrency $CONCURRENCY"
+          echo "=== Shard ${{ matrix.shard }} ==="
+          
+          if [ "$IS_ALL" = "true" ]; then
+            echo "🌍 Translating ALL approved skills"
+            SLUGS_FLAG=""
           else
-            echo "🚀 Translating $SKILL_COUNT skill(s) with concurrency $CONCURRENCY"
-            echo "Skills: $SLUGS_CSV"
+            SKILL_COUNT=$(echo "$SLUGS" | tr ',' '\n' | grep -c . || echo 0)
+            echo "🚀 Translating $SKILL_COUNT skill(s)"
+            echo "Skills: $SLUGS"
+            SLUGS_FLAG="--slugs $SLUGS"
           fi
 
           MODEL_FLAG=""
@@ -165,12 +254,6 @@ jobs:
             FORCE_FLAG="--force"
           fi
 
-          # Build slugs flag: empty for translate_all, otherwise use CSV
-          SLUGS_FLAG=""
-          if [ "$TRANSLATE_ALL" != "true" ] && [ -n "$SLUGS_CSV" ]; then
-            SLUGS_FLAG="--slugs $SLUGS_CSV"
-          fi
-
           set +e
           RESULT=$(./skillstore-cli skill translate-content \
             $SLUGS_FLAG \
@@ -181,7 +264,8 @@ jobs:
           EXIT_CODE=$?
           set -e
 
-          echo "$RESULT" > translation-result.json
+          # Save result to file for artifact upload
+          echo "$RESULT" > shard-${{ matrix.shard }}-result.json
 
           if echo "$RESULT" | jq -e '.totalSkills' > /dev/null 2>&1; then
             TRANSLATED=$(echo "$RESULT" | jq -r '.translated')
@@ -190,44 +274,139 @@ jobs:
             DURATION=$(echo "$RESULT" | jq -r '.durationMs')
             DURATION_SEC=$((DURATION / 1000))
 
-            echo "📊 Results: $TRANSLATED translated, $SKIPPED skipped, $ERRORS errors (${DURATION_SEC}s)"
+            echo "📊 Shard ${{ matrix.shard }}: $TRANSLATED translated, $SKIPPED skipped, $ERRORS errors (${DURATION_SEC}s)"
 
-            # Output only summary metrics (not full content) to avoid "Argument list too long" error
-            SUMMARY=$(echo "$RESULT" | jq -c '{
+            # Create summary file
+            echo "$RESULT" | jq -c '{
+              shard: ${{ matrix.shard }},
               totalSkills: .totalSkills,
               translated: .translated,
               skipped: .skipped,
               errors: .errors,
               durationMs: .durationMs,
-              modelUsed: .modelUsed,
-              errorDetails: [.skills[]? | select(.errors > 0) | {
-                slug: .slug,
-                failures: [.languages[]? | select(.status == "error") | {lang: .language, msg: .message}]
-              }]
-            }')
-            echo "result_json=$SUMMARY" >> $GITHUB_OUTPUT
+              modelUsed: .modelUsed
+            }' > shard-${{ matrix.shard }}-summary.json
 
             if [ "$ERRORS" -gt 0 ] && [ "$TRANSLATED" -eq 0 ]; then
-              echo "❌ All translations failed"
+              echo "❌ All translations in shard failed"
               exit 1
             elif [ "$ERRORS" -gt 0 ]; then
               echo "⚠️ Some translations failed, but continuing"
             else
-              echo "✅ All translations successful"
+              echo "✅ Shard ${{ matrix.shard }} completed successfully"
             fi
           else
             echo "❌ Translation failed with unexpected output"
             echo "$RESULT"
+            # Create error summary
+            echo '{"shard":${{ matrix.shard }},"error":"unexpected_output","translated":0,"skipped":0,"errors":1}' > shard-${{ matrix.shard }}-summary.json
             exit 1
           fi
 
+      - name: Upload shard results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: translate-shard-${{ matrix.shard }}
+          path: |
+            shard-${{ matrix.shard }}-summary.json
+            shard-${{ matrix.shard }}-result.json
+          retention-days: 1
+
       - name: Cleanup
         if: always()
-        run: rm -f skillstore-cli translation-result.json
+        run: rm -f skillstore-cli shard-*.json
+
+  merge-results:
+    needs: [detect-and-plan, translate]
+    if: always() && needs.detect-and-plan.outputs.has_changes == 'true' && needs.detect-and-plan.outputs.shard_count != '0'
+    runs-on: ubuntu-latest
+    outputs:
+      total_translated: ${{ steps.merge.outputs.total_translated }}
+      total_skipped: ${{ steps.merge.outputs.total_skipped }}
+      total_errors: ${{ steps.merge.outputs.total_errors }}
+      total_duration: ${{ steps.merge.outputs.total_duration }}
+      result_json: ${{ steps.merge.outputs.result_json }}
+    steps:
+      - name: Download all shard results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: translate-shard-*
+          merge-multiple: true
+          path: ./results
+
+      - name: Merge shard results
+        id: merge
+        run: |
+          echo "=== Merging results from all shards ==="
+          
+          TOTAL_TRANSLATED=0
+          TOTAL_SKIPPED=0
+          TOTAL_ERRORS=0
+          TOTAL_DURATION=0
+          SHARD_COUNT=0
+          MODEL_USED=""
+          
+          for summary in ./results/shard-*-summary.json; do
+            if [ -f "$summary" ]; then
+              SHARD_COUNT=$((SHARD_COUNT + 1))
+              
+              TRANSLATED=$(jq -r '.translated // 0' "$summary")
+              SKIPPED=$(jq -r '.skipped // 0' "$summary")
+              ERRORS=$(jq -r '.errors // 0' "$summary")
+              DURATION=$(jq -r '.durationMs // 0' "$summary")
+              MODEL=$(jq -r '.modelUsed // ""' "$summary")
+              
+              TOTAL_TRANSLATED=$((TOTAL_TRANSLATED + TRANSLATED))
+              TOTAL_SKIPPED=$((TOTAL_SKIPPED + SKIPPED))
+              TOTAL_ERRORS=$((TOTAL_ERRORS + ERRORS))
+              TOTAL_DURATION=$((TOTAL_DURATION + DURATION))
+              
+              [ -z "$MODEL_USED" ] && MODEL_USED="$MODEL"
+              
+              echo "Shard $(jq -r '.shard' "$summary"): $TRANSLATED translated, $SKIPPED skipped, $ERRORS errors"
+            fi
+          done
+          
+          TOTAL_SKILLS=$((TOTAL_TRANSLATED + TOTAL_SKIPPED + TOTAL_ERRORS))
+          
+          echo ""
+          echo "📊 Combined Results:"
+          echo "  Shards processed: $SHARD_COUNT"
+          echo "  Total skills: $TOTAL_SKILLS"
+          echo "  Translated: $TOTAL_TRANSLATED"
+          echo "  Skipped: $TOTAL_SKIPPED"
+          echo "  Errors: $TOTAL_ERRORS"
+          echo "  Total duration: $((TOTAL_DURATION / 1000))s"
+          
+          echo "total_translated=$TOTAL_TRANSLATED" >> $GITHUB_OUTPUT
+          echo "total_skipped=$TOTAL_SKIPPED" >> $GITHUB_OUTPUT
+          echo "total_errors=$TOTAL_ERRORS" >> $GITHUB_OUTPUT
+          echo "total_duration=$TOTAL_DURATION" >> $GITHUB_OUTPUT
+          
+          # Create combined result JSON
+          RESULT_JSON=$(jq -n \
+            --argjson translated "$TOTAL_TRANSLATED" \
+            --argjson skipped "$TOTAL_SKIPPED" \
+            --argjson errors "$TOTAL_ERRORS" \
+            --argjson duration "$TOTAL_DURATION" \
+            --argjson shards "$SHARD_COUNT" \
+            --arg model "$MODEL_USED" \
+            '{
+              totalSkills: ($translated + $skipped + $errors),
+              translated: $translated,
+              skipped: $skipped,
+              errors: $errors,
+              durationMs: $duration,
+              shardCount: $shards,
+              modelUsed: $model
+            }')
+          
+          echo "result_json=$RESULT_JSON" >> $GITHUB_OUTPUT
 
   invalidate-cache:
-    needs: [detect-changes, translate]
-    if: needs.translate.result == 'success'
+    needs: [detect-and-plan, translate, merge-results]
+    if: always() && needs.translate.result == 'success'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -240,27 +419,34 @@ jobs:
         uses: ./.github/actions/invalidate-cache
         with:
           type: skills
-          slugs: ${{ needs.detect-changes.outputs.slugs_csv }}
+          slugs: ${{ needs.detect-and-plan.outputs.slugs_csv }}
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
 
   notify:
-    needs: [detect-changes, translate, invalidate-cache]
-    if: always() && needs.detect-changes.outputs.has_changes == 'true'
+    needs: [detect-and-plan, translate, merge-results, invalidate-cache]
+    if: always() && needs.detect-and-plan.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Summary
         env:
-          RESULT_JSON: ${{ needs.translate.outputs.result_json }}
-          SKILL_COUNT: ${{ needs.detect-changes.outputs.skill_count }}
-          TRANSLATE_ALL: ${{ needs.detect-changes.outputs.translate_all }}
+          RESULT_JSON: ${{ needs.merge-results.outputs.result_json }}
+          SKILL_COUNT: ${{ needs.detect-and-plan.outputs.skill_count }}
+          TRANSLATE_ALL: ${{ needs.detect-and-plan.outputs.translate_all }}
+          IS_SHARDED: ${{ needs.detect-and-plan.outputs.is_sharded }}
+          SHARD_COUNT: ${{ needs.detect-and-plan.outputs.shard_count }}
         run: |
           echo "# Translation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Mode indicator
           if [ "$TRANSLATE_ALL" = "true" ]; then
             echo "**Mode:** Translate ALL approved skills" >> $GITHUB_STEP_SUMMARY
+          elif [ "$IS_SHARDED" = "true" ]; then
+            echo "**Mode:** Sharded ($SHARD_COUNT shards)" >> $GITHUB_STEP_SUMMARY
           else
-            echo "**Skills:** $SKILL_COUNT" >> $GITHUB_STEP_SUMMARY
+            echo "**Mode:** Simple (single batch)" >> $GITHUB_STEP_SUMMARY
           fi
+          echo "**Requested Skills:** $SKILL_COUNT" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ -n "$RESULT_JSON" ] && echo "$RESULT_JSON" | jq -e '.totalSkills' > /dev/null 2>&1; then
@@ -269,12 +455,14 @@ jobs:
             ERRORS=$(echo "$RESULT_JSON" | jq -r '.errors')
             DURATION=$(echo "$RESULT_JSON" | jq -r '.durationMs')
             MODEL_USED=$(echo "$RESULT_JSON" | jq -r '.modelUsed // "auto"')
+            SHARD_CNT=$(echo "$RESULT_JSON" | jq -r '.shardCount // 1')
             DURATION_MIN=$((DURATION / 60000))
             DURATION_SEC=$(((DURATION % 60000) / 1000))
 
             echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
             echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
             echo "| 🤖 Model | $MODEL_USED |" >> $GITHUB_STEP_SUMMARY
+            [ "$SHARD_CNT" -gt 1 ] && echo "| 🔀 Shards | $SHARD_CNT |" >> $GITHUB_STEP_SUMMARY
             echo "| ✅ Translated | $TRANSLATED |" >> $GITHUB_STEP_SUMMARY
             echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
             echo "| ❌ Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
@@ -282,10 +470,8 @@ jobs:
             echo "" >> $GITHUB_STEP_SUMMARY
 
             if [ "$ERRORS" -gt 0 ]; then
-              echo "### Errors" >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
-              echo "$RESULT_JSON" | jq -r '.errorDetails[] | .slug + ": " + (.failures[] | .lang + " - " + .msg)' >> $GITHUB_STEP_SUMMARY
-              echo '```' >> $GITHUB_STEP_SUMMARY
+              echo "### ⚠️ Some translations failed" >> $GITHUB_STEP_SUMMARY
+              echo "Check individual shard logs for error details." >> $GITHUB_STEP_SUMMARY
             fi
           else
             if [ "${{ needs.translate.result }}" = "success" ]; then
