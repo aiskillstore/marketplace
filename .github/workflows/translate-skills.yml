@@ -46,6 +46,7 @@ jobs:
       slugs_json: ${{ steps.detect.outputs.slugs_json }}
       has_changes: ${{ steps.detect.outputs.has_changes }}
       skill_count: ${{ steps.detect.outputs.skill_count }}
+      translate_all: ${{ steps.detect.outputs.translate_all }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -55,6 +56,7 @@ jobs:
       - name: Detect changed plugins
         id: detect
         run: |
+          # Case 1: Specific slugs provided via workflow_dispatch
           if [ -n "${{ github.event.inputs.plugin_slugs }}" ]; then
             SLUGS_CSV="${{ github.event.inputs.plugin_slugs }}"
             SLUGS_JSON=$(echo "$SLUGS_CSV" | tr ',' '\n' | jq -R -s -c 'split("\n") | map(select(length > 0))')
@@ -63,14 +65,24 @@ jobs:
             echo "slugs_json=$SLUGS_JSON" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
-            echo "Manual trigger for: $SLUGS_CSV"
+            echo "translate_all=false" >> $GITHUB_OUTPUT
+            echo "Manual trigger for specific skills: $SLUGS_CSV"
             exit 0
           fi
 
+          # Case 2: workflow_dispatch without slugs = translate ALL skills from database
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "Manual trigger without slugs - translating ALL skills"
-            CHANGED=$(find plugins -name "skill-report.json" -type f 2>/dev/null || true)
-          elif [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            echo "🌍 Manual trigger without slugs - will translate ALL approved skills from database"
+            echo "slugs_csv=" >> $GITHUB_OUTPUT
+            echo "slugs_json=[]" >> $GITHUB_OUTPUT
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "skill_count=all" >> $GITHUB_OUTPUT
+            echo "translate_all=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Case 3: Push event - detect changed skill-report.json files
+          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
             CHANGED=$(find plugins -name "skill-report.json" -type f 2>/dev/null || true)
           else
             CHANGED=$(git diff --name-only ${{ github.event.before }} ${{ github.event.after }} | grep 'skill-report.json' || true)
@@ -90,6 +102,8 @@ jobs:
             echo "slugs_json=[]" >> $GITHUB_OUTPUT
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "skill_count=0" >> $GITHUB_OUTPUT
+            echo "translate_all=false" >> $GITHUB_OUTPUT
+            echo "No skill changes detected"
           else
             SLUGS_JSON=$(echo "$SLUGS" | tr ',' '\n' | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))')
             SLUGS_CSV=$(echo "$SLUGS" | tr ',' '\n' | sort -u | paste -sd,)
@@ -98,9 +112,9 @@ jobs:
             echo "slugs_json=$SLUGS_JSON" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
+            echo "translate_all=false" >> $GITHUB_OUTPUT
+            echo "Detected changed skills: $SLUGS_CSV (count: $SKILL_COUNT)"
           fi
-
-          echo "Detected skills: $SLUGS_CSV (count: $SKILL_COUNT)"
 
   translate:
     needs: detect-changes
@@ -131,10 +145,15 @@ jobs:
           SKILLSTORE_AGENTS: ${{ secrets.SKILLSTORE_AGENTS }}
           SLUGS_CSV: ${{ needs.detect-changes.outputs.slugs_csv }}
           SKILL_COUNT: ${{ needs.detect-changes.outputs.skill_count }}
+          TRANSLATE_ALL: ${{ needs.detect-changes.outputs.translate_all }}
           CONCURRENCY: ${{ inputs.concurrency || '3' }}
         run: |
-          echo "🚀 Translating $SKILL_COUNT skill(s) with concurrency $CONCURRENCY"
-          echo "Skills: $SLUGS_CSV"
+          if [ "$TRANSLATE_ALL" = "true" ]; then
+            echo "🌍 Translating ALL approved skills with concurrency $CONCURRENCY"
+          else
+            echo "🚀 Translating $SKILL_COUNT skill(s) with concurrency $CONCURRENCY"
+            echo "Skills: $SLUGS_CSV"
+          fi
 
           MODEL_FLAG=""
           if [ -n "${{ inputs.model }}" ]; then
@@ -146,9 +165,15 @@ jobs:
             FORCE_FLAG="--force"
           fi
 
+          # Build slugs flag: empty for translate_all, otherwise use CSV
+          SLUGS_FLAG=""
+          if [ "$TRANSLATE_ALL" != "true" ] && [ -n "$SLUGS_CSV" ]; then
+            SLUGS_FLAG="--slugs $SLUGS_CSV"
+          fi
+
           set +e
           RESULT=$(./skillstore-cli skill translate-content \
-            --slugs "$SLUGS_CSV" \
+            $SLUGS_FLAG \
             --concurrency "$CONCURRENCY" \
             --output json \
             $MODEL_FLAG \
@@ -226,10 +251,16 @@ jobs:
       - name: Summary
         env:
           RESULT_JSON: ${{ needs.translate.outputs.result_json }}
+          SKILL_COUNT: ${{ needs.detect-changes.outputs.skill_count }}
+          TRANSLATE_ALL: ${{ needs.detect-changes.outputs.translate_all }}
         run: |
           echo "# Translation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Skills:** ${{ needs.detect-changes.outputs.skill_count }}" >> $GITHUB_STEP_SUMMARY
+          if [ "$TRANSLATE_ALL" = "true" ]; then
+            echo "**Mode:** Translate ALL approved skills" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Skills:** $SKILL_COUNT" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ -n "$RESULT_JSON" ] && echo "$RESULT_JSON" | jq -e '.totalSkills' > /dev/null 2>&1; then
