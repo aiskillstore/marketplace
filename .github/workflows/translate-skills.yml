@@ -96,7 +96,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       slugs_csv: ${{ steps.detect.outputs.slugs_csv }}
       has_changes: ${{ steps.detect.outputs.has_changes }}
-      skill_count: ${{ steps.detect.outputs.skill_count }}
+      skill_count: ${{ steps.count.outputs.total_count || steps.detect.outputs.skill_count }}
       translate_all: ${{ steps.detect.outputs.translate_all }}
       is_sharded: ${{ steps.plan.outputs.is_sharded }}
       shard_count: ${{ steps.plan.outputs.shard_count }}
@@ -105,11 +105,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 2
+          sparse-checkout: .github/actions
 
       - name: Detect plugins to translate
         id: detect
         run: |
-          # Get slugs from input (workflow_call or workflow_dispatch)
           SLUGS_CSV="${{ inputs.plugin_slugs }}"
           
           if [ -n "$SLUGS_CSV" ]; then
@@ -123,7 +123,7 @@ jobs:
             echo "🌍 Manual trigger without slugs - will translate ALL approved skills from database"
             echo "slugs_csv=" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "skill_count=all" >> $GITHUB_OUTPUT
+            echo "skill_count=0" >> $GITHUB_OUTPUT
             echo "translate_all=true" >> $GITHUB_OUTPUT
           else
             echo "❌ No slugs provided and not a manual trigger"
@@ -133,6 +133,25 @@ jobs:
             echo "translate_all=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Download Skillstore CLI
+        if: steps.detect.outputs.translate_all == 'true'
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ inputs.cli_version || 'latest' }}
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Query skill count from database
+        id: count
+        if: steps.detect.outputs.translate_all == 'true'
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          RESULT=$(./skillstore-cli skill translate-content --count-only --output json)
+          COUNT=$(echo "$RESULT" | jq -r '.count')
+          echo "total_count=$COUNT" >> $GITHUB_OUTPUT
+          echo "📊 Found $COUNT translatable skills in database"
+
       - name: Plan translation strategy
         id: plan
         env:
@@ -140,15 +159,34 @@ jobs:
           TRANSLATE_ALL: ${{ steps.detect.outputs.translate_all }}
           SLUGS_CSV: ${{ steps.detect.outputs.slugs_csv }}
           SHARD_SIZE: ${{ inputs.shard_size || '10' }}
+          DB_COUNT: ${{ steps.count.outputs.total_count }}
         run: |
-          # Determine if sharding is needed
           if [ "$TRANSLATE_ALL" = "true" ]; then
-            # For translate_all, always use sharded mode (assume large count)
-            # CLI will query database and handle batching internally
-            echo "🌍 Translate ALL mode - using sharded approach"
-            echo 'matrix={"include":[{"shard":0,"slugs":"","is_all":"true"}]}' >> $GITHUB_OUTPUT
-            echo "is_sharded=false" >> $GITHUB_OUTPUT
-            echo "shard_count=1" >> $GITHUB_OUTPUT
+            COUNT=${DB_COUNT:-0}
+            if [ "$COUNT" = "0" ] || [ -z "$COUNT" ]; then
+              echo "No skills found in database to translate"
+              echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+              echo "is_sharded=false" >> $GITHUB_OUTPUT
+              echo "shard_count=0" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            SIZE=$SHARD_SIZE
+            SHARDS=$(( (COUNT + SIZE - 1) / SIZE ))
+            
+            echo "🌍 Translate ALL mode: $COUNT skills → $SHARDS shards (size=$SIZE)"
+            
+            MATRIX='{"include":['
+            for i in $(seq 0 $((SHARDS - 1))); do
+              OFFSET=$((i * SIZE))
+              [ $i -gt 0 ] && MATRIX+=','
+              MATRIX+="{\"shard\":$i,\"offset\":$OFFSET,\"limit\":$SIZE}"
+            done
+            MATRIX+=']}'
+            
+            echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+            echo "is_sharded=true" >> $GITHUB_OUTPUT
+            echo "shard_count=$SHARDS" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -164,21 +202,17 @@ jobs:
           THRESHOLD=${{ env.SHARD_THRESHOLD }}
           
           if [ "$COUNT" -lt "$THRESHOLD" ]; then
-            # Simple mode: single shard with all slugs
             echo "📦 Simple mode: $COUNT skills (below threshold $THRESHOLD)"
-            # Escape the slugs for JSON
             ESCAPED_SLUGS=$(echo "$SLUGS_CSV" | sed 's/"/\\"/g')
-            echo "matrix={\"include\":[{\"shard\":0,\"slugs\":\"$ESCAPED_SLUGS\",\"is_all\":\"false\"}]}" >> $GITHUB_OUTPUT
+            echo "matrix={\"include\":[{\"shard\":0,\"slugs\":\"$ESCAPED_SLUGS\"}]}" >> $GITHUB_OUTPUT
             echo "is_sharded=false" >> $GITHUB_OUTPUT
             echo "shard_count=1" >> $GITHUB_OUTPUT
           else
-            # Sharded mode: even distribution across shards
             echo "🔀 Sharded mode: $COUNT skills (>= threshold $THRESHOLD)"
             
             SIZE=$SHARD_SIZE
             SHARDS=$(( (COUNT + SIZE - 1) / SIZE ))
             
-            # Even distribution: first REMAINDER shards get (BASE_SIZE + 1) items
             BASE_SIZE=$((COUNT / SHARDS))
             REMAINDER=$((COUNT % SHARDS))
             echo "Shards: $SHARDS, base size: $BASE_SIZE, remainder: $REMAINDER"
@@ -206,7 +240,7 @@ jobs:
               
               [ $i -gt 0 ] && MATRIX+=','
               ESCAPED_SHARD_SLUGS=$(echo "$SHARD_SLUGS" | sed 's/"/\\"/g')
-              MATRIX+="{\"shard\":$i,\"slugs\":\"$ESCAPED_SHARD_SLUGS\",\"is_all\":\"false\"}"
+              MATRIX+="{\"shard\":$i,\"slugs\":\"$ESCAPED_SHARD_SLUGS\"}"
               
               echo "Shard $i: $THIS_SIZE skills [$START-$((END-1))]"
             done
@@ -216,6 +250,10 @@ jobs:
             echo "is_sharded=true" >> $GITHUB_OUTPUT
             echo "shard_count=$SHARDS" >> $GITHUB_OUTPUT
           fi
+
+      - name: Cleanup CLI
+        if: always() && steps.detect.outputs.translate_all == 'true'
+        run: rm -f skillstore-cli
 
   translate:
     needs: detect-and-plan
@@ -249,19 +287,24 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
           SLUGS: ${{ matrix.slugs }}
-          IS_ALL: ${{ matrix.is_all }}
+          OFFSET: ${{ matrix.offset }}
+          LIMIT: ${{ matrix.limit }}
           CONCURRENCY: ${{ inputs.concurrency || '8' }}
         run: |
           echo "=== Shard ${{ matrix.shard }} ==="
           
-          if [ "$IS_ALL" = "true" ]; then
-            echo "🌍 Translating ALL approved skills"
-            SLUGS_FLAG=""
-          else
+          SELECTION_FLAG=""
+          if [ -n "$OFFSET" ]; then
+            echo "🌍 Offset/limit mode: offset=$OFFSET, limit=$LIMIT"
+            SELECTION_FLAG="--offset $OFFSET --limit $LIMIT"
+          elif [ -n "$SLUGS" ]; then
             SKILL_COUNT=$(echo "$SLUGS" | tr ',' '\n' | grep -c . || echo 0)
             echo "🚀 Translating $SKILL_COUNT skill(s)"
             echo "Skills: $SLUGS"
-            SLUGS_FLAG="--slugs $SLUGS"
+            SELECTION_FLAG="--slugs $SLUGS"
+          else
+            echo "❌ No offset or slugs provided"
+            exit 1
           fi
 
           MODEL_FLAG=""
@@ -274,10 +317,9 @@ jobs:
             FORCE_FLAG="--force"
           fi
 
-          # Run CLI: stdout=JSON, stderr=progress logs (visible in Actions log)
           set +e
           RESULT=$(./skillstore-cli skill translate-content \
-            $SLUGS_FLAG \
+            $SELECTION_FLAG \
             --concurrency "$CONCURRENCY" \
             --output json \
             $MODEL_FLAG \
