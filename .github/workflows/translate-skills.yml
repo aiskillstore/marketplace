@@ -366,6 +366,7 @@ jobs:
       total_errors: ${{ steps.merge.outputs.total_errors }}
       total_duration: ${{ steps.merge.outputs.total_duration }}
       result_json: ${{ steps.merge.outputs.result_json }}
+      translated_slugs: ${{ steps.merge.outputs.translated_slugs }}
     steps:
       - name: Download all shard results
         uses: actions/download-artifact@v4
@@ -423,6 +424,37 @@ jobs:
           echo "total_errors=$TOTAL_ERRORS" >> $GITHUB_OUTPUT
           echo "total_duration=$TOTAL_DURATION" >> $GITHUB_OUTPUT
           
+          # Extract unique slugs that were translated (status != "skipped") from all shards
+          # This is needed for cache invalidation in translate-all mode
+          echo ""
+          echo "=== Extracting translated slugs for cache invalidation ==="
+          TRANSLATED_SLUGS=""
+          for result in ./results/shard-*-result.json; do
+            if [ -f "$result" ]; then
+              # Extract slugs where at least one language was translated (not skipped)
+              SHARD_SLUGS=$(jq -r '[.languages[].skills[] | select(.status != "skipped") | .slug] | unique | .[]' "$result" 2>/dev/null || echo "")
+              if [ -n "$SHARD_SLUGS" ]; then
+                if [ -n "$TRANSLATED_SLUGS" ]; then
+                  TRANSLATED_SLUGS="$TRANSLATED_SLUGS"$'\n'"$SHARD_SLUGS"
+                else
+                  TRANSLATED_SLUGS="$SHARD_SLUGS"
+                fi
+              fi
+            fi
+          done
+          
+          # Deduplicate and convert to comma-separated
+          if [ -n "$TRANSLATED_SLUGS" ]; then
+            UNIQUE_SLUGS=$(echo "$TRANSLATED_SLUGS" | sort -u | tr '\n' ',' | sed 's/,$//')
+            SLUG_COUNT=$(echo "$TRANSLATED_SLUGS" | sort -u | wc -l | tr -d ' ')
+            echo "  Unique translated slugs: $SLUG_COUNT"
+          else
+            UNIQUE_SLUGS=""
+            echo "  No translated slugs found"
+          fi
+          
+          echo "translated_slugs=$UNIQUE_SLUGS" >> $GITHUB_OUTPUT
+          
           # Create combined result JSON (compact for GITHUB_OUTPUT compatibility)
           RESULT_JSON=$(jq -cn \
             --argjson translated "$TOTAL_TRANSLATED" \
@@ -458,7 +490,8 @@ jobs:
         uses: ./.github/actions/invalidate-cache
         with:
           type: skills
-          slugs: ${{ needs.detect-and-plan.outputs.slugs_csv }}
+          # Use slugs_csv if provided (partial mode), otherwise use translated_slugs from merge-results (translate-all mode)
+          slugs: ${{ needs.detect-and-plan.outputs.slugs_csv || needs.merge-results.outputs.translated_slugs }}
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
 
   notify:
