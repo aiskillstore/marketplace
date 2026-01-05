@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [0.4.1] - 2026-01-05
+
+### Summary
+
+AI Skillstore marketplace v0.4.1 is a maintenance release with no new plugins, focused on keeping the 284-plugin catalog stable and compatible for smoother installs and updates. 
+
+### Statistics
+
+- Total plugins: 284
+- New plugins: 0
+- Updated plugins: 0
+
+
 ## [0.4.0] - 2026-01-05
 
 ### Summary
