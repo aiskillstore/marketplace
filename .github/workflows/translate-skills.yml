@@ -25,15 +25,15 @@ on:
       concurrency:
         description: "Parallel skills per language (language-first parallelism)"
         type: string
-        default: "5"
+        default: "8"
       shard_size:
         description: "Skills per shard"
         type: string
-        default: "30"
+        default: "10"
       max_parallel:
-        description: "Max parallel shards"
+        description: "Max parallel shards (6 of 7 runners reserved)"
         type: string
-        default: "4"
+        default: "6"
       cli_version:
         description: "CLI version"
         type: string
@@ -66,15 +66,15 @@ on:
       concurrency:
         description: "Parallel skills per language (1-10, language-first parallelism)"
         type: string
-        default: "5"
+        default: "8"
       shard_size:
-        description: "Skills per shard when auto-sharding (default: 30)"
+        description: "Skills per shard when auto-sharding"
         type: string
-        default: "30"
+        default: "10"
       max_parallel:
-        description: "Max parallel shards (default: 4)"
+        description: "Max parallel shards (6 of 7 runners reserved)"
         type: string
-        default: "4"
+        default: "6"
       cli_version:
         description: "CLI version (default: latest)"
         required: false
@@ -83,7 +83,7 @@ on:
 
 env:
   CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
-  SHARD_THRESHOLD: 30
+  SHARD_THRESHOLD: 10
 
 concurrency:
   group: translate-${{ github.ref }}
@@ -139,7 +139,7 @@ jobs:
           SKILL_COUNT: ${{ steps.detect.outputs.skill_count }}
           TRANSLATE_ALL: ${{ steps.detect.outputs.translate_all }}
           SLUGS_CSV: ${{ steps.detect.outputs.slugs_csv }}
-          SHARD_SIZE: ${{ inputs.shard_size || '30' }}
+          SHARD_SIZE: ${{ inputs.shard_size || '10' }}
         run: |
           # Determine if sharding is needed
           if [ "$TRANSLATE_ALL" = "true" ]; then
@@ -226,7 +226,7 @@ jobs:
     continue-on-error: true
     strategy:
       fail-fast: false
-      max-parallel: ${{ fromJSON(inputs.max_parallel || '4') }}
+      max-parallel: ${{ fromJSON(inputs.max_parallel || '6') }}
       matrix: ${{ fromJSON(needs.detect-and-plan.outputs.matrix) }}
     outputs:
       shard_count: ${{ needs.detect-and-plan.outputs.shard_count }}
@@ -244,14 +244,13 @@ jobs:
 
       - name: Translate shard ${{ matrix.shard }}
         id: translate
-        timeout-minutes: 90
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
           SLUGS: ${{ matrix.slugs }}
           IS_ALL: ${{ matrix.is_all }}
-          CONCURRENCY: ${{ inputs.concurrency || '5' }}
+          CONCURRENCY: ${{ inputs.concurrency || '8' }}
         run: |
           echo "=== Shard ${{ matrix.shard }} ==="
           
