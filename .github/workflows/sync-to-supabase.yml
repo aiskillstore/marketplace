@@ -30,7 +30,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          # Full history needed to diff against last successful sync
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -40,9 +41,36 @@ jobs:
       - name: Install dependencies
         run: npm install @supabase/supabase-js
 
+      - name: Find last successful sync commit
+        id: last_sync
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Find the commit SHA of the last successful sync workflow run
+          # This ensures we catch ALL changes since the last sync, even if multiple PRs merged
+          LAST_SHA=$(gh api "repos/${{ github.repository }}/actions/workflows/sync-to-supabase.yml/runs?status=success&per_page=5" \
+            --jq '.workflow_runs[0].head_sha' 2>/dev/null || echo "")
+          
+          if [ -n "$LAST_SHA" ] && [ "$LAST_SHA" != "null" ] && [ "$LAST_SHA" != "${{ github.sha }}" ]; then
+            # Verify the commit exists in our history
+            if git cat-file -e "$LAST_SHA" 2>/dev/null; then
+              echo "Last successful sync at: $LAST_SHA"
+              echo "base_sha=$LAST_SHA" >> $GITHUB_OUTPUT
+            else
+              echo "Last sync commit $LAST_SHA not in history, falling back to HEAD~1"
+              echo "base_sha=HEAD~1" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "No previous successful sync found, falling back to HEAD~1"
+            echo "base_sha=HEAD~1" >> $GITHUB_OUTPUT
+          fi
+
       - name: Detect changed plugins
         id: changes
         run: |
+          BASE_SHA="${{ steps.last_sync.outputs.base_sha }}"
+          echo "Comparing HEAD against: $BASE_SHA"
+          
           # Find all plugin slugs by locating marketplace-entry.json files
           find_all_plugins() {
             for entry in $(find plugins -name "marketplace-entry.json" 2>/dev/null); do
@@ -73,14 +101,16 @@ jobs:
             CHANGED=$(find_all_plugins | tr '\n' ' ')
             echo "mode=full" >> $GITHUB_OUTPUT
           else
-            # Get changed paths and extract plugin slugs intelligently
-            CHANGED=$(git diff HEAD~1 --name-only 2>/dev/null | \
+            # Get changed paths since last successful sync and extract plugin slugs
+            # Using $BASE_SHA..${{ github.sha }} to catch ALL commits between syncs
+            CHANGED=$(git diff "$BASE_SHA" --name-only 2>/dev/null | \
               grep '^plugins/' | \
               sed 's|^plugins/||' | \
               while read -r path; do
                 get_plugin_slug "$path"
               done | sort -u | tr '\n' ' ')
             echo "mode=incremental" >> $GITHUB_OUTPUT
+            echo "Diff range: $BASE_SHA..HEAD"
           fi
           
           echo "changed_plugins=$CHANGED" >> $GITHUB_OUTPUT
