@@ -21,6 +21,7 @@ jobs:
       plugin_count: ${{ steps.changelog.outputs.plugin_count }}
       added_plugins: ${{ steps.changelog.outputs.added_plugins }}
       added_count: ${{ steps.changelog.outputs.added_count }}
+      updated_plugins: ${{ steps.changelog.outputs.updated_plugins }}
       updated_count: ${{ steps.changelog.outputs.updated_count }}
       removed_count: ${{ steps.changelog.outputs.removed_count }}
       infra_changes: ${{ steps.changelog.outputs.infra_changes }}
@@ -82,14 +83,31 @@ jobs:
           
           echo "Analyzing commits in range: $RANGE"
           
-          # Get current plugins list
-          CURRENT_PLUGINS=$(find plugins -name "marketplace-entry.json" -exec jq -r '.name' {} \; 2>/dev/null | sort)
+          # Get current plugins list with their paths
+          # Format: name|path (one per line)
+          CURRENT_PLUGIN_DATA=""
+          while IFS= read -r entry_file; do
+            [ -z "$entry_file" ] && continue
+            name=$(jq -r '.name' "$entry_file" 2>/dev/null)
+            [ -z "$name" ] && continue
+            dir=$(dirname "$entry_file")
+            if [ -z "$CURRENT_PLUGIN_DATA" ]; then
+              CURRENT_PLUGIN_DATA="$name|$dir"
+            else
+              CURRENT_PLUGIN_DATA="${CURRENT_PLUGIN_DATA}"$'\n'"$name|$dir"
+            fi
+          done < <(find plugins -name "marketplace-entry.json" 2>/dev/null)
+          
+          # Extract just the names for counting and comparison
+          CURRENT_PLUGINS=$(echo "$CURRENT_PLUGIN_DATA" | cut -d'|' -f1 | sort)
           PLUGIN_COUNT=$(echo "$CURRENT_PLUGINS" | grep -c . || echo "0")
           
-          # Get previous plugins list (if tag exists)
+          # Get previous plugins list and marketplace.json (if tag exists)
           if [ -n "$PREV_TAG" ]; then
-            PREV_PLUGINS=$(git show "${PREV_TAG}:.claude-plugin/marketplace.json" 2>/dev/null | jq -r '.plugins[].name' | sort || echo "")
+            PREV_MARKETPLACE_JSON=$(git show "${PREV_TAG}:.claude-plugin/marketplace.json" 2>/dev/null || echo "{}")
+            PREV_PLUGINS=$(echo "$PREV_MARKETPLACE_JSON" | jq -r '.plugins[].name' 2>/dev/null | sort || echo "")
           else
+            PREV_MARKETPLACE_JSON="{}"
             PREV_PLUGINS=""
           fi
           
@@ -117,7 +135,42 @@ jobs:
             fi
           done
           
+          # Calculate updated plugins (exist in both tags, but content changed)
+          # Uses git tree hash comparison for efficiency
+          UPDATED_PLUGINS=""
           UPDATED_COUNT=0
+          
+          if [ -n "$PREV_TAG" ]; then
+            while IFS='|' read -r name curr_path; do
+              [ -z "$name" ] && continue
+              
+              # Skip if not in previous plugins (it's ADDED, not UPDATED)
+              if ! echo "$PREV_PLUGINS" | grep -qx "$name"; then
+                continue
+              fi
+              
+              # Get previous path from marketplace.json
+              prev_path=$(echo "$PREV_MARKETPLACE_JSON" | \
+                jq -r --arg n "$name" '.plugins[] | select(.name == $n) | .source // empty' 2>/dev/null | \
+                sed 's|^\./||')
+              
+              [ -z "$prev_path" ] && continue
+              
+              # Compare git tree hashes
+              prev_hash=$(git rev-parse "${PREV_TAG}:${prev_path}" 2>/dev/null || echo "")
+              curr_hash=$(git rev-parse "HEAD:${curr_path}" 2>/dev/null || echo "")
+              
+              if [ -n "$prev_hash" ] && [ -n "$curr_hash" ] && [ "$prev_hash" != "$curr_hash" ]; then
+                if [ -z "$UPDATED_PLUGINS" ]; then
+                  UPDATED_PLUGINS="$name"
+                else
+                  UPDATED_PLUGINS="${UPDATED_PLUGINS},$name"
+                fi
+                UPDATED_COUNT=$((UPDATED_COUNT + 1))
+                echo "  Updated: $name (hash changed)"
+              fi
+            done <<< "$CURRENT_PLUGIN_DATA"
+          fi
           
           # Collect commit messages for infrastructure changes
           INFRA_CHANGES=""
@@ -139,6 +192,7 @@ jobs:
             echo "plugin_count=$PLUGIN_COUNT"
             echo "added_plugins=$ADDED_PLUGINS"
             echo "added_count=$ADDED_COUNT"
+            echo "updated_plugins=$UPDATED_PLUGINS"
             echo "updated_count=$UPDATED_COUNT"
             echo "removed_count=$REMOVED_COUNT"
             echo "infra_changes=$INFRA_CHANGES"
@@ -412,12 +466,13 @@ jobs:
             const updatedCount = parseInt('${{ needs.release.outputs.updated_count }}', 10) || 0;
             const removedCount = parseInt('${{ needs.release.outputs.removed_count }}', 10) || 0;
             const addedPlugins = '${{ needs.release.outputs.added_plugins }}'.split(',').filter(Boolean);
+            const updatedPlugins = '${{ needs.release.outputs.updated_plugins }}'.split(',').filter(Boolean);
             const infraChanges = '${{ needs.release.outputs.infra_changes }}'.split('|').filter(Boolean);
             const aiSummary = `${{ needs.release.outputs.ai_summary }}`;
 
             const changelog = {
               added_plugins: addedPlugins,
-              updated_plugins: [],
+              updated_plugins: updatedPlugins,
               removed_plugins: [],
               infrastructure_changes: infraChanges
             };
@@ -427,6 +482,8 @@ jobs:
             console.log(`  Version: ${version}`);
             console.log(`  Plugins: ${pluginCount}`);
             console.log(`  Added: ${addedCount}`);
+            console.log(`  Updated: ${updatedCount}`);
+            console.log(`  Removed: ${removedCount}`);
 
             // Mark previous releases as not latest
             const { error: updateError } = await supabase
