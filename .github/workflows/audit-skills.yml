@@ -1,4 +1,12 @@
-name: Audit All Skills
+# GitHub Action Workflow for Skill Auditing
+# Auto-sharding: switches to parallel matrix mode when skill count exceeds threshold
+#
+# Modes:
+# - Single skill: --slug specified → 1 shard
+# - Simple mode: skill count < threshold → 1 shard (sequential)
+# - Sharded mode: skill count >= threshold → N parallel shards
+
+name: Audit Skills
 
 on:
   workflow_dispatch:
@@ -12,17 +20,17 @@ on:
         type: string
         default: ''
       limit:
-        description: 'Maximum skills to process (leave empty for all)'
+        description: 'Maximum total skills to process (leave empty for all)'
         type: string
         default: ''
-      correlation_id:
-        description: 'Correlation ID for chained runs (auto-set on continuation)'
+      shard_size:
+        description: 'Skills per shard when auto-sharding (default: 50)'
         type: string
-        default: ''
-      resume_from_run:
-        description: 'Run ID to resume from (auto-set on continuation)'
+        default: '50'
+      max_parallel:
+        description: 'Max parallel shards (default: 4)'
         type: string
-        default: ''
+        default: '4'
       cli_version:
         description: 'CLI version (default: latest)'
         type: string
@@ -31,31 +39,212 @@ on:
         description: 'Preview changes without creating PR'
         type: boolean
         default: false
-      max_runtime_minutes:
-        description: 'Max runtime before continuation dispatch (default: 330 = 5.5h)'
-        type: string
-        default: '330'
 
 env:
   CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
-  CHECKPOINT_FILE: audit-checkpoint.json
+  SHARD_THRESHOLD: 50
 
 concurrency:
-  group: audit-skills-${{ inputs.correlation_id || github.run_id }}
+  group: audit-skills
   cancel-in-progress: false
 
 jobs:
-  audit:
+  detect-and-plan:
     runs-on: self-hosted
-    timeout-minutes: 360
     outputs:
-      completed: ${{ steps.audit.outputs.completed }}
-      remaining: ${{ steps.audit.outputs.remaining }}
-      failed: ${{ steps.audit.outputs.failed }}
-      exit_reason: ${{ steps.audit.outputs.exit_reason }}
-      pr_url: ${{ steps.pr.outputs.pr_url }}
-      correlation_id: ${{ steps.correlation.outputs.id }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      total_skills: ${{ steps.plan.outputs.total_skills }}
+      shard_count: ${{ steps.plan.outputs.shard_count }}
+      is_sharded: ${{ steps.plan.outputs.is_sharded }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          fetch-depth: 1
 
+      - name: Discover skills and plan strategy
+        id: plan
+        env:
+          TARGET_SLUG: ${{ inputs.slug }}
+          LIMIT: ${{ inputs.limit }}
+          SHARD_SIZE: ${{ inputs.shard_size || '50' }}
+        run: |
+          # Single skill mode
+          if [ -n "$TARGET_SLUG" ]; then
+            echo "📌 Single skill mode: $TARGET_SLUG"
+            echo 'matrix={"include":[{"shard":0,"offset":0,"limit":1}]}' >> $GITHUB_OUTPUT
+            echo "total_skills=1" >> $GITHUB_OUTPUT
+            echo "shard_count=1" >> $GITHUB_OUTPUT
+            echo "is_sharded=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Count all skills
+          TOTAL=$(find plugins -name "skill-report.json" -type f | wc -l | tr -d ' ')
+          echo "Found $TOTAL skills in repository"
+          
+          # Apply limit if specified
+          if [ -n "$LIMIT" ] && [ "$LIMIT" -gt 0 ] && [ "$LIMIT" -lt "$TOTAL" ]; then
+            TOTAL=$LIMIT
+            echo "Limiting to $TOTAL skills"
+          fi
+          
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "❌ No skills found"
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+            echo "total_skills=0" >> $GITHUB_OUTPUT
+            echo "shard_count=0" >> $GITHUB_OUTPUT
+            echo "is_sharded=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          THRESHOLD=${{ env.SHARD_THRESHOLD }}
+          SIZE=$SHARD_SIZE
+          
+          if [ "$TOTAL" -lt "$THRESHOLD" ]; then
+            # Simple mode: single shard
+            echo "📦 Simple mode: $TOTAL skills (below threshold $THRESHOLD)"
+            echo "matrix={\"include\":[{\"shard\":0,\"offset\":0,\"limit\":$TOTAL}]}" >> $GITHUB_OUTPUT
+            echo "total_skills=$TOTAL" >> $GITHUB_OUTPUT
+            echo "shard_count=1" >> $GITHUB_OUTPUT
+            echo "is_sharded=false" >> $GITHUB_OUTPUT
+          else
+            # Sharded mode: parallel processing
+            SHARDS=$(( (TOTAL + SIZE - 1) / SIZE ))
+            echo "🔀 Sharded mode: $TOTAL skills → $SHARDS shards (size=$SIZE)"
+            
+            MATRIX='{"include":['
+            for i in $(seq 0 $((SHARDS - 1))); do
+              OFFSET=$((i * SIZE))
+              [ $i -gt 0 ] && MATRIX+=','
+              MATRIX+="{\"shard\":$i,\"offset\":$OFFSET,\"limit\":$SIZE}"
+            done
+            MATRIX+=']}'
+            
+            echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+            echo "total_skills=$TOTAL" >> $GITHUB_OUTPUT
+            echo "shard_count=$SHARDS" >> $GITHUB_OUTPUT
+            echo "is_sharded=true" >> $GITHUB_OUTPUT
+            
+            echo "Matrix: $MATRIX"
+          fi
+
+  audit:
+    needs: detect-and-plan
+    if: needs.detect-and-plan.outputs.shard_count != '0'
+    runs-on: self-hosted
+    timeout-minutes: 120
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.max_parallel || '4') }}
+      matrix: ${{ fromJSON(needs.detect-and-plan.outputs.matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+          fetch-depth: 1
+
+      - name: Download Skillstore CLI
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ inputs.cli_version || 'latest' }}
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Audit shard ${{ matrix.shard }}
+        id: audit
+        env:
+          SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
+        run: |
+          echo "=== Shard ${{ matrix.shard }} ==="
+          echo "Offset: ${{ matrix.offset }}"
+          echo "Limit: ${{ matrix.limit }}"
+          
+          MODEL_FLAG=""
+          if [ -n "${{ inputs.model }}" ]; then
+            MODEL_FLAG="--model ${{ inputs.model }}"
+          fi
+          
+          SLUG_FLAG=""
+          if [ -n "${{ inputs.slug }}" ]; then
+            SLUG_FLAG="--slug ${{ inputs.slug }}"
+          fi
+          
+          DRY_RUN_FLAG=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          
+          ./skillstore-cli skill audit ./plugins \
+            $MODEL_FLAG \
+            $SLUG_FLAG \
+            $DRY_RUN_FLAG \
+            --offset ${{ matrix.offset }} \
+            --limit ${{ matrix.limit }} \
+            --verbose \
+            2>&1 | tee audit-output-${{ matrix.shard }}.log
+          
+          # Extract counts from log
+          UPDATED=$(grep -c "✅ updated" audit-output-${{ matrix.shard }}.log 2>/dev/null) || UPDATED=0
+          ERRORS=$(grep -c "❌ error" audit-output-${{ matrix.shard }}.log 2>/dev/null) || ERRORS=0
+          
+          echo "updated=$UPDATED" >> $GITHUB_OUTPUT
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+          
+          echo "Shard ${{ matrix.shard }}: Updated $UPDATED, Errors $ERRORS"
+
+      - name: Collect modified files
+        id: collect
+        run: |
+          mkdir -p shard-output-${{ matrix.shard }}/plugins
+          
+          # Find files modified by this shard
+          MODIFIED_FILES=$(git diff --name-only -- 'plugins/*/skill-report.json' 'plugins/*/*/skill-report.json' 2>/dev/null || true)
+          
+          if [ -z "$MODIFIED_FILES" ]; then
+            echo "No files modified by shard ${{ matrix.shard }}"
+            echo "file_count=0" >> $GITHUB_OUTPUT
+          else
+            # Copy modified files preserving directory structure
+            for file in $MODIFIED_FILES; do
+              if [ -f "$file" ]; then
+                mkdir -p "shard-output-${{ matrix.shard }}/$(dirname "$file")"
+                cp "$file" "shard-output-${{ matrix.shard }}/$file"
+              fi
+            done
+            
+            FILE_COUNT=$(echo "$MODIFIED_FILES" | wc -l | tr -d ' ')
+            echo "Modified files in shard ${{ matrix.shard }}: $FILE_COUNT"
+            echo "$MODIFIED_FILES" | head -10
+            [ "$FILE_COUNT" -gt 10 ] && echo "... and $((FILE_COUNT - 10)) more"
+            echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
+          fi
+          
+          # Include log file
+          cp audit-output-${{ matrix.shard }}.log shard-output-${{ matrix.shard }}/
+
+      - name: Upload shard results
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-shard-${{ matrix.shard }}
+          path: shard-output-${{ matrix.shard }}/
+          retention-days: 1
+          overwrite: true
+
+      - name: Cleanup
+        if: always()
+        run: rm -f skillstore-cli
+
+  merge:
+    needs: [detect-and-plan, audit]
+    if: always() && needs.detect-and-plan.result == 'success' && needs.detect-and-plan.outputs.shard_count != '0'
+    runs-on: self-hosted
+    outputs:
+      pr_url: ${{ steps.pr.outputs.pr_url }}
+      updated_count: ${{ steps.apply.outputs.updated_count }}
+      error_count: ${{ steps.apply.outputs.error_count }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -68,141 +257,46 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Set correlation ID
-        id: correlation
-        run: |
-          if [ -n "${{ inputs.correlation_id }}" ]; then
-            CORR_ID="${{ inputs.correlation_id }}"
-          else
-            CORR_ID="${{ github.run_id }}"
-          fi
-          echo "id=$CORR_ID" >> $GITHUB_OUTPUT
-          echo "Correlation ID: $CORR_ID"
-
-      - name: Restore checkpoint from previous run
-        if: inputs.resume_from_run != ''
+      - name: Download all shard artifacts
         uses: actions/download-artifact@v4
         with:
-          name: audit-checkpoint-${{ inputs.resume_from_run }}
-          path: .
-        continue-on-error: true
+          pattern: audit-shard-*
+          merge-multiple: true
+          path: ./merged-results
 
-      - name: Download Skillstore CLI
-        uses: ./.github/actions/download-skillstore-cli
-        with:
-          version: ${{ inputs.cli_version || 'latest' }}
-          token: ${{ secrets.PAT_TOKEN }}
-
-      - name: Audit skills with checkpoint
-        id: audit
-        env:
-          SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
+      - name: Apply merged results
+        id: apply
         run: |
-          echo "Starting audit..."
-          echo "Correlation ID: ${{ steps.correlation.outputs.id }}"
+          echo "Applying results from all shards..."
           
-          MAX_RUNTIME_MS=$(( ${{ inputs.max_runtime_minutes || '330' }} * 60000 ))
-          echo "Max runtime: $(( MAX_RUNTIME_MS / 60000 )) minutes"
-          
-          MODEL_FLAG=""
-          if [ -n "${{ inputs.model }}" ]; then
-            MODEL_FLAG="--model ${{ inputs.model }}"
-          fi
-          
-          SLUG_FLAG=""
-          if [ -n "${{ inputs.slug }}" ]; then
-            SLUG_FLAG="--slug ${{ inputs.slug }}"
-          fi
-          
-          LIMIT_FLAG=""
-          if [ -n "${{ inputs.limit }}" ]; then
-            LIMIT_FLAG="--limit ${{ inputs.limit }}"
-          fi
-          
-          DRY_RUN_FLAG=""
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            DRY_RUN_FLAG="--dry-run"
-          fi
-          
-          RESUME_FLAG=""
-          if [ -n "${{ inputs.resume_from_run }}" ] && [ -f "$CHECKPOINT_FILE" ]; then
-            RESUME_FLAG="--resume"
-            echo "Resuming from checkpoint..."
-          fi
-          
-          ./skillstore-cli skill audit ./plugins \
-            $MODEL_FLAG \
-            $SLUG_FLAG \
-            $LIMIT_FLAG \
-            $DRY_RUN_FLAG \
-            $RESUME_FLAG \
-            --checkpoint-file "$CHECKPOINT_FILE" \
-            --correlation-id "${{ steps.correlation.outputs.id }}" \
-            --max-runtime-ms "$MAX_RUNTIME_MS" \
-            --verbose \
-            2>&1 | tee audit-output.log
-          
-          EXIT_CODE=$?
-          
-          if [ -f "$CHECKPOINT_FILE" ]; then
-            COMPLETED=$(jq -r '.completed_skills | length' "$CHECKPOINT_FILE" 2>/dev/null || echo "0")
-            TOTAL=$(jq -r '.total_skills' "$CHECKPOINT_FILE" 2>/dev/null || echo "0")
-            REMAINING=$((TOTAL - COMPLETED))
-            FAILED=$(jq -r '.failed_skills | length' "$CHECKPOINT_FILE" 2>/dev/null || echo "0")
-            EXIT_REASON=$(jq -r '.exit_reason // "unknown"' "$CHECKPOINT_FILE" 2>/dev/null || echo "unknown")
+          if [ -d "./merged-results/plugins" ]; then
+            MERGED_COUNT=$(find ./merged-results/plugins -name "skill-report.json" | wc -l | tr -d ' ')
+            echo "Files to apply: $MERGED_COUNT"
+            cp -r ./merged-results/plugins/* ./plugins/ 2>/dev/null || true
           else
-            # grep -c outputs "0" even when no match (exit 1), so use || true
-            COMPLETED=$(grep -c "✅ updated" audit-output.log 2>/dev/null) || true
-            COMPLETED=${COMPLETED:-0}
-            TOTAL=$COMPLETED
-            REMAINING=0
-            FAILED=$(grep -c "❌ error" audit-output.log 2>/dev/null) || true
-            FAILED=${FAILED:-0}
-            EXIT_REASON="complete"
+            echo "Warning: No plugins directory found in merged results"
           fi
           
-          echo "completed=$COMPLETED" >> $GITHUB_OUTPUT
-          echo "remaining=$REMAINING" >> $GITHUB_OUTPUT
-          echo "failed=$FAILED" >> $GITHUB_OUTPUT
-          echo "exit_reason=$EXIT_REASON" >> $GITHUB_OUTPUT
+          # Aggregate counts from all logs
+          TOTAL_UPDATED=0
+          TOTAL_ERRORS=0
+          for log in ./merged-results/audit-output-*.log; do
+            if [ -f "$log" ]; then
+              COUNT=$(grep -c "✅ updated" "$log" 2>/dev/null) || COUNT=0
+              ERRORS=$(grep -c "❌ error" "$log" 2>/dev/null) || ERRORS=0
+              TOTAL_UPDATED=$((TOTAL_UPDATED + COUNT))
+              TOTAL_ERRORS=$((TOTAL_ERRORS + ERRORS))
+            fi
+          done
           
-          echo "=== Audit Summary ==="
-          echo "Completed: $COMPLETED"
-          echo "Remaining: $REMAINING"
-          echo "Failed: $FAILED"
-          echo "Exit reason: $EXIT_REASON"
-
-      - name: Upload checkpoint artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: audit-checkpoint-${{ github.run_id }}
-          path: ${{ env.CHECKPOINT_FILE }}
-          retention-days: 7
-          if-no-files-found: ignore
-
-      - name: Dispatch continuation workflow
-        if: steps.audit.outputs.remaining != '0' && steps.audit.outputs.exit_reason == 'time-limit'
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          echo "🔄 Time limit reached with ${{ steps.audit.outputs.remaining }} skills remaining"
-          echo "Dispatching continuation workflow..."
-          
-          gh workflow run audit-skills.yml \
-            --ref ${{ github.ref }} \
-            -f model="${{ inputs.model }}" \
-            -f correlation_id=${{ steps.correlation.outputs.id }} \
-            -f resume_from_run=${{ github.run_id }} \
-            -f cli_version=${{ inputs.cli_version || 'latest' }} \
-            -f max_runtime_minutes=${{ inputs.max_runtime_minutes || '330' }}
-          
-          echo "::notice::Continuation workflow dispatched. Skills remaining: ${{ steps.audit.outputs.remaining }}"
+          echo "Total updated: $TOTAL_UPDATED"
+          echo "Total errors: $TOTAL_ERRORS"
+          echo "updated_count=$TOTAL_UPDATED" >> $GITHUB_OUTPUT
+          echo "error_count=$TOTAL_ERRORS" >> $GITHUB_OUTPUT
 
       - name: Check for changes
         id: changes
-        if: inputs.dry_run != true && steps.audit.outputs.exit_reason == 'complete'
+        if: inputs.dry_run != true
         run: |
           if git diff --quiet plugins/; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
@@ -211,6 +305,7 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
             CHANGED_FILES=$(git diff --name-only plugins/ | wc -l | tr -d ' ')
             echo "Changed files: $CHANGED_FILES"
+            echo "changed_count=$CHANGED_FILES" >> $GITHUB_OUTPUT
           fi
 
       - name: Create Pull Request
@@ -225,43 +320,59 @@ jobs:
           git add plugins/*/skill-report.json
           git add plugins/*/*/skill-report.json 2>/dev/null || true
           
-          COMPLETED="${{ steps.audit.outputs.completed }}"
-          FAILED="${{ steps.audit.outputs.failed }}"
+          UPDATED_COUNT="${{ steps.apply.outputs.updated_count }}"
+          ERROR_COUNT="${{ steps.apply.outputs.error_count }}"
+          SHARD_COUNT="${{ needs.detect-and-plan.outputs.shard_count }}"
+          TOTAL_SKILLS="${{ needs.detect-and-plan.outputs.total_skills }}"
+          IS_SHARDED="${{ needs.detect-and-plan.outputs.is_sharded }}"
           MODEL="${{ inputs.model || 'auto' }}"
           
-          git commit -m "chore(audit): audit ${COMPLETED} skills with AI risk factor detection
+          if [ "$IS_SHARDED" = "true" ]; then
+            COMMIT_MSG="chore(audit): audit ${UPDATED_COUNT} skills (${SHARD_COUNT} shards)"
+          else
+            COMMIT_MSG="chore(audit): audit ${UPDATED_COUNT} skills"
+          fi
+          
+          git commit -m "$COMMIT_MSG
 
           - Model: ${MODEL}
-          - Updated: ${COMPLETED}
-          - Failed: ${FAILED}
-          - Correlation: ${{ steps.correlation.outputs.id }}"
+          - Total: ${TOTAL_SKILLS}
+          - Updated: ${UPDATED_COUNT}
+          - Errors: ${ERROR_COUNT}"
           
           git push origin "$BRANCH_NAME"
           
-          PR_URL=$(gh pr create \
-            --title "Audit ${COMPLETED} skills with AI risk factor detection" \
-            --body "$(cat <<EOF
-          ## Summary
-          
+          PR_BODY="## Summary
+
           Batch audit of skills with AI-powered security analysis.
-          
+
           | Metric | Value |
           |--------|-------|
-          | Completed | ${COMPLETED} |
-          | Failed | ${FAILED} |
-          | Model | \`${MODEL}\` |
-          | Correlation ID | \`${{ steps.correlation.outputs.id }}\` |
-          | CLI Version | \`${{ env.CLI_VERSION }}\` |
+          | Total Skills | ${TOTAL_SKILLS} |"
           
+          if [ "$IS_SHARDED" = "true" ]; then
+            PR_BODY="$PR_BODY
+          | Shards | ${SHARD_COUNT} |
+          | Max Parallel | ${{ inputs.max_parallel || '4' }} |"
+          fi
+          
+          PR_BODY="$PR_BODY
+          | Updated | ${UPDATED_COUNT} |
+          | Errors | ${ERROR_COUNT} |
+          | Model | \`${MODEL}\` |
+          | CLI Version | \`${{ env.CLI_VERSION }}\` |
+
           ### Changes
           - Updated \`risk_factors\` field in each skill's \`skill-report.json\`
           - Risk factors detected: \`scripts\`, \`network\`, \`filesystem\`, \`env_access\`, \`external_commands\`
           - Refreshed \`security_audit\` section with latest analysis
-          
+
           ### After Merge
-          The \`sync-to-supabase.yml\` workflow will automatically update the database.
-          EOF
-          )" \
+          The \`sync-to-supabase.yml\` workflow will automatically update the database."
+          
+          PR_URL=$(gh pr create \
+            --title "Audit: ${UPDATED_COUNT} skills" \
+            --body "$PR_BODY" \
             --base main \
             --head "$BRANCH_NAME")
           
@@ -270,31 +381,36 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          IS_SHARDED: ${{ needs.detect-and-plan.outputs.is_sharded }}
+          SHARD_COUNT: ${{ needs.detect-and-plan.outputs.shard_count }}
+          TOTAL_SKILLS: ${{ needs.detect-and-plan.outputs.total_skills }}
         run: |
           cat << EOF >> $GITHUB_STEP_SUMMARY
           ## Audit Summary
           
+          **Mode:** $([ "$IS_SHARDED" = "true" ] && echo "Sharded ($SHARD_COUNT shards)" || echo "Simple")
+          
           | Metric | Value |
           |--------|-------|
+          | Total Skills | $TOTAL_SKILLS |
+          EOF
+          
+          if [ "$IS_SHARDED" = "true" ]; then
+            echo "| Shards | $SHARD_COUNT |" >> $GITHUB_STEP_SUMMARY
+            echo "| Max Parallel | ${{ inputs.max_parallel || '4' }} |" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          cat << EOF >> $GITHUB_STEP_SUMMARY
           | Model | \`${{ inputs.model || 'auto' }}\` |
-          | Completed | ${{ steps.audit.outputs.completed }} |
-          | Failed | ${{ steps.audit.outputs.failed }} |
-          | Remaining | ${{ steps.audit.outputs.remaining }} |
-          | Exit Reason | \`${{ steps.audit.outputs.exit_reason }}\` |
-          | Correlation ID | \`${{ steps.correlation.outputs.id }}\` |
+          | Updated | ${{ steps.apply.outputs.updated_count }} |
+          | Errors | ${{ steps.apply.outputs.error_count }} |
           | Dry Run | ${{ inputs.dry_run }} |
           
           EOF
           
-          if [ "${{ steps.audit.outputs.exit_reason }}" = "time-limit" ]; then
-            echo "⏰ **Continuation dispatched** - Next run will resume from checkpoint" >> $GITHUB_STEP_SUMMARY
-          fi
-          
           if [ -n "${{ steps.pr.outputs.pr_url }}" ]; then
             echo "🔗 **PR Created**: ${{ steps.pr.outputs.pr_url }}" >> $GITHUB_STEP_SUMMARY
           fi
-
-      - name: Cleanup
-        if: always()
-        run: |
-          rm -f skillstore-cli audit-output.log
+          
+          echo "✅ Audit workflow completed." >> $GITHUB_STEP_SUMMARY
