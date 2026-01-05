@@ -7,48 +7,9 @@
 name: Auto-Translate Skill Content
 
 on:
-  # Triggered by sync-to-supabase.yml after sync completes (avoids race condition)
-  workflow_call:
-    inputs:
-      plugin_slugs:
-        description: "Plugins to translate, comma-separated"
-        type: string
-        required: true
-      model:
-        description: "Model to use"
-        type: string
-        default: ""
-      force:
-        description: "Force re-translation"
-        type: boolean
-        default: false
-      concurrency:
-        description: "Parallel skills per language (language-first parallelism)"
-        type: string
-        default: "8"
-      shard_size:
-        description: "Skills per shard"
-        type: string
-        default: "10"
-      max_parallel:
-        description: "Max parallel shards (6 of 7 runners reserved)"
-        type: string
-        default: "6"
-      cli_version:
-        description: "CLI version"
-        type: string
-        default: "latest"
-    secrets:
-      SUPABASE_URL:
-        required: true
-      SUPABASE_SERVICE_KEY:
-        required: true
-      SKILLSTORE_AGENTS:
-        required: false
-      PAT_TOKEN:
-        required: true
-      CACHE_INVALIDATE_SECRET:
-        required: true
+  # Triggered by sync-to-supabase.yml via repository_dispatch (async, non-blocking)
+  repository_dispatch:
+    types: [translate-skills]
   # Manual trigger for ad-hoc translations
   workflow_dispatch:
     inputs:
@@ -86,7 +47,7 @@ env:
   SHARD_THRESHOLD: 10
 
 concurrency:
-  group: translate-${{ github.ref }}
+  group: translate-skills
   cancel-in-progress: false
 
 jobs:
@@ -110,7 +71,14 @@ jobs:
       - name: Detect plugins to translate
         id: detect
         run: |
-          SLUGS_CSV="${{ inputs.plugin_slugs }}"
+          # Handle repository_dispatch from sync-to-supabase
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            SLUGS_CSV="${{ github.event.client_payload.plugin_slugs }}"
+            TRIGGERED_BY="${{ github.event.client_payload.triggered_by }}"
+            echo "🔔 Triggered by: $TRIGGERED_BY"
+          else
+            SLUGS_CSV="${{ inputs.plugin_slugs }}"
+          fi
           
           if [ -n "$SLUGS_CSV" ]; then
             SKILL_COUNT=$(echo "$SLUGS_CSV" | tr ',' '\n' | grep -c . || echo 0)
@@ -126,7 +94,7 @@ jobs:
             echo "skill_count=0" >> $GITHUB_OUTPUT
             echo "translate_all=true" >> $GITHUB_OUTPUT
           else
-            echo "❌ No slugs provided and not a manual trigger"
+            echo "❌ No slugs provided"
             echo "slugs_csv=" >> $GITHUB_OUTPUT
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "skill_count=0" >> $GITHUB_OUTPUT

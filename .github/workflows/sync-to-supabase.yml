@@ -454,15 +454,30 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✅ KV cache warming completed." >> $GITHUB_STEP_SUMMARY
 
-  translate:
+  # ============================================================
+  # TRIGGER TRANSLATION (Async - Fire and Forget)
+  # Uses repository_dispatch to start translation as a separate workflow run
+  # This decouples sync from slow translation, completing sync faster
+  # ============================================================
+  trigger-translate:
     needs: [sync, cache-warm]
     if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != ''
-    uses: ./.github/workflows/translate-skills.yml
-    with:
-      plugin_slugs: ${{ needs.sync.outputs.synced_slugs }}
-    secrets:
-      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-      SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
-      PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-      CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+    runs-on: self-hosted
+    steps:
+      - name: Trigger translation workflow
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          SLUGS="${{ needs.sync.outputs.synced_slugs }}"
+          echo "🌍 Triggering translation for: $SLUGS"
+          
+          gh api repos/${{ github.repository }}/dispatches \
+            --method POST \
+            -f event_type=translate-skills \
+            -f "client_payload[plugin_slugs]=$SLUGS" \
+            -f "client_payload[triggered_by]=sync-to-supabase" \
+            -f "client_payload[run_id]=${{ github.run_id }}"
+          
+          echo "✅ Translation triggered asynchronously"
+          echo "   Skills: $SLUGS"
+          echo "   Monitor at: https://github.com/${{ github.repository }}/actions/workflows/translate-skills.yml"
