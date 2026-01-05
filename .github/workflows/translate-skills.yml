@@ -3,6 +3,11 @@
 #
 # IMPORTANT: This workflow is triggered BY sync-to-supabase.yml after data sync completes.
 # This ensures translation reads fresh data from the database, avoiding race conditions.
+#
+# Concurrency Strategy:
+# - Full translation (no plugin_slugs): Only ONE allowed at a time, queued via 'translate-skills-full'
+# - Partial translation (with plugin_slugs): Unlimited concurrency, each run gets unique group
+# This allows partial translations to run alongside a long-running full translation without conflicts.
 
 name: Auto-Translate Skill Content
 
@@ -46,8 +51,11 @@ env:
   CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
   SHARD_THRESHOLD: 10
 
+# Dynamic concurrency groups:
+# - Full translation: 'translate-skills-full' (only 1 allowed, others queue)
+# - Partial translation: 'translate-skills-partial-{run_id}' (unlimited, no blocking)
 concurrency:
-  group: translate-skills
+  group: ${{ (github.event.inputs.plugin_slugs == '' && github.event_name == 'workflow_dispatch') && 'translate-skills-full' || format('translate-skills-partial-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
