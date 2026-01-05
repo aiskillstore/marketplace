@@ -10,6 +10,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [0.4.0] - 2026-01-05
+
+### Summary
+
+v0.4.0 expands the marketplace to 284 plugins (adding 'jrc1883-research-merge') and improves content quality by fixing FAQ and reporting metadata issues while removing deprecated technical requirements. It also strengthens reliability and maintenance with new and updated CI workflows for automated translation, cache invalidation, and safer summary reporting, plus updated docs linking to skillstore.io. 
+
+### Statistics
+
+- Total plugins: 284
+- New plugins: 1
+- Updated plugins: 0
+
+### New Plugins
+
+- `jrc1883-research-merge`
+
+### Changes
+
+- chore: remove deprecated TechnicalRequirements and update gitignore
+- fix: correct FAQ answer property typos in skill-report.json files
+- ci: use repository variable for SKILLSTORE_AGENTS instead of secret
+- fix: translate ALL skills when workflow_dispatch has no slugs
+- fix: output summary metrics only to avoid shell argument limit
+- ci: add batch processing to cache invalidation
+- ci: add cache invalidation job to translate workflow
+- ci: add auto-translate workflow for skill content
+- docs: update Available Plugins section to link to skillstore.io
+
+
 ## [0.3.1] - 2026-01-03
 
 ### Summary
