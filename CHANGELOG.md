@@ -12,6 +12,162 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [0.5.0] - 2026-01-06
+
+### Summary
+
+AI Skillstore marketplace v0.5.0 expands the catalog to 413 plugins, adding 129 new skills spanning research, content, dev workflows, evaluation, and domain-specific assistants. Release automation is more reliable with rebase-before-push fixes, corrected boolean/FAQ issues, and improved CLI delivery via authenticated reusable actions with dynamic latest-version fetching. 
+
+### Statistics
+
+- Total plugins: 413
+- New plugins: 129
+- Updated plugins: 34
+
+### New Plugins
+
+- `anthropics-analyzing-financial-statements`
+- `anthropics-applying-brand-guidelines`
+- `anthropics-cookbook-audit`
+- `anthropics-creating-financial-models`
+- `bytedance-create-node`
+- `bytedance-material-component-dev`
+- `bytedance-material-component-doc`
+- `composiohq-artifacts-builder`
+- `composiohq-brand-guidelines`
+- `composiohq-canvas-design`
+- `composiohq-changelog-generator`
+- `composiohq-competitive-ads-extractor`
+- `composiohq-content-research-writer`
+- `composiohq-developer-growth-analysis`
+- `composiohq-docx`
+- `composiohq-domain-name-brainstormer`
+- `composiohq-file-organizer`
+- `composiohq-image-enhancer`
+- `composiohq-internal-comms`
+- `composiohq-invoice-organizer`
+- `composiohq-lead-research-assistant`
+- `composiohq-mcp-builder`
+- `composiohq-meeting-insights-analyzer`
+- `composiohq-pdf`
+- `composiohq-pptx`
+- `composiohq-raffle-winner-picker`
+- `composiohq-skill-creator`
+- `composiohq-skill-share`
+- `composiohq-slack-gif-creator`
+- `composiohq-template-skill`
+- `composiohq-theme-factory`
+- `composiohq-webapp-testing`
+- `composiohq-xlsx`
+- `composiohq-youtube-downloader`
+- `diet103-backend-dev-guidelines`
+- `diet103-error-tracking`
+- `diet103-frontend-dev-guidelines`
+- `diet103-route-tester`
+- `diet103-skill-developer`
+- `flashinfer-ai-add-cuda-kernel`
+- `flashinfer-ai-benchmark-kernel`
+- `flashinfer-ai-debug-cuda-crash`
+- `huifer-emergency-card`
+- `huifer-health-trend-analyzer`
+- `labring-create-skill-file`
+- `labring-workflow-interactive-dev`
+- `labring-workflow-stop-design`
+- `langchain-ai-arxiv-search`
+- `langchain-ai-langgraph-docs`
+- `langchain-ai-skill-creator`
+- `langchain-ai-web-research`
+- `lxfater-nano-image-generator`
+- `metabase-add-malli-schemas`
+- `metabase-clojure-review`
+- `metabase-clojure-write`
+- `metabase-docs-write`
+- `metabase-typescript-review`
+- `metabase-typescript-write`
+- `muratcankoylan-advanced-evaluation`
+- `muratcankoylan-bdi-mental-states`
+- `muratcankoylan-context-compression`
+- `muratcankoylan-context-degradation`
+- `muratcankoylan-context-fundamentals`
+- `muratcankoylan-context-optimization`
+- `muratcankoylan-evaluation`
+- `muratcankoylan-memory-systems`
+- `muratcankoylan-multi-agent-patterns`
+- `muratcankoylan-project-development`
+- `muratcankoylan-tool-design`
+- `nextlevelbuilder-ui-ux-pro-max`
+- `nrwl-run-nx-generator`
+- `obra-brainstorming`
+- `obra-dispatching-parallel-agents`
+- `obra-executing-plans`
+- `obra-finishing-a-development-branch`
+- `obra-receiving-code-review`
+- `obra-requesting-code-review`
+- `obra-subagent-driven-development`
+- `obra-systematic-debugging`
+- `obra-test-driven-development`
+- `obra-using-git-worktrees`
+- `obra-using-superpowers`
+- `obra-verification-before-completion`
+- `obra-writing-plans`
+- `obra-writing-skills`
+- `othmanadi-planning-with-files`
+- `pytorch-add-uint-support`
+- `pytorch-at-dispatch-v2`
+- `pytorch-docstring`
+- `pytorch-skill-writer`
+- `ruvnet-agentdb-advanced-features`
+- `ruvnet-agentdb-learning-plugins`
+- `ruvnet-agentdb-memory-patterns`
+- `ruvnet-agentdb-performance-optimization`
+- `ruvnet-agentdb-vector-search`
+- `ruvnet-agentic-jujutsu`
+- `ruvnet-flow-nexus-neural`
+- `ruvnet-flow-nexus-platform`
+- `ruvnet-flow-nexus-swarm`
+- `ruvnet-github-code-review`
+- `ruvnet-github-multi-repo`
+- `ruvnet-github-project-management`
+- `ruvnet-github-release-management`
+- `ruvnet-github-workflow-automation`
+- `ruvnet-hive-mind-advanced`
+- `ruvnet-hooks-automation`
+- `ruvnet-pair-programming`
+- `ruvnet-performance-analysis`
+- `ruvnet-reasoningbank-intelligence`
+- `ruvnet-reasoningbank-with-agentdb`
+- `ruvnet-skill-builder`
+- `ruvnet-sparc-methodology`
+- `ruvnet-stream-chain`
+- `ruvnet-swarm-advanced`
+- `ruvnet-swarm-orchestration`
+- `ruvnet-verification-quality-assurance`
+- `skill-installer`
+- `woocommerce-woocommerce-backend-dev`
+- `woocommerce-woocommerce-code-review`
+- `woocommerce-woocommerce-copy-guidelines`
+- `woocommerce-woocommerce-dev-cycle`
+- `woocommerce-woocommerce-markdown`
+- `yyh211-create-skill-file`
+- `yyh211-daily-ai-news`
+- `yyh211-deep-reading-analyst`
+- `yyh211-dry-refactoring`
+- `yyh211-frontend-design`
+- `yyh211-mcp-builder`
+- `yyh211-prompt-optimize`
+
+### Changes
+
+- fix: add git rebase before push in audit and process-submission workflows
+- fix: rebase before push in release workflow to avoid non-fast-forward errors
+- fix: use contains() for AUTO_FIX_ENABLED boolean evaluation (#129)
+- fix: correct FAQ answer key typo in lead-research-assistant (#128)
+- fix: use PAT_TOKEN for cross-repo CLI download access
+- fix: use reusable download-skillstore-cli action with proper auth
+- fix: dynamically fetch latest CLI version instead of hardcoded v1.9.0
+
+
 ## [0.4.1] - 2026-01-06
 
 ### Summary
