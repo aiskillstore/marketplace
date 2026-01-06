@@ -401,11 +401,47 @@ jobs:
           echo "::notice::Sync completed - Mode: ${{ steps.changes.outputs.mode }}, Plugins: ${{ steps.changes.outputs.changed_plugins }}"
 
   # ============================================================
+  # CACHE INVALIDATION JOB
+  # Invalidates API and page cache for synced skills
+  # ============================================================
+  cache-invalidate:
+    needs: sync
+    if: needs.sync.outputs.skip_sync != 'true'
+    runs-on: self-hosted
+    steps:
+      - name: Invalidate cache for synced skills
+        env:
+          SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
+          SITE_URL: https://skillstore.io
+          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+        run: |
+          if [ -z "$SYNCED_SLUGS" ]; then
+            echo "No slugs to invalidate"
+            exit 0
+          fi
+          
+          SLUGS_JSON=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | jq -R . | jq -s .)
+          
+          echo "Invalidating cache for: $SYNCED_SLUGS"
+          
+          RESPONSE=$(curl -sf -X POST "$SITE_URL/api/cache/invalidate" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer $CACHE_INVALIDATE_SECRET" \
+            -d "{\"type\": \"skills\", \"slugs\": $SLUGS_JSON, \"invalidateApi\": true}" \
+            --max-time 30 2>&1) || {
+            echo "⚠️ Cache invalidation failed (non-critical)"
+            echo "Response: $RESPONSE"
+            exit 0
+          }
+          
+          echo "✅ Cache invalidated: $RESPONSE"
+
+  # ============================================================
   # CACHE WARMING JOB
   # Warms KV cache for synced skills across all locales
   # ============================================================
   cache-warm:
-    needs: sync
+    needs: [sync, cache-invalidate]
     if: needs.sync.outputs.skip_sync != 'true' && inputs.skip_cache_warm != true
     runs-on: self-hosted
     steps:
