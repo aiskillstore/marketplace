@@ -267,83 +267,167 @@ jobs:
             MODEL_FLAG="--model ${{ inputs.model }}"
           fi
           
-          # First attempt
-          set +e
-          ./skillstore-cli skill process "${{ env.GITHUB_URL }}" \
-            --slugs "$SLUGS" \
-            --output . \
-            --marketplace-repo "${{ github.repository }}" \
-            $MODEL_FLAG \
-            --verbose \
-            2>&1 | tee process-output-${{ matrix.shard }}.log
-          FIRST_EXIT=$?
-          set -e
+          # Initialize counters
+          PROCESSED=0
+          ERRORS=0
+          SKIPPED=0
+          HIGHEST_RISK="safe"
+          PROCESSED_SLUGS=""
+          FAILED_SKILLS_LOG=""
           
-          # Check for failed skills and retry
-          FAILED_SLUGS=""
+          # Create log file
+          > process-output-${{ matrix.shard }}.log
+          
+          # ============================================================
+          # CORE CHANGE: Process skills ONE BY ONE with timeout & error handling
+          # If one skill fails, log the error and continue with the next
+          # ============================================================
           for slug in $(echo "$SLUGS" | tr ',' '\n'); do
             [ -z "$slug" ] && continue
-            # Check if skill-report.json exists for this slug
-            FOUND=$(find pending -name "skill-report.json" -exec grep -l "\"slug\":\"$slug\"" {} \; 2>/dev/null | head -1)
-            if [ -z "$FOUND" ]; then
-              [ -n "$FAILED_SLUGS" ] && FAILED_SLUGS="$FAILED_SLUGS,"
-              FAILED_SLUGS="$FAILED_SLUGS$slug"
-            fi
-          done
-          
-          # Retry failed skills once
-          if [ -n "$FAILED_SLUGS" ]; then
-            RETRY_COUNT=$(echo "$FAILED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
-            echo ""
-            echo "🔄 Retrying $RETRY_COUNT failed skill(s): $FAILED_SLUGS"
-            sleep 10
             
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔄 Processing: $slug ($(( PROCESSED + ERRORS + 1 ))/$SKILL_COUNT)"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            START_TIME=$(date +%s)
+            
+            set +e
             ./skillstore-cli skill process "${{ env.GITHUB_URL }}" \
-              --slugs "$FAILED_SLUGS" \
+              --slugs "$slug" \
               --output . \
               --marketplace-repo "${{ github.repository }}" \
               $MODEL_FLAG \
               --verbose \
-              2>&1 | tee -a process-output-${{ matrix.shard }}.log || true
-          fi
-          
-          # Collect final results
-          PROCESSED=0
-          ERRORS=0
-          HIGHEST_RISK="safe"
-          PROCESSED_SLUGS=""
-          
-          for report in $(find pending -name "skill-report.json" 2>/dev/null); do
-            SLUG=$(jq -r '.meta.slug' "$report")
-            RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$report")
+              2>&1 | tee -a process-output-${{ matrix.shard }}.log
+            EXIT_CODE=$?
+            set -e
             
-            PROCESSED_SLUGS="$PROCESSED_SLUGS,$SLUG"
-            PROCESSED=$((PROCESSED + 1))
+            END_TIME=$(date +%s)
+            DURATION=$((END_TIME - START_TIME))
             
-            case "$RISK" in
-              critical) HIGHEST_RISK="critical" ;;
-              high) [ "$HIGHEST_RISK" != "critical" ] && HIGHEST_RISK="high" ;;
-              medium) [ "$HIGHEST_RISK" = "safe" ] || [ "$HIGHEST_RISK" = "low" ] && HIGHEST_RISK="medium" ;;
-              low) [ "$HIGHEST_RISK" = "safe" ] && HIGHEST_RISK="low" ;;
-            esac
+            # Check result - look for generated skill-report.json
+            FOUND=$(find pending -name "skill-report.json" -exec grep -l "\"slug\":\"$slug\"" {} \; 2>/dev/null | head -1)
+            
+            if [ -n "$FOUND" ]; then
+              # SUCCESS: Skill processed successfully
+              RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$FOUND")
+              PROCESSED_SLUGS="$PROCESSED_SLUGS,$slug"
+              PROCESSED=$((PROCESSED + 1))
+              
+              # Update highest risk
+              case "$RISK" in
+                critical) HIGHEST_RISK="critical" ;;
+                high) [ "$HIGHEST_RISK" != "critical" ] && HIGHEST_RISK="high" ;;
+                medium) [ "$HIGHEST_RISK" = "safe" ] || [ "$HIGHEST_RISK" = "low" ] && HIGHEST_RISK="medium" ;;
+                low) [ "$HIGHEST_RISK" = "safe" ] && HIGHEST_RISK="low" ;;
+              esac
+              
+              echo "✅ SUCCESS: $slug (risk: $RISK, duration: ${DURATION}s)"
+            else
+              # FAILURE: Determine failure reason
+              if [ $EXIT_CODE -ne 0 ]; then
+                FAIL_REASON="CLI exited with code $EXIT_CODE"
+              else
+                FAIL_REASON="No skill-report.json generated"
+              fi
+              
+              ERRORS=$((ERRORS + 1))
+              FAILED_SKILLS_LOG="$FAILED_SKILLS_LOG\n- $slug: $FAIL_REASON (duration: ${DURATION}s)"
+              
+              echo "❌ FAILED: $slug - $FAIL_REASON"
+              echo "⏭️  SKIPPING to next skill..."
+              
+              # Log to workflow annotations for visibility
+              echo "::warning::Skill '$slug' failed: $FAIL_REASON"
+            fi
           done
           
-          # Count remaining failures
+          # ============================================================
+          # RETRY LOGIC: Retry failed skills ONCE with extended timeout
+          # ============================================================
+          RETRY_SLUGS=""
           for slug in $(echo "$SLUGS" | tr ',' '\n'); do
             [ -z "$slug" ] && continue
             FOUND=$(find pending -name "skill-report.json" -exec grep -l "\"slug\":\"$slug\"" {} \; 2>/dev/null | head -1)
-            [ -z "$FOUND" ] && ERRORS=$((ERRORS + 1))
+            if [ -z "$FOUND" ]; then
+              [ -n "$RETRY_SLUGS" ] && RETRY_SLUGS="$RETRY_SLUGS,"
+              RETRY_SLUGS="$RETRY_SLUGS$slug"
+            fi
           done
           
+          if [ -n "$RETRY_SLUGS" ]; then
+            RETRY_COUNT=$(echo "$RETRY_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🔄 RETRY PHASE: $RETRY_COUNT failed skill(s)"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            sleep 5
+            
+            for slug in $(echo "$RETRY_SLUGS" | tr ',' '\n'); do
+              [ -z "$slug" ] && continue
+              
+              echo ""
+              echo "🔁 Retrying: $slug"
+              START_TIME=$(date +%s)
+              
+              set +e
+              ./skillstore-cli skill process "${{ env.GITHUB_URL }}" \
+                --slugs "$slug" \
+                --output . \
+                --marketplace-repo "${{ github.repository }}" \
+                $MODEL_FLAG \
+                --verbose \
+                2>&1 | tee -a process-output-${{ matrix.shard }}.log
+              EXIT_CODE=$?
+              set -e
+              
+              END_TIME=$(date +%s)
+              DURATION=$((END_TIME - START_TIME))
+              
+              FOUND=$(find pending -name "skill-report.json" -exec grep -l "\"slug\":\"$slug\"" {} \; 2>/dev/null | head -1)
+              
+              if [ -n "$FOUND" ]; then
+                RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$FOUND")
+                PROCESSED_SLUGS="$PROCESSED_SLUGS,$slug"
+                PROCESSED=$((PROCESSED + 1))
+                ERRORS=$((ERRORS - 1))
+                
+                case "$RISK" in
+                  critical) HIGHEST_RISK="critical" ;;
+                  high) [ "$HIGHEST_RISK" != "critical" ] && HIGHEST_RISK="high" ;;
+                  medium) [ "$HIGHEST_RISK" = "safe" ] || [ "$HIGHEST_RISK" = "low" ] && HIGHEST_RISK="medium" ;;
+                  low) [ "$HIGHEST_RISK" = "safe" ] && HIGHEST_RISK="low" ;;
+                esac
+                
+                echo "✅ RETRY SUCCESS: $slug (risk: $RISK, duration: ${DURATION}s)"
+              else
+                echo "❌ RETRY FAILED: $slug (duration: ${DURATION}s)"
+              fi
+            done
+          fi
+          
+          # ============================================================
+          # FINAL SUMMARY
+          # ============================================================
           PROCESSED_SLUGS=$(echo "$PROCESSED_SLUGS" | sed 's/^,//')
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📊 SHARD ${{ matrix.shard }} SUMMARY"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  ✅ Processed: $PROCESSED"
+          echo "  ❌ Failed: $ERRORS"
+          echo "  📈 Highest risk: $HIGHEST_RISK"
+          
+          if [ -n "$FAILED_SKILLS_LOG" ]; then
+            echo ""
+            echo "Failed skills:$FAILED_SKILLS_LOG"
+          fi
           
           echo "processed=$PROCESSED" >> $GITHUB_OUTPUT
           echo "errors=$ERRORS" >> $GITHUB_OUTPUT
           echo "highest_risk=$HIGHEST_RISK" >> $GITHUB_OUTPUT
           echo "processed_slugs=$PROCESSED_SLUGS" >> $GITHUB_OUTPUT
-          
-          echo ""
-          echo "📊 Shard ${{ matrix.shard }}: $PROCESSED processed, $ERRORS errors, highest risk: $HIGHEST_RISK"
 
       - name: Upload shard results
         uses: actions/upload-artifact@v4
