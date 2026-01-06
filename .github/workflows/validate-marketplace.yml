@@ -20,6 +20,11 @@ on:
       - 'pending/**/skill-report.json'
   workflow_dispatch:
 
+env:
+  # Enable auto-fix for PRs (set to 'false' to disable)
+  AUTO_FIX_ENABLED: ${{ github.event_name == 'pull_request' }}
+  CLI_VERSION: 'v1.9.0'
+
 jobs:
   validate:
     runs-on: self-hosted
@@ -153,6 +158,8 @@ jobs:
           "
 
       - name: Validate skill-report.json files
+        id: validate-skill-reports
+        continue-on-error: true
         run: |
           node -e "
             const Ajv = require('ajv');
@@ -183,7 +190,6 @@ jobs:
               return files;
             };
             
-            // Validate both plugins/ and pending/
             const reportFiles = [...findReportFiles('plugins'), ...findReportFiles('pending')];
             
             for (const file of reportFiles) {
@@ -209,3 +215,131 @@ jobs:
               console.log('All skill-report.json files are valid');
             }
           "
+
+      - name: Download skillstore CLI for auto-fix
+        if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
+        run: |
+          echo "::notice::Validation failed. Attempting AI-powered auto-fix..."
+          CLI_URL="https://github.com/aiskillstore/skillstore/releases/download/cli-${{ env.CLI_VERSION }}/skillstore-cli-linux-x64"
+          curl -fsSL "$CLI_URL" -o skillstore-cli
+          chmod +x skillstore-cli
+          ./skillstore-cli --version
+
+      - name: Auto-fix skill-report.json validation errors
+        if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          echo "Running AI-powered fix on plugins directory..."
+          ./skillstore-cli skill fix ./plugins --schema ./schemas/skill-report.schema.json --verbose || true
+          
+          echo "Running AI-powered fix on pending directory..."
+          ./skillstore-cli skill fix ./pending --schema ./schemas/skill-report.schema.json --verbose || true
+          
+          echo "::notice::Auto-fix completed. Re-validating..."
+
+      - name: Re-validate after auto-fix
+        if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
+        id: revalidate
+        run: |
+          node -e "
+            const Ajv = require('ajv');
+            const addFormats = require('ajv-formats');
+            const fs = require('fs');
+            const path = require('path');
+            
+            const ajv = new Ajv({ allErrors: true });
+            addFormats(ajv);
+            
+            const schema = JSON.parse(fs.readFileSync('schemas/skill-report.schema.json', 'utf8'));
+            const validate = ajv.compile(schema);
+            
+            let hasErrors = false;
+            let fixedCount = 0;
+            let totalCount = 0;
+            
+            const findReportFiles = (dir) => {
+              const files = [];
+              if (!fs.existsSync(dir)) return files;
+              const entries = fs.readdirSync(dir, { withFileTypes: true });
+              for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                  files.push(...findReportFiles(fullPath));
+                } else if (entry.name === 'skill-report.json') {
+                  files.push(fullPath);
+                }
+              }
+              return files;
+            };
+            
+            const reportFiles = [...findReportFiles('plugins'), ...findReportFiles('pending')];
+            totalCount = reportFiles.length;
+            
+            for (const file of reportFiles) {
+              try {
+                const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+                const valid = validate(data);
+                if (!valid) {
+                  console.error(\`Still invalid: \${file}\`);
+                  hasErrors = true;
+                } else {
+                  fixedCount++;
+                  console.log(\`Valid: \${file}\`);
+                }
+              } catch (e) {
+                console.error(\`Error reading \${file}:\`, e.message);
+                hasErrors = true;
+              }
+            }
+            
+            console.log(\`\nValidation summary: \${fixedCount}/\${totalCount} files valid\`);
+            
+            if (hasErrors) {
+              console.error('Some files still have validation errors after auto-fix');
+              process.exit(1);
+            }
+            console.log('All skill-report.json files are now valid after auto-fix');
+          "
+
+      - name: Commit auto-fixed files
+        if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate.outcome == 'success'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add plugins/**/skill-report.json pending/**/skill-report.json 2>/dev/null || true
+          
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "fix: auto-fix skill-report.json validation errors"
+            git push origin HEAD:${{ github.head_ref }}
+            echo "::notice::Auto-fixed files committed and pushed to PR branch"
+          fi
+
+      - name: Add summary
+        if: always()
+        run: |
+          echo "## Validation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.validate-skill-reports.outcome }}" == "success" ]; then
+            echo "✅ All skill-report.json files passed validation" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.revalidate.outcome }}" == "success" ]; then
+            echo "🔧 Validation errors were automatically fixed by AI" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The fixes have been committed to this PR. Please review the changes." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Validation failed" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ env.AUTO_FIX_ENABLED }}" == "true" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Auto-fix was attempted but some errors could not be resolved automatically." >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+      - name: Fail if validation errors remain
+        if: steps.validate-skill-reports.outcome == 'failure' && (env.AUTO_FIX_ENABLED != 'true' || steps.revalidate.outcome == 'failure')
+        run: |
+          echo "::error::skill-report.json validation failed"
+          exit 1
