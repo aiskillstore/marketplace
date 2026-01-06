@@ -186,6 +186,7 @@ jobs:
             FAILED_ONLY_FLAG="--failed-only"
           fi
           
+          # CLI internally retries 3 times per skill on AI failures
           ./skillstore-cli skill audit ./plugins \
             $MODEL_FLAG \
             $SLUG_FLAG \
@@ -196,14 +197,39 @@ jobs:
             --verbose \
             2>&1 | tee audit-output-${{ matrix.shard }}.log
           
-          # Extract counts from log
+          # Check for remaining failures after CLI retries
+          STILL_FAILED=$(find plugins -name "skill-report.json" -newer audit-output-${{ matrix.shard }}.log -exec grep -l "AI analysis failed" {} \; 2>/dev/null | wc -l | tr -d ' ') || STILL_FAILED=0
+          
+          # Workflow-level retry for persistent failures
+          if [ "$STILL_FAILED" -gt 0 ]; then
+            echo ""
+            echo "🔄 Workflow retry: $STILL_FAILED skills still failed after CLI retries"
+            sleep 30
+            
+            ./skillstore-cli skill audit ./plugins \
+              $MODEL_FLAG \
+              $SLUG_FLAG \
+              $DRY_RUN_FLAG \
+              --failed-only \
+              --offset ${{ matrix.offset }} \
+              --limit ${{ matrix.limit }} \
+              --verbose \
+              2>&1 | tee -a audit-output-${{ matrix.shard }}.log
+          fi
+          
           UPDATED=$(grep -c "✅ updated" audit-output-${{ matrix.shard }}.log 2>/dev/null) || UPDATED=0
           ERRORS=$(grep -c "❌ error" audit-output-${{ matrix.shard }}.log 2>/dev/null) || ERRORS=0
+          FINAL_FAILED=$(find plugins -name "skill-report.json" -exec grep -l "AI analysis failed" {} \; 2>/dev/null | wc -l | tr -d ' ') || FINAL_FAILED=0
+          
+          echo ""
+          echo "Shard ${{ matrix.shard }} Summary:"
+          echo "  Updated: $UPDATED"
+          echo "  Errors: $ERRORS"
+          echo "  AI failures remaining: $FINAL_FAILED"
           
           echo "updated=$UPDATED" >> $GITHUB_OUTPUT
           echo "errors=$ERRORS" >> $GITHUB_OUTPUT
-          
-          echo "Shard ${{ matrix.shard }}: Updated $UPDATED, Errors $ERRORS"
+          echo "still_failed=$FINAL_FAILED" >> $GITHUB_OUTPUT
 
       - name: Collect modified files
         id: collect
@@ -396,6 +422,9 @@ jobs:
           SHARD_COUNT: ${{ needs.detect-and-plan.outputs.shard_count }}
           TOTAL_SKILLS: ${{ needs.detect-and-plan.outputs.total_skills }}
         run: |
+          # Count remaining AI failures across all plugins
+          STILL_FAILED=$(find plugins -name "skill-report.json" -exec grep -l "AI analysis failed" {} \; 2>/dev/null | wc -l | tr -d ' ') || STILL_FAILED=0
+          
           cat << EOF >> $GITHUB_STEP_SUMMARY
           ## Audit Summary
           
@@ -415,9 +444,15 @@ jobs:
           | Model | \`${{ inputs.model || 'auto' }}\` |
           | Updated | ${{ steps.apply.outputs.updated_count }} |
           | Errors | ${{ steps.apply.outputs.error_count }} |
+          | AI Failures (after retries) | $STILL_FAILED |
           | Dry Run | ${{ inputs.dry_run }} |
           
           EOF
+          
+          if [ "$STILL_FAILED" -gt 0 ]; then
+            echo "⚠️ **$STILL_FAILED skills still have AI analysis failures** after retries. Run with \`failed_only: true\` to retry them." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
           
           if [ -n "${{ steps.pr.outputs.pr_url }}" ]; then
             echo "🔗 **PR Created**: ${{ steps.pr.outputs.pr_url }}" >> $GITHUB_STEP_SUMMARY
