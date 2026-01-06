@@ -1,3 +1,17 @@
+# Process Skill Submission - Parallel Processing Workflow
+#
+# Architecture:
+#   Job 1: discover-and-plan   - Clone repo, discover skills, create matrix
+#   Job 2: process (matrix)    - Process skills in parallel shards
+#   Job 3: merge-and-create-pr - Combine results, create single PR
+#
+# Dynamic Sharding:
+#   - < 30 skills: Single job (simple mode)
+#   - >= 30 skills: Split evenly across 6 parallel shards
+#
+# Retry Logic:
+#   - Each shard retries failed skills once before giving up
+
 name: Process Skill Submission
 
 on:
@@ -23,21 +37,39 @@ on:
         required: false
         type: string
         default: 'latest'
-      limit:
-        description: 'Max skills to process (for testing)'
-        required: false
+      max_parallel:
+        description: 'Max parallel shards (default: 6)'
         type: string
-        default: ''
+        default: '6'
 
 env:
   SUBMISSION_ID: ${{ github.event.client_payload.submission_id || github.run_id }}
   GITHUB_URL: ${{ github.event.client_payload.github_url || inputs.github_url }}
   SUBMITTER_EMAIL: ${{ github.event.client_payload.submitter_email || inputs.submitter_email || 'manual@skillstore.io' }}
   CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
+  SHARD_THRESHOLD: 30
+  MAX_SHARDS: 6
+
+concurrency:
+  group: process-submission-${{ github.event.client_payload.submission_id || github.run_id }}
+  cancel-in-progress: false
 
 jobs:
-  process:
+  # ============================================================
+  # JOB 1: DISCOVER AND PLAN
+  # Clone repo, discover skills, create matrix for parallel processing
+  # ============================================================
+  discover-and-plan:
     runs-on: self-hosted
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      skill_count: ${{ steps.discover.outputs.skill_count }}
+      skills_json: ${{ steps.discover.outputs.skills_json }}
+      is_sharded: ${{ steps.plan.outputs.is_sharded }}
+      shard_count: ${{ steps.plan.outputs.shard_count }}
+      owner: ${{ steps.clone.outputs.owner }}
+      repo: ${{ steps.clone.outputs.repo }}
+      branch: ${{ steps.clone.outputs.branch }}
     steps:
       - name: Checkout marketplace
         uses: actions/checkout@v4
@@ -62,106 +94,372 @@ jobs:
               "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }' || echo "::warning::Failed to notify skillstore"
 
+      - name: Clone source repository
+        id: clone
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          URL="${{ env.GITHUB_URL }}"
+          URL="${URL%.git}"
+          
+          if [[ "$URL" =~ github\.com[:/]([^/]+)/([^/]+) ]]; then
+            OWNER="${BASH_REMATCH[1]}"
+            REPO="${BASH_REMATCH[2]}"
+          else
+            echo "::error::Invalid GitHub URL: $URL"
+            exit 1
+          fi
+          
+          echo "owner=$OWNER" >> $GITHUB_OUTPUT
+          echo "repo=$REPO" >> $GITHUB_OUTPUT
+          
+          BRANCH=$(gh api "repos/$OWNER/$REPO" --jq '.default_branch')
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          
+          SOURCE_DIR="/tmp/source-repo-${{ github.run_id }}"
+          git clone --depth 1 --branch "$BRANCH" "https://github.com/$OWNER/$REPO.git" "$SOURCE_DIR"
+          
+          echo "source_dir=$SOURCE_DIR" >> $GITHUB_OUTPUT
+          echo "📦 Cloned $OWNER/$REPO (branch: $BRANCH)"
+
+      - name: Discover skills (fast - no AI)
+        id: discover
+        run: |
+          SOURCE_DIR="${{ steps.clone.outputs.source_dir }}"
+          
+          SKILLS_JSON="["
+          FIRST=true
+          
+          while IFS= read -r skill_md; do
+            SKILL_DIR=$(dirname "$skill_md")
+            
+            SLUG=$(grep -E '^name:' "$skill_md" 2>/dev/null | head -1 | sed 's/name:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-*//;s/-*$//' | sed 's/--*/-/g')
+            [ -z "$SLUG" ] && SLUG=$(basename "$SKILL_DIR" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-*//;s/-*$//')
+            
+            if [ "$FIRST" = true ]; then
+              FIRST=false
+            else
+              SKILLS_JSON+=","
+            fi
+            SKILLS_JSON+="\"$SLUG\""
+          done < <(find "$SOURCE_DIR" -name "SKILL.md" -type f ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/.venv/*" ! -path "*/venv/*" | sort)
+          
+          SKILLS_JSON+="]"
+          
+          SKILL_COUNT=$(echo "$SKILLS_JSON" | jq 'length')
+          
+          echo "skills_json=$SKILLS_JSON" >> $GITHUB_OUTPUT
+          echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
+          
+          echo "📊 Discovered $SKILL_COUNT skill(s)"
+
+      - name: Plan processing strategy
+        id: plan
+        env:
+          SKILL_COUNT: ${{ steps.discover.outputs.skill_count }}
+          SKILLS_JSON: ${{ steps.discover.outputs.skills_json }}
+        run: |
+          COUNT=$SKILL_COUNT
+          THRESHOLD=${{ env.SHARD_THRESHOLD }}
+          MAX_SHARDS=${{ env.MAX_SHARDS }}
+          
+          if [ "$COUNT" -eq 0 ]; then
+            echo "❌ No skills found"
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+            echo "is_sharded=false" >> $GITHUB_OUTPUT
+            echo "shard_count=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          if [ "$COUNT" -lt "$THRESHOLD" ]; then
+            echo "📦 Simple mode: $COUNT skills (below threshold $THRESHOLD)"
+            ESCAPED_SLUGS=$(echo "$SKILLS_JSON" | jq -r 'join(",")')
+            echo "matrix={\"include\":[{\"shard\":0,\"slugs\":\"$ESCAPED_SLUGS\"}]}" >> $GITHUB_OUTPUT
+            echo "is_sharded=false" >> $GITHUB_OUTPUT
+            echo "shard_count=1" >> $GITHUB_OUTPUT
+          else
+            # Dynamic shard count: use MAX_SHARDS or fewer if skills < MAX_SHARDS * 5
+            if [ "$COUNT" -lt $((MAX_SHARDS * 5)) ]; then
+              SHARDS=$(( (COUNT + 4) / 5 ))
+              [ "$SHARDS" -lt 2 ] && SHARDS=2
+            else
+              SHARDS=$MAX_SHARDS
+            fi
+            
+            echo "🔀 Sharded mode: $COUNT skills → $SHARDS shards (dynamic sizing)"
+            
+            # Calculate base size and remainder for even distribution
+            BASE_SIZE=$((COUNT / SHARDS))
+            REMAINDER=$((COUNT % SHARDS))
+            
+            MATRIX='{"include":['
+            CURRENT_IDX=0
+            
+            for i in $(seq 0 $((SHARDS - 1))); do
+              # First REMAINDER shards get BASE_SIZE + 1
+              if [ $i -lt $REMAINDER ]; then
+                THIS_SIZE=$((BASE_SIZE + 1))
+              else
+                THIS_SIZE=$BASE_SIZE
+              fi
+              
+              # Extract slugs for this shard
+              SHARD_SLUGS=$(echo "$SKILLS_JSON" | jq -r ".[$CURRENT_IDX:$((CURRENT_IDX + THIS_SIZE))] | join(\",\")")
+              CURRENT_IDX=$((CURRENT_IDX + THIS_SIZE))
+              
+              [ $i -gt 0 ] && MATRIX+=','
+              MATRIX+="{\"shard\":$i,\"slugs\":\"$SHARD_SLUGS\"}"
+              
+              echo "  Shard $i: $THIS_SIZE skills"
+            done
+            MATRIX+=']}'
+            
+            echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+            echo "is_sharded=true" >> $GITHUB_OUTPUT
+            echo "shard_count=$SHARDS" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Cleanup source
+        if: always()
+        run: rm -rf /tmp/source-repo-${{ github.run_id }}
+
+  # ============================================================
+  # JOB 2: PROCESS (Parallel Matrix)
+  # Each shard processes a subset of skills with retry logic
+  # ============================================================
+  process:
+    needs: discover-and-plan
+    if: needs.discover-and-plan.outputs.shard_count != '0'
+    runs-on: self-hosted
+    timeout-minutes: 120
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.max_parallel || '6') }}
+      matrix: ${{ fromJSON(needs.discover-and-plan.outputs.matrix) }}
+    steps:
+      - name: Checkout marketplace
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download Skillstore CLI
         uses: ./.github/actions/download-skillstore-cli
         with:
           version: ${{ inputs.cli_version || 'latest' }}
           token: ${{ secrets.PAT_TOKEN }}
 
-      - name: Process submission
+      - name: Process shard ${{ matrix.shard }}
         id: process
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SLUGS: ${{ matrix.slugs }}
         run: |
-          echo "Processing: $GITHUB_URL"
-          echo "Submission ID: $SUBMISSION_ID"
+          echo "=== Shard ${{ matrix.shard }} ==="
+          SKILL_COUNT=$(echo "$SLUGS" | tr ',' '\n' | grep -c . || echo 0)
+          echo "Processing $SKILL_COUNT skill(s)"
           
-          # Run CLI with output captured
-          # CLI creates pending/{slug}/ structure, so output to current dir
           MODEL_FLAG=""
           if [ -n "${{ inputs.model }}" ]; then
             MODEL_FLAG="--model ${{ inputs.model }}"
           fi
           
-          LIMIT_FLAG=""
-          if [ -n "${{ inputs.limit }}" ]; then
-            LIMIT_FLAG="--limit ${{ inputs.limit }}"
-          fi
-          
-          ./skillstore-cli skill process "$GITHUB_URL" \
+          # First attempt
+          set +e
+          ./skillstore-cli skill process "${{ env.GITHUB_URL }}" \
+            --slugs "$SLUGS" \
             --output . \
             --marketplace-repo "${{ github.repository }}" \
             $MODEL_FLAG \
-            $LIMIT_FLAG \
             --verbose \
-            2>&1 | tee process-output.log
+            2>&1 | tee process-output-${{ matrix.shard }}.log
+          FIRST_EXIT=$?
+          set -e
           
-          # Extract results from CLI output (it outputs structured info)
-          # The CLI handles cloning, discovery, analysis, and packaging
+          # Check for failed skills and retry
+          FAILED_SLUGS=""
+          for slug in $(echo "$SLUGS" | tr ',' '\n'); do
+            [ -z "$slug" ] && continue
+            # Check if skill-report.json exists for this slug
+            FOUND=$(find pending -name "skill-report.json" -exec grep -l "\"slug\":\"$slug\"" {} \; 2>/dev/null | head -1)
+            if [ -z "$FOUND" ]; then
+              [ -n "$FAILED_SLUGS" ] && FAILED_SLUGS="$FAILED_SLUGS,"
+              FAILED_SLUGS="$FAILED_SLUGS$slug"
+            fi
+          done
           
-          SKILL_REPORTS=$(find pending -name "skill-report.json" 2>/dev/null)
+          # Retry failed skills once
+          if [ -n "$FAILED_SLUGS" ]; then
+            RETRY_COUNT=$(echo "$FAILED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
+            echo ""
+            echo "🔄 Retrying $RETRY_COUNT failed skill(s): $FAILED_SLUGS"
+            sleep 10
+            
+            ./skillstore-cli skill process "${{ env.GITHUB_URL }}" \
+              --slugs "$FAILED_SLUGS" \
+              --output . \
+              --marketplace-repo "${{ github.repository }}" \
+              $MODEL_FLAG \
+              --verbose \
+              2>&1 | tee -a process-output-${{ matrix.shard }}.log || true
+          fi
           
-          if [ -n "$SKILL_REPORTS" ]; then
-            PROCESSED_SKILLS=""
-            PROCESSED_COUNT=0
-            HIGHEST_RISK="safe"
+          # Collect final results
+          PROCESSED=0
+          ERRORS=0
+          HIGHEST_RISK="safe"
+          PROCESSED_SLUGS=""
+          
+          for report in $(find pending -name "skill-report.json" 2>/dev/null); do
+            SLUG=$(jq -r '.meta.slug' "$report")
+            RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$report")
             
-            for report in $SKILL_REPORTS; do
-              NAMESPACED_SLUG=$(jq -r '.meta.owner + "/" + .meta.slug' "$report")
-              SOURCE_TYPE=$(jq -r '.meta.source_type' "$report")
-              
-              if [ "$SOURCE_TYPE" = "official" ]; then
-                NAMESPACED_SLUG=$(jq -r '.meta.slug' "$report")
-              fi
-              
-              PROCESSED_SKILLS="$PROCESSED_SKILLS,$NAMESPACED_SLUG"
-              PROCESSED_COUNT=$((PROCESSED_COUNT + 1))
-              
-              RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$report")
-              case "$RISK" in
-                critical) HIGHEST_RISK="critical" ;;
-                high) [ "$HIGHEST_RISK" != "critical" ] && HIGHEST_RISK="high" ;;
-                medium) [ "$HIGHEST_RISK" = "safe" ] || [ "$HIGHEST_RISK" = "low" ] && HIGHEST_RISK="medium" ;;
-                low) [ "$HIGHEST_RISK" = "safe" ] && HIGHEST_RISK="low" ;;
-              esac
-            done
+            PROCESSED_SLUGS="$PROCESSED_SLUGS,$SLUG"
+            PROCESSED=$((PROCESSED + 1))
             
-            PROCESSED_SKILLS=$(echo "$PROCESSED_SKILLS" | sed 's/^,//')
+            case "$RISK" in
+              critical) HIGHEST_RISK="critical" ;;
+              high) [ "$HIGHEST_RISK" != "critical" ] && HIGHEST_RISK="high" ;;
+              medium) [ "$HIGHEST_RISK" = "safe" ] || [ "$HIGHEST_RISK" = "low" ] && HIGHEST_RISK="medium" ;;
+              low) [ "$HIGHEST_RISK" = "safe" ] && HIGHEST_RISK="low" ;;
+            esac
+          done
+          
+          # Count remaining failures
+          for slug in $(echo "$SLUGS" | tr ',' '\n'); do
+            [ -z "$slug" ] && continue
+            FOUND=$(find pending -name "skill-report.json" -exec grep -l "\"slug\":\"$slug\"" {} \; 2>/dev/null | head -1)
+            [ -z "$FOUND" ] && ERRORS=$((ERRORS + 1))
+          done
+          
+          PROCESSED_SLUGS=$(echo "$PROCESSED_SLUGS" | sed 's/^,//')
+          
+          echo "processed=$PROCESSED" >> $GITHUB_OUTPUT
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+          echo "highest_risk=$HIGHEST_RISK" >> $GITHUB_OUTPUT
+          echo "processed_slugs=$PROCESSED_SLUGS" >> $GITHUB_OUTPUT
+          
+          echo ""
+          echo "📊 Shard ${{ matrix.shard }}: $PROCESSED processed, $ERRORS errors, highest risk: $HIGHEST_RISK"
+
+      - name: Upload shard results
+        uses: actions/upload-artifact@v4
+        with:
+          name: process-shard-${{ matrix.shard }}
+          path: |
+            pending/
+            process-output-${{ matrix.shard }}.log
+          retention-days: 1
+
+      - name: Cleanup
+        if: always()
+        run: rm -f skillstore-cli
+
+  # ============================================================
+  # JOB 3: MERGE AND CREATE PR
+  # Combine all shard results and create a single PR
+  # ============================================================
+  merge-and-create-pr:
+    needs: [discover-and-plan, process]
+    if: always() && needs.discover-and-plan.outputs.shard_count != '0'
+    runs-on: self-hosted
+    steps:
+      - name: Checkout marketplace
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Download all shard artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: process-shard-*
+          merge-multiple: true
+          path: ./merged-results
+
+      - name: Merge shard results
+        id: merge
+        run: |
+          echo "=== Merging results from all shards ==="
+          
+          mkdir -p pending
+          if [ -d "./merged-results/pending" ]; then
+            cp -r ./merged-results/pending/* ./pending/ 2>/dev/null || true
+          fi
+          
+          PROCESSED_COUNT=0
+          HIGHEST_RISK="safe"
+          PROCESSED_SKILLS=""
+          
+          for report in $(find pending -name "skill-report.json" 2>/dev/null); do
+            NAMESPACED_SLUG=$(jq -r 'if .meta.source_type == "official" then .meta.slug else .meta.owner + "/" + .meta.slug end' "$report")
+            RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$report")
             
-            echo "processed_count=$PROCESSED_COUNT" >> $GITHUB_OUTPUT
-            echo "skills_list=$PROCESSED_SKILLS" >> $GITHUB_OUTPUT
+            PROCESSED_SKILLS="$PROCESSED_SKILLS,$NAMESPACED_SLUG"
+            PROCESSED_COUNT=$((PROCESSED_COUNT + 1))
+            
+            case "$RISK" in
+              critical) HIGHEST_RISK="critical" ;;
+              high) [ "$HIGHEST_RISK" != "critical" ] && HIGHEST_RISK="high" ;;
+              medium) [ "$HIGHEST_RISK" = "safe" ] || [ "$HIGHEST_RISK" = "low" ] && HIGHEST_RISK="medium" ;;
+              low) [ "$HIGHEST_RISK" = "safe" ] && HIGHEST_RISK="low" ;;
+            esac
+          done
+          
+          PROCESSED_SKILLS=$(echo "$PROCESSED_SKILLS" | sed 's/^,//')
+          
+          # Count errors from logs
+          TOTAL_ERRORS=0
+          for log in ./merged-results/process-output-*.log; do
+            if [ -f "$log" ]; then
+              ERR_COUNT=$(grep -c "❌ error" "$log" 2>/dev/null) || ERR_COUNT=0
+              TOTAL_ERRORS=$((TOTAL_ERRORS + ERR_COUNT))
+            fi
+          done
+          
+          echo "processed_count=$PROCESSED_COUNT" >> $GITHUB_OUTPUT
+          echo "skills_list=$PROCESSED_SKILLS" >> $GITHUB_OUTPUT
+          echo "highest_risk=$HIGHEST_RISK" >> $GITHUB_OUTPUT
+          echo "total_errors=$TOTAL_ERRORS" >> $GITHUB_OUTPUT
+          
+          if [ "$PROCESSED_COUNT" -gt 0 ]; then
             echo "has_results=true" >> $GITHUB_OUTPUT
-            echo "highest_risk=$HIGHEST_RISK" >> $GITHUB_OUTPUT
-            
-            echo "Processed $PROCESSED_COUNT skill(s): $PROCESSED_SKILLS"
-            echo "Highest risk: $HIGHEST_RISK"
           else
             echo "has_results=false" >> $GITHUB_OUTPUT
-            echo "::error::No skills processed"
-            exit 1
+            echo "::error::No skills were successfully processed"
           fi
+          
+          echo ""
+          echo "📊 Merged Results:"
+          echo "  Total processed: $PROCESSED_COUNT"
+          echo "  Total errors: $TOTAL_ERRORS"
+          echo "  Highest risk: $HIGHEST_RISK"
 
       - name: Create Pull Request
         id: create_pr
-        if: steps.process.outputs.has_results == 'true'
+        if: steps.merge.outputs.has_results == 'true'
         env:
-          # Use PAT_TOKEN instead of GITHUB_TOKEN so the PR can trigger other workflows
-          # GITHUB_TOKEN-created PRs don't trigger workflows (GitHub security feature)
           GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          PROCESSED_COUNT="${{ steps.process.outputs.processed_count }}"
-          SKILLS_LIST="${{ steps.process.outputs.skills_list }}"
-          HIGHEST_RISK="${{ steps.process.outputs.highest_risk }}"
+          PROCESSED_COUNT="${{ steps.merge.outputs.processed_count }}"
+          SKILLS_LIST="${{ steps.merge.outputs.skills_list }}"
+          HIGHEST_RISK="${{ steps.merge.outputs.highest_risk }}"
+          TOTAL_ERRORS="${{ steps.merge.outputs.total_errors }}"
+          IS_SHARDED="${{ needs.discover-and-plan.outputs.is_sharded }}"
+          SHARD_COUNT="${{ needs.discover-and-plan.outputs.shard_count }}"
+          SKILL_COUNT="${{ needs.discover-and-plan.outputs.skill_count }}"
           
-          # Extract repo name from URL
-          REPO_NAME=$(echo "$GITHUB_URL" | sed -E 's|.*/([^/]+)/?$|\1|' | sed 's/\.git$//')
+          REPO_NAME=$(echo "${{ env.GITHUB_URL }}" | sed -E 's|.*/([^/]+)/?$|\1|' | sed 's/\.git$//')
           
-          BRANCH_NAME="submission/${REPO_NAME}-${SUBMISSION_ID}"
+          BRANCH_NAME="submission/${REPO_NAME}-${{ env.SUBMISSION_ID }}"
           
-          # Delete remote branch if it exists (from previous failed run)
           git push origin --delete "$BRANCH_NAME" 2>/dev/null || true
           
           git checkout -b "$BRANCH_NAME"
@@ -169,16 +467,19 @@ jobs:
           
           if [ "$PROCESSED_COUNT" -eq 1 ]; then
             FIRST_SKILL=$(echo "$SKILLS_LIST" | cut -d',' -f1)
-            git commit -m "Add pending plugin: $FIRST_SKILL [submission: $SUBMISSION_ID]"
+            git commit -m "Add pending plugin: $FIRST_SKILL [submission: ${{ env.SUBMISSION_ID }}]"
             PR_TITLE="New plugin: $FIRST_SKILL ($HIGHEST_RISK risk)"
           else
-            git commit -m "Add $PROCESSED_COUNT pending plugins from $REPO_NAME [submission: $SUBMISSION_ID]"
-            PR_TITLE="New plugins: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK risk)"
+            git commit -m "Add $PROCESSED_COUNT pending plugins from $REPO_NAME [submission: ${{ env.SUBMISSION_ID }}]"
+            if [ "$IS_SHARDED" = "true" ]; then
+              PR_TITLE="New plugins: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK) [parallel: ${SHARD_COUNT} shards]"
+            else
+              PR_TITLE="New plugins: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK risk)"
+            fi
           fi
           
           git push origin "$BRANCH_NAME"
           
-          # Build risk badge
           RISK_BADGE="🟢"
           [ "$HIGHEST_RISK" = "critical" ] && RISK_BADGE="🔴"
           [ "$HIGHEST_RISK" = "high" ] && RISK_BADGE="🟠"
@@ -188,24 +489,50 @@ jobs:
           SKILLS_TABLE="| Skill | Risk | Status |
           |-------|------|--------|"
           
-          for report in $(find pending -name "skill-report.json" 2>/dev/null); do
+          for report in $(find pending -name "skill-report.json" 2>/dev/null | head -50); do
             NAMESPACED_SLUG=$(jq -r 'if .meta.source_type == "official" then .meta.slug else .meta.owner + "/" + .meta.slug end' "$report")
             SKILL_RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$report")
             SKILLS_TABLE="$SKILLS_TABLE
           | \`$NAMESPACED_SLUG\` | $SKILL_RISK | Ready |"
           done
           
-          # Create PR body
-          cat > pr-body.md << EOF
-          ## Skill Submission: $REPO_NAME
+          if [ "$PROCESSED_COUNT" -gt 50 ]; then
+            SKILLS_TABLE="$SKILLS_TABLE
+          | ... | ... | ... |
+          | *and $((PROCESSED_COUNT - 50)) more* | | |"
+          fi
           
-          **Submission ID**: \`$SUBMISSION_ID\`
-          **Source**: $GITHUB_URL
-          **Submitter**: $SUBMITTER_EMAIL
+          cat > pr-body.md << 'PREOF'
+          ## Skill Submission: REPO_PLACEHOLDER
           
-          ### Summary $RISK_BADGE
-          - Skills processed: $PROCESSED_COUNT
-          - Highest risk: $HIGHEST_RISK
+          **Submission ID**: `SUBMISSION_PLACEHOLDER`
+          **Source**: URL_PLACEHOLDER
+          **Submitter**: EMAIL_PLACEHOLDER
+          
+          ### Summary BADGE_PLACEHOLDER
+          - Skills discovered: DISCOVERED_PLACEHOLDER
+          - Skills processed: PROCESSED_PLACEHOLDER
+          - Highest risk: RISK_PLACEHOLDER
+          PREOF
+          
+          sed -i '' "s|REPO_PLACEHOLDER|$REPO_NAME|g" pr-body.md
+          sed -i '' "s|SUBMISSION_PLACEHOLDER|${{ env.SUBMISSION_ID }}|g" pr-body.md
+          sed -i '' "s|URL_PLACEHOLDER|${{ env.GITHUB_URL }}|g" pr-body.md
+          sed -i '' "s|EMAIL_PLACEHOLDER|${{ env.SUBMITTER_EMAIL }}|g" pr-body.md
+          sed -i '' "s|BADGE_PLACEHOLDER|$RISK_BADGE|g" pr-body.md
+          sed -i '' "s|DISCOVERED_PLACEHOLDER|$SKILL_COUNT|g" pr-body.md
+          sed -i '' "s|PROCESSED_PLACEHOLDER|$PROCESSED_COUNT|g" pr-body.md
+          sed -i '' "s|RISK_PLACEHOLDER|$HIGHEST_RISK|g" pr-body.md
+          
+          if [ "$IS_SHARDED" = "true" ]; then
+            echo "- Processing mode: **Parallel** ($SHARD_COUNT shards)" >> pr-body.md
+          fi
+          
+          if [ "$TOTAL_ERRORS" -gt 0 ]; then
+            echo "- ⚠️ Failed skills: $TOTAL_ERRORS" >> pr-body.md
+          fi
+          
+          cat >> pr-body.md << EOF
           
           ### Skills
           $SKILLS_TABLE
@@ -216,7 +543,7 @@ jobs:
           - [ ] Source repository checked
           
           ---
-          *Processed by skillstore-cli v$(./skillstore-cli --version)*
+          *Processed by skillstore-cli*
           EOF
           
           PR_URL=$(gh pr create \
@@ -238,9 +565,12 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{
-              "submission_id": "'"$SUBMISSION_ID"'",
+              "submission_id": "'"${{ env.SUBMISSION_ID }}"'",
               "event": "pr_created",
               "pr_url": "'"$PR_URL"'",
+              "processed_count": ${{ steps.merge.outputs.processed_count }},
+              "is_sharded": ${{ needs.discover-and-plan.outputs.is_sharded }},
+              "shard_count": ${{ needs.discover-and-plan.outputs.shard_count }},
               "workflow_run_id": ${{ github.run_id }},
               "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }' || echo "::warning::Failed to notify skillstore"
@@ -249,22 +579,44 @@ jobs:
         if: failure() && github.event_name == 'repository_dispatch'
         run: |
           ERROR_MSG="Processing failed. Check GitHub Actions log for details."
-          if [ -f process-output.log ]; then
-            ERROR_MSG=$(tail -5 process-output.log | tr '\n' ' ' | cut -c1-500)
+          if [ -f ./merged-results/process-output-0.log ]; then
+            ERROR_MSG=$(tail -10 ./merged-results/process-output-0.log | tr '\n' ' ' | cut -c1-500)
           fi
           
           curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
             -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{
-              "submission_id": "'"$SUBMISSION_ID"'",
+              "submission_id": "'"${{ env.SUBMISSION_ID }}"'",
               "event": "failed",
               "error_message": "'"${ERROR_MSG//\"/\\\"}"'",
               "workflow_run_id": ${{ github.run_id }},
               "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             }' || echo "::warning::Failed to notify skillstore"
 
-      - name: Cleanup
+      - name: Summary
         if: always()
         run: |
-          rm -f skillstore-cli process-output.log pr-body.md
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          ## Processing Summary
+          
+          **Source**: ${{ env.GITHUB_URL }}
+          **Submission ID**: \`${{ env.SUBMISSION_ID }}\`
+          
+          | Metric | Value |
+          |--------|-------|
+          | Skills Discovered | ${{ needs.discover-and-plan.outputs.skill_count }} |
+          | Processing Mode | $([ "${{ needs.discover-and-plan.outputs.is_sharded }}" = "true" ] && echo "**Parallel** (${{ needs.discover-and-plan.outputs.shard_count }} shards)" || echo "Simple") |
+          | Successfully Processed | ${{ steps.merge.outputs.processed_count }} |
+          | Errors | ${{ steps.merge.outputs.total_errors }} |
+          | Highest Risk | ${{ steps.merge.outputs.highest_risk }} |
+          
+          EOF
+          
+          if [ -n "${{ steps.create_pr.outputs.pr_url }}" ]; then
+            echo "🔗 **PR Created**: ${{ steps.create_pr.outputs.pr_url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: rm -f pr-body.md
