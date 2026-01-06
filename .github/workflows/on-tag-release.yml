@@ -327,16 +327,36 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
+          # Clean up any leftover rebase state from previous failed runs
+          rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+          
+          # Stash the changes we made (marketplace.json and CHANGELOG.md)
+          git stash push -m "release-changes" -- .claude-plugin/marketplace.json CHANGELOG.md
+          
+          # Switch from detached HEAD to main branch
+          git checkout main
+          git pull origin main
+          
+          # Apply stashed changes
+          git stash pop
+          
           git add .claude-plugin/marketplace.json CHANGELOG.md
           
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
             git commit -m "release: v${VERSION}"
-            git fetch origin main
-            git rebase origin/main
-            git push origin HEAD:main
-            echo "Committed version updates to main"
+            
+            # Push with retry logic for race conditions
+            for i in 1 2 3; do
+              if git push origin main; then
+                echo "Committed version updates to main"
+                break
+              fi
+              echo "Push failed, pulling and retrying ($i/3)..."
+              git pull --rebase origin main
+              sleep 2
+            done
           fi
 
       - name: Build release notes
