@@ -21,8 +21,8 @@ on:
   workflow_dispatch:
 
 env:
-  # Enable auto-fix for PRs (set to 'false' to disable)
-  AUTO_FIX_ENABLED: ${{ github.event_name == 'pull_request' }}
+  # Enable auto-fix for both push and PRs (set to 'false' to disable)
+  AUTO_FIX_ENABLED: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   validate:
@@ -313,10 +313,16 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "fix: auto-fix skill-report.json validation errors"
-            # Pull with rebase to handle reruns where branch has moved forward
-            git pull --rebase origin ${{ github.head_ref }} || true
-            git push origin HEAD:${{ github.head_ref }}
-            echo "::notice::Auto-fixed files committed and pushed to PR branch"
+            
+            if [ "${{ github.event_name }}" == "pull_request" ]; then
+              git pull --rebase origin ${{ github.head_ref }} || true
+              git push origin HEAD:${{ github.head_ref }}
+              echo "::notice::Auto-fixed files committed and pushed to PR branch"
+            else
+              git pull --rebase origin ${{ github.ref_name }} || true
+              git push origin HEAD:${{ github.ref_name }}
+              echo "::notice::Auto-fixed files committed and pushed to ${{ github.ref_name }}"
+            fi
           fi
 
       - name: Add summary
@@ -330,7 +336,11 @@ jobs:
           elif [ "${{ steps.revalidate.outcome }}" == "success" ]; then
             echo "🔧 Validation errors were automatically fixed by AI" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The fixes have been committed to this PR. Please review the changes." >> $GITHUB_STEP_SUMMARY
+            if [ "${{ github.event_name }}" == "pull_request" ]; then
+              echo "The fixes have been committed to this PR. Please review the changes." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "The fixes have been committed directly to ${{ github.ref_name }}." >> $GITHUB_STEP_SUMMARY
+            fi
           else
             echo "❌ Validation failed" >> $GITHUB_STEP_SUMMARY
             if [ "${{ env.AUTO_FIX_ENABLED }}" == "true" ]; then
