@@ -288,6 +288,15 @@ jobs:
           token: ${{ secrets.PAT_TOKEN }}
           fetch-depth: 1
 
+      # Clean stale git state from previous runs (self-hosted runner persistence)
+      # Without this, a failed rebase in a previous job leaves .git/rebase-merge
+      # which blocks all subsequent git operations
+      - name: Clean stale git state
+        run: |
+          rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+          git rebase --abort 2>/dev/null || true
+          git reset --hard HEAD 2>/dev/null || true
+
       - name: Configure Git identity
         run: |
           git config --global user.name "github-actions[bot]"
@@ -376,8 +385,23 @@ jobs:
           - Updated: ${UPDATED_COUNT}
           - Errors: ${ERROR_COUNT}"
           
+          # Clean any stale git state from previous runs (self-hosted runner persistence)
+          rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+          git rebase --abort 2>/dev/null || true
+          
           git fetch origin main
-          git rebase origin/main
+          
+          # Use merge instead of rebase - more robust for CI environments
+          git merge origin/main --no-edit || {
+            echo "::warning::Merge conflict detected, attempting fresh branch"
+            git merge --abort 2>/dev/null || true
+            OUR_COMMIT=$(git rev-parse HEAD)
+            git checkout main
+            git pull origin main
+            git checkout -B "$BRANCH_NAME"
+            git cherry-pick "$OUR_COMMIT" --strategy-option=theirs
+          }
+          
           git push origin "$BRANCH_NAME"
           
           PR_BODY="## Summary
