@@ -118,6 +118,154 @@ jobs:
           "
 
       - name: Check marketplace consistency
+        id: check-consistency
+        continue-on-error: true
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            
+            const autoFixEnabled = process.env.AUTO_FIX_ENABLED === 'true';
+            const marketplace = JSON.parse(fs.readFileSync('.claude-plugin/marketplace.json', 'utf8'));
+            
+            let hasErrors = false;
+            let fixedCount = 0;
+            const orphanedEntries = [];
+            
+            for (const plugin of marketplace.plugins) {
+              const pluginPath = plugin.source;
+              const manifestDir = path.join(pluginPath, '.claude-plugin');
+              const manifestPath = path.join(manifestDir, 'plugin.json');
+              
+              // Case 1: Plugin directory doesn't exist at all
+              if (!fs.existsSync(pluginPath)) {
+                console.error(\`Plugin directory not found: \${pluginPath}\`);
+                orphanedEntries.push(plugin.name);
+                hasErrors = true;
+                continue;
+              }
+              
+              // Case 2: Plugin directory exists but manifest is missing
+              if (!fs.existsSync(manifestPath)) {
+                if (autoFixEnabled) {
+                  console.log(\`::notice::Missing manifest for '\${plugin.name}', attempting auto-fix...\`);
+                  
+                  // Try to read from marketplace-entry.json if it exists
+                  let manifestData;
+                  const marketplaceEntryPath = path.join(pluginPath, 'marketplace-entry.json');
+                  
+                  if (fs.existsSync(marketplaceEntryPath)) {
+                    try {
+                      const entry = JSON.parse(fs.readFileSync(marketplaceEntryPath, 'utf8'));
+                      manifestData = {
+                        name: entry.name || plugin.name,
+                        version: entry.version || plugin.version || '1.0.0',
+                        description: entry.description || plugin.description,
+                        author: entry.author || plugin.author,
+                        repository: entry.repository || plugin.repository,
+                        license: entry.license || plugin.license || 'UNKNOWN',
+                        keywords: entry.keywords || plugin.keywords || []
+                      };
+                    } catch (e) {
+                      console.error(\`Failed to parse marketplace-entry.json: \${e.message}\`);
+                    }
+                  }
+                  
+                  // Fall back to marketplace.json entry data
+                  if (!manifestData) {
+                    manifestData = {
+                      name: plugin.name,
+                      version: plugin.version || '1.0.0',
+                      description: plugin.description,
+                      author: plugin.author,
+                      repository: plugin.repository,
+                      license: plugin.license || 'UNKNOWN',
+                      keywords: plugin.keywords || []
+                    };
+                  }
+                  
+                  // Create the .claude-plugin directory if it doesn't exist
+                  if (!fs.existsSync(manifestDir)) {
+                    fs.mkdirSync(manifestDir, { recursive: true });
+                  }
+                  
+                  // Write the plugin.json
+                  fs.writeFileSync(manifestPath, JSON.stringify(manifestData, null, 2) + '\\n');
+                  console.log(\`::notice::Created plugin.json for '\${plugin.name}'\`);
+                  fixedCount++;
+                } else {
+                  console.error(\`Plugin manifest not found: \${manifestPath}\`);
+                  hasErrors = true;
+                }
+                continue;
+              }
+              
+              // Case 3: Manifest exists - validate name match
+              const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+              if (manifest.name !== plugin.name) {
+                if (autoFixEnabled) {
+                  console.log(\`::notice::Fixing name mismatch for '\${plugin.name}'...\`);
+                  manifest.name = plugin.name;
+                  fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\\n');
+                  fixedCount++;
+                } else {
+                  console.error(\`Plugin name mismatch: marketplace says '\${plugin.name}' but manifest says '\${manifest.name}'\`);
+                  hasErrors = true;
+                }
+              }
+              
+              console.log(\`Plugin '\${plugin.name}' is consistent\`);
+            }
+            
+            // Report summary
+            if (fixedCount > 0) {
+              console.log(\`\\n::notice::Auto-fixed \${fixedCount} consistency issue(s)\`);
+            }
+            
+            if (orphanedEntries.length > 0) {
+              console.error(\`\\nOrphaned marketplace entries (directory missing):\`);
+              orphanedEntries.forEach(name => console.error(\`  - \${name}\`));
+              console.error(\`These entries should be removed from marketplace.json\`);
+            }
+            
+            if (hasErrors) process.exit(1);
+            console.log('Marketplace is consistent with all plugins');
+          "
+
+      - name: Remove orphaned marketplace entries
+        if: steps.check-consistency.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            
+            const marketplacePath = '.claude-plugin/marketplace.json';
+            const marketplace = JSON.parse(fs.readFileSync(marketplacePath, 'utf8'));
+            
+            const originalCount = marketplace.plugins.length;
+            
+            // Filter out plugins whose directories don't exist
+            marketplace.plugins = marketplace.plugins.filter(plugin => {
+              const exists = fs.existsSync(plugin.source);
+              if (!exists) {
+                console.log(\`::notice::Removing orphaned entry: \${plugin.name} (directory \${plugin.source} not found)\`);
+              }
+              return exists;
+            });
+            
+            const removedCount = originalCount - marketplace.plugins.length;
+            
+            if (removedCount > 0) {
+              fs.writeFileSync(marketplacePath, JSON.stringify(marketplace, null, 2) + '\\n');
+              console.log(\`::notice::Removed \${removedCount} orphaned marketplace entries\`);
+            } else {
+              console.log('No orphaned entries to remove');
+            }
+          "
+
+      - name: Re-check marketplace consistency
+        if: steps.check-consistency.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
+        id: recheck-consistency
         run: |
           node -e "
             const fs = require('fs');
@@ -153,8 +301,68 @@ jobs:
             }
             
             if (hasErrors) process.exit(1);
-            console.log('Marketplace is consistent with all plugins');
+            console.log('Marketplace is consistent with all plugins after auto-fix');
           "
+
+      - name: Commit consistency fixes
+        if: steps.check-consistency.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.recheck-consistency.outcome == 'success'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Determine branch name based on event type
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BRANCH="${{ github.head_ref }}"
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+          
+          echo "Target branch: $BRANCH"
+          
+          # Fetch latest remote state first
+          git fetch origin "$BRANCH" || true
+          
+          # Stage all consistency-related changes
+          git add .claude-plugin/marketplace.json
+          git add "plugins/**/.claude-plugin/plugin.json" 2>/dev/null || true
+          git add "pending/**/.claude-plugin/plugin.json" 2>/dev/null || true
+          
+          # Check if there's anything to commit
+          if git diff --staged --quiet; then
+            echo "No consistency changes to commit"
+            exit 0
+          fi
+          
+          # Commit the staged changes
+          git commit -m "fix: auto-fix marketplace consistency issues
+
+          - Generated missing plugin.json manifests from marketplace entries
+          - Removed orphaned marketplace entries (directories not found)
+          - Fixed plugin name mismatches"
+          
+          # Try to rebase on top of remote to get a clean history
+          if git rebase "origin/$BRANCH" 2>/dev/null; then
+            echo "Rebase successful"
+          else
+            echo "Rebase failed, using merge strategy..."
+            git rebase --abort 2>/dev/null || true
+            git pull --no-rebase origin "$BRANCH" --strategy-option=ours || true
+          fi
+          
+          # Push changes
+          if git push origin "HEAD:$BRANCH"; then
+            echo "::notice::Consistency fixes committed and pushed to $BRANCH"
+          else
+            echo "Normal push failed, using force-with-lease..."
+            git push --force-with-lease origin "HEAD:$BRANCH"
+            echo "::notice::Consistency fixes force-pushed to $BRANCH"
+          fi
+
+      - name: Fail if consistency errors remain
+        if: steps.check-consistency.outcome == 'failure' && (env.AUTO_FIX_ENABLED != 'true' || steps.recheck-consistency.outcome == 'failure')
+        run: |
+          echo "::error::Marketplace consistency check failed"
+          exit 1
 
       - name: Validate skill-report.json files
         id: validate-skill-reports
