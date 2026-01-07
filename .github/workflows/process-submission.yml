@@ -360,44 +360,47 @@ jobs:
   # ============================================================
   # JOB 3: MERGE AND CREATE PR
   # Combine all shard results and create a single PR
+  # Uses fresh clone to temp directory - eliminates state pollution from self-hosted runners
   # ============================================================
   merge-and-create-pr:
     needs: [discover-and-plan, process]
     if: always() && needs.discover-and-plan.outputs.shard_count != '0'
     runs-on: self-hosted
     steps:
-      - name: Checkout marketplace
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PAT_TOKEN }}
-          clean: true
-
-      - name: Clean stale git state
-        run: |
-          rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-          git rebase --abort 2>/dev/null || true
-          git reset --hard HEAD 2>/dev/null || true
-
-      - name: Configure Git identity
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
       - name: Download all shard artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: process-shard-*
           merge-multiple: true
-          path: ./merged-results
+          path: /tmp/submission-artifacts-${{ github.run_id }}
 
-      - name: Merge shard results
-        id: merge
+      - name: Merge results and create PR
+        id: create_pr
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          echo "=== Merging results from all shards ==="
+          set -euo pipefail
           
+          WORK_DIR="/tmp/marketplace-${{ github.run_id }}"
+          ARTIFACTS_DIR="/tmp/submission-artifacts-${{ github.run_id }}"
+          
+          cleanup() {
+            echo "🧹 Cleaning up temp directories..."
+            rm -rf "$WORK_DIR" "$ARTIFACTS_DIR" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          
+          echo "📦 Cloning fresh repository to $WORK_DIR..."
+          git clone --depth 1 "https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git" "$WORK_DIR"
+          cd "$WORK_DIR"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          echo "=== Merging results from all shards ==="
           mkdir -p pending
-          if [ -d "./merged-results/pending" ]; then
-            cp -r ./merged-results/pending/* ./pending/ 2>/dev/null || true
+          if [ -d "$ARTIFACTS_DIR/pending" ]; then
+            cp -r "$ARTIFACTS_DIR/pending/"* ./pending/ 2>/dev/null || true
           fi
           
           PROCESSED_COUNT=0
@@ -419,52 +422,38 @@ jobs:
             esac
           done
           
-          PROCESSED_SKILLS=$(echo "$PROCESSED_SKILLS" | sed 's/^,//')
+          PROCESSED_SKILLS="${PROCESSED_SKILLS#,}"
           
-          # Count errors from logs
           TOTAL_ERRORS=0
-          for log in ./merged-results/process-output-*.log; do
+          for log in "$ARTIFACTS_DIR"/process-output-*.log; do
             if [ -f "$log" ]; then
               ERR_COUNT=$(grep -c "❌ error" "$log" 2>/dev/null) || ERR_COUNT=0
               TOTAL_ERRORS=$((TOTAL_ERRORS + ERR_COUNT))
             fi
           done
           
+          echo "📊 Merged Results:"
+          echo "  Total processed: $PROCESSED_COUNT"
+          echo "  Total errors: $TOTAL_ERRORS"
+          echo "  Highest risk: $HIGHEST_RISK"
+          
+          if [ "$PROCESSED_COUNT" -eq 0 ]; then
+            echo "::error::No skills were successfully processed"
+            echo "has_results=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "has_results=true" >> $GITHUB_OUTPUT
           echo "processed_count=$PROCESSED_COUNT" >> $GITHUB_OUTPUT
           echo "skills_list=$PROCESSED_SKILLS" >> $GITHUB_OUTPUT
           echo "highest_risk=$HIGHEST_RISK" >> $GITHUB_OUTPUT
           echo "total_errors=$TOTAL_ERRORS" >> $GITHUB_OUTPUT
           
-          if [ "$PROCESSED_COUNT" -gt 0 ]; then
-            echo "has_results=true" >> $GITHUB_OUTPUT
-          else
-            echo "has_results=false" >> $GITHUB_OUTPUT
-            echo "::error::No skills were successfully processed"
-          fi
-          
-          echo ""
-          echo "📊 Merged Results:"
-          echo "  Total processed: $PROCESSED_COUNT"
-          echo "  Total errors: $TOTAL_ERRORS"
-          echo "  Highest risk: $HIGHEST_RISK"
-
-      - name: Create Pull Request
-        id: create_pr
-        if: steps.merge.outputs.has_results == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          PROCESSED_COUNT="${{ steps.merge.outputs.processed_count }}"
-          SKILLS_LIST="${{ steps.merge.outputs.skills_list }}"
-          HIGHEST_RISK="${{ steps.merge.outputs.highest_risk }}"
-          TOTAL_ERRORS="${{ steps.merge.outputs.total_errors }}"
+          REPO_NAME=$(echo "${{ env.GITHUB_URL }}" | sed -E 's|.*/([^/]+)/?$|\1|' | sed 's/\.git$//')
+          BRANCH_NAME="submission/${REPO_NAME}-${{ env.SUBMISSION_ID }}"
           IS_SHARDED="${{ needs.discover-and-plan.outputs.is_sharded }}"
           SHARD_COUNT="${{ needs.discover-and-plan.outputs.shard_count }}"
           SKILL_COUNT="${{ needs.discover-and-plan.outputs.skill_count }}"
-          
-          REPO_NAME=$(echo "${{ env.GITHUB_URL }}" | sed -E 's|.*/([^/]+)/?$|\1|' | sed 's/\.git$//')
-          
-          BRANCH_NAME="submission/${REPO_NAME}-${{ env.SUBMISSION_ID }}"
           
           git push origin --delete "$BRANCH_NAME" 2>/dev/null || true
           
@@ -472,7 +461,7 @@ jobs:
           git add pending/
           
           if [ "$PROCESSED_COUNT" -eq 1 ]; then
-            FIRST_SKILL=$(echo "$SKILLS_LIST" | cut -d',' -f1)
+            FIRST_SKILL=$(echo "$PROCESSED_SKILLS" | cut -d',' -f1)
             git commit -m "Add pending plugin: $FIRST_SKILL [submission: ${{ env.SUBMISSION_ID }}]"
             PR_TITLE="New plugin: $FIRST_SKILL ($HIGHEST_RISK risk)"
           else
@@ -483,24 +472,6 @@ jobs:
               PR_TITLE="New plugins: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK risk)"
             fi
           fi
-          
-          # Clean any stale git state from previous runs (self-hosted runner persistence)
-          rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-          git rebase --abort 2>/dev/null || true
-          
-          git fetch origin main
-          
-          # Use merge instead of rebase - more robust for CI environments
-          git merge origin/main --no-edit || {
-            echo "::warning::Merge conflict detected, attempting fresh branch"
-            git merge --abort 2>/dev/null || true
-            # Fallback: reset to main and cherry-pick our commit
-            OUR_COMMIT=$(git rev-parse HEAD)
-            git checkout main
-            git pull origin main
-            git checkout -B "$BRANCH_NAME"
-            git cherry-pick "$OUR_COMMIT" --strategy-option=theirs
-          }
           
           git push origin "$BRANCH_NAME"
           
@@ -583,7 +554,7 @@ jobs:
               "submission_id": "'"${{ env.SUBMISSION_ID }}"'",
               "event": "pr_created",
               "pr_url": "'"$PR_URL"'",
-              "processed_count": ${{ steps.merge.outputs.processed_count }},
+              "processed_count": ${{ steps.create_pr.outputs.processed_count }},
               "is_sharded": ${{ needs.discover-and-plan.outputs.is_sharded }},
               "shard_count": ${{ needs.discover-and-plan.outputs.shard_count }},
               "workflow_run_id": ${{ github.run_id }},
@@ -594,9 +565,11 @@ jobs:
         if: failure() && github.event_name == 'repository_dispatch'
         run: |
           ERROR_MSG="Processing failed. Check GitHub Actions log for details."
-          if [ -f ./merged-results/process-output-0.log ]; then
-            ERROR_MSG=$(tail -10 ./merged-results/process-output-0.log | tr '\n' ' ' | cut -c1-500)
+          ARTIFACTS_DIR="/tmp/submission-artifacts-${{ github.run_id }}"
+          if [ -f "$ARTIFACTS_DIR/process-output-0.log" ]; then
+            ERROR_MSG=$(tail -10 "$ARTIFACTS_DIR/process-output-0.log" | tr '\n' ' ' | cut -c1-500)
           fi
+          rm -rf "$ARTIFACTS_DIR" 2>/dev/null || true
           
           curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
             -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
