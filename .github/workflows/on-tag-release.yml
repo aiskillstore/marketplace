@@ -320,25 +320,35 @@ jobs:
           
           echo "Updated CHANGELOG.md"
 
-      - name: Commit version updates
+      - name: Commit version updates (isolated temp directory)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          
           VERSION="${{ steps.version.outputs.version }}"
+          
+          # Use temp directory for clean git operations
+          # This eliminates state pollution from self-hosted runners (leftover rebase-merge, index.lock, etc.)
+          WORK_DIR="/tmp/marketplace-release-${{ github.run_id }}"
+          
+          cleanup() {
+            echo "🧹 Cleaning up temp directory..."
+            rm -rf "$WORK_DIR" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          
+          echo "📦 Cloning fresh repository to $WORK_DIR..."
+          git clone --depth 1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "$WORK_DIR"
+          
+          # Copy updated files from checkout to fresh clone
+          cp .claude-plugin/marketplace.json "$WORK_DIR/.claude-plugin/marketplace.json"
+          cp CHANGELOG.md "$WORK_DIR/CHANGELOG.md"
+          
+          cd "$WORK_DIR"
           
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Clean up any leftover rebase state from previous failed runs
-          rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-          
-          # Stash the changes we made (marketplace.json and CHANGELOG.md)
-          git stash push -m "release-changes" -- .claude-plugin/marketplace.json CHANGELOG.md
-          
-          # Switch from detached HEAD to main branch
-          git checkout main
-          git pull origin main
-          
-          # Apply stashed changes
-          git stash pop
           
           git add .claude-plugin/marketplace.json CHANGELOG.md
           
@@ -350,11 +360,15 @@ jobs:
             # Push with retry logic for race conditions
             for i in 1 2 3; do
               if git push origin main; then
-                echo "Committed version updates to main"
+                echo "✅ Committed version updates to main"
                 break
               fi
               echo "Push failed, pulling and retrying ($i/3)..."
-              git pull --rebase origin main
+              git pull --rebase origin main || {
+                git rebase --abort 2>/dev/null || true
+                git reset --hard origin/main
+                git cherry-pick HEAD@{1} || true
+              }
               sleep 2
             done
           fi

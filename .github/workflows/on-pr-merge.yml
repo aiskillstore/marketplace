@@ -10,20 +10,10 @@ jobs:
     if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'pending-review')
     runs-on: self-hosted
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (for pending plugins detection)
         uses: actions/checkout@v4
         with:
-          # Use PAT instead of GITHUB_TOKEN to trigger downstream workflows (sync-to-supabase)
-          # GITHUB_TOKEN pushes do NOT trigger other workflows by design
-          token: ${{ secrets.PAT_TOKEN }}
-          fetch-depth: 0
-
-      - name: Clean workspace
-        # Self-hosted runners can have stale files from previous runs
-        # This ensures git detects all file changes correctly
-        run: |
-          git clean -fdx
-          git reset --hard HEAD
+          fetch-depth: 1
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -34,20 +24,49 @@ jobs:
         id: find_pending
         run: |
           PLUGIN_PATHS=""
+          PLUGIN_NAMES=""
           
           for entry_file in $(find pending -name "marketplace-entry.json" 2>/dev/null); do
             PLUGIN_DIR=$(dirname "$entry_file")
             PLUGIN_PATHS="$PLUGIN_PATHS $PLUGIN_DIR"
+            
+            # Extract plugin name for commit message
+            NAME=$(jq -r '.name' "$entry_file" 2>/dev/null || basename "$PLUGIN_DIR")
+            PLUGIN_NAMES="$PLUGIN_NAMES /$NAME"
           done
           
           echo "plugin_paths=$PLUGIN_PATHS" >> $GITHUB_OUTPUT
+          echo "plugin_names=$PLUGIN_NAMES" >> $GITHUB_OUTPUT
           echo "Found pending plugins:$PLUGIN_PATHS"
 
-      - name: Move plugins from pending to plugins
+      - name: Process plugins and commit (isolated temp directory)
+        if: steps.find_pending.outputs.plugin_paths != ''
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
+          set -euo pipefail
+          
+          # Use temp directory for clean git operations
+          # This eliminates state pollution from self-hosted runners (leftover rebase-merge, index.lock, etc.)
+          WORK_DIR="/tmp/marketplace-approve-${{ github.run_id }}"
+          
+          cleanup() {
+            echo "🧹 Cleaning up temp directory..."
+            rm -rf "$WORK_DIR" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          
+          echo "📦 Cloning fresh repository to $WORK_DIR..."
+          git clone --depth 1 "https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git" "$WORK_DIR"
+          cd "$WORK_DIR"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          echo "=== Moving plugins from pending to plugins ==="
           for PENDING_DIR in ${{ steps.find_pending.outputs.plugin_paths }}; do
             if [ -d "$PENDING_DIR" ] && [ -f "$PENDING_DIR/marketplace-entry.json" ]; then
-              # Use 'source' field for directory path (e.g., "./payloadcms/payload")
+              # Use 'source' field for directory path (e.g., "./plugins/payloadcms/payload")
               # 'name' field must stay hyphenated for plugin.json schema compliance
               SOURCE_PATH=$(jq -r '.source' "$PENDING_DIR/marketplace-entry.json")
               # Strip "./" prefix: "./plugins/payloadcms/payload" -> "plugins/payloadcms/payload"
@@ -62,12 +81,10 @@ jobs:
               fi
               
               mv "$PENDING_DIR" "$TARGET_DIR"
-              # source field is already correct, no need to update
             fi
           done
-
-      - name: Update marketplace.json
-        run: |
+          
+          echo "=== Updating marketplace.json ==="
           for entry_file in $(find plugins -name "marketplace-entry.json" -newer .claude-plugin/marketplace.json 2>/dev/null || find plugins -name "marketplace-entry.json" 2>/dev/null); do
             NAMESPACED_SLUG=$(jq -r '.name' "$entry_file")
             
@@ -90,26 +107,36 @@ jobs:
           
           echo "Updated marketplace.json:"
           jq '.plugins | length' .claude-plugin/marketplace.json
-
-      - name: Commit and push changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           
+          echo "=== Committing and pushing ==="
           # Stage all changes including deletions from pending/
           git add -A
           
+          # Remove empty pending directory
           if [ -d "pending" ] && [ -z "$(ls -A pending 2>/dev/null)" ]; then
             rmdir pending 2>/dev/null || true
+            git add -A
           fi
           
-          PLUGINS="${{ steps.find_pending.outputs.plugins }}"
-          git commit -m "Approve plugins: $PLUGINS" || echo "No changes to commit"
-          
-          # Handle race conditions: pull --rebase before push
-          # Retry up to 3 times in case of concurrent pushes
-          for i in 1 2 3; do
-            git pull --rebase origin main && git push origin main && break
-            echo "Push failed, retrying ($i/3)..."
-            sleep 2
-          done
+          PLUGINS="${{ steps.find_pending.outputs.plugin_names }}"
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Approve plugins:$PLUGINS"
+            
+            # Push with retry for race conditions
+            for i in 1 2 3; do
+              if git push origin main; then
+                echo "✅ Successfully pushed to main"
+                break
+              fi
+              echo "Push failed, pulling latest and retrying ($i/3)..."
+              git pull --rebase origin main || {
+                # If rebase fails, abort and retry with fresh state
+                git rebase --abort 2>/dev/null || true
+                git reset --hard origin/main
+                git cherry-pick HEAD@{1} || true
+              }
+              sleep 2
+            done
+          fi

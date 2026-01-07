@@ -304,11 +304,12 @@ jobs:
             console.log('Marketplace is consistent with all plugins after auto-fix');
           "
 
-      - name: Commit consistency fixes
+      - name: Commit consistency fixes (isolated temp directory)
         if: steps.check-consistency.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.recheck-consistency.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          set -euo pipefail
           
           # Determine branch name based on event type
           if [ "${{ github.event_name }}" == "pull_request" ]; then
@@ -319,8 +320,28 @@ jobs:
           
           echo "Target branch: $BRANCH"
           
-          # Fetch latest remote state first
-          git fetch origin "$BRANCH" || true
+          # Use temp directory for clean git operations
+          # This eliminates state pollution from self-hosted runners
+          WORK_DIR="/tmp/marketplace-validate-${{ github.run_id }}"
+          
+          cleanup() {
+            echo "🧹 Cleaning up temp directory..."
+            rm -rf "$WORK_DIR" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          
+          echo "📦 Cloning fresh repository to $WORK_DIR..."
+          git clone --depth 1 --branch "$BRANCH" "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "$WORK_DIR"
+          
+          # Copy updated files from checkout to fresh clone
+          cp .claude-plugin/marketplace.json "$WORK_DIR/.claude-plugin/marketplace.json"
+          find plugins -name "plugin.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
+          find pending -name "plugin.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
+          
+          cd "$WORK_DIR"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           
           # Stage all consistency-related changes
           git add .claude-plugin/marketplace.json
@@ -340,23 +361,20 @@ jobs:
           - Removed orphaned marketplace entries (directories not found)
           - Fixed plugin name mismatches"
           
-          # Try to rebase on top of remote to get a clean history
-          if git rebase "origin/$BRANCH" 2>/dev/null; then
-            echo "Rebase successful"
-          else
-            echo "Rebase failed, using merge strategy..."
-            git rebase --abort 2>/dev/null || true
-            git pull --no-rebase origin "$BRANCH" --strategy-option=ours || true
-          fi
-          
-          # Push changes
-          if git push origin "HEAD:$BRANCH"; then
-            echo "::notice::Consistency fixes committed and pushed to $BRANCH"
-          else
-            echo "Normal push failed, using force-with-lease..."
-            git push --force-with-lease origin "HEAD:$BRANCH"
-            echo "::notice::Consistency fixes force-pushed to $BRANCH"
-          fi
+          # Push with retry for race conditions
+          for i in 1 2 3; do
+            if git push origin "$BRANCH"; then
+              echo "::notice::Consistency fixes committed and pushed to $BRANCH"
+              break
+            fi
+            echo "Push failed, pulling and retrying ($i/3)..."
+            git pull --rebase origin "$BRANCH" || {
+              git rebase --abort 2>/dev/null || true
+              git reset --hard "origin/$BRANCH"
+              git cherry-pick HEAD@{1} || true
+            }
+            sleep 2
+          done
 
       - name: Fail if consistency errors remain
         if: steps.check-consistency.outcome == 'failure' && (env.AUTO_FIX_ENABLED != 'true' || steps.recheck-consistency.outcome == 'failure')
@@ -509,11 +527,12 @@ jobs:
             console.log('All skill-report.json files are now valid after auto-fix');
           "
 
-      - name: Commit auto-fixed files
+      - name: Commit auto-fixed files (isolated temp directory)
         if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          set -euo pipefail
           
           # Determine branch name based on event type
           if [ "${{ github.event_name }}" == "pull_request" ]; then
@@ -524,8 +543,27 @@ jobs:
           
           echo "Target branch: $BRANCH"
           
-          # Fetch latest remote state first
-          git fetch origin "$BRANCH" || true
+          # Use temp directory for clean git operations
+          # This eliminates state pollution from self-hosted runners
+          WORK_DIR="/tmp/marketplace-validate-reports-${{ github.run_id }}"
+          
+          cleanup() {
+            echo "🧹 Cleaning up temp directory..."
+            rm -rf "$WORK_DIR" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          
+          echo "📦 Cloning fresh repository to $WORK_DIR..."
+          git clone --depth 1 --branch "$BRANCH" "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "$WORK_DIR"
+          
+          # Copy updated skill-report.json files from checkout to fresh clone
+          find plugins -name "skill-report.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
+          find pending -name "skill-report.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
+          
+          cd "$WORK_DIR"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           
           # Stage ALL skill-report.json changes
           git add plugins/**/skill-report.json pending/**/skill-report.json 2>/dev/null || true
@@ -539,24 +577,20 @@ jobs:
           # Commit the staged changes
           git commit -m "fix: auto-fix skill-report.json validation errors"
           
-          # Try to rebase on top of remote to get a clean history
-          if git rebase "origin/$BRANCH" 2>/dev/null; then
-            echo "Rebase successful"
-          else
-            echo "Rebase failed, using merge strategy..."
-            git rebase --abort 2>/dev/null || true
-            # Reset to our commit and merge remote changes
-            git pull --no-rebase origin "$BRANCH" --strategy-option=ours || true
-          fi
-          
-          # Push - use force-with-lease as fallback for non-fast-forward
-          if git push origin "HEAD:$BRANCH"; then
-            echo "::notice::Auto-fixed files committed and pushed to $BRANCH"
-          else
-            echo "Normal push failed, using force-with-lease..."
-            git push --force-with-lease origin "HEAD:$BRANCH"
-            echo "::notice::Auto-fixed files force-pushed to $BRANCH"
-          fi
+          # Push with retry for race conditions
+          for i in 1 2 3; do
+            if git push origin "$BRANCH"; then
+              echo "::notice::Auto-fixed files committed and pushed to $BRANCH"
+              break
+            fi
+            echo "Push failed, pulling and retrying ($i/3)..."
+            git pull --rebase origin "$BRANCH" || {
+              git rebase --abort 2>/dev/null || true
+              git reset --hard "origin/$BRANCH"
+              git cherry-pick HEAD@{1} || true
+            }
+            sleep 2
+          done
 
       - name: Add summary
         if: always()
