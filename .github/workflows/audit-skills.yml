@@ -273,59 +273,59 @@ jobs:
         if: always()
         run: rm -f skillstore-cli
 
+  # Uses fresh clone to temp directory - eliminates state pollution from self-hosted runners
   merge:
     needs: [detect-and-plan, audit]
     if: always() && needs.detect-and-plan.result == 'success' && needs.detect-and-plan.outputs.shard_count != '0'
     runs-on: self-hosted
     outputs:
       pr_url: ${{ steps.pr.outputs.pr_url }}
-      updated_count: ${{ steps.apply.outputs.updated_count }}
-      error_count: ${{ steps.apply.outputs.error_count }}
+      updated_count: ${{ steps.pr.outputs.updated_count }}
+      error_count: ${{ steps.pr.outputs.error_count }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.PAT_TOKEN }}
-          fetch-depth: 1
-
-      # Clean stale git state from previous runs (self-hosted runner persistence)
-      # Without this, a failed rebase in a previous job leaves .git/rebase-merge
-      # which blocks all subsequent git operations
-      - name: Clean stale git state
-        run: |
-          rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-          git rebase --abort 2>/dev/null || true
-          git reset --hard HEAD 2>/dev/null || true
-
-      - name: Configure Git identity
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-
       - name: Download all shard artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: audit-shard-*
           merge-multiple: true
-          path: ./merged-results
+          path: /tmp/audit-artifacts-${{ github.run_id }}
 
-      - name: Apply merged results
-        id: apply
+      - name: Apply results and create PR
+        id: pr
+        if: inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          echo "Applying results from all shards..."
+          set -euo pipefail
           
-          if [ -d "./merged-results/plugins" ]; then
-            MERGED_COUNT=$(find ./merged-results/plugins -name "skill-report.json" | wc -l | tr -d ' ')
+          WORK_DIR="/tmp/marketplace-audit-${{ github.run_id }}"
+          ARTIFACTS_DIR="/tmp/audit-artifacts-${{ github.run_id }}"
+          
+          cleanup() {
+            echo "🧹 Cleaning up temp directories..."
+            rm -rf "$WORK_DIR" "$ARTIFACTS_DIR" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          
+          echo "📦 Cloning fresh repository to $WORK_DIR..."
+          git clone --depth 1 "https://x-access-token:${{ secrets.PAT_TOKEN }}@github.com/${{ github.repository }}.git" "$WORK_DIR"
+          cd "$WORK_DIR"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          echo "=== Applying results from all shards ==="
+          if [ -d "$ARTIFACTS_DIR/plugins" ]; then
+            MERGED_COUNT=$(find "$ARTIFACTS_DIR/plugins" -name "skill-report.json" | wc -l | tr -d ' ')
             echo "Files to apply: $MERGED_COUNT"
-            cp -r ./merged-results/plugins/* ./plugins/ 2>/dev/null || true
+            cp -r "$ARTIFACTS_DIR/plugins/"* ./plugins/ 2>/dev/null || true
           else
             echo "Warning: No plugins directory found in merged results"
           fi
           
-          # Aggregate counts from all logs
           TOTAL_UPDATED=0
           TOTAL_ERRORS=0
-          for log in ./merged-results/audit-output-*.log; do
+          for log in "$ARTIFACTS_DIR"/audit-output-*.log; do
             if [ -f "$log" ]; then
               COUNT=$(grep -c "✅ updated" "$log" 2>/dev/null) || COUNT=0
               ERRORS=$(grep -c "❌ error" "$log" 2>/dev/null) || ERRORS=0
@@ -338,69 +338,39 @@ jobs:
           echo "Total errors: $TOTAL_ERRORS"
           echo "updated_count=$TOTAL_UPDATED" >> $GITHUB_OUTPUT
           echo "error_count=$TOTAL_ERRORS" >> $GITHUB_OUTPUT
-
-      - name: Check for changes
-        id: changes
-        if: inputs.dry_run != true
-        run: |
+          
           if git diff --quiet plugins/; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "No changes detected"
-          else
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-            CHANGED_FILES=$(git diff --name-only plugins/ | wc -l | tr -d ' ')
-            echo "Changed files: $CHANGED_FILES"
-            echo "changed_count=$CHANGED_FILES" >> $GITHUB_OUTPUT
+            exit 0
           fi
-
-      - name: Create Pull Request
-        id: pr
-        if: inputs.dry_run != true && steps.changes.outputs.has_changes == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
+          
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          CHANGED_FILES=$(git diff --name-only plugins/ | wc -l | tr -d ' ')
+          echo "Changed files: $CHANGED_FILES"
+          
           BRANCH_NAME="audit/$(date +%Y%m%d-%H%M%S)"
-          git checkout -b "$BRANCH_NAME"
-          
-          git add plugins/*/skill-report.json
-          git add plugins/*/*/skill-report.json 2>/dev/null || true
-          
-          UPDATED_COUNT="${{ steps.apply.outputs.updated_count }}"
-          ERROR_COUNT="${{ steps.apply.outputs.error_count }}"
           SHARD_COUNT="${{ needs.detect-and-plan.outputs.shard_count }}"
           TOTAL_SKILLS="${{ needs.detect-and-plan.outputs.total_skills }}"
           IS_SHARDED="${{ needs.detect-and-plan.outputs.is_sharded }}"
           MODEL="${{ inputs.model || 'auto' }}"
           
+          git checkout -b "$BRANCH_NAME"
+          git add plugins/*/skill-report.json
+          git add plugins/*/*/skill-report.json 2>/dev/null || true
+          
           if [ "$IS_SHARDED" = "true" ]; then
-            COMMIT_MSG="chore(audit): audit ${UPDATED_COUNT} skills (${SHARD_COUNT} shards)"
+            COMMIT_MSG="chore(audit): audit ${TOTAL_UPDATED} skills (${SHARD_COUNT} shards)"
           else
-            COMMIT_MSG="chore(audit): audit ${UPDATED_COUNT} skills"
+            COMMIT_MSG="chore(audit): audit ${TOTAL_UPDATED} skills"
           fi
           
           git commit -m "$COMMIT_MSG
 
           - Model: ${MODEL}
           - Total: ${TOTAL_SKILLS}
-          - Updated: ${UPDATED_COUNT}
-          - Errors: ${ERROR_COUNT}"
-          
-          # Clean any stale git state from previous runs (self-hosted runner persistence)
-          rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
-          git rebase --abort 2>/dev/null || true
-          
-          git fetch origin main
-          
-          # Use merge instead of rebase - more robust for CI environments
-          git merge origin/main --no-edit || {
-            echo "::warning::Merge conflict detected, attempting fresh branch"
-            git merge --abort 2>/dev/null || true
-            OUR_COMMIT=$(git rev-parse HEAD)
-            git checkout main
-            git pull origin main
-            git checkout -B "$BRANCH_NAME"
-            git cherry-pick "$OUR_COMMIT" --strategy-option=theirs
-          }
+          - Updated: ${TOTAL_UPDATED}
+          - Errors: ${TOTAL_ERRORS}"
           
           git push origin "$BRANCH_NAME"
           
@@ -419,8 +389,8 @@ jobs:
           fi
           
           PR_BODY="$PR_BODY
-          | Updated | ${UPDATED_COUNT} |
-          | Errors | ${ERROR_COUNT} |
+          | Updated | ${TOTAL_UPDATED} |
+          | Errors | ${TOTAL_ERRORS} |
           | Model | \`${MODEL}\` |
           | CLI Version | \`${{ env.CLI_VERSION }}\` |
 
@@ -433,7 +403,7 @@ jobs:
           The \`sync-to-supabase.yml\` workflow will automatically update the database."
           
           PR_URL=$(gh pr create \
-            --title "Audit: ${UPDATED_COUNT} skills" \
+            --title "Audit: ${TOTAL_UPDATED} skills" \
             --body "$PR_BODY" \
             --base main \
             --head "$BRANCH_NAME")
@@ -448,9 +418,6 @@ jobs:
           SHARD_COUNT: ${{ needs.detect-and-plan.outputs.shard_count }}
           TOTAL_SKILLS: ${{ needs.detect-and-plan.outputs.total_skills }}
         run: |
-          # Count remaining AI failures across all plugins
-          STILL_FAILED=$(find plugins -name "skill-report.json" -exec grep -l "AI analysis failed" {} \; 2>/dev/null | wc -l | tr -d ' ') || STILL_FAILED=0
-          
           cat << EOF >> $GITHUB_STEP_SUMMARY
           ## Audit Summary
           
@@ -468,17 +435,11 @@ jobs:
           
           cat << EOF >> $GITHUB_STEP_SUMMARY
           | Model | \`${{ inputs.model || 'auto' }}\` |
-          | Updated | ${{ steps.apply.outputs.updated_count }} |
-          | Errors | ${{ steps.apply.outputs.error_count }} |
-          | AI Failures (after retries) | $STILL_FAILED |
+          | Updated | ${{ steps.pr.outputs.updated_count }} |
+          | Errors | ${{ steps.pr.outputs.error_count }} |
           | Dry Run | ${{ inputs.dry_run }} |
           
           EOF
-          
-          if [ "$STILL_FAILED" -gt 0 ]; then
-            echo "⚠️ **$STILL_FAILED skills still have AI analysis failures** after retries. Run with \`failed_only: true\` to retry them." >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
           
           if [ -n "${{ steps.pr.outputs.pr_url }}" ]; then
             echo "🔗 **PR Created**: ${{ steps.pr.outputs.pr_url }}" >> $GITHUB_STEP_SUMMARY
