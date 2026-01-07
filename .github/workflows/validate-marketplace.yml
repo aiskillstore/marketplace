@@ -307,22 +307,47 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
+          # Determine branch name based on event type
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            BRANCH="${{ github.head_ref }}"
+          else
+            BRANCH="${{ github.ref_name }}"
+          fi
+          
+          echo "Target branch: $BRANCH"
+          
+          # Fetch latest remote state first
+          git fetch origin "$BRANCH" || true
+          
+          # Stage ALL skill-report.json changes
           git add plugins/**/skill-report.json pending/**/skill-report.json 2>/dev/null || true
           
+          # Check if there's anything to commit
           if git diff --staged --quiet; then
             echo "No changes to commit"
+            exit 0
+          fi
+          
+          # Commit the staged changes
+          git commit -m "fix: auto-fix skill-report.json validation errors"
+          
+          # Try to rebase on top of remote to get a clean history
+          if git rebase "origin/$BRANCH" 2>/dev/null; then
+            echo "Rebase successful"
           else
-            git commit -m "fix: auto-fix skill-report.json validation errors"
-            
-            if [ "${{ github.event_name }}" == "pull_request" ]; then
-              git pull --rebase origin ${{ github.head_ref }} || true
-              git push origin HEAD:${{ github.head_ref }}
-              echo "::notice::Auto-fixed files committed and pushed to PR branch"
-            else
-              git pull --rebase origin ${{ github.ref_name }} || true
-              git push origin HEAD:${{ github.ref_name }}
-              echo "::notice::Auto-fixed files committed and pushed to ${{ github.ref_name }}"
-            fi
+            echo "Rebase failed, using merge strategy..."
+            git rebase --abort 2>/dev/null || true
+            # Reset to our commit and merge remote changes
+            git pull --no-rebase origin "$BRANCH" --strategy-option=ours || true
+          fi
+          
+          # Push - use force-with-lease as fallback for non-fast-forward
+          if git push origin "HEAD:$BRANCH"; then
+            echo "::notice::Auto-fixed files committed and pushed to $BRANCH"
+          else
+            echo "Normal push failed, using force-with-lease..."
+            git push --force-with-lease origin "HEAD:$BRANCH"
+            echo "::notice::Auto-fixed files force-pushed to $BRANCH"
           fi
 
       - name: Add summary
