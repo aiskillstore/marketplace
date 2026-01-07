@@ -307,15 +307,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Stage ALL skill-report.json changes (including any late-arriving fixes)
-          git add -A plugins/**/skill-report.json pending/**/skill-report.json 2>/dev/null || true
-          
-          # Check if there's anything to commit
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          
           # Determine branch name based on event type
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             BRANCH="${{ github.head_ref }}"
@@ -323,35 +314,38 @@ jobs:
             BRANCH="${{ github.ref_name }}"
           fi
           
-          echo "Committing auto-fix changes to branch: $BRANCH"
+          echo "Target branch: $BRANCH"
           
-          # Fetch latest remote state first (without merge)
+          # Fetch latest remote state first
           git fetch origin "$BRANCH" || true
           
-          # Stash any remaining unstaged changes (safety net for race conditions)
-          git stash push -m "auto-fix-temp" --include-untracked 2>/dev/null || true
+          # Stage ALL skill-report.json changes
+          git add plugins/**/skill-report.json pending/**/skill-report.json 2>/dev/null || true
           
-          # Commit staged changes
+          # Check if there's anything to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          
+          # Commit the staged changes
           git commit -m "fix: auto-fix skill-report.json validation errors"
           
-          # Rebase on top of remote (handle remote-is-ahead case)
+          # Try to rebase on top of remote to get a clean history
           if git rebase "origin/$BRANCH" 2>/dev/null; then
             echo "Rebase successful"
           else
-            # If rebase fails, abort and use merge strategy instead
+            echo "Rebase failed, using merge strategy..."
             git rebase --abort 2>/dev/null || true
-            git pull --no-rebase origin "$BRANCH" --allow-unrelated-histories || true
+            # Reset to our commit and merge remote changes
+            git pull --no-rebase origin "$BRANCH" --strategy-option=ours || true
           fi
           
-          # Apply stashed changes if any
-          git stash pop 2>/dev/null || true
-          
-          # Push with lease for safety (prevents overwriting concurrent commits)
-          # Falls back to force-with-lease if needed (safe for auto-fix on PR branches)
+          # Push - use force-with-lease as fallback for non-fast-forward
           if git push origin "HEAD:$BRANCH"; then
             echo "::notice::Auto-fixed files committed and pushed to $BRANCH"
           else
-            echo "Push failed, attempting force-with-lease..."
+            echo "Normal push failed, using force-with-lease..."
             git push --force-with-lease origin "HEAD:$BRANCH"
             echo "::notice::Auto-fixed files force-pushed to $BRANCH"
           fi
