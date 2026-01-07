@@ -370,6 +370,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.PAT_TOKEN }}
+          clean: true
+
+      - name: Clean stale git state
+        run: |
+          rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+          git rebase --abort 2>/dev/null || true
+          git reset --hard HEAD 2>/dev/null || true
 
       - name: Configure Git identity
         run: |
@@ -477,8 +484,24 @@ jobs:
             fi
           fi
           
+          # Clean any stale git state from previous runs (self-hosted runner persistence)
+          rm -rf .git/rebase-merge .git/rebase-apply 2>/dev/null || true
+          git rebase --abort 2>/dev/null || true
+          
           git fetch origin main
-          git rebase origin/main
+          
+          # Use merge instead of rebase - more robust for CI environments
+          git merge origin/main --no-edit || {
+            echo "::warning::Merge conflict detected, attempting fresh branch"
+            git merge --abort 2>/dev/null || true
+            # Fallback: reset to main and cherry-pick our commit
+            OUR_COMMIT=$(git rev-parse HEAD)
+            git checkout main
+            git pull origin main
+            git checkout -B "$BRANCH_NAME"
+            git cherry-pick "$OUR_COMMIT" --strategy-option=theirs
+          }
+          
           git push origin "$BRANCH_NAME"
           
           RISK_BADGE="🟢"
