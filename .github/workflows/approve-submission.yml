@@ -1,37 +1,30 @@
-# Process Skill Submission - Parallel Processing Workflow
+# Manual Approval Workflow for Large Submissions
 #
-# Architecture:
-#   Job 1: discover-and-plan   - Clone repo, discover skills, create matrix
-#   Job 2: process (matrix)    - Process skills in parallel shards
-#   Job 3: merge-and-create-pr - Combine results, create single PR
+# This workflow processes submissions that require admin approval:
+# - Repos with >50 skills
+# - Repos flagged by security checks
 #
-# Dynamic Sharding:
-#   - < 30 skills: Single job (simple mode)
-#   - >= 30 skills: Split evenly across 6 parallel shards
-#
-# Retry Logic:
-#   - Each shard retries failed skills once before giving up
+# Triggered manually by repository admins via workflow_dispatch.
+# Uses GitHub Environment protection rules for additional approval gate.
 
-name: Process Skill Submission
+name: Approve & Process Submission
 
 on:
-  repository_dispatch:
-    types: [process-submission]
   workflow_dispatch:
     inputs:
+      submission_id:
+        description: 'Submission ID to approve and process'
+        required: true
+        type: string
       github_url:
-        description: 'GitHub URL of the skill to process'
+        description: 'GitHub URL (auto-filled from submission)'
         required: true
         type: string
       model:
-        description: 'Model to use (e.g., gpt-5.2-codex:high, claude-sonnet-4.5). Auto-detects agent.'
+        description: 'Model to use (e.g., gpt-5.2-codex:high, claude-sonnet-4.5)'
         required: false
         type: string
         default: ''
-      submitter_email:
-        description: 'Submitter email (optional)'
-        required: false
-        type: string
       cli_version:
         description: 'CLI version (default: latest)'
         required: false
@@ -43,23 +36,50 @@ on:
         default: '6'
 
 env:
-  SUBMISSION_ID: ${{ github.event.client_payload.submission_id || github.run_id }}
-  GITHUB_URL: ${{ github.event.client_payload.github_url || inputs.github_url }}
-  SUBMITTER_EMAIL: ${{ github.event.client_payload.submitter_email || inputs.submitter_email || 'manual@skillstore.io' }}
+  SUBMISSION_ID: ${{ inputs.submission_id }}
+  GITHUB_URL: ${{ inputs.github_url }}
+  SUBMITTER_EMAIL: 'approved@skillstore.io'
   CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
   SHARD_THRESHOLD: 30
   MAX_SHARDS: 6
 
 concurrency:
-  group: process-submission-${{ github.event.client_payload.submission_id || github.run_id }}
+  group: approve-submission-${{ inputs.submission_id }}
   cancel-in-progress: false
 
 jobs:
+  # ============================================================
+  # JOB 0: APPROVAL GATE
+  # Requires manual approval in GitHub UI via environment protection
+  # ============================================================
+  approve:
+    runs-on: ubuntu-latest
+    environment: production  # Requires manual approval configured in repo settings
+    steps:
+      - name: Record approval
+        run: |
+          echo "✅ Submission ${{ inputs.submission_id }} approved by ${{ github.actor }}"
+          echo "URL: ${{ inputs.github_url }}"
+
+      - name: Notify skillstore - Approved
+        run: |
+          curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
+            -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "submission_id": "'"${{ inputs.submission_id }}"'",
+              "event": "approved",
+              "approved_by": "'"${{ github.actor }}"'",
+              "workflow_run_id": ${{ github.run_id }},
+              "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }' || echo "::warning::Failed to notify skillstore"
+
   # ============================================================
   # JOB 1: DISCOVER AND PLAN
   # Clone repo, discover skills, create matrix for parallel processing
   # ============================================================
   discover-and-plan:
+    needs: approve
     runs-on: self-hosted
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -82,7 +102,6 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Notify skillstore - Processing started
-        if: github.event_name == 'repository_dispatch'
         run: |
           curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
             -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
@@ -153,37 +172,6 @@ jobs:
           
           echo "📊 Discovered $SKILL_COUNT skill(s)"
 
-      - name: Check for hash changes (skip unchanged repos)
-        id: hash_check
-        env:
-          OWNER: ${{ steps.clone.outputs.owner }}
-          REPO: ${{ steps.clone.outputs.repo }}
-          SKILLS_JSON: ${{ steps.discover.outputs.skills_json }}
-        run: |
-          # Fetch existing hashes from skillstore API
-          RESPONSE=$(curl -sS "${{ secrets.SKILLSTORE_API_URL }}/api/skills/hash?repo=$OWNER/$REPO" 2>/dev/null || echo '{"success":false}')
-          
-          HAS_EXISTING=$(echo "$RESPONSE" | jq -r '.data.has_skills // false')
-          
-          if [ "$HAS_EXISTING" = "false" ]; then
-            echo "📦 New repository - no existing skills found"
-            echo "skip_processing=false" >> $GITHUB_OUTPUT
-            echo "changed_slugs=$SKILLS_JSON" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          # Get existing hashes
-          EXISTING_HASHES=$(echo "$RESPONSE" | jq -r '.data.skills // []')
-          EXISTING_COUNT=$(echo "$EXISTING_HASHES" | jq 'length')
-          
-          echo "📊 Found $EXISTING_COUNT existing skill(s) from this repo"
-          
-          # For now, we always process - the CLI will handle detailed hash comparison
-          # This step is for future optimization when we compute tree_hash before clone
-          echo "skip_processing=false" >> $GITHUB_OUTPUT
-          echo "changed_slugs=$SKILLS_JSON" >> $GITHUB_OUTPUT
-          echo "existing_count=$EXISTING_COUNT" >> $GITHUB_OUTPUT
-
       - name: Plan processing strategy
         id: plan
         env:
@@ -209,7 +197,7 @@ jobs:
             echo "is_sharded=false" >> $GITHUB_OUTPUT
             echo "shard_count=1" >> $GITHUB_OUTPUT
           else
-            # Dynamic shard count: use MAX_SHARDS or fewer if skills < MAX_SHARDS * 5
+            # Dynamic shard count for large repos
             if [ "$COUNT" -lt $((MAX_SHARDS * 5)) ]; then
               SHARDS=$(( (COUNT + 4) / 5 ))
               [ "$SHARDS" -lt 2 ] && SHARDS=2
@@ -219,7 +207,6 @@ jobs:
             
             echo "🔀 Sharded mode: $COUNT skills → $SHARDS shards (dynamic sizing)"
             
-            # Calculate base size and remainder for even distribution
             BASE_SIZE=$((COUNT / SHARDS))
             REMAINDER=$((COUNT % SHARDS))
             
@@ -227,14 +214,12 @@ jobs:
             CURRENT_IDX=0
             
             for i in $(seq 0 $((SHARDS - 1))); do
-              # First REMAINDER shards get BASE_SIZE + 1
               if [ $i -lt $REMAINDER ]; then
                 THIS_SIZE=$((BASE_SIZE + 1))
               else
                 THIS_SIZE=$BASE_SIZE
               fi
               
-              # Extract slugs for this shard
               SHARD_SLUGS=$(echo "$SKILLS_JSON" | jq -r ".[$CURRENT_IDX:$((CURRENT_IDX + THIS_SIZE))] | join(\",\")")
               CURRENT_IDX=$((CURRENT_IDX + THIS_SIZE))
               
@@ -297,7 +282,7 @@ jobs:
             MODEL_FLAG="--model ${{ inputs.model }}"
           fi
           
-          # First attempt (--skip-pr: workflow handles PR creation in merge-and-create-pr job)
+          # First attempt
           set +e
           ./skillstore-cli skill process "${{ env.GITHUB_URL }}" \
             --slugs "$SLUGS" \
@@ -310,7 +295,7 @@ jobs:
           FIRST_EXIT=$?
           set -e
           
-          # Check for failed skills and retry (match by directory path, not JSON content)
+          # Check for failed skills and retry
           FAILED_SLUGS=""
           for slug in $(echo "$SLUGS" | tr ',' '\n'); do
             [ -z "$slug" ] && continue
@@ -359,7 +344,7 @@ jobs:
             esac
           done
           
-          # Count remaining failures (match by directory path, not JSON content)
+          # Count remaining failures
           for slug in $(echo "$SLUGS" | tr ',' '\n'); do
             [ -z "$slug" ] && continue
             FOUND=$(find pending -path "*/$slug/skill-report.json" 2>/dev/null | head -1)
@@ -392,7 +377,6 @@ jobs:
   # ============================================================
   # JOB 3: MERGE AND CREATE PR
   # Combine all shard results and create a single PR
-  # Uses fresh clone to temp directory - eliminates state pollution from self-hosted runners
   # ============================================================
   merge-and-create-pr:
     needs: [discover-and-plan, process]
@@ -494,14 +478,14 @@ jobs:
           
           if [ "$PROCESSED_COUNT" -eq 1 ]; then
             FIRST_SKILL=$(echo "$PROCESSED_SKILLS" | cut -d',' -f1)
-            git commit -m "Add pending plugin: $FIRST_SKILL [submission: ${{ env.SUBMISSION_ID }}]"
-            PR_TITLE="New plugin: $FIRST_SKILL ($HIGHEST_RISK risk)"
+            git commit -m "Add pending plugin: $FIRST_SKILL [submission: ${{ env.SUBMISSION_ID }}] [approved by: ${{ github.actor }}]"
+            PR_TITLE="[APPROVED] New plugin: $FIRST_SKILL ($HIGHEST_RISK risk)"
           else
-            git commit -m "Add $PROCESSED_COUNT pending plugins from $REPO_NAME [submission: ${{ env.SUBMISSION_ID }}]"
+            git commit -m "Add $PROCESSED_COUNT pending plugins from $REPO_NAME [submission: ${{ env.SUBMISSION_ID }}] [approved by: ${{ github.actor }}]"
             if [ "$IS_SHARDED" = "true" ]; then
-              PR_TITLE="New plugins: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK) [parallel: ${SHARD_COUNT} shards]"
+              PR_TITLE="[APPROVED] New plugins: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK) [parallel: ${SHARD_COUNT} shards]"
             else
-              PR_TITLE="New plugins: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK risk)"
+              PR_TITLE="[APPROVED] New plugins: $PROCESSED_COUNT skills from $REPO_NAME ($HIGHEST_RISK risk)"
             fi
           fi
           
@@ -530,11 +514,11 @@ jobs:
           fi
           
           cat > pr-body.md << EOF
-          ## Skill Submission: $REPO_NAME
+          ## ✅ Approved Skill Submission: $REPO_NAME
           
           **Submission ID**: \`${{ env.SUBMISSION_ID }}\`
           **Source**: ${{ env.GITHUB_URL }}
-          **Submitter**: ${{ env.SUBMITTER_EMAIL }}
+          **Approved by**: @${{ github.actor }}
           
           ### Summary $RISK_BADGE
           - Skills discovered: $SKILL_COUNT
@@ -556,18 +540,19 @@ jobs:
           $SKILLS_TABLE
           
           ### Review Checklist
+          - [x] Manual approval granted by @${{ github.actor }}
           - [ ] All skill contents are appropriate
           - [ ] Security audit findings reviewed
           - [ ] Source repository checked
           
           ---
-          *Processed by skillstore-cli*
+          *Processed via manual approval workflow by skillstore-cli*
           EOF
           
           PR_URL=$(gh pr create \
             --title "$PR_TITLE" \
             --body-file pr-body.md \
-            --label "pending-review" \
+            --label "pending-review,manually-approved" \
             --base main \
             --head "$BRANCH_NAME" 2>&1 | tail -1)
           
@@ -575,7 +560,7 @@ jobs:
           echo "Created PR: $PR_URL"
 
       - name: Notify skillstore - PR created
-        if: steps.create_pr.outputs.pr_url && github.event_name == 'repository_dispatch'
+        if: steps.create_pr.outputs.pr_url
         env:
           PR_URL: ${{ steps.create_pr.outputs.pr_url }}
         run: |
@@ -587,6 +572,7 @@ jobs:
               "event": "pr_created",
               "pr_url": "'"$PR_URL"'",
               "processed_count": ${{ steps.create_pr.outputs.processed_count }},
+              "approved_by": "'"${{ github.actor }}"'",
               "is_sharded": ${{ needs.discover-and-plan.outputs.is_sharded }},
               "shard_count": ${{ needs.discover-and-plan.outputs.shard_count }},
               "workflow_run_id": ${{ github.run_id }},
@@ -594,7 +580,7 @@ jobs:
             }' || echo "::warning::Failed to notify skillstore"
 
       - name: Notify skillstore - Failed
-        if: failure() && github.event_name == 'repository_dispatch'
+        if: failure()
         run: |
           ERROR_MSG="Processing failed. Check GitHub Actions log for details."
           ARTIFACTS_DIR="/tmp/submission-artifacts-${{ github.run_id }}"
@@ -618,18 +604,19 @@ jobs:
         if: always()
         run: |
           cat << EOF >> $GITHUB_STEP_SUMMARY
-          ## Processing Summary
+          ## Processing Summary (Manual Approval)
           
           **Source**: ${{ env.GITHUB_URL }}
           **Submission ID**: \`${{ env.SUBMISSION_ID }}\`
+          **Approved by**: @${{ github.actor }}
           
           | Metric | Value |
           |--------|-------|
           | Skills Discovered | ${{ needs.discover-and-plan.outputs.skill_count }} |
           | Processing Mode | $([ "${{ needs.discover-and-plan.outputs.is_sharded }}" = "true" ] && echo "**Parallel** (${{ needs.discover-and-plan.outputs.shard_count }} shards)" || echo "Simple") |
-          | Successfully Processed | ${{ steps.merge.outputs.processed_count }} |
-          | Errors | ${{ steps.merge.outputs.total_errors }} |
-          | Highest Risk | ${{ steps.merge.outputs.highest_risk }} |
+          | Successfully Processed | ${{ steps.create_pr.outputs.processed_count }} |
+          | Errors | ${{ steps.create_pr.outputs.total_errors }} |
+          | Highest Risk | ${{ steps.create_pr.outputs.highest_risk }} |
           
           EOF
           
