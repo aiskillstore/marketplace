@@ -1,0 +1,170 @@
+name: Issue-Based Approval
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  check-approval:
+    if: |
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'pending-approval') &&
+      startsWith(github.event.comment.body, '/approve')
+    runs-on: ubuntu-latest
+    outputs:
+      should_process: ${{ steps.check.outputs.should_process }}
+      submission_id: ${{ steps.parse.outputs.submission_id }}
+      github_url: ${{ steps.parse.outputs.github_url }}
+    steps:
+      - name: Check commenter permissions
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PERMISSION=$(gh api repos/${{ github.repository }}/collaborators/${{ github.event.comment.user.login }}/permission --jq '.permission' 2>/dev/null || echo "none")
+          
+          if [[ "$PERMISSION" == "admin" || "$PERMISSION" == "maintain" || "$PERMISSION" == "write" ]]; then
+            echo "✅ User ${{ github.event.comment.user.login }} has $PERMISSION permission"
+            echo "should_process=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ User ${{ github.event.comment.user.login }} lacks permission (has: $PERMISSION)"
+            echo "should_process=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Parse issue body for submission details
+        if: steps.check.outputs.should_process == 'true'
+        id: parse
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          SUBMISSION_ID=$(echo "$ISSUE_BODY" | grep -oP 'Submission ID.*?\`\K[a-f0-9-]+' | head -1)
+          GITHUB_URL=$(echo "$ISSUE_BODY" | grep -oP '\[.*?\]\(\Khttps://github\.com/[^)]+' | head -1)
+          
+          if [ -z "$SUBMISSION_ID" ] || [ -z "$GITHUB_URL" ]; then
+            echo "::error::Could not parse submission details from issue body"
+            exit 1
+          fi
+          
+          echo "submission_id=$SUBMISSION_ID" >> $GITHUB_OUTPUT
+          echo "github_url=$GITHUB_URL" >> $GITHUB_OUTPUT
+          echo "📦 Parsed: ID=$SUBMISSION_ID, URL=$GITHUB_URL"
+
+      - name: Add reaction to comment
+        if: steps.check.outputs.should_process == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
+            -f content='+1' || true
+
+  trigger-processing:
+    needs: check-approval
+    if: needs.check-approval.outputs.should_process == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update issue with processing status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          APPROVER: ${{ github.event.comment.user.login }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo ${{ github.repository }} \
+            --body "✅ **Approved by @${APPROVER}**
+
+          Processing started. Track progress: https://github.com/${{ github.repository }}/actions/runs/${RUN_ID}"
+
+      - name: Trigger approve-submission workflow
+        env:
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          gh workflow run "Approve & Process Submission" \
+            --repo ${{ github.repository }} \
+            -f submission_id="${{ needs.check-approval.outputs.submission_id }}" \
+            -f github_url="${{ needs.check-approval.outputs.github_url }}"
+          
+          echo "🚀 Triggered processing workflow"
+
+      - name: Update issue labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --repo ${{ github.repository }} \
+            --remove-label "pending-approval" \
+            --add-label "processing" || true
+
+  handle-rejection:
+    if: |
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'pending-approval') &&
+      startsWith(github.event.comment.body, '/reject')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check commenter permissions
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PERMISSION=$(gh api repos/${{ github.repository }}/collaborators/${{ github.event.comment.user.login }}/permission --jq '.permission' 2>/dev/null || echo "none")
+          
+          if [[ "$PERMISSION" == "admin" || "$PERMISSION" == "maintain" || "$PERMISSION" == "write" ]]; then
+            echo "should_reject=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_reject=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Parse rejection reason
+        if: steps.check.outputs.should_reject == 'true'
+        id: parse
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          REASON=$(echo "$COMMENT_BODY" | sed 's|^/reject||' | xargs)
+          [ -z "$REASON" ] && REASON="No reason provided"
+          echo "reason=$REASON" >> $GITHUB_OUTPUT
+
+      - name: Close issue with rejection
+        if: steps.check.outputs.should_reject == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          REJECTOR: ${{ github.event.comment.user.login }}
+          REASON: ${{ steps.parse.outputs.reason }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" \
+            --repo ${{ github.repository }} \
+            --body "❌ **Rejected by @${REJECTOR}**
+
+          Reason: ${REASON}"
+          
+          gh issue close "$ISSUE_NUMBER" \
+            --repo ${{ github.repository }} \
+            --reason "not planned"
+          
+          gh issue edit "$ISSUE_NUMBER" \
+            --repo ${{ github.repository }} \
+            --remove-label "pending-approval" \
+            --add-label "rejected" || true
+
+      - name: Notify skillstore of rejection
+        if: steps.check.outputs.should_reject == 'true'
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REJECTOR: ${{ github.event.comment.user.login }}
+          REASON: ${{ steps.parse.outputs.reason }}
+        run: |
+          SUBMISSION_ID=$(echo "$ISSUE_BODY" | grep -oP 'Submission ID.*?\`\K[a-f0-9-]+' | head -1)
+          
+          if [ -n "$SUBMISSION_ID" ]; then
+            curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
+              -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"submission_id\": \"$SUBMISSION_ID\",
+                \"event\": \"rejected\",
+                \"rejected_by\": \"$REJECTOR\",
+                \"reason\": \"$REASON\"
+              }" || echo "::warning::Failed to notify skillstore"
+          fi
