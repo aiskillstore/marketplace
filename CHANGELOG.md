@@ -311,273 +311,16 @@ AI Skillstore marketplace v0.7.0 expands the catalog to 686 plugins with 267 new
 
 ### Summary
 
-Marketplace update with 265 new plugins. Total 677 plugins available. 
+AI Skillstore marketplace v0.6.0 adds 7 new GetSentry plugins for code review, commits, and PR workflows. Total 419 plugins available.
 
 ### Statistics
 
-- Total plugins: 677
-- New plugins: 265
+- Total plugins: 419
+- New plugins: 7
 - Updated plugins: 1
 
 ### New Plugins
 
-- `davila7-accessibility-auditor`
-- `davila7-adaptyv`
-- `davila7-aeon`
-- `davila7-agent-development`
-- `davila7-agile-product-owner`
-- `davila7-algorithmic-art`
-- `davila7-alphafold-database`
-- `davila7-anndata`
-- `davila7-api-integration-specialist`
-- `davila7-arboreto`
-- `davila7-artifacts-builder`
-- `davila7-astropy`
-- `davila7-benchling-integration`
-- `davila7-biomni`
-- `davila7-biopython`
-- `davila7-biorxiv-database`
-- `davila7-bioservices`
-- `davila7-brainstorming`
-- `davila7-brand-guidelines`
-- `davila7-brenda-database`
-- `davila7-canvas-design`
-- `davila7-capa-officer`
-- `davila7-cellxgene-census`
-- `davila7-ceo-advisor`
-- `davila7-changelog-generator`
-- `davila7-chembl-database`
-- `davila7-cirq`
-- `davila7-citation-management`
-- `davila7-claude-opus-4-5-migration`
-- `davila7-clinical-decision-support`
-- `davila7-clinical-reports`
-- `davila7-clinicaltrials-database`
-- `davila7-clinpgx-database`
-- `davila7-clinvar-database`
-- `davila7-cobrapy`
-- `davila7-cocoindex`
-- `davila7-code-review`
-- `davila7-code-reviewer`
-- `davila7-command-development`
-- `davila7-commit`
-- `davila7-competitive-ads-extractor`
-- `davila7-content-creator`
-- `davila7-content-research-writer`
-- `davila7-cosmic-database`
-- `davila7-create-plan`
-- `davila7-create-pr`
-- `davila7-cto-advisor`
-- `davila7-dask`
-- `davila7-data-privacy-compliance`
-- `davila7-datacommons-client`
-- `davila7-datamol`
-- `davila7-deepchem`
-- `davila7-deeptools`
-- `davila7-denario`
-- `davila7-deslop`
-- `davila7-developer-growth-analysis`
-- `davila7-devops-iac-engineer`
-- `davila7-diffdock`
-- `davila7-dispatching-parallel-agents`
-- `davila7-dnanexus-integration`
-- `davila7-doc-coauthoring`
-- `davila7-docx`
-- `davila7-domain-name-brainstormer`
-- `davila7-drugbank-database`
-- `davila7-email-composer`
-- `davila7-ena-database`
-- `davila7-ensembl-database`
-- `davila7-error-resolver`
-- `davila7-esm`
-- `davila7-etetoolkit`
-- `davila7-excel-analysis`
-- `davila7-executing-marketing-campaigns`
-- `davila7-executing-plans`
-- `davila7-exploratory-data-analysis`
-- `davila7-fda-consultant-specialist`
-- `davila7-fda-database`
-- `davila7-file-organizer`
-- `davila7-find-bugs`
-- `davila7-finishing-a-development-branch`
-- `davila7-flowio`
-- `davila7-fluidsim`
-- `davila7-frontend-design`
-- `davila7-gdpr-dsgvo-expert`
-- `davila7-gene-database`
-- `davila7-generate-image`
-- `davila7-geniml`
-- `davila7-geo-database`
-- `davila7-geopandas`
-- `davila7-get-available-resources`
-- `davila7-gget`
-- `davila7-gh-address-comments`
-- `davila7-gh-fix-ci`
-- `davila7-git-commit-helper`
-- `davila7-gtars`
-- `davila7-gwas-database`
-- `davila7-histolab`
-- `davila7-hmdb-database`
-- `davila7-hook-development`
-- `davila7-hypogenic`
-- `davila7-hypothesis-generation`
-- `davila7-image-enhancer`
-- `davila7-information-security-manager-iso27001`
-- `davila7-internal-comms`
-- `davila7-invoice-organizer`
-- `davila7-isms-audit-expert`
-- `davila7-it-operations`
-- `davila7-iterate-pr`
-- `davila7-kegg-database`
-- `davila7-labarchive-integration`
-- `davila7-lamindb`
-- `davila7-latchbio-integration`
-- `davila7-latex-posters`
-- `davila7-lead-research-assistant`
-- `davila7-linear`
-- `davila7-literature-review`
-- `davila7-market-research-reports`
-- `davila7-marketing-demand-acquisition`
-- `davila7-marketing-strategy-pmm`
-- `davila7-markitdown`
-- `davila7-matchms`
-- `davila7-matplotlib`
-- `davila7-mcp-builder`
-- `davila7-mcp-integration`
-- `davila7-mdr-745-specialist`
-- `davila7-medchem`
-- `davila7-meeting-insights-analyzer`
-- `davila7-metabolomics-workbench-database`
-- `davila7-modal`
-- `davila7-molfeat`
-- `davila7-move-code-quality`
-- `davila7-networkx`
-- `davila7-neurokit2`
-- `davila7-neuropixels-analysis`
-- `davila7-notion-knowledge-capture`
-- `davila7-notion-meeting-intelligence`
-- `davila7-notion-research-documentation`
-- `davila7-notion-spec-to-implementation`
-- `davila7-nowait-reasoning-optimizer`
-- `davila7-omero-integration`
-- `davila7-openalex-database`
-- `davila7-opentargets-database`
-- `davila7-opentrons-integration`
-- `davila7-paper-2-web`
-- `davila7-pathml`
-- `davila7-pdb-database`
-- `davila7-pdf`
-- `davila7-pdf-processing`
-- `davila7-pdf-processing-pro`
-- `davila7-peer-review`
-- `davila7-pennylane`
-- `davila7-perplexity-search`
-- `davila7-plotly`
-- `davila7-plugin-settings`
-- `davila7-plugin-structure`
-- `davila7-polars`
-- `davila7-pptx`
-- `davila7-product-manager-toolkit`
-- `davila7-product-strategist`
-- `davila7-protocolsio-integration`
-- `davila7-pubchem-database`
-- `davila7-pubmed-database`
-- `davila7-pufferlib`
-- `davila7-pydeseq2`
-- `davila7-pydicom`
-- `davila7-pyhealth`
-- `davila7-pylabrobot`
-- `davila7-pymatgen`
-- `davila7-pymc-bayesian-modeling`
-- `davila7-pymoo`
-- `davila7-pyopenms`
-- `davila7-pysam`
-- `davila7-pytdc`
-- `davila7-pytorch-lightning`
-- `davila7-qiskit`
-- `davila7-qms-audit-expert`
-- `davila7-quality-documentation-manager`
-- `davila7-quality-manager-qmr`
-- `davila7-quality-manager-qms-iso13485`
-- `davila7-qutip`
-- `davila7-raffle-winner-picker`
-- `davila7-rdkit`
-- `davila7-reactome-database`
-- `davila7-receiving-code-review`
-- `davila7-regulatory-affairs-head`
-- `davila7-requesting-code-review`
-- `davila7-research-grants`
-- `davila7-research-lookup`
-- `davila7-risk-management-specialist`
-- `davila7-scanpy`
-- `davila7-scholar-evaluation`
-- `davila7-scientific-brainstorming`
-- `davila7-scientific-critical-thinking`
-- `davila7-scientific-schematics`
-- `davila7-scientific-slides`
-- `davila7-scientific-visualization`
-- `davila7-scientific-writing`
-- `davila7-scikit-bio`
-- `davila7-scikit-learn`
-- `davila7-scikit-survival`
-- `davila7-scvi-tools`
-- `davila7-seaborn`
-- `davila7-security-compliance`
-- `davila7-senior-architect`
-- `davila7-senior-backend`
-- `davila7-senior-computer-vision`
-- `davila7-senior-data-engineer`
-- `davila7-senior-data-scientist`
-- `davila7-senior-devops`
-- `davila7-senior-frontend`
-- `davila7-senior-fullstack`
-- `davila7-senior-ml-engineer`
-- `davila7-senior-prompt-engineer`
-- `davila7-senior-qa`
-- `davila7-senior-secops`
-- `davila7-senior-security`
-- `davila7-seo-optimizer`
-- `davila7-shap`
-- `davila7-simpy`
-- `davila7-skill-creator`
-- `davila7-skill-development`
-- `davila7-skill-installer`
-- `davila7-skill-share`
-- `davila7-slack-gif-creator`
-- `davila7-stable-baselines3`
-- `davila7-statistical-analysis`
-- `davila7-statsmodels`
-- `davila7-string-database`
-- `davila7-subagent-driven-development`
-- `davila7-sympy`
-- `davila7-systematic-debugging`
-- `davila7-template-skill`
-- `davila7-test-driven-development`
-- `davila7-theme-factory`
-- `davila7-torch-geometric`
-- `davila7-torchdrug`
-- `davila7-transformers`
-- `davila7-treatment-plans`
-- `davila7-ui-design-system`
-- `davila7-umap-learn`
-- `davila7-uniprot-database`
-- `davila7-using-git-worktrees`
-- `davila7-using-superpowers`
-- `davila7-uspto-database`
-- `davila7-ux-researcher-designer`
-- `davila7-vaex`
-- `davila7-venue-templates`
-- `davila7-verification-before-completion`
-- `davila7-video-downloader`
-- `davila7-web-artifacts-builder`
-- `davila7-webapp-testing`
-- `davila7-writing-hookify-rules`
-- `davila7-writing-plans`
-- `davila7-writing-skills`
-- `davila7-xlsx`
-- `davila7-zapier-workflows`
-- `davila7-zarr-python`
-- `davila7-zinc-database`
 - `getsentry-claude-settings-audit`
 - `getsentry-code-review`
 - `getsentry-commit`
@@ -585,12 +328,10 @@ Marketplace update with 265 new plugins. Total 677 plugins available.
 - `getsentry-deslop`
 - `getsentry-find-bugs`
 - `getsentry-iterate-pr`
-- `ruvnet-agentdb-advanced-features`
 
 ### Changes
 
 - feat: extract github_username from repository URL during sync
-- chore: remove pending davila7 skills directory (#136)
 - fix: correct typo in agentic-jujutsu skill-report.json FAQ (#135)
 - fix: add missing plugin.json manifests for getsentry plugins (#133)
 - fix: use direct variable substitution instead of BSD sed
@@ -600,12 +341,12 @@ Marketplace update with 265 new plugins. Total 677 plugins available.
 
 ### Summary
 
-AI Skillstore marketplace v0.5.0 expands the catalog to 413 plugins, adding 129 new skills spanning research, content, dev workflows, evaluation, and domain-specific assistants. Release automation is more reliable with rebase-before-push fixes, corrected boolean/FAQ issues, and improved CLI delivery via authenticated reusable actions with dynamic latest-version fetching. 
+AI Skillstore marketplace v0.5.0 expands the catalog to 412 plugins, adding 128 new skills spanning research, content, dev workflows, evaluation, and domain-specific assistants. Release automation is more reliable with rebase-before-push fixes, corrected boolean/FAQ issues, and improved CLI delivery via authenticated reusable actions with dynamic latest-version fetching.
 
 ### Statistics
 
-- Total plugins: 413
-- New plugins: 129
+- Total plugins: 412
+- New plugins: 128
 - Updated plugins: 34
 
 ### New Plugins
@@ -804,20 +545,16 @@ AI Skillstore marketplace v0.3.1 expands the catalog to 283 plugins, adding four
 
 ### Summary
 
-AI Skillstore marketplace v0.3.0 expands the catalog to 283 plugins (+147 new), including JetBrains integrations and a large K-Dense-AI scientific/biomedical toolkit. Release workflows are more reliable and faster with full cache-warming (warm/force), publish-after-build pre-rendering, KV-based ISR sync, and broad normalization of versions, slugs, names, and paths to consistent semver and lowercase kebab-case. 
+AI Skillstore marketplace v0.3.0 expands the catalog to 279 plugins (+143 new), featuring a large K-Dense-AI scientific/biomedical toolkit. Release workflows are more reliable and faster with full cache-warming (warm/force), publish-after-build pre-rendering, KV-based ISR sync, and broad normalization of versions, slugs, names, and paths to consistent semver and lowercase kebab-case.
 
 ### Statistics
 
-- Total plugins: 283
-- New plugins: 147
+- Total plugins: 279
+- New plugins: 143
 - Updated plugins: 0
 
 ### New Plugins
 
-- `jetbrains-changelog`
-- `jetbrains-doc-sync`
-- `jetbrains-tests-maintenance`
-- `jetbrains-youtrack`
 - `k-dense-ai-adaptyv`
 - `k-dense-ai-aeon`
 - `k-dense-ai-alphafold-database`
