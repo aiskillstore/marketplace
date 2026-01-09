@@ -5,7 +5,6 @@ allowed-tools: Read, Grep, Bash, Glob
 ---
 
 # Clojure Code Review Skill
-<!-- Included from: .claude/skills/_shared/clojure-style-guide.md -->
 # Metabase Clojure Style Guide
 
 This guide covers Clojure and ClojureScript coding conventions for Metabase. See also: `CLOJURE_STYLE_GUIDE.adoc` for the Community Clojure Style Guide.
@@ -159,9 +158,6 @@ This guide covers Clojure and ClojureScript coding conventions for Metabase. See
 
 - Don't define configurable options that can only be set with environment variables
 - Use `:internal` `defsetting` instead
-
-<!-- End: .claude/skills/_shared/clojure-style-guide.md -->
-<!-- Included from: .claude/skills/_shared/clojure-commands.md -->
 ## Linting and Formatting
 
 - **Lint PR:** `./bin/mage kondo-updated master` (or whatever target branch)
@@ -249,7 +245,6 @@ For effective REPL usage:
 - Use `println` for human-readable messages
 - Print errors to stderr
 
-<!-- End: .claude/skills/_shared/clojure-commands.md -->
 ## Review guidelines
 
 **What to flag:**
