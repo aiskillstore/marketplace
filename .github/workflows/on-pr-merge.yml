@@ -140,3 +140,44 @@ jobs:
               sleep 2
             done
           fi
+
+      - name: Extract submission ID from PR body
+        id: extract_submission
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Extract submission ID from PR body: **Submission ID**: `UUID`
+          # Use grep with PCRE or sed to extract UUID pattern
+          SUBMISSION_ID=$(echo "$PR_BODY" | grep -oE 'Submission ID.*`[0-9a-f-]{36}`' | grep -oE '[0-9a-f-]{36}' || echo "")
+          echo "submission_id=$SUBMISSION_ID" >> $GITHUB_OUTPUT
+          if [ -n "$SUBMISSION_ID" ]; then
+            echo "📋 Found submission ID: $SUBMISSION_ID"
+          else
+            echo "⚠️ No submission ID found in PR body"
+          fi
+
+      - name: Notify skillstore - Merged
+        if: steps.extract_submission.outputs.submission_id != ''
+        env:
+          SUBMISSION_ID: ${{ steps.extract_submission.outputs.submission_id }}
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          SKILLSTORE_CALLBACK_TOKEN: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+        run: |
+          echo "📤 Notifying skillstore: submission $SUBMISSION_ID merged"
+          curl -sS -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
+            -H "Authorization: Bearer $SKILLSTORE_CALLBACK_TOKEN" \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: GitHub-Actions/SkillstoreBot" \
+            -H "X-Skillstore-Callback: true" \
+            -d '{
+              "submission_id": "'"$SUBMISSION_ID"'",
+              "event": "merged",
+              "pr_url": "'"$PR_URL"'",
+              "pr_number": '"$PR_NUMBER"',
+              "merged_by": "'"$MERGED_BY"'",
+              "workflow_run_id": ${{ github.run_id }},
+              "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }' || echo "::warning::Failed to notify skillstore"
