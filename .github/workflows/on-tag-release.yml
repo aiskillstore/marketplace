@@ -68,48 +68,91 @@ jobs:
             echo "No previous tags found (first release)"
           fi
 
+      - name: Sync marketplace.json from plugins directory
+        id: sync_marketplace
+        run: |
+          echo "Syncing marketplace.json from plugins/ directory..."
+
+          # Build plugins array from plugins/ directory
+          PLUGINS_JSON="[]"
+          while IFS= read -r entry_file; do
+            [ -z "$entry_file" ] && continue
+
+            # Read plugin metadata
+            name=$(jq -r '.name // empty' "$entry_file" 2>/dev/null)
+            [ -z "$name" ] && continue
+
+            dir=$(dirname "$entry_file")
+            description=$(jq -r '.description // ""' "$entry_file" 2>/dev/null)
+            version=$(jq -r '.version // "1.0.0"' "$entry_file" 2>/dev/null)
+
+            # Build plugin entry
+            PLUGIN_ENTRY=$(jq -n \
+              --arg name "$name" \
+              --arg description "$description" \
+              --arg version "$version" \
+              --arg source "./$dir" \
+              '{name: $name, description: $description, version: $version, source: $source}')
+
+            PLUGINS_JSON=$(echo "$PLUGINS_JSON" | jq --argjson plugin "$PLUGIN_ENTRY" '. + [$plugin]')
+          done < <(find plugins -name "marketplace-entry.json" 2>/dev/null | sort)
+
+          # Sort plugins by name
+          PLUGINS_JSON=$(echo "$PLUGINS_JSON" | jq 'sort_by(.name)')
+          PLUGIN_COUNT=$(echo "$PLUGINS_JSON" | jq 'length')
+
+          # Update marketplace.json with synced plugins
+          jq --argjson plugins "$PLUGINS_JSON" '.plugins = $plugins' \
+            .claude-plugin/marketplace.json > /tmp/marketplace_synced.json
+          mv /tmp/marketplace_synced.json .claude-plugin/marketplace.json
+
+          echo "Synced $PLUGIN_COUNT plugins to marketplace.json"
+          echo "plugin_count=$PLUGIN_COUNT" >> $GITHUB_OUTPUT
+
       - name: Analyze changes since last release
         id: changelog
+        env:
+          PREV_TAG: ${{ steps.prev_tag.outputs.tag }}
+          CURRENT_TAG: ${{ steps.version.outputs.tag }}
         run: |
-          PREV_TAG="${{ steps.prev_tag.outputs.tag }}"
-          CURRENT_TAG="${{ steps.version.outputs.tag }}"
           TODAY=$(date +%Y-%m-%d)
-          
+
           if [ -n "$PREV_TAG" ]; then
             RANGE="${PREV_TAG}..${CURRENT_TAG}"
           else
             RANGE="${CURRENT_TAG}"
           fi
-          
+
           echo "Analyzing commits in range: $RANGE"
-          
-          # Get current plugins list with their paths
-          # Format: name|path (one per line)
-          CURRENT_PLUGIN_DATA=""
-          while IFS= read -r entry_file; do
-            [ -z "$entry_file" ] && continue
-            name=$(jq -r '.name' "$entry_file" 2>/dev/null)
-            [ -z "$name" ] && continue
-            dir=$(dirname "$entry_file")
-            if [ -z "$CURRENT_PLUGIN_DATA" ]; then
-              CURRENT_PLUGIN_DATA="$name|$dir"
-            else
-              CURRENT_PLUGIN_DATA="${CURRENT_PLUGIN_DATA}"$'\n'"$name|$dir"
-            fi
-          done < <(find plugins -name "marketplace-entry.json" 2>/dev/null)
-          
-          # Extract just the names for counting and comparison
-          CURRENT_PLUGINS=$(echo "$CURRENT_PLUGIN_DATA" | cut -d'|' -f1 | sort)
+
+          # Get current plugins from synced marketplace.json
+          CURRENT_PLUGINS=$(jq -r '.plugins[].name' .claude-plugin/marketplace.json 2>/dev/null | sort)
           PLUGIN_COUNT=$(echo "$CURRENT_PLUGINS" | grep -c . || echo "0")
-          
-          # Get previous plugins list and marketplace.json (if tag exists)
+
+          # Get current plugin data for path lookups
+          CURRENT_PLUGIN_DATA=""
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            name=$(echo "$line" | jq -r '.name')
+            source=$(echo "$line" | jq -r '.source' | sed 's|^\./||')
+            CURRENT_PLUGIN_DATA="${CURRENT_PLUGIN_DATA}${name}|${source}"$'\n'
+          done < <(jq -c '.plugins[]' .claude-plugin/marketplace.json 2>/dev/null)
+
+          # Get previous plugins by scanning plugins/ directory at PREV_TAG
+          # This ensures consistent comparison (both from actual plugin files)
+          PREV_PLUGINS=""
           if [ -n "$PREV_TAG" ]; then
-            PREV_MARKETPLACE_JSON=$(git show "${PREV_TAG}:.claude-plugin/marketplace.json" 2>/dev/null || echo "{}")
-            PREV_PLUGINS=$(echo "$PREV_MARKETPLACE_JSON" | jq -r '.plugins[].name' 2>/dev/null | sort || echo "")
-          else
-            PREV_MARKETPLACE_JSON="{}"
-            PREV_PLUGINS=""
+            echo "Scanning plugins at ${PREV_TAG}..."
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
+              name=$(git show "${PREV_TAG}:${file}" 2>/dev/null | jq -r '.name // empty' 2>/dev/null)
+              [ -n "$name" ] && PREV_PLUGINS="${PREV_PLUGINS}${name}"$'\n'
+            done < <(git ls-tree -r "${PREV_TAG}" --name-only 2>/dev/null | grep "marketplace-entry.json" || true)
+            PREV_PLUGINS=$(echo "$PREV_PLUGINS" | sort | grep -v '^$')
           fi
+
+          PREV_COUNT=$(echo "$PREV_PLUGINS" | grep -c . 2>/dev/null || echo "0")
+          echo "Previous tag had $PREV_COUNT plugins"
           
           # Calculate added plugins
           ADDED_PLUGINS=""
@@ -139,27 +182,33 @@ jobs:
           # Uses git tree hash comparison for efficiency
           UPDATED_PLUGINS=""
           UPDATED_COUNT=0
-          
+
           if [ -n "$PREV_TAG" ]; then
             while IFS='|' read -r name curr_path; do
               [ -z "$name" ] && continue
-              
+
               # Skip if not in previous plugins (it's ADDED, not UPDATED)
               if ! echo "$PREV_PLUGINS" | grep -qx "$name"; then
                 continue
               fi
-              
-              # Get previous path from marketplace.json
-              prev_path=$(echo "$PREV_MARKETPLACE_JSON" | \
-                jq -r --arg n "$name" '.plugins[] | select(.name == $n) | .source // empty' 2>/dev/null | \
-                sed 's|^\./||')
-              
+
+              # Find previous path by searching for the plugin's marketplace-entry.json at PREV_TAG
+              prev_path=$(git ls-tree -r "${PREV_TAG}" --name-only 2>/dev/null | \
+                grep "marketplace-entry.json" | \
+                while read -r file; do
+                  pname=$(git show "${PREV_TAG}:${file}" 2>/dev/null | jq -r '.name // empty' 2>/dev/null)
+                  if [ "$pname" = "$name" ]; then
+                    dirname "$file"
+                    break
+                  fi
+                done)
+
               [ -z "$prev_path" ] && continue
-              
+
               # Compare git tree hashes
               prev_hash=$(git rev-parse "${PREV_TAG}:${prev_path}" 2>/dev/null || echo "")
               curr_hash=$(git rev-parse "HEAD:${curr_path}" 2>/dev/null || echo "")
-              
+
               if [ -n "$prev_hash" ] && [ -n "$curr_hash" ] && [ "$prev_hash" != "$curr_hash" ]; then
                 if [ -z "$UPDATED_PLUGINS" ]; then
                   UPDATED_PLUGINS="$name"
