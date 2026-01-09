@@ -96,7 +96,7 @@ jobs:
         run: |
           URL="${{ env.GITHUB_URL }}"
           URL="${URL%.git}"
-          
+
           if [[ "$URL" =~ github\.com[:/]([^/]+)/([^/]+) ]]; then
             OWNER="${BASH_REMATCH[1]}"
             REPO="${BASH_REMATCH[2]}"
@@ -104,48 +104,67 @@ jobs:
             echo "::error::Invalid GitHub URL: $URL"
             exit 1
           fi
-          
+
           echo "owner=$OWNER" >> $GITHUB_OUTPUT
           echo "repo=$REPO" >> $GITHUB_OUTPUT
-          
+
+          # Extract skillPath from URL (e.g., /tree/master/.claude/skills/clojure-review)
+          SKILL_PATH=""
+          if [[ "$URL" =~ /tree/[^/]+/(.+)$ ]]; then
+            SKILL_PATH="${BASH_REMATCH[1]}"
+            echo "📍 Skill path specified: $SKILL_PATH"
+          fi
+          echo "skill_path=$SKILL_PATH" >> $GITHUB_OUTPUT
+
           BRANCH=$(gh api "repos/$OWNER/$REPO" --jq '.default_branch')
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-          
+
           SOURCE_DIR="/tmp/source-repo-${{ github.run_id }}"
           git clone --depth 1 --branch "$BRANCH" "https://github.com/$OWNER/$REPO.git" "$SOURCE_DIR"
-          
+
           echo "source_dir=$SOURCE_DIR" >> $GITHUB_OUTPUT
           echo "📦 Cloned $OWNER/$REPO (branch: $BRANCH)"
 
       - name: Discover skills (fast - no AI)
         id: discover
+        env:
+          SKILL_PATH: ${{ steps.clone.outputs.skill_path }}
         run: |
           SOURCE_DIR="${{ steps.clone.outputs.source_dir }}"
-          
+
+          # If skill_path is specified, only search within that path
+          if [ -n "$SKILL_PATH" ]; then
+            SEARCH_DIR="$SOURCE_DIR/$SKILL_PATH"
+            echo "📍 Searching within: $SKILL_PATH"
+          else
+            SEARCH_DIR="$SOURCE_DIR"
+            echo "🔍 Searching entire repository"
+          fi
+
           SKILLS_JSON="["
           FIRST=true
-          
+
           while IFS= read -r skill_md; do
             SKILL_DIR=$(dirname "$skill_md")
-            
+
             SLUG=$(grep -E '^name:' "$skill_md" 2>/dev/null | head -1 | sed 's/name:[[:space:]]*//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-*//;s/-*$//' | sed 's/--*/-/g')
             [ -z "$SLUG" ] && SLUG=$(basename "$SKILL_DIR" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-*//;s/-*$//')
-            
+
             if [ "$FIRST" = true ]; then
               FIRST=false
             else
               SKILLS_JSON+=","
             fi
             SKILLS_JSON+="\"$SLUG\""
-          done < <(find "$SOURCE_DIR" -name "SKILL.md" -type f ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/.venv/*" ! -path "*/venv/*" | sort)
-          
+          done < <(find "$SEARCH_DIR" -name "SKILL.md" -type f ! -path "*/node_modules/*" ! -path "*/.git/*" ! -path "*/.venv/*" ! -path "*/venv/*" 2>/dev/null | sort)
+
           SKILLS_JSON+="]"
-          
+
           SKILL_COUNT=$(echo "$SKILLS_JSON" | jq 'length')
-          
+
           echo "skills_json=$SKILLS_JSON" >> $GITHUB_OUTPUT
           echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
-          
+
           echo "📊 Discovered $SKILL_COUNT skill(s)"
 
       - name: Check for hash changes (skip unchanged repos)
