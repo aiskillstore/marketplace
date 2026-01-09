@@ -82,6 +82,8 @@ jobs:
           curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
             -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
             -H "Content-Type: application/json" \
+            -H "User-Agent: GitHub-Actions/SkillstoreBot" \
+            -H "X-Skillstore-Callback: true" \
             -d '{
               "submission_id": "'"$SUBMISSION_ID"'",
               "event": "started",
@@ -577,13 +579,23 @@ jobs:
           *Processed by skillstore-cli*
           EOF
           
-          PR_URL=$(gh pr create \
+          # Use gh pr create with JSON output for reliable URL extraction
+          PR_RESULT=$(gh pr create \
             --title "$PR_TITLE" \
             --body-file pr-body.md \
             --label "pending-review" \
             --base main \
-            --head "$BRANCH_NAME" 2>&1 | tail -1)
-          
+            --head "$BRANCH_NAME" 2>&1) || true
+
+          # Extract PR URL from output (last line typically contains URL)
+          PR_URL=$(echo "$PR_RESULT" | grep -oE 'https://github.com/[^/]+/[^/]+/pull/[0-9]+' | head -1)
+
+          if [ -z "$PR_URL" ]; then
+            echo "::warning::Could not extract PR URL from: $PR_RESULT"
+            # Fallback: try getting the URL from the last line
+            PR_URL=$(echo "$PR_RESULT" | tail -1)
+          fi
+
           echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
           echo "Created PR: $PR_URL"
 
@@ -591,10 +603,20 @@ jobs:
         if: steps.create_pr.outputs.pr_url && github.event_name == 'repository_dispatch'
         env:
           PR_URL: ${{ steps.create_pr.outputs.pr_url }}
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          SKILLSTORE_CALLBACK_TOKEN: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
         run: |
-          curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
-            -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
+          # Validate PR URL before sending callback
+          if [[ ! "$PR_URL" =~ ^https://github.com/.*/pull/[0-9]+$ ]]; then
+            echo "::warning::Invalid PR URL format: $PR_URL"
+          fi
+
+          echo "📤 Notifying skillstore: PR created at $PR_URL"
+          curl -sS -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
+            -H "Authorization: Bearer $SKILLSTORE_CALLBACK_TOKEN" \
             -H "Content-Type: application/json" \
+            -H "User-Agent: GitHub-Actions/SkillstoreBot" \
+            -H "X-Skillstore-Callback: true" \
             -d '{
               "submission_id": "'"${{ env.SUBMISSION_ID }}"'",
               "event": "pr_created",
@@ -615,10 +637,12 @@ jobs:
             ERROR_MSG=$(tail -10 "$ARTIFACTS_DIR/process-output-0.log" | tr '\n' ' ' | cut -c1-500)
           fi
           rm -rf "$ARTIFACTS_DIR" 2>/dev/null || true
-          
+
           curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
             -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
             -H "Content-Type: application/json" \
+            -H "User-Agent: GitHub-Actions/SkillstoreBot" \
+            -H "X-Skillstore-Callback: true" \
             -d '{
               "submission_id": "'"${{ env.SUBMISSION_ID }}"'",
               "event": "failed",
