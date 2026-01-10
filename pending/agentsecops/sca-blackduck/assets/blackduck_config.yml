@@ -1,0 +1,213 @@
+# Black Duck Detect Configuration
+# Place this file in the root of your project or reference it with:
+# --detect.yaml.configuration.path=/path/to/blackduck_config.yml
+
+# Black Duck Server Configuration
+blackduck:
+  url: ${BLACKDUCK_URL}  # Set via environment variable
+  api:
+    token: ${BLACKDUCK_TOKEN}  # Set via environment variable
+  timeout: 300
+  trust.cert: false
+
+# Project Configuration
+detect:
+  project:
+    name: ${PROJECT_NAME:MyProject}
+    version:
+      name: ${PROJECT_VERSION:1.0.0}
+    description: "Software Composition Analysis with Black Duck"
+    tier: 3  # Project tier (1-5, 1=highest priority)
+
+  # Detection Configuration
+  detector:
+    search:
+      depth: 3  # How deep to search for build files
+      continue: true  # Continue if a detector fails
+      exclusion:
+        paths: |
+          node_modules/**/.bin,
+          vendor/**,
+          **/__pycache__,
+          **/site-packages,
+          **/.venv,
+          **/venv,
+          test/**,
+          tests/**,
+          **/*.test.js,
+          **/*.spec.js
+    buildless: false  # Use buildless mode (faster but less accurate)
+
+  # Specific Detectors
+  npm:
+    include:
+      dev:
+        dependencies: false  # Exclude dev dependencies from production scans
+    dependency:
+      types:
+        excluded: []
+
+  python:
+    python3: true
+    path: python3
+
+  maven:
+    included:
+      scopes: compile,runtime  # Exclude test scope
+    excluded:
+      scopes: test,provided
+
+  # Signature Scanner Configuration
+  blackduck:
+    signature:
+      scanner:
+        memory: 4096  # Memory in MB for signature scanner
+        dry:
+          run: false
+        snippet:
+          matching: SNIPPET_MATCHING  # or FULL_SNIPPET_MATCHING for comprehensive
+        upload:
+          source:
+            mode: true  # Upload source for snippet matching
+        paths: "."
+        exclusion:
+          patterns: |
+            node_modules,
+            .git,
+            .svn,
+            vendor,
+            __pycache__,
+            *.pyc,
+            *.min.js,
+            *.bundle.js
+
+  # Binary Scanner (optional, for compiled binaries)
+  binary:
+    scan:
+      file:
+        name: ""
+      path: ""
+
+  # Policy Configuration
+  policy:
+    check:
+      fail:
+        on:
+          severities: BLOCKER,CRITICAL,MAJOR  # Fail on these severity levels
+      enabled: true
+
+  # Wait for scan results
+  wait:
+    for:
+      results: true  # Wait for scan to complete
+
+  # Report Configuration
+  risk:
+    report:
+      pdf: true
+      pdf:
+        path: "./reports"
+
+  notices:
+    report: true
+    report:
+      path: "./reports"
+
+  # SBOM Generation
+  bom:
+    aggregate:
+      name: "sbom.json"  # CycloneDX SBOM output
+    enabled: true
+
+  # Output Configuration
+  output:
+    path: "./blackduck-output"
+  cleanup: true  # Clean up temporary files after scan
+
+  # Performance Tuning
+  parallel:
+    processors: 4  # Number of parallel processors
+
+  # Timeout Configuration
+  timeout: 7200  # Overall timeout in seconds (2 hours)
+
+  # Proxy Configuration (if needed)
+  # proxy:
+  #   host: proxy.company.com
+  #   port: 8080
+  #   username: ${PROXY_USER}
+  #   password: ${PROXY_PASS}
+
+  # Advanced Options
+  tools:
+    excluded: []  # Can exclude DETECTOR, SIGNATURE_SCAN, BINARY_SCAN, POLARIS
+  force:
+    success: false  # Force success even if issues detected (not recommended)
+
+# Logging Configuration
+logging:
+  level:
+    com:
+      synopsys:
+        integration: INFO  # DEBUG for troubleshooting
+    detect: INFO
+
+# Environment-Specific Configurations
+---
+# Development Environment
+spring:
+  profiles: development
+
+detect:
+  policy:
+    check:
+      fail:
+        on:
+          severities: BLOCKER,CRITICAL  # Less strict for dev
+  detector:
+    search:
+      depth: 1  # Faster scans for dev
+
+---
+# Production Environment
+spring:
+  profiles: production
+
+detect:
+  policy:
+    check:
+      fail:
+        on:
+          severities: BLOCKER,CRITICAL,MAJOR  # Strict for production
+  detector:
+    search:
+      depth: 5  # Comprehensive scans
+  blackduck:
+    signature:
+      scanner:
+        snippet:
+          matching: FULL_SNIPPET_MATCHING  # Most thorough
+  risk:
+    report:
+      pdf: true  # Always generate PDF for production
+  bom:
+    aggregate:
+      name: "production-sbom.json"
+
+---
+# CI/CD Environment
+spring:
+  profiles: ci
+
+detect:
+  wait:
+    for:
+      results: true  # Wait for results in CI
+  policy:
+    check:
+      fail:
+        on:
+          severities: BLOCKER,CRITICAL
+  timeout: 3600  # 1 hour timeout for CI
+  parallel:
+    processors: 8  # Use more processors in CI

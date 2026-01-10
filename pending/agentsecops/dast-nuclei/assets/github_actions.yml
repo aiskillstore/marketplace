@@ -1,0 +1,192 @@
+# GitHub Actions Workflow for Nuclei Security Scanning
+# Place this file in .github/workflows/nuclei-scan.yml
+
+name: Nuclei Security Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Target URL to scan'
+        required: true
+        default: 'https://staging.example.com'
+      severity:
+        description: 'Severity levels (comma-separated)'
+        required: false
+        default: 'critical,high'
+
+env:
+  # Default target URL (override with workflow_dispatch input)
+  TARGET_URL: https://staging.example.com
+  # Severity levels to scan
+  SEVERITY: critical,high
+  # Template tags to use
+  TEMPLATE_TAGS: cve,owasp,misconfig
+
+jobs:
+  nuclei-scan:
+    name: Nuclei Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Run Nuclei Scan
+        id: nuclei
+        uses: projectdiscovery/nuclei-action@main
+        with:
+          target: ${{ github.event.inputs.target_url || env.TARGET_URL }}
+          severity: ${{ github.event.inputs.severity || env.SEVERITY }}
+          templates: ${{ env.TEMPLATE_TAGS }}
+          output: nuclei-results.jsonl
+
+      - name: Parse Nuclei Results
+        if: always()
+        run: |
+          # Install dependencies (if using custom parser)
+          # pip install -r requirements.txt
+
+          # Parse results and generate HTML report
+          if [ -f nuclei-results.jsonl ]; then
+            echo "Parsing Nuclei results..."
+            python3 scripts/parse_nuclei_results.py \
+              --input nuclei-results.jsonl \
+              --output nuclei-report.html \
+              --format html
+
+            # Count findings by severity
+            CRITICAL=$(grep -c '"severity":"critical"' nuclei-results.jsonl || echo 0)
+            HIGH=$(grep -c '"severity":"high"' nuclei-results.jsonl || echo 0)
+            TOTAL=$(wc -l < nuclei-results.jsonl)
+
+            echo "## Nuclei Scan Results" >> $GITHUB_STEP_SUMMARY
+            echo "- **Total Findings**: $TOTAL" >> $GITHUB_STEP_SUMMARY
+            echo "- **Critical**: $CRITICAL" >> $GITHUB_STEP_SUMMARY
+            echo "- **High**: $HIGH" >> $GITHUB_STEP_SUMMARY
+
+            # Set outputs
+            echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+            echo "high=$HIGH" >> $GITHUB_OUTPUT
+            echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          else
+            echo "No findings detected" >> $GITHUB_STEP_SUMMARY
+            echo "critical=0" >> $GITHUB_OUTPUT
+            echo "high=0" >> $GITHUB_OUTPUT
+            echo "total=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload SARIF file
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: nuclei.sarif
+          category: nuclei
+
+      - name: Upload Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuclei-scan-results
+          path: |
+            nuclei-results.jsonl
+            nuclei-report.html
+            nuclei.sarif
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const critical = '${{ steps.nuclei.outputs.critical || 0 }}';
+            const high = '${{ steps.nuclei.outputs.high || 0 }}';
+            const total = '${{ steps.nuclei.outputs.total || 0 }}';
+
+            const body = `## 🔒 Nuclei Security Scan Results
+
+            | Severity | Count |
+            |----------|-------|
+            | Critical | ${critical} |
+            | High | ${high} |
+            | **Total** | **${total}** |
+
+            ${critical > 0 ? '⚠️ **Critical vulnerabilities detected!**' : ''}
+            ${high > 0 ? '⚠️ High severity vulnerabilities detected.' : ''}
+
+            View detailed results in the [workflow artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}).`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail on Critical Findings
+        if: steps.nuclei.outputs.critical > 0
+        run: |
+          echo "::error::Critical vulnerabilities detected!"
+          exit 1
+
+      - name: Notify on Slack
+        if: failure() && steps.nuclei.outputs.critical > 0
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "🚨 Critical vulnerabilities detected in ${{ github.repository }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Critical Security Vulnerabilities Detected*\n\n*Repository:* ${{ github.repository }}\n*Branch:* ${{ github.ref_name }}\n*Critical Findings:* ${{ steps.nuclei.outputs.critical }}\n*High Findings:* ${{ steps.nuclei.outputs.high }}\n\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Scan Results>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Optional: Separate job for authenticated scanning
+  nuclei-authenticated-scan:
+    name: Nuclei Authenticated Scan
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'  # Only run on main branch
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Authenticated Scan
+        uses: projectdiscovery/nuclei-action@main
+        with:
+          target: ${{ env.TARGET_URL }}
+          severity: critical,high
+          templates: cve,owasp
+          # Add authentication headers from secrets
+          headers: |
+            Authorization: Bearer ${{ secrets.API_TOKEN }}
+            Cookie: session=${{ secrets.SESSION_COOKIE }}
+          output: nuclei-auth-results.jsonl
+
+      - name: Upload Authenticated Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuclei-authenticated-scan-results
+          path: nuclei-auth-results.jsonl
+          retention-days: 30

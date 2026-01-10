@@ -1,0 +1,82 @@
+# GitLab CI configuration for Hadolint Dockerfile linting
+# Add this to your .gitlab-ci.yml file
+
+stages:
+  - lint
+  - build
+
+# Hadolint Dockerfile security scanning
+hadolint:
+  stage: lint
+  image: hadolint/hadolint:latest-debian
+  script:
+    # Find all Dockerfiles
+    - |
+      DOCKERFILES=$(find . -type f \( -name "Dockerfile*" -o -name "*.dockerfile" \))
+      echo "Found Dockerfiles:"
+      echo "$DOCKERFILES"
+
+    # Scan each Dockerfile and generate reports
+    - |
+      FAILED=0
+      for dockerfile in $DOCKERFILES; do
+        echo "Scanning: $dockerfile"
+
+        # Generate GitLab Code Quality report
+        hadolint -f gitlab_codeclimate "$dockerfile" >> hadolint-report.json || FAILED=1
+
+        # Also print human-readable output
+        hadolint "$dockerfile" || true
+      done
+
+      exit $FAILED
+
+  artifacts:
+    reports:
+      codequality: hadolint-report.json
+    paths:
+      - hadolint-report.json
+    when: always
+    expire_in: 1 week
+
+  # Only run on branches with Dockerfile changes
+  rules:
+    - changes:
+        - "**/Dockerfile*"
+        - "**/*.dockerfile"
+        - ".gitlab-ci.yml"
+
+# Alternative: Scan specific Dockerfile
+hadolint-main:
+  stage: lint
+  image: hadolint/hadolint:latest-debian
+  script:
+    - hadolint --failure-threshold warning Dockerfile
+  only:
+    changes:
+      - Dockerfile
+
+# Advanced: Multiple Dockerfiles with matrix
+hadolint-matrix:
+  stage: lint
+  image: hadolint/hadolint:latest-debian
+  parallel:
+    matrix:
+      - DOCKERFILE:
+          - "Dockerfile"
+          - "Dockerfile.dev"
+          - "services/api/Dockerfile"
+          - "services/web/Dockerfile"
+  script:
+    - |
+      if [ -f "$DOCKERFILE" ]; then
+        echo "Scanning: $DOCKERFILE"
+        hadolint --failure-threshold warning "$DOCKERFILE"
+      else
+        echo "File not found: $DOCKERFILE"
+        exit 1
+      fi
+  only:
+    changes:
+      - Dockerfile*
+      - services/**/Dockerfile*

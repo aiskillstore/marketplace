@@ -1,0 +1,101 @@
+# Pre-commit hooks configuration with reviewdog
+# Install: pip install pre-commit
+# Setup: pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # Reviewdog with Bandit (Python security)
+  - repo: local
+    hooks:
+      - id: reviewdog-bandit
+        name: Reviewdog - Bandit Security Scan
+        entry: bash -c 'bandit -r . -f json 2>/dev/null | reviewdog -f=bandit -reporter=local -fail-on-error=true -level=error'
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+
+  # Reviewdog with Semgrep (multi-language)
+  - repo: local
+    hooks:
+      - id: reviewdog-semgrep-critical
+        name: Reviewdog - Semgrep Critical
+        entry: bash -c 'semgrep --config=auto --severity=ERROR --json --quiet 2>/dev/null | reviewdog -f=semgrep -reporter=local -fail-on-error=true -level=error'
+        language: system
+        types: [python, javascript, typescript, java, go, ruby, php]
+        pass_filenames: false
+        require_serial: true
+
+      - id: reviewdog-semgrep-warnings
+        name: Reviewdog - Semgrep Warnings
+        entry: bash -c 'semgrep --config=auto --severity=WARNING --json --quiet 2>/dev/null | reviewdog -f=semgrep -reporter=local -level=warning || true'
+        language: system
+        types: [python, javascript, typescript, java, go, ruby, php]
+        pass_filenames: false
+        require_serial: true
+
+  # Reviewdog with Gitleaks (secrets)
+  - repo: local
+    hooks:
+      - id: reviewdog-gitleaks
+        name: Reviewdog - Secret Detection
+        entry: bash -c 'gitleaks detect --report-format json --report-path /tmp/gitleaks.json --no-git 2>/dev/null || true; if [ -f /tmp/gitleaks.json ]; then cat /tmp/gitleaks.json | reviewdog -f=gitleaks -reporter=local -fail-on-error=true -level=error; fi'
+        language: system
+        pass_filenames: false
+        require_serial: true
+
+  # Reviewdog with Hadolint (Dockerfile)
+  - repo: local
+    hooks:
+      - id: reviewdog-hadolint
+        name: Reviewdog - Hadolint Dockerfile
+        entry: bash -c 'find . -type f -name "Dockerfile*" -exec hadolint --format json {} \; 2>/dev/null | reviewdog -f=hadolint -reporter=local -level=warning || true'
+        language: system
+        types: [dockerfile]
+        pass_filenames: false
+        require_serial: true
+
+  # Reviewdog with ShellCheck
+  - repo: local
+    hooks:
+      - id: reviewdog-shellcheck
+        name: Reviewdog - ShellCheck
+        entry: bash -c 'shellcheck -f json "$@" 2>/dev/null | reviewdog -f=shellcheck -reporter=local || true'
+        language: system
+        types: [shell]
+        require_serial: true
+
+  # Standard pre-commit hooks (optional, complement reviewdog)
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: detect-private-key
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+
+  # Python code formatting (optional)
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+        language_version: python3
+
+  # Python import sorting (optional)
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+
+# Configuration
+default_language_version:
+  python: python3.11
+
+# Fail fast on first error
+fail_fast: false
+
+# Minimum pre-commit version
+minimum_pre_commit_version: '2.20.0'

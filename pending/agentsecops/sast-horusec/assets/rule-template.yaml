@@ -1,0 +1,355 @@
+# Security Rule Template
+#
+# This template demonstrates how to structure security rules/policies.
+# Adapt this template to your specific security tool (Semgrep, OPA, etc.)
+#
+# Rule Structure Best Practices:
+# - Clear rule ID and metadata
+# - Severity classification
+# - Framework mappings (OWASP, CWE)
+# - Remediation guidance
+# - Example vulnerable and fixed code
+
+rules:
+  # Example Rule 1: SQL Injection Detection
+  - id: sql-injection-string-concatenation
+    metadata:
+      name: "SQL Injection via String Concatenation"
+      description: "Detects potential SQL injection vulnerabilities from string concatenation in SQL queries"
+      severity: "HIGH"
+      category: "security"
+      subcategory: "injection"
+
+      # Security Framework Mappings
+      owasp:
+        - "A03:2021 - Injection"
+      cwe:
+        - "CWE-89: SQL Injection"
+      mitre_attack:
+        - "T1190: Exploit Public-Facing Application"
+
+      # Compliance Standards
+      compliance:
+        - "PCI-DSS 6.5.1: Injection flaws"
+        - "NIST 800-53 SI-10: Information Input Validation"
+
+      # Confidence and Impact
+      confidence: "HIGH"
+      likelihood: "HIGH"
+      impact: "HIGH"
+
+      # References
+      references:
+        - "https://owasp.org/www-community/attacks/SQL_Injection"
+        - "https://cwe.mitre.org/data/definitions/89.html"
+        - "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html"
+
+    # Languages this rule applies to
+    languages:
+      - python
+      - javascript
+      - java
+      - go
+
+    # Detection Pattern (example using Semgrep-style syntax)
+    pattern-either:
+      - pattern: |
+          cursor.execute($SQL + $VAR)
+      - pattern: |
+          cursor.execute(f"... {$VAR} ...")
+      - pattern: |
+          cursor.execute("..." + $VAR + "...")
+
+    # What to report when found
+    message: |
+      Potential SQL injection vulnerability detected. SQL query is constructed using
+      string concatenation or f-strings with user input. This allows attackers to
+      inject malicious SQL code.
+
+      Use parameterized queries instead:
+      - Python: cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+      - JavaScript: db.query("SELECT * FROM users WHERE id = $1", [userId])
+
+      See: https://owasp.org/www-community/attacks/SQL_Injection
+
+    # Suggested fix (auto-fix if supported)
+    fix: |
+      Use parameterized queries with placeholders
+
+    # Example vulnerable code
+    examples:
+      - vulnerable: |
+          # Vulnerable: String concatenation
+          user_id = request.GET['id']
+          query = "SELECT * FROM users WHERE id = " + user_id
+          cursor.execute(query)
+
+      - fixed: |
+          # Fixed: Parameterized query
+          user_id = request.GET['id']
+          query = "SELECT * FROM users WHERE id = ?"
+          cursor.execute(query, (user_id,))
+
+  # Example Rule 2: Hardcoded Secrets Detection
+  - id: hardcoded-secret-credential
+    metadata:
+      name: "Hardcoded Secret or Credential"
+      description: "Detects hardcoded secrets, API keys, passwords, or tokens in source code"
+      severity: "CRITICAL"
+      category: "security"
+      subcategory: "secrets"
+
+      owasp:
+        - "A07:2021 - Identification and Authentication Failures"
+      cwe:
+        - "CWE-798: Use of Hard-coded Credentials"
+        - "CWE-259: Use of Hard-coded Password"
+
+      compliance:
+        - "PCI-DSS 8.2.1: Use of strong cryptography"
+        - "SOC 2 CC6.1: Logical access controls"
+        - "GDPR Article 32: Security of processing"
+
+      confidence: "MEDIUM"
+      likelihood: "HIGH"
+      impact: "CRITICAL"
+
+      references:
+        - "https://cwe.mitre.org/data/definitions/798.html"
+        - "https://owasp.org/www-community/vulnerabilities/Use_of_hard-coded_password"
+
+    languages:
+      - python
+      - javascript
+      - java
+      - go
+      - ruby
+
+    pattern-either:
+      - pattern: |
+          password = "..."
+      - pattern: |
+          api_key = "..."
+      - pattern: |
+          secret = "..."
+      - pattern: |
+          token = "..."
+
+    pattern-not: |
+      $VAR = ""
+
+    message: |
+      Potential hardcoded secret detected. Hardcoding credentials in source code
+      is a critical security vulnerability that can lead to unauthorized access
+      if the code is exposed.
+
+      Use environment variables or a secrets management system instead:
+      - Python: os.environ.get('API_KEY')
+      - Node.js: process.env.API_KEY
+      - Secrets Manager: AWS Secrets Manager, HashiCorp Vault, etc.
+
+      See: https://cwe.mitre.org/data/definitions/798.html
+
+    examples:
+      - vulnerable: |
+          # Vulnerable: Hardcoded API key
+          api_key = "sk-1234567890abcdef"
+          api.authenticate(api_key)
+
+      - fixed: |
+          # Fixed: Environment variable
+          import os
+          api_key = os.environ.get('API_KEY')
+          if not api_key:
+              raise ValueError("API_KEY environment variable not set")
+          api.authenticate(api_key)
+
+  # Example Rule 3: XSS via Unsafe HTML Rendering
+  - id: xss-unsafe-html-rendering
+    metadata:
+      name: "Cross-Site Scripting (XSS) via Unsafe HTML"
+      description: "Detects unsafe HTML rendering that could lead to XSS vulnerabilities"
+      severity: "HIGH"
+      category: "security"
+      subcategory: "xss"
+
+      owasp:
+        - "A03:2021 - Injection"
+      cwe:
+        - "CWE-79: Cross-site Scripting (XSS)"
+        - "CWE-80: Improper Neutralization of Script-Related HTML Tags"
+
+      compliance:
+        - "PCI-DSS 6.5.7: Cross-site scripting"
+        - "NIST 800-53 SI-10: Information Input Validation"
+
+      confidence: "HIGH"
+      likelihood: "MEDIUM"
+      impact: "HIGH"
+
+      references:
+        - "https://owasp.org/www-community/attacks/xss/"
+        - "https://cwe.mitre.org/data/definitions/79.html"
+        - "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
+
+    languages:
+      - javascript
+      - typescript
+      - jsx
+      - tsx
+
+    pattern-either:
+      - pattern: |
+          dangerouslySetInnerHTML={{__html: $VAR}}
+      - pattern: |
+          innerHTML = $VAR
+
+    message: |
+      Potential XSS vulnerability detected. Setting HTML content directly from
+      user input without sanitization can allow attackers to inject malicious
+      JavaScript code.
+
+      Use one of these safe alternatives:
+      - React: Use {userInput} for automatic escaping
+      - DOMPurify: const clean = DOMPurify.sanitize(dirty);
+      - Framework-specific sanitizers
+
+      See: https://owasp.org/www-community/attacks/xss/
+
+    examples:
+      - vulnerable: |
+          // Vulnerable: Unsanitized HTML
+          function UserComment({ comment }) {
+            return <div dangerouslySetInnerHTML={{__html: comment}} />;
+          }
+
+      - fixed: |
+          // Fixed: Sanitized with DOMPurify
+          import DOMPurify from 'dompurify';
+
+          function UserComment({ comment }) {
+            const sanitized = DOMPurify.sanitize(comment);
+            return <div dangerouslySetInnerHTML={{__html: sanitized}} />;
+          }
+
+  # Example Rule 4: Insecure Cryptography
+  - id: weak-cryptographic-algorithm
+    metadata:
+      name: "Weak Cryptographic Algorithm"
+      description: "Detects use of weak or deprecated cryptographic algorithms"
+      severity: "HIGH"
+      category: "security"
+      subcategory: "cryptography"
+
+      owasp:
+        - "A02:2021 - Cryptographic Failures"
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+        - "CWE-326: Inadequate Encryption Strength"
+
+      compliance:
+        - "PCI-DSS 4.1: Use strong cryptography"
+        - "NIST 800-53 SC-13: Cryptographic Protection"
+        - "GDPR Article 32: Security of processing"
+
+      confidence: "HIGH"
+      likelihood: "MEDIUM"
+      impact: "HIGH"
+
+      references:
+        - "https://cwe.mitre.org/data/definitions/327.html"
+        - "https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/09-Testing_for_Weak_Cryptography/"
+
+    languages:
+      - python
+      - javascript
+      - java
+
+    pattern-either:
+      - pattern: |
+          hashlib.md5(...)
+      - pattern: |
+          hashlib.sha1(...)
+      - pattern: |
+          crypto.createHash('md5')
+      - pattern: |
+          crypto.createHash('sha1')
+
+    message: |
+      Weak cryptographic algorithm detected (MD5 or SHA1). These algorithms are
+      considered cryptographically broken and should not be used for security purposes.
+
+      Use strong alternatives:
+      - For hashing: SHA-256, SHA-384, or SHA-512
+      - For password hashing: bcrypt, argon2, or PBKDF2
+      - Python: hashlib.sha256()
+      - Node.js: crypto.createHash('sha256')
+
+      See: https://cwe.mitre.org/data/definitions/327.html
+
+    examples:
+      - vulnerable: |
+          # Vulnerable: MD5 hash
+          import hashlib
+          hash_value = hashlib.md5(data).hexdigest()
+
+      - fixed: |
+          # Fixed: SHA-256 hash
+          import hashlib
+          hash_value = hashlib.sha256(data).hexdigest()
+
+# Rule Configuration
+configuration:
+  # Global settings
+  enabled: true
+  severity_threshold: "MEDIUM"  # Report findings at MEDIUM severity and above
+
+  # Performance tuning
+  max_file_size_kb: 1024
+  exclude_patterns:
+    - "test/*"
+    - "tests/*"
+    - "node_modules/*"
+    - "vendor/*"
+    - "*.min.js"
+
+  # False positive reduction
+  confidence_threshold: "MEDIUM"  # Only report findings with MEDIUM confidence or higher
+
+# Rule Metadata Schema
+# This section documents the expected structure for rules
+metadata_schema:
+  required:
+    - id: "Unique identifier for the rule (kebab-case)"
+    - name: "Human-readable rule name"
+    - description: "What the rule detects"
+    - severity: "CRITICAL | HIGH | MEDIUM | LOW | INFO"
+    - category: "security | best-practice | performance"
+
+  optional:
+    - subcategory: "Specific type (injection, xss, secrets, etc.)"
+    - owasp: "OWASP Top 10 mappings"
+    - cwe: "CWE identifier(s)"
+    - mitre_attack: "MITRE ATT&CK technique(s)"
+    - compliance: "Compliance standard references"
+    - confidence: "Detection confidence level"
+    - likelihood: "Likelihood of exploitation"
+    - impact: "Potential impact if exploited"
+    - references: "External documentation links"
+
+# Usage Instructions:
+#
+# 1. Copy this template when creating new security rules
+# 2. Update metadata fields with appropriate framework mappings
+# 3. Customize detection patterns for your tool (Semgrep, OPA, etc.)
+# 4. Provide clear remediation guidance in the message field
+# 5. Include both vulnerable and fixed code examples
+# 6. Test rules on real codebases before deployment
+#
+# Best Practices:
+# - Map to multiple frameworks (OWASP, CWE, MITRE ATT&CK)
+# - Include compliance standard references
+# - Provide actionable remediation guidance
+# - Show code examples (vulnerable vs. fixed)
+# - Tune confidence levels to reduce false positives
+# - Exclude test directories to reduce noise

@@ -1,0 +1,161 @@
+name: Security Review with Reviewdog
+
+on:
+  pull_request:
+    branches: [main, develop, master]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: write
+
+jobs:
+  security-scan:
+    name: Multi-Tool Security Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Full history for better diff analysis
+
+      - name: Setup reviewdog
+        uses: reviewdog/action-setup@v1
+        with:
+          reviewdog_version: latest
+
+      # Python setup for Bandit and Semgrep
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install security tools
+        run: |
+          pip install bandit semgrep
+
+      # Critical: Python SAST with Bandit
+      - name: Run Bandit SAST (Python)
+        if: hashFiles('**/*.py') != ''
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          bandit -r . -f json 2>/dev/null | \
+            reviewdog -f=bandit \
+                     -name="Bandit Security Scan" \
+                     -reporter=github-pr-review \
+                     -filter-mode=added \
+                     -fail-on-error=true \
+                     -level=error
+
+      # Critical: Multi-language SAST with Semgrep
+      - name: Run Semgrep SAST
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          semgrep --config=auto --severity=ERROR --json --quiet 2>/dev/null | \
+            reviewdog -f=semgrep \
+                     -name="Semgrep Critical" \
+                     -reporter=github-pr-review \
+                     -filter-mode=added \
+                     -fail-on-error=true \
+                     -level=error
+
+      # High: Semgrep warnings
+      - name: Run Semgrep Warnings
+        if: always()
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          semgrep --config=auto --severity=WARNING --json --quiet 2>/dev/null | \
+            reviewdog -f=semgrep \
+                     -name="Semgrep Warnings" \
+                     -reporter=github-pr-check \
+                     -filter-mode=diff_context \
+                     -level=warning
+
+      # Critical: Secret detection with Gitleaks
+      - name: Run Gitleaks Secret Scan
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/repo \
+            zricethezav/gitleaks:latest detect \
+            --source=/repo \
+            --report-format=json \
+            --report-path=/repo/gitleaks.json \
+            --no-git || true
+
+          if [ -f gitleaks.json ]; then
+            cat gitleaks.json | \
+              reviewdog -f=gitleaks \
+                       -name="Secret Detection" \
+                       -reporter=github-pr-review \
+                       -filter-mode=added \
+                       -fail-on-error=true \
+                       -level=error
+          fi
+
+      # Container: Dockerfile linting with Hadolint
+      - name: Run Hadolint (Dockerfile)
+        if: hashFiles('**/Dockerfile*') != ''
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find all Dockerfiles
+          find . -type f \( -name "Dockerfile*" -o -name "*.dockerfile" \) | while read dockerfile; do
+            docker run --rm -i hadolint/hadolint < "$dockerfile" | \
+              reviewdog -f=checkstyle \
+                       -name="Hadolint: $dockerfile" \
+                       -reporter=github-pr-review \
+                       -filter-mode=diff_context \
+                       -level=warning || true
+          done
+
+      # IaC: Terraform/CloudFormation security with Checkov
+      - name: Run Checkov (IaC Security)
+        if: hashFiles('**/*.tf', '**/*.yml', '**/*.yaml') != ''
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace \
+            bridgecrew/checkov:latest \
+            -d /workspace \
+            --quiet \
+            --compact \
+            -o json 2>/dev/null | \
+              reviewdog -f=checkov \
+                       -name="Checkov IaC Security" \
+                       -reporter=github-pr-review \
+                       -filter-mode=diff_context \
+                       -level=warning || true
+
+      # Shell scripts: ShellCheck
+      - name: Run ShellCheck
+        if: hashFiles('**/*.sh') != ''
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          find . -type f -name "*.sh" | while read script; do
+            shellcheck -f json "$script" 2>/dev/null | \
+              reviewdog -f=shellcheck \
+                       -name="ShellCheck" \
+                       -reporter=github-pr-check \
+                       -filter-mode=diff_context || true
+          done
+
+  security-summary:
+    name: Security Scan Summary
+    runs-on: ubuntu-latest
+    needs: security-scan
+    if: always()
+
+    steps:
+      - name: Post summary
+        run: |
+          echo "## Security Scan Completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All security scans have been executed." >> $GITHUB_STEP_SUMMARY
+          echo "Review the checks above for any findings." >> $GITHUB_STEP_SUMMARY

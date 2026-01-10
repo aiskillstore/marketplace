@@ -1,0 +1,120 @@
+rules:
+  - id: custom-rule-template
+    # Pattern matching - choose one or combine multiple
+    pattern: dangerous_function($ARG)
+    # OR use pattern combinations:
+    # patterns:
+    #   - pattern: execute($QUERY)
+    #   - pattern-inside: |
+    #       $QUERY = $USER_INPUT + ...
+    #   - pattern-not: execute("SAFE_QUERY")
+
+    # Message shown when rule matches
+    message: |
+      Potential security vulnerability detected.
+      Explain the risk and provide remediation guidance.
+
+    # Severity level
+    severity: ERROR  # ERROR, WARNING, or INFO
+
+    # Supported languages
+    languages: [python]  # python, javascript, java, go, etc.
+
+    # Metadata for categorization and tracking
+    metadata:
+      category: security
+      technology: [web-app]
+      cwe:
+        - "CWE-XXX: Vulnerability Name"
+      owasp:
+        - "AXX:2021-Category Name"
+      confidence: HIGH  # HIGH, MEDIUM, LOW
+      likelihood: MEDIUM  # How likely is exploitation
+      impact: HIGH  # Potential security impact
+      references:
+        - https://owasp.org/...
+        - https://cwe.mitre.org/data/definitions/XXX.html
+      subcategory:
+        - vuln-type  # e.g., sqli, xss, command-injection
+
+    # Optional: Autofix suggestion
+    # fix: |
+    #   safe_function($ARG)
+
+    # Optional: Path filtering
+    # paths:
+    #   include:
+    #     - "src/"
+    #   exclude:
+    #     - "*/tests/*"
+    #     - "*/test_*.py"
+
+# Example: SQL Injection Detection
+  - id: example-sql-injection
+    patterns:
+      - pattern-either:
+          - pattern: cursor.execute(f"... {$VAR} ...")
+          - pattern: cursor.execute("..." + $VAR + "...")
+      - pattern-not: cursor.execute("...", ...)
+    message: |
+      SQL injection vulnerability detected. User input is concatenated into SQL query.
+
+      Remediation:
+      - Use parameterized queries: cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+      - Use ORM methods that automatically parameterize queries
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      cwe: ["CWE-89: SQL Injection"]
+      owasp: ["A03:2021-Injection"]
+      confidence: HIGH
+      likelihood: HIGH
+      impact: HIGH
+      references:
+        - https://owasp.org/Top10/A03_2021-Injection/
+
+# Example: Hard-coded Secret Detection
+  - id: example-hardcoded-secret
+    pattern-regex: |
+      (password|passwd|pwd|secret|token|api[_-]?key)\s*=\s*['"][^'"]{8,}['"]
+    message: |
+      Potential hard-coded secret detected.
+
+      Remediation:
+      - Use environment variables: os.getenv('API_KEY')
+      - Use secrets management: AWS Secrets Manager, HashiCorp Vault
+      - Never commit secrets to version control
+    severity: WARNING
+    languages: [python, javascript, java, go]
+    metadata:
+      category: security
+      cwe: ["CWE-798: Use of Hard-coded Credentials"]
+      owasp: ["A07:2021-Identification-and-Authentication-Failures"]
+      confidence: MEDIUM
+
+# Example: Insecure Deserialization
+  - id: example-unsafe-deserialization
+    patterns:
+      - pattern-either:
+          - pattern: pickle.loads($DATA)
+          - pattern: pickle.load($FILE)
+      - pattern-not-inside: |
+          # Safe pickle usage
+          ...
+    message: |
+      Unsafe deserialization using pickle. Attackers can execute arbitrary code.
+
+      Remediation:
+      - Use JSON for serialization: json.loads(data)
+      - If pickle is required, validate and sanitize data source
+      - Never deserialize data from untrusted sources
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      cwe: ["CWE-502: Deserialization of Untrusted Data"]
+      owasp: ["A08:2021-Software-and-Data-Integrity-Failures"]
+      confidence: HIGH
+      likelihood: HIGH
+      impact: CRITICAL

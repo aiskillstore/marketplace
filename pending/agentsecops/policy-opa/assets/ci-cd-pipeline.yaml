@@ -1,0 +1,234 @@
+# GitHub Actions CI/CD Pipeline with OPA Policy Validation
+name: OPA Policy Validation
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  # Test OPA policies with unit tests
+  test-policies:
+    name: Test OPA Policies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: Run Policy Tests
+        run: |
+          opa test policies/ --verbose --coverage
+          opa test policies/ --coverage --format=json > coverage.json
+
+      - name: Check Coverage Threshold
+        run: |
+          COVERAGE=$(jq -r '.coverage' coverage.json | awk '{print int($1)}')
+          if [ "$COVERAGE" -lt 80 ]; then
+            echo "Coverage $COVERAGE% is below threshold 80%"
+            exit 1
+          fi
+          echo "Coverage: $COVERAGE%"
+
+  # Validate Kubernetes manifests
+  validate-kubernetes:
+    name: Validate Kubernetes Configs
+    runs-on: ubuntu-latest
+    needs: test-policies
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+
+      - name: Validate Kubernetes Manifests
+        run: |
+          for file in k8s/**/*.yaml; do
+            echo "Validating $file"
+            opa eval --data policies/ --input "$file" \
+              --format pretty 'data.kubernetes.admission.deny' \
+              > violations.txt
+
+            if [ -s violations.txt ]; then
+              echo "Policy violations found in $file:"
+              cat violations.txt
+              exit 1
+            fi
+          done
+
+      - name: Generate Validation Report
+        if: always()
+        run: |
+          ./scripts/generate_report.py \
+            --policy policies/ \
+            --audit-logs violations.json \
+            --format html \
+            --output validation-report.html
+
+      - name: Upload Report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: validation-report
+          path: validation-report.html
+
+  # Validate Terraform configurations
+  validate-terraform:
+    name: Validate Terraform Configs
+    runs-on: ubuntu-latest
+    needs: test-policies
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Generate Terraform Plan
+        run: |
+          terraform plan -out=tfplan.binary
+          terraform show -json tfplan.binary > tfplan.json
+
+      - name: Validate with OPA
+        run: |
+          opa eval --data policies/terraform/ --input tfplan.json \
+            --format pretty 'data.terraform.security.deny' \
+            > terraform-violations.json
+
+          if [ -s terraform-violations.json ]; then
+            echo "Terraform policy violations detected:"
+            cat terraform-violations.json
+            exit 1
+          fi
+
+  # Compliance validation for production
+  compliance-check:
+    name: Compliance Validation
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    needs: [validate-kubernetes, validate-terraform]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+
+      - name: SOC2 Compliance Check
+        run: |
+          opa eval --data policies/compliance/soc2-compliance.rego \
+            --input deployments/ \
+            --format json 'data.compliance.soc2.deny' \
+            > soc2-violations.json
+
+      - name: PCI-DSS Compliance Check
+        run: |
+          opa eval --data policies/compliance/pci-dss-compliance.rego \
+            --input deployments/ \
+            --format json 'data.compliance.pci.deny' \
+            > pci-violations.json
+
+      - name: GDPR Compliance Check
+        run: |
+          opa eval --data policies/compliance/gdpr-compliance.rego \
+            --input deployments/ \
+            --format json 'data.compliance.gdpr.deny' \
+            > gdpr-violations.json
+
+      - name: Generate Compliance Report
+        run: |
+          ./scripts/generate_report.py \
+            --policy policies/compliance/ \
+            --audit-logs soc2-violations.json \
+            --format html \
+            --output compliance-report.html
+
+      - name: Upload Compliance Report
+        uses: actions/upload-artifact@v3
+        with:
+          name: compliance-report
+          path: compliance-report.html
+
+      - name: Fail on Violations
+        run: |
+          TOTAL_VIOLATIONS=$(cat *-violations.json | jq -s 'map(length) | add')
+          if [ "$TOTAL_VIOLATIONS" -gt 0 ]; then
+            echo "Found $TOTAL_VIOLATIONS compliance violations"
+            exit 1
+          fi
+
+---
+# GitLab CI/CD Pipeline Example
+# .gitlab-ci.yml
+
+stages:
+  - test
+  - validate
+  - compliance
+
+variables:
+  OPA_VERSION: "latest"
+
+test-policies:
+  stage: test
+  image: openpolicyagent/opa:${OPA_VERSION}
+  script:
+    - opa test policies/ --verbose --coverage
+    - opa test policies/ --format=json --coverage > coverage.json
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.json
+
+validate-kubernetes:
+  stage: validate
+  image: openpolicyagent/opa:${OPA_VERSION}
+  script:
+    - |
+      for file in k8s/**/*.yaml; do
+        opa eval --data policies/ --input "$file" \
+          'data.kubernetes.admission.deny' || exit 1
+      done
+  only:
+    - merge_requests
+    - main
+
+validate-terraform:
+  stage: validate
+  image: hashicorp/terraform:latest
+  before_script:
+    - apk add --no-cache curl jq
+    - curl -L -o /usr/local/bin/opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
+    - chmod +x /usr/local/bin/opa
+  script:
+    - terraform init
+    - terraform plan -out=tfplan.binary
+    - terraform show -json tfplan.binary > tfplan.json
+    - opa eval --data policies/terraform/ --input tfplan.json 'data.terraform.security.deny'
+  only:
+    - merge_requests
+    - main
+
+compliance-check:
+  stage: compliance
+  image: openpolicyagent/opa:${OPA_VERSION}
+  script:
+    - opa eval --data policies/compliance/ --input deployments/ 'data.compliance'
+  artifacts:
+    reports:
+      junit: compliance-report.xml
+  only:
+    - main

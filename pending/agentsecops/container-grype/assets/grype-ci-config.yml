@@ -1,0 +1,405 @@
+# Grype CI/CD Pipeline Configuration Examples
+#
+# This file provides example configurations for integrating Grype vulnerability
+# scanning into various CI/CD platforms.
+
+# =============================================================================
+# GitHub Actions
+# =============================================================================
+
+name: Container Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Scan daily for new vulnerabilities
+    - cron: '0 6 * * *'
+
+jobs:
+  grype-scan:
+    name: Grype Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t ${{ github.repository }}:${{ github.sha }} .
+
+      - name: Install Grype
+        uses: anchore/scan-action@v3
+        id: grype
+        with:
+          image: ${{ github.repository }}:${{ github.sha }}
+          fail-build: true
+          severity-cutoff: high
+          output-format: sarif
+
+      - name: Upload SARIF results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+
+      - name: Generate human-readable report
+        if: always()
+        run: |
+          grype ${{ github.repository }}:${{ github.sha }} -o table > grype-report.txt
+
+      - name: Upload scan report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: grype-scan-report
+          path: grype-report.txt
+          retention-days: 30
+
+# =============================================================================
+# GitLab CI
+# =============================================================================
+
+# .gitlab-ci.yml
+
+stages:
+  - build
+  - scan
+  - deploy
+
+variables:
+  IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+  GRYPE_VERSION: "latest"
+
+build:
+  stage: build
+  image: docker:24-dind
+  services:
+    - docker:24-dind
+  script:
+    - docker build -t $IMAGE_NAME .
+    - docker push $IMAGE_NAME
+  only:
+    - branches
+
+grype-scan:
+  stage: scan
+  image: anchore/grype:$GRYPE_VERSION
+  script:
+    - grype $IMAGE_NAME --fail-on high -o json > grype-results.json
+    - grype $IMAGE_NAME -o table
+  artifacts:
+    reports:
+      container_scanning: grype-results.json
+    paths:
+      - grype-results.json
+    expire_in: 30 days
+  allow_failure: false
+  only:
+    - branches
+
+deploy:
+  stage: deploy
+  script:
+    - echo "Deploying $IMAGE_NAME"
+  only:
+    - main
+  when: on_success
+
+# =============================================================================
+# Jenkins Pipeline
+# =============================================================================
+
+# Jenkinsfile
+
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "myapp"
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
+        GRYPE_VERSION = "latest"
+    }
+
+    stages {
+        stage('Build') {
+            steps {
+                script {
+                    docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+                }
+            }
+        }
+
+        stage('Grype Scan') {
+            agent {
+                docker {
+                    image "anchore/grype:${GRYPE_VERSION}"
+                    args '-v /var/run/docker.sock:/var/run/docker.sock'
+                }
+            }
+            steps {
+                sh """
+                    # Run scan with high severity threshold
+                    grype ${IMAGE_NAME}:${IMAGE_TAG} \
+                        --fail-on high \
+                        -o json > grype-results.json
+
+                    # Generate human-readable report
+                    grype ${IMAGE_NAME}:${IMAGE_TAG} \
+                        -o table > grype-report.txt
+                """
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'grype-*.json,grype-*.txt',
+                                     allowEmptyArchive: true
+                }
+                failure {
+                    echo 'Grype scan found vulnerabilities above threshold'
+                }
+            }
+        }
+
+        stage('Deploy') {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo "Deploying ${IMAGE_NAME}:${IMAGE_TAG}"
+            }
+        }
+    }
+}
+
+# =============================================================================
+# CircleCI
+# =============================================================================
+
+# .circleci/config.yml
+
+version: 2.1
+
+orbs:
+  docker: circleci/docker@2.2.0
+
+jobs:
+  build-and-scan:
+    docker:
+      - image: cimg/base:2024.01
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: true
+
+      - run:
+          name: Build Docker Image
+          command: |
+            docker build -t myapp:${CIRCLE_SHA1} .
+
+      - run:
+          name: Install Grype
+          command: |
+            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+      - run:
+          name: Scan with Grype
+          command: |
+            grype myapp:${CIRCLE_SHA1} --fail-on critical -o json > grype-results.json
+            grype myapp:${CIRCLE_SHA1} -o table | tee grype-report.txt
+
+      - store_artifacts:
+          path: grype-results.json
+          destination: scan-results
+
+      - store_artifacts:
+          path: grype-report.txt
+          destination: scan-results
+
+workflows:
+  build-scan-deploy:
+    jobs:
+      - build-and-scan:
+          filters:
+            branches:
+              only:
+                - main
+                - develop
+
+# =============================================================================
+# Azure Pipelines
+# =============================================================================
+
+# azure-pipelines.yml
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  imageName: 'myapp'
+  imageTag: '$(Build.BuildId)'
+
+stages:
+  - stage: Build
+    jobs:
+      - job: BuildImage
+        steps:
+          - task: Docker@2
+            displayName: Build Docker image
+            inputs:
+              command: build
+              dockerfile: Dockerfile
+              tags: $(imageTag)
+
+  - stage: Scan
+    dependsOn: Build
+    jobs:
+      - job: GrypeScan
+        steps:
+          - script: |
+              # Install Grype
+              curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+              # Run scan
+              grype $(imageName):$(imageTag) \
+                --fail-on high \
+                -o json > $(Build.ArtifactStagingDirectory)/grype-results.json
+
+              grype $(imageName):$(imageTag) \
+                -o table > $(Build.ArtifactStagingDirectory)/grype-report.txt
+            displayName: 'Run Grype Scan'
+
+          - task: PublishBuildArtifacts@1
+            displayName: 'Publish Scan Results'
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: 'grype-scan-results'
+            condition: always()
+
+  - stage: Deploy
+    dependsOn: Scan
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: DeployProduction
+        steps:
+          - script: echo "Deploying to production"
+            displayName: 'Deploy'
+
+# =============================================================================
+# Tekton Pipeline
+# =============================================================================
+
+# tekton-pipeline.yaml
+
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: grype-scan-pipeline
+spec:
+  params:
+    - name: image-name
+      type: string
+      description: Name of the image to scan
+    - name: image-tag
+      type: string
+      description: Tag of the image to scan
+      default: latest
+
+  workspaces:
+    - name: shared-workspace
+
+  tasks:
+    - name: build-image
+      taskRef:
+        name: buildah
+      workspaces:
+        - name: source
+          workspace: shared-workspace
+      params:
+        - name: IMAGE
+          value: $(params.image-name):$(params.image-tag)
+
+    - name: grype-scan
+      runAfter:
+        - build-image
+      taskRef:
+        name: grype-scan
+      params:
+        - name: IMAGE
+          value: $(params.image-name):$(params.image-tag)
+        - name: SEVERITY_THRESHOLD
+          value: high
+
+    - name: deploy
+      runAfter:
+        - grype-scan
+      taskRef:
+        name: kubectl-deploy
+      params:
+        - name: IMAGE
+          value: $(params.image-name):$(params.image-tag)
+
+---
+
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: grype-scan
+spec:
+  params:
+    - name: IMAGE
+      description: Image to scan
+    - name: SEVERITY_THRESHOLD
+      description: Fail on this severity or higher
+      default: high
+
+  steps:
+    - name: scan
+      image: anchore/grype:latest
+      script: |
+        #!/bin/sh
+        grype $(params.IMAGE) \
+          --fail-on $(params.SEVERITY_THRESHOLD) \
+          -o json > /workspace/grype-results.json
+
+        grype $(params.IMAGE) -o table | tee /workspace/grype-report.txt
+
+  workspaces:
+    - name: scan-results
+
+# =============================================================================
+# Best Practices
+# =============================================================================
+
+# 1. Update vulnerability database regularly
+#    - Run grype db update before scans
+#    - Cache database between pipeline runs
+#    - Update database at least daily
+
+# 2. Set appropriate fail thresholds
+#    - Production: --fail-on critical or high
+#    - Development: --fail-on high (may allow critical temporarily)
+#    - Monitor-only: No fail threshold, just report
+
+# 3. Archive scan results
+#    - Store JSON for trend analysis
+#    - Keep reports for compliance audits
+#    - Retention: 30-90 days minimum
+
+# 4. Integrate with security dashboards
+#    - Upload SARIF to GitHub Security
+#    - Send metrics to monitoring systems
+#    - Alert security team on critical findings
+
+# 5. Scheduled scanning
+#    - Scan production images daily for new CVEs
+#    - Re-scan after vulnerability database updates
+#    - Track vulnerability trends over time

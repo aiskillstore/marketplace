@@ -1,0 +1,87 @@
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: k8spodsecurity
+  annotations:
+    description: "Enforces pod security standards including privileged containers, host namespaces, and capabilities"
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sPodSecurity
+      validation:
+        openAPIV3Schema:
+          type: object
+          properties:
+            allowPrivileged:
+              type: boolean
+              description: "Allow privileged containers"
+            allowHostNamespace:
+              type: boolean
+              description: "Allow host namespace usage"
+            allowedCapabilities:
+              type: array
+              description: "List of allowed capabilities"
+              items:
+                type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8spodsecurity
+
+        import future.keywords.contains
+        import future.keywords.if
+
+        violation[{"msg": msg}] {
+          not input.parameters.allowPrivileged
+          container := input.review.object.spec.containers[_]
+          container.securityContext.privileged == true
+          msg := sprintf("Privileged container not allowed: %v", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.securityContext.runAsNonRoot
+          msg := sprintf("Container must run as non-root: %v", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          not container.securityContext.readOnlyRootFilesystem
+          msg := sprintf("Container must use read-only root filesystem: %v", [container.name])
+        }
+
+        violation[{"msg": msg}] {
+          not input.parameters.allowHostNamespace
+          input.review.object.spec.hostPID == true
+          msg := "Host PID namespace not allowed"
+        }
+
+        violation[{"msg": msg}] {
+          not input.parameters.allowHostNamespace
+          input.review.object.spec.hostIPC == true
+          msg := "Host IPC namespace not allowed"
+        }
+
+        violation[{"msg": msg}] {
+          not input.parameters.allowHostNamespace
+          input.review.object.spec.hostNetwork == true
+          msg := "Host network namespace not allowed"
+        }
+
+        violation[{"msg": msg}] {
+          volume := input.review.object.spec.volumes[_]
+          volume.hostPath
+          msg := sprintf("hostPath volume not allowed: %v", [volume.name])
+        }
+
+        violation[{"msg": msg}] {
+          container := input.review.object.spec.containers[_]
+          capability := container.securityContext.capabilities.add[_]
+          not is_allowed_capability(capability)
+          msg := sprintf("Capability %v not allowed for container: %v", [capability, container.name])
+        }
+
+        is_allowed_capability(capability) {
+          input.parameters.allowedCapabilities[_] == capability
+        }

@@ -1,0 +1,133 @@
+---
+# Velociraptor Artifact Template
+# Use this template to create custom forensic artifacts for incident response
+
+name: Custom.IR.TemplateArtifact
+description: |
+  Provide a comprehensive description of what this artifact collects and why.
+
+  ## Use Cases
+  - Specific scenario 1
+  - Specific scenario 2
+  - Specific scenario 3
+
+  ## Expected Output
+  Describe what data will be collected and its format.
+
+  ## MITRE ATT&CK Mapping
+  - T1XXX.XXX: Technique Name
+
+# Author information (optional but recommended)
+author: Your Name <email@domain.com>
+
+# Artifact type: CLIENT, SERVER, CLIENT_EVENT, SERVER_EVENT
+type: CLIENT
+
+# Parameters allow artifact customization
+parameters:
+  - name: SearchPath
+    default: "C:/Users/**/AppData/**"
+    type: string
+    description: |
+      Directory path or glob pattern to search.
+      Supports wildcards: * (any characters), ** (recursive)
+
+  - name: DaysBack
+    default: 7
+    type: int
+    description: Number of days to look back for modifications
+
+  - name: FilePattern
+    default: "*.exe"
+    type: string
+    description: File extension or pattern to match
+
+  - name: IncludeHashes
+    default: Y
+    type: bool
+    description: Calculate SHA256 hash for each file
+
+  - name: MaxFileSize
+    default: 104857600
+    type: int
+    description: Maximum file size to hash (bytes, default 100MB)
+
+# Optional: Check before running (OS, tool presence, etc.)
+precondition: |
+  SELECT OS FROM info() WHERE OS = 'windows'
+
+# Sources define the VQL queries to execute
+sources:
+  # Main query source
+  - name: FileCollection
+    query: |
+      -- Calculate time threshold
+      LET StartTime = timestamp(epoch=now() - DaysBack * 86400)
+
+      -- Collect files matching criteria
+      LET MatchingFiles = SELECT FullPath,
+             Size,
+             timestamp(epoch=Mtime) AS ModifiedTime,
+             timestamp(epoch=Ctime) AS CreatedTime,
+             timestamp(epoch=Atime) AS AccessedTime
+      FROM glob(globs=SearchPath + "/" + FilePattern)
+      WHERE NOT IsDir
+        AND Mtime > StartTime
+        AND Size < MaxFileSize
+
+      -- Conditionally add hashes
+      SELECT FullPath,
+             Size,
+             ModifiedTime,
+             CreatedTime,
+             AccessedTime,
+             if(condition=IncludeHashes,
+                then=hash(path=FullPath, accessor="file").SHA256,
+                else="<not computed>") AS SHA256
+      FROM MatchingFiles
+      ORDER BY ModifiedTime DESC
+
+  # Optional: Additional query source for related data
+  - name: FileMetadata
+    query: |
+      -- Example: Get additional metadata for PE files
+      SELECT FullPath,
+             parse_pe(file=FullPath) AS PEInfo
+      FROM glob(globs=SearchPath + "/**/*.exe")
+      WHERE PEInfo
+
+# Optional: Report template for formatted output
+reports:
+  - type: CLIENT
+    template: |
+      # {{ .ArtifactName }} Results
+
+      **Description:** {{ .Description }}
+
+      **Client:** {{ .ClientId }}
+      **Hostname:** {{ .Hostname }}
+      **Collection Time:** {{ .CollectionTime }}
+
+      ## Summary
+      Total Files Found: {{ len .Rows }}
+
+      ## Detailed Results
+
+      {{ range .Rows }}
+      ### {{ .FullPath }}
+      - **Size:** {{ .Size }} bytes
+      - **Modified:** {{ .ModifiedTime }}
+      - **SHA256:** {{ .SHA256 }}
+      ---
+      {{ end }}
+
+# Optional: External documentation references
+references:
+  - https://docs.velociraptor.app/docs/vql/
+  - https://attack.mitre.org/
+
+# Optional: Required external tools or binaries
+tools:
+  - name: ExampleTool
+    url: https://example.com/tool.exe
+    serve_locally: true

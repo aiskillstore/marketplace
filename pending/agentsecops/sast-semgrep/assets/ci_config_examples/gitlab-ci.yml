@@ -1,0 +1,106 @@
+# GitLab CI - Semgrep Security Scanning
+# Add to .gitlab-ci.yml
+
+stages:
+  - test
+  - security
+
+# Basic Semgrep scan
+semgrep-scan:
+  stage: security
+  image: semgrep/semgrep:latest
+  script:
+    - semgrep --config="p/security-audit"
+              --config="p/owasp-top-ten"
+              --gitlab-sast
+              --output=gl-sast-report.json
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+    paths:
+      - gl-sast-report.json
+    expire_in: 1 week
+  rules:
+    - if: $CI_MERGE_REQUEST_ID  # Run on MRs
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH  # Run on default branch
+
+# Advanced: Fail on HIGH severity findings
+semgrep-strict:
+  stage: security
+  image: python:3.11-slim
+  before_script:
+    - pip install semgrep
+  script:
+    - |
+      semgrep --config="p/security-audit" \
+               --severity=ERROR \
+               --json \
+               --output=results.json
+
+      CRITICAL=$(jq '[.results[] | select(.extra.severity == "ERROR")] | length' results.json)
+      echo "Found $CRITICAL critical findings"
+
+      if [ "$CRITICAL" -gt 0 ]; then
+        echo "❌ Critical security issues detected!"
+        jq '.results[] | select(.extra.severity == "ERROR")' results.json
+        exit 1
+      fi
+  artifacts:
+    paths:
+      - results.json
+    expire_in: 1 week
+    when: always
+  allow_failure: false
+
+# Differential scanning - only new findings in MR
+semgrep-diff:
+  stage: security
+  image: semgrep/semgrep:latest
+  script:
+    - git fetch origin $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+    - |
+      semgrep --config="p/security-audit" \
+               --baseline-commit="origin/$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" \
+               --gitlab-sast \
+               --output=gl-sast-report.json
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+
+# Scheduled full scan (daily)
+semgrep-scheduled:
+  stage: security
+  image: semgrep/semgrep:latest
+  script:
+    - |
+      semgrep --config="p/security-audit" \
+               --config="p/owasp-top-ten" \
+               --config="p/cwe-top-25" \
+               --json \
+               --output=full-scan-results.json
+  artifacts:
+    paths:
+      - full-scan-results.json
+    expire_in: 30 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+
+# Custom rules integration
+semgrep-custom:
+  stage: security
+  image: semgrep/semgrep:latest
+  script:
+    - |
+      semgrep --config="p/owasp-top-ten" \
+               --config="custom-rules/security.yaml" \
+               --gitlab-sast \
+               --output=gl-sast-report.json
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+      exists:
+        - custom-rules/security.yaml

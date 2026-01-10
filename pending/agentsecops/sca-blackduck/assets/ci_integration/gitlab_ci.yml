@@ -1,0 +1,191 @@
+# GitLab CI/CD configuration for Black Duck SCA scanning
+#
+# Add this to your .gitlab-ci.yml or include it:
+# include:
+#   - local: 'assets/ci_integration/gitlab_ci.yml'
+
+variables:
+  BLACKDUCK_URL: ${BLACKDUCK_URL}
+  BLACKDUCK_TOKEN: ${BLACKDUCK_API_TOKEN}
+  PROJECT_NAME: ${CI_PROJECT_PATH}
+  PROJECT_VERSION: ${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}
+
+stages:
+  - security-scan
+  - security-report
+
+# Black Duck SCA Scan
+blackduck-sca-scan:
+  stage: security-scan
+  image: ubuntu:22.04
+
+  before_script:
+    - apt-get update && apt-get install -y curl bash jq
+    - echo "Starting Black Duck scan for ${PROJECT_NAME}"
+    - echo "Version ${PROJECT_VERSION}"
+
+  script:
+    # Run Black Duck Detect
+    - |
+      bash <(curl -s -L https://detect.synopsys.com/detect.sh) \
+        --blackduck.url=${BLACKDUCK_URL} \
+        --blackduck.api.token=${BLACKDUCK_TOKEN} \
+        --detect.project.name="${PROJECT_NAME}" \
+        --detect.project.version.name="${PROJECT_VERSION}" \
+        --detect.policy.check.fail.on.severities=BLOCKER,CRITICAL \
+        --detect.wait.for.results=true \
+        --detect.risk.report.pdf=true \
+        --detect.notices.report=true \
+        --detect.output.path=./blackduck-output \
+        --detect.cleanup=false
+
+  after_script:
+    # Generate summary report
+    - |
+      if [ -f ./blackduck-output/runs/*/status/status.json ]; then
+        echo "=== Black Duck Scan Summary ==="
+        jq -r '.policyStatus' ./blackduck-output/runs/*/status/status.json
+      fi
+
+  artifacts:
+    name: "blackduck-reports-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - blackduck-output/**/BlackDuck_RiskReport_*.pdf
+      - blackduck-output/**/BlackDuck_Notices_*.txt
+      - blackduck-output/**/*_Black_Duck_scan.json
+    expire_in: 30 days
+    reports:
+      # GitLab dependency scanning report format
+      dependency_scanning: blackduck-output/gl-dependency-scanning-report.json
+
+  rules:
+    # Run on merge requests
+    - if: $CI_MERGE_REQUEST_ID
+    # Run on main/master branch
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    # Run on tags
+    - if: $CI_COMMIT_TAG
+    # Run on scheduled pipelines
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    # Manual trigger
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+  allow_failure: false  # Fail pipeline on policy violations
+
+# Generate SBOM
+blackduck-sbom:
+  stage: security-scan
+  image: ubuntu:22.04
+
+  before_script:
+    - apt-get update && apt-get install -y curl bash jq
+
+  script:
+    - |
+      bash <(curl -s -L https://detect.synopsys.com/detect.sh) \
+        --blackduck.url=${BLACKDUCK_URL} \
+        --blackduck.api.token=${BLACKDUCK_TOKEN} \
+        --detect.project.name="${PROJECT_NAME}" \
+        --detect.project.version.name="${PROJECT_VERSION}" \
+        --detect.tools=DETECTOR \
+        --detect.bom.aggregate.name=sbom-cyclonedx.json \
+        --detect.output.path=./sbom-output
+
+  artifacts:
+    name: "sbom-${CI_COMMIT_SHORT_SHA}"
+    paths:
+      - sbom-output/**/sbom-cyclonedx.json
+    expire_in: 90 days
+
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+
+# Security Report Summary
+blackduck-summary:
+  stage: security-report
+  image: ubuntu:22.04
+  needs: ["blackduck-sca-scan"]
+
+  before_script:
+    - apt-get update && apt-get install -y jq curl
+
+  script:
+    - |
+      # Parse Black Duck results and create summary
+      echo "## Black Duck SCA Scan Summary" > security-summary.md
+      echo "" >> security-summary.md
+      echo "**Project**: ${PROJECT_NAME}" >> security-summary.md
+      echo "**Version**: ${PROJECT_VERSION}" >> security-summary.md
+      echo "**Scan Date**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> security-summary.md
+      echo "" >> security-summary.md
+
+      # Add vulnerability summary if available
+      if [ -f blackduck-output/runs/*/status/status.json ]; then
+        echo "### Vulnerability Summary" >> security-summary.md
+        jq -r '.componentStatus' blackduck-output/runs/*/status/status.json >> security-summary.md || true
+      fi
+
+      cat security-summary.md
+
+  artifacts:
+    reports:
+      # Metrics for GitLab Security Dashboard
+      metrics: security-summary.md
+
+  rules:
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Policy Check (can be used as a gate)
+blackduck-policy-gate:
+  stage: security-report
+  image: ubuntu:22.04
+  needs: ["blackduck-sca-scan"]
+
+  script:
+    - |
+      # Check policy status
+      if [ -f ./blackduck-output/runs/*/status/status.json ]; then
+        POLICY_STATUS=$(jq -r '.policyStatus.overallStatus' ./blackduck-output/runs/*/status/status.json)
+
+        if [ "$POLICY_STATUS" = "IN_VIOLATION" ]; then
+          echo "❌ Policy violations detected!"
+          echo "Critical or high-severity vulnerabilities found."
+          echo "Review the Black Duck report for details."
+          exit 1
+        else
+          echo "✅ No policy violations detected"
+        fi
+      else
+        echo "⚠️  Warning: Unable to verify policy status"
+        exit 1
+      fi
+
+  rules:
+    # Only run as gate on merge requests and main branch
+    - if: $CI_MERGE_REQUEST_ID
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Scheduled daily scan (comprehensive)
+blackduck-scheduled-scan:
+  extends: blackduck-sca-scan
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  variables:
+    # More comprehensive scan for scheduled runs
+    DETECT_TOOLS: "DETECTOR,SIGNATURE_SCAN,BINARY_SCAN"
+  script:
+    - |
+      bash <(curl -s -L https://detect.synopsys.com/detect.sh) \
+        --blackduck.url=${BLACKDUCK_URL} \
+        --blackduck.api.token=${BLACKDUCK_TOKEN} \
+        --detect.project.name="${PROJECT_NAME}" \
+        --detect.project.version.name="${PROJECT_VERSION}" \
+        --detect.tools=${DETECT_TOOLS} \
+        --detect.risk.report.pdf=true \
+        --detect.notices.report=true \
+        --detect.policy.check.fail.on.severities=BLOCKER,CRITICAL,MAJOR \
+        --detect.wait.for.results=true \
+        --detect.output.path=./blackduck-output

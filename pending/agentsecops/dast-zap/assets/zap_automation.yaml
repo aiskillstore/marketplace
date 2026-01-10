@@ -1,0 +1,196 @@
+# OWASP ZAP Automation Framework Configuration
+# Complete automation workflow for web application security testing
+
+env:
+  contexts:
+    - name: WebApp-Security-Scan
+      urls:
+        - ${TARGET_URL}
+      includePaths:
+        - ${TARGET_URL}.*
+      excludePaths:
+        - .*logout.*
+        - .*signout.*
+        - .*\\.css
+        - .*\\.js
+        - .*\\.png
+        - .*\\.jpg
+        - .*\\.gif
+        - .*\\.svg
+      authentication:
+        method: form
+        parameters:
+          loginUrl: ${LOGIN_URL}
+          loginRequestData: username={%username%}&password={%password%}
+        verification:
+          method: response
+          loggedInRegex: "\\QWelcome\\E"
+          loggedOutRegex: "\\QLogin\\E"
+      sessionManagement:
+        method: cookie
+        parameters:
+          sessionCookieName: JSESSIONID
+      users:
+        - name: test-user
+          credentials:
+            username: ${TEST_USERNAME}
+            password: ${TEST_PASSWORD}
+
+  parameters:
+    failOnError: true
+    failOnWarning: false
+    progressToStdout: true
+
+  vars:
+    target_url: ${TARGET_URL}
+    api_key: ${ZAP_API_KEY}
+
+jobs:
+  # Environment setup
+  - type: environment
+    parameters:
+      deleteGlobalAlerts: true
+      updateAddOns: true
+
+  # Import OpenAPI specification (if available)
+  - type: openapi
+    parameters:
+      apiFile: ${OPENAPI_SPEC_FILE}
+      apiUrl: ${TARGET_URL}
+      targetUrl: ${TARGET_URL}
+      context: WebApp-Security-Scan
+    optional: true
+
+  # Spider crawling
+  - type: spider
+    parameters:
+      context: WebApp-Security-Scan
+      user: test-user
+      maxDuration: 10
+      maxDepth: 5
+      maxChildren: 10
+      acceptCookies: true
+      handleODataParametersVisited: true
+      parseComments: true
+      parseRobotsTxt: true
+      parseSitemapXml: true
+      parseSVNEntries: true
+      parseGit: true
+      postForm: true
+      processForm: true
+      requestWaitTime: 200
+
+  # AJAX Spider for JavaScript-heavy applications
+  - type: spiderAjax
+    parameters:
+      context: WebApp-Security-Scan
+      user: test-user
+      maxDuration: 10
+      maxCrawlDepth: 5
+      numberOfBrowsers: 2
+      browserId: firefox-headless
+      clickDefaultElems: true
+      clickElemsOnce: true
+      eventWait: 1000
+      reloadWait: 1000
+    optional: true
+
+  # Wait for passive scanning to complete
+  - type: passiveScan-wait
+    parameters:
+      maxDuration: 5
+
+  # Configure passive scan rules
+  - type: passiveScan-config
+    parameters:
+      maxAlertsPerRule: 10
+      scanOnlyInScope: true
+      enableTags: true
+      disableRules:
+        - 10096  # Timestamp Disclosure (informational)
+
+  # Active scanning
+  - type: activeScan
+    parameters:
+      context: WebApp-Security-Scan
+      user: test-user
+      policy: Default Policy
+      maxRuleDurationInMins: 5
+      maxScanDurationInMins: 30
+      addQueryParam: false
+      defaultPolicy: Default Policy
+      delayInMs: 0
+      handleAntiCSRFTokens: true
+      injectPluginIdInHeader: false
+      scanHeadersAllRequests: false
+      threadPerHost: 2
+
+  # Wait for active scanning to complete
+  - type: activeScan-wait
+
+  # Generate reports
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: ${REPORT_DIR}
+      reportFile: security-report.html
+      reportTitle: Web Application Security Assessment
+      reportDescription: Automated DAST scan using OWASP ZAP
+      displayReport: false
+
+  - type: report
+    parameters:
+      template: traditional-json
+      reportDir: ${REPORT_DIR}
+      reportFile: security-report.json
+      reportTitle: Web Application Security Assessment
+
+  - type: report
+    parameters:
+      template: traditional-xml
+      reportDir: ${REPORT_DIR}
+      reportFile: security-report.xml
+      reportTitle: Web Application Security Assessment
+
+  - type: report
+    parameters:
+      template: sarif-json
+      reportDir: ${REPORT_DIR}
+      reportFile: security-report.sarif
+      reportTitle: Web Application Security Assessment (SARIF)
+    optional: true
+
+# Alert filters (false positive suppression)
+alertFilters:
+  - ruleId: 10021
+    newRisk: Info
+    url: ".*\\.css|.*\\.js|.*cdn\\..*"
+    context: WebApp-Security-Scan
+
+  - ruleId: 10096
+    newRisk: Info
+    url: ".*api\\..*"
+    parameter: "created_at|updated_at|timestamp"
+    context: WebApp-Security-Scan
+
+# Scan policies
+policies:
+  - name: Default Policy
+    defaultStrength: Medium
+    defaultThreshold: Medium
+    rules:
+      - id: 40018  # SQL Injection
+        strength: High
+        threshold: Low
+      - id: 40012  # Cross-Site Scripting (Reflected)
+        strength: High
+        threshold: Low
+      - id: 40014  # Cross-Site Scripting (Persistent)
+        strength: High
+        threshold: Low
+      - id: 90019  # Server-Side Code Injection
+        strength: High
+        threshold: Low
+      - id: 90020  # Remote OS Command Injection
+        strength: High
+        threshold: Low

@@ -1,0 +1,210 @@
+# Velociraptor Hunt Configuration Template
+# Use this template to create hunts for organization-wide threat hunting
+
+hunt_description: |
+  # Hunt: [Descriptive Name]
+
+  ## Objective
+  Describe the goal of this hunt (e.g., detect lateral movement, find webshells)
+
+  ## Hypothesis
+  What threat or activity are you looking for?
+
+  ## Timeline
+  Start Date: YYYY-MM-DD
+  Expected Duration: X days
+  Priority: High/Medium/Low
+
+  ## Artifacts
+  List of artifacts to collect:
+  - Artifact.Name.One
+  - Artifact.Name.Two
+
+  ## Expected Findings
+  What constitutes a positive match?
+
+  ## Triage Criteria
+  How to prioritize results for investigation?
+
+# Hunt Configuration
+configuration:
+  # Artifact to run across endpoints
+  artifact: Windows.Detection.SuspiciousProcess
+
+  # Artifact parameters (if any)
+  parameters:
+    ProcessPattern: "(?i)(powershell|cmd|wscript)"
+    CommandLinePattern: "(?i)(bypass|hidden|encodedcommand)"
+
+  # Target selection
+  target:
+    # Option 1: Include all clients
+    include_all: true
+
+    # Option 2: Specific client labels
+    include_labels:
+      - "Production-Servers"
+      - "High-Value-Assets"
+
+    # Option 3: Exclude certain clients
+    exclude_labels:
+      - "Test-Systems"
+
+    # Option 4: Operating system filter
+    os_condition: "Windows"
+
+    # Option 5: Custom VQL condition
+    client_condition: |
+      SELECT client_id FROM clients()
+      WHERE os_info.system = "windows"
+        AND last_seen_at > now() - 3600
+
+  # Resource limits to prevent endpoint impact
+  resource_limits:
+    # Maximum CPU usage percentage
+    cpu_limit: 50
+
+    # Maximum number of rows to return per client
+    max_rows: 10000
+
+    # Maximum execution time per client (seconds)
+    max_execution_time: 600
+
+    # Operations per second limit (for filesystem operations)
+    ops_per_second: 100
+
+  # Collection timeout
+  timeout: 3600  # 1 hour
+
+  # Hunt scheduling
+  schedule:
+    # Start immediately
+    start_time: "now"
+
+    # Or schedule for specific time (RFC3339 format)
+    # start_time: "2024-01-15T02:00:00Z"
+
+    # Expiration (auto-stop after this time)
+    expiration: 86400  # 24 hours from start
+
+  # Client rolling deployment
+  rolling_deployment:
+    # Enable gradual rollout
+    enabled: true
+
+    # Number of clients to run on initially
+    initial_clients: 10
+
+    # Percentage to add every X minutes
+    increment_percentage: 10
+    increment_interval: 300  # 5 minutes
+
+# Analysis Guidelines
+analysis:
+  positive_indicators:
+    - "Process running from temp directory"
+    - "Obfuscated command line parameters"
+    - "Unusual parent-child process relationships"
+
+  triage_priority:
+    critical:
+      - "Known malicious process names"
+      - "Connections to known C2 infrastructure"
+    high:
+      - "Living-off-the-land binaries with suspicious arguments"
+      - "PowerShell execution with bypass flags"
+    medium:
+      - "Unusual process execution times"
+      - "Processes running as SYSTEM from user directories"
+
+  investigation_steps:
+    - "Review full process tree"
+    - "Check network connections"
+    - "Examine file system timeline"
+    - "Correlate with other hunt results"
+    - "Check threat intelligence feeds"
+
+# Post-Hunt Actions
+post_hunt:
+  # Notification settings
+  notifications:
+    - type: email
+      recipients:
+        - ir-team@company.com
+      on_complete: true
+      on_match: true
+
+    - type: slack
+      webhook: "https://hooks.slack.com/services/..."
+      channel: "#security-alerts"
+
+  # Automatic follow-up collections
+  follow_up_artifacts:
+    - name: Windows.Forensics.Timeline
+      condition: "positive_match"
+      parameters:
+        StartDate: "hunt_start_time"
+
+    - name: Windows.Memory.Acquisition
+      condition: "critical_match"
+      parameters:
+        TargetPath: "C:/ir-evidence/"
+
+  # Reporting
+  reports:
+    - type: summary
+      format: html
+      include_statistics: true
+
+    - type: detailed
+      format: json
+      include_all_results: true
+
+# Documentation
+metadata:
+  created_by: "analyst@company.com"
+  created_date: "2024-01-15"
+  last_modified: "2024-01-15"
+  version: "1.0"
+
+  # Compliance and audit trail
+  approval:
+    requested_by: "IR Team Lead"
+    approved_by: "CISO"
+    approval_date: "2024-01-14"
+    ticket_reference: "INC-12345"
+
+  # MITRE ATT&CK mapping
+  mitre_attack:
+    tactics:
+      - "TA0002: Execution"
+      - "TA0005: Defense Evasion"
+    techniques:
+      - "T1059.001: PowerShell"
+      - "T1027: Obfuscated Files or Information"
+
+# Sample VQL for hunt creation via command line
+sample_commands: |
+  # Create hunt from artifact
+  velociraptor --config server.config.yaml query "
+    SELECT hunt_id FROM hunt(
+      artifact='Windows.Detection.SuspiciousProcess',
+      description='Hunt for suspicious process execution',
+      include_labels=['Production-Servers'],
+      cpu_limit=50,
+      timeout=3600
+    )
+  "
+
+  # Monitor hunt progress
+  velociraptor --config server.config.yaml query "
+    SELECT hunt_id, state, total_clients_scheduled,
+           total_clients_with_results, total_clients_with_errors
+    FROM hunt_status()
+    WHERE hunt_id = 'H.1234567890'
+  "
+
+  # Export hunt results
+  velociraptor --config server.config.yaml query "
+    SELECT * FROM hunt_results(hunt_id='H.1234567890')
+  " --format json > hunt_results.json

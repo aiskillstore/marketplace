@@ -1,0 +1,270 @@
+# Velociraptor Offline Collector Configuration
+# Configuration for creating standalone collectors that don't require server connection
+
+# Collector metadata
+collector_info:
+  name: "IR-Collector-Incident-Response"
+  version: "1.0"
+  description: |
+    Offline collector for incident response evidence gathering.
+    Collects key artifacts without requiring Velociraptor server.
+
+  created_by: "IR Team"
+  created_date: "2024-01-15"
+  incident_reference: "INC-12345"
+
+# Target platform
+# Options: windows, linux, macos, all
+target_platform: windows
+
+# Artifacts to collect
+artifacts:
+  # System Information
+  - name: Generic.Client.Info
+    description: "Basic system information"
+
+  # Process Information
+  - name: Windows.System.Pslist
+    description: "Running processes"
+    parameters:
+      CalculateHashes: "Y"
+
+  # Network Connections
+  - name: Windows.Network.NetstatEnriched
+    description: "Network connections with process context"
+
+  # Persistence Mechanisms
+  - name: Windows.Persistence.PermanentRuns
+    description: "Registry Run keys and startup locations"
+
+  - name: Windows.System.TaskScheduler
+    description: "Scheduled tasks"
+
+  - name: Windows.System.Services
+    description: "Windows services"
+
+  # Event Logs
+  - name: Windows.EventLogs.EvtxHunter
+    description: "Security-relevant event logs"
+    parameters:
+      EvtxGlob: "C:/Windows/System32/winevt/Logs/{Security,System,Application}.evtx"
+      # Filter for last 7 days
+      DateAfter: "{{subtract (now) (duration \"168h\")}}"
+
+  # File System Timeline
+  - name: Windows.Forensics.Timeline
+    description: "Filesystem timeline"
+    parameters:
+      # Limit to key directories
+      PathGlob: |
+        C:/Users/*/AppData/**
+        C:/Windows/Temp/**
+        C:/ProgramData/**
+      DateAfter: "{{subtract (now) (duration \"168h\")}}"
+
+  # Prefetch Analysis
+  - name: Windows.Forensics.Prefetch
+    description: "Program execution artifacts"
+
+  # USB Device History
+  - name: Windows.Forensics.USBDevices
+    description: "USB device connection history"
+
+  # Browser History (if needed)
+  # - name: Windows.Browsers.Chrome
+  #   description: "Chrome browser history"
+
+  # Registry Forensics
+  # - name: Windows.Registry.RecentDocs
+  #   description: "Recently accessed files from registry"
+
+# Collection Configuration
+collection_config:
+  # Output options
+  output:
+    # Compression format: zip, tar
+    format: zip
+
+    # Output filename template
+    filename_template: "collection-{{.Hostname}}-{{.Now.Unix}}.zip"
+
+    # Encryption (optional)
+    # encryption:
+    #   enabled: true
+    #   public_key_file: "collector-public.pem"
+
+    # Output location
+    output_directory: "."
+
+  # Resource limits
+  resource_limits:
+    # Maximum CPU usage (percentage)
+    cpu_limit: 70
+
+    # Maximum memory usage (MB)
+    max_memory: 2048
+
+    # I/O operations per second limit
+    ops_per_second: 500
+
+    # Maximum collection time (seconds)
+    max_execution_time: 3600
+
+    # Maximum output size (bytes, 0 = unlimited)
+    max_output_size: 10737418240  # 10GB
+
+  # Progress reporting
+  progress:
+    # Show progress bar
+    show_progress: true
+
+    # Log file location
+    log_file: "collector.log"
+
+    # Log level: DEBUG, INFO, WARN, ERROR
+    log_level: INFO
+
+  # Artifact execution options
+  execution:
+    # Run artifacts in parallel (faster but more resource intensive)
+    parallel: false
+
+    # Number of concurrent artifacts (if parallel enabled)
+    max_parallel: 3
+
+    # Continue on artifact errors
+    continue_on_error: true
+
+    # Timeout per artifact (seconds)
+    artifact_timeout: 600
+
+# Pre-collection Checks
+pre_collection:
+  # Verify requirements before starting
+  checks:
+    # Minimum free disk space (bytes)
+    min_disk_space: 5368709120  # 5GB
+
+    # Check for admin/root privileges
+    require_admin: true
+
+    # Verify OS compatibility
+    verify_os: true
+
+  # Warnings (not blocking)
+  warnings:
+    # Warn if antivirus is active
+    warn_av_active: true
+
+    # Warn if disk space is limited
+    warn_disk_space_threshold: 10737418240  # 10GB
+
+# Post-collection Actions
+post_collection:
+  # Automatic uploads (if network available)
+  # uploads:
+  #   - type: smb
+  #     path: "\\\\evidence-server\\ir-collections\\"
+  #     credentials_file: "smb-creds.json"
+  #
+  #   - type: s3
+  #     bucket: "ir-evidence-bucket"
+  #     region: "us-east-1"
+  #     credentials_file: "aws-creds.json"
+
+  # Hash the output file
+  generate_hash: true
+  hash_algorithms:
+    - sha256
+    - md5
+
+  # Generate collection report
+  generate_report: true
+  report_format: html
+
+  # Cleanup options
+  cleanup:
+    # Delete temp files after collection
+    delete_temp_files: true
+
+    # Secure delete collector binary after execution (optional)
+    # secure_delete_collector: false
+
+# Deployment Options
+deployment:
+  # Create executable for easy deployment
+  executable:
+    # Embed configuration in binary
+    embed_config: true
+
+    # Self-extracting executable
+    self_extracting: true
+
+    # Icon file (optional)
+    # icon_file: "collector-icon.ico"
+
+    # Code signing (optional)
+    # signing:
+    #   certificate_file: "code-signing-cert.pfx"
+    #   password_file: "cert-password.txt"
+
+  # Packaging
+  package:
+    # Include README with instructions
+    include_readme: true
+
+    # Include hash verification file
+    include_hashes: true
+
+    # Include deployment script
+    # include_deployment_script: true
+
+# Usage Instructions (embedded in collector)
+usage_instructions: |
+  VELOCIRAPTOR OFFLINE COLLECTOR
+
+  This collector gathers forensic artifacts for incident response.
+  No network connection or Velociraptor server required.
+
+  REQUIREMENTS:
+  - Administrator/root privileges
+  - Minimum 5GB free disk space
+  - Windows 7/Server 2008 R2 or later
+
+  USAGE:
+    collector.exe [OPTIONS]
+
+  OPTIONS:
+    --output DIR        Output directory (default: current directory)
+    --verbose           Enable verbose logging
+    --help              Show this help message
+
+  EXAMPLE:
+    # Run with default settings
+    collector.exe
+
+    # Specify output directory
+    collector.exe --output C:\\Evidence\\
+
+  OUTPUT:
+    Collection results saved to: collection-[hostname]-[timestamp].zip
+
+  IMPORTANT:
+    - Preserve chain of custody
+    - Document collection time and collector version
+    - Securely transfer collection to analysis system
+    - Do not run on production systems without approval
+
+  For support: ir-team@company.com
+
+# Sample command to create collector from this config
+sample_command: |
+  velociraptor --config server.config.yaml artifacts collect \
+    Windows.System.Pslist \
+    Windows.Network.NetstatEnriched \
+    Windows.Persistence.PermanentRuns \
+    Windows.EventLogs.EvtxHunter \
+    Windows.Forensics.Timeline \
+    --output collector.zip \
+    --cpu_limit 70 \
+    --progress

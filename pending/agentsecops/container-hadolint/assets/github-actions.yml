@@ -1,0 +1,99 @@
+# GitHub Actions workflow for Hadolint Dockerfile linting
+# Place this file at: .github/workflows/hadolint.yml
+
+name: Hadolint Dockerfile Security Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**/Dockerfile*'
+      - '**/*.dockerfile'
+      - '.github/workflows/hadolint.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - '**/Dockerfile*'
+      - '**/*.dockerfile'
+
+permissions:
+  contents: read
+  security-events: write  # For SARIF upload
+  pull-requests: write    # For PR comments
+
+jobs:
+  hadolint:
+    name: Lint Dockerfiles
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: "Dockerfile"  # Change to your Dockerfile path
+          failure-threshold: warning
+          format: sarif
+          output-file: hadolint-results.sarif
+          config: .hadolint.yaml  # Optional: use custom config
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: hadolint-results.sarif
+          category: hadolint
+
+      - name: Generate readable report
+        if: failure()
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: "Dockerfile"
+          format: tty
+
+  hadolint-all:
+    name: Lint All Dockerfiles
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Find all Dockerfiles
+        id: find-dockerfiles
+        run: |
+          # Find all Dockerfile* in repository
+          DOCKERFILES=$(find . -type f \( -name "Dockerfile*" -o -name "*.dockerfile" \) | tr '\n' ' ')
+          echo "dockerfiles=$DOCKERFILES" >> $GITHUB_OUTPUT
+          echo "Found Dockerfiles: $DOCKERFILES"
+
+      - name: Run Hadolint on all Dockerfiles
+        run: |
+          # Install hadolint
+          wget -O /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
+          chmod +x /usr/local/bin/hadolint
+
+          # Scan each Dockerfile
+          FAILED=0
+          for dockerfile in ${{ steps.find-dockerfiles.outputs.dockerfiles }}; do
+            echo "Scanning: $dockerfile"
+            if ! hadolint --failure-threshold warning "$dockerfile"; then
+              FAILED=1
+            fi
+          done
+
+          exit $FAILED
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request' && failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ Hadolint found security issues in Dockerfiles. Please review the workflow logs and fix the issues.'
+            })

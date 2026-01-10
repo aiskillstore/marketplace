@@ -1,0 +1,226 @@
+# GitLab CI/CD Pipeline for OWASP ZAP Security Scanning
+# Add this to your .gitlab-ci.yml file
+
+stages:
+  - security
+  - report
+
+variables:
+  ZAP_IMAGE: "zaproxy/zap-stable:latest"
+  STAGING_URL: "https://staging.example.com"
+  REPORTS_DIR: "security-reports"
+
+# Baseline scan for all merge requests
+zap_baseline_scan:
+  stage: security
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - mkdir -p $REPORTS_DIR
+    - |
+      docker run --rm \
+        -v $(pwd)/$REPORTS_DIR:/zap/wrk/:rw \
+        $ZAP_IMAGE \
+        zap-baseline.py \
+        -t $STAGING_URL \
+        -r /zap/wrk/baseline-report.html \
+        -J /zap/wrk/baseline-report.json \
+        -w /zap/wrk/baseline-report.md \
+        || true
+    - echo "Baseline scan completed"
+  artifacts:
+    when: always
+    paths:
+      - $REPORTS_DIR/
+    reports:
+      junit: $REPORTS_DIR/baseline-report.xml
+    expire_in: 1 week
+  only:
+    - merge_requests
+    - develop
+    - main
+  tags:
+    - docker
+
+# Full active scan (manual trigger for staging)
+zap_full_scan:
+  stage: security
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - mkdir -p $REPORTS_DIR
+    - |
+      docker run --rm \
+        -v $(pwd)/$REPORTS_DIR:/zap/wrk/:rw \
+        -v $(pwd)/.zap:/zap/config/:ro \
+        $ZAP_IMAGE \
+        zap-full-scan.py \
+        -t $STAGING_URL \
+        -c /zap/config/rules.tsv \
+        -r /zap/wrk/full-scan-report.html \
+        -J /zap/wrk/full-scan-report.json \
+        -x /zap/wrk/full-scan-report.xml \
+        || true
+    # Check for high-risk findings
+    - |
+      if command -v jq &> /dev/null; then
+        HIGH_COUNT=$(jq '[.site[].alerts[] | select(.risk == "High")] | length' $REPORTS_DIR/full-scan-report.json)
+        echo "High risk findings: $HIGH_COUNT"
+        if [ "$HIGH_COUNT" -gt 0 ]; then
+          echo "❌ Security scan failed: $HIGH_COUNT high-risk vulnerabilities"
+          exit 1
+        fi
+      fi
+  artifacts:
+    when: always
+    paths:
+      - $REPORTS_DIR/
+    expire_in: 4 weeks
+  only:
+    - develop
+  when: manual
+  allow_failure: false
+  tags:
+    - docker
+
+# API security scan
+zap_api_scan:
+  stage: security
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - mkdir -p $REPORTS_DIR
+    - |
+      if [ -f "openapi.yaml" ]; then
+        docker run --rm \
+          -v $(pwd)/$REPORTS_DIR:/zap/wrk/:rw \
+          -v $(pwd):/zap/specs/:ro \
+          $ZAP_IMAGE \
+          zap-api-scan.py \
+          -t $STAGING_URL \
+          -f openapi \
+          -d /zap/specs/openapi.yaml \
+          -r /zap/wrk/api-scan-report.html \
+          -J /zap/wrk/api-scan-report.json \
+          || true
+      else
+        echo "OpenAPI specification not found, skipping API scan"
+      fi
+  artifacts:
+    when: always
+    paths:
+      - $REPORTS_DIR/
+    expire_in: 1 week
+  only:
+    - merge_requests
+    - develop
+  allow_failure: true
+  tags:
+    - docker
+
+# Authenticated scan (requires test credentials)
+zap_authenticated_scan:
+  stage: security
+  image: python:3.11-slim
+  before_script:
+    - apt-get update && apt-get install -y docker.io
+  script:
+    - mkdir -p $REPORTS_DIR
+    - |
+      python3 scripts/zap_auth_scanner.py \
+        --target $STAGING_URL \
+        --auth-type form \
+        --login-url $STAGING_URL/login \
+        --username $TEST_USERNAME \
+        --password-env TEST_PASSWORD \
+        --output $REPORTS_DIR/authenticated-scan-report.html
+  artifacts:
+    when: always
+    paths:
+      - $REPORTS_DIR/
+    expire_in: 4 weeks
+  only:
+    - develop
+  when: manual
+  tags:
+    - docker
+
+# Security gate - check thresholds
+security_gate:
+  stage: report
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache jq
+  script:
+    - |
+      if [ -f "$REPORTS_DIR/baseline-report.json" ]; then
+        HIGH_COUNT=$(jq '[.site[].alerts[] | select(.risk == "High")] | length' $REPORTS_DIR/baseline-report.json)
+        MEDIUM_COUNT=$(jq '[.site[].alerts[] | select(.risk == "Medium")] | length' $REPORTS_DIR/baseline-report.json)
+
+        echo "==================================="
+        echo "Security Scan Results"
+        echo "==================================="
+        echo "High risk findings:   $HIGH_COUNT"
+        echo "Medium risk findings: $MEDIUM_COUNT"
+        echo "==================================="
+
+        # Fail on high-risk findings
+        if [ "$HIGH_COUNT" -gt 0 ]; then
+          echo "❌ Build failed: High-risk vulnerabilities detected"
+          exit 1
+        fi
+
+        # Warn on medium-risk findings above threshold
+        if [ "$MEDIUM_COUNT" -gt 10 ]; then
+          echo "⚠️  Warning: $MEDIUM_COUNT medium-risk findings (threshold: 10)"
+        fi
+
+        echo "✅ Security gate passed"
+      else
+        echo "No scan report found, skipping security gate"
+      fi
+  dependencies:
+    - zap_baseline_scan
+  only:
+    - merge_requests
+    - develop
+    - main
+
+# Generate consolidated report
+generate_report:
+  stage: report
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache jq curl
+  script:
+    - |
+      echo "# Security Scan Report" > $REPORTS_DIR/summary.md
+      echo "" >> $REPORTS_DIR/summary.md
+      echo "**Scan Date:** $(date)" >> $REPORTS_DIR/summary.md
+      echo "**Target:** $STAGING_URL" >> $REPORTS_DIR/summary.md
+      echo "" >> $REPORTS_DIR/summary.md
+      echo "## Findings Summary" >> $REPORTS_DIR/summary.md
+      echo "" >> $REPORTS_DIR/summary.md
+
+      if [ -f "$REPORTS_DIR/baseline-report.json" ]; then
+        echo "| Risk Level | Count |" >> $REPORTS_DIR/summary.md
+        echo "|------------|-------|" >> $REPORTS_DIR/summary.md
+        jq -r '.site[].alerts[] | .risk' $REPORTS_DIR/baseline-report.json | \
+          sort | uniq -c | awk '{print "| " $2 " | " $1 " |"}' >> $REPORTS_DIR/summary.md
+      fi
+
+      cat $REPORTS_DIR/summary.md
+  artifacts:
+    when: always
+    paths:
+      - $REPORTS_DIR/summary.md
+    expire_in: 4 weeks
+  dependencies:
+    - zap_baseline_scan
+  only:
+    - merge_requests
+    - develop
+    - main

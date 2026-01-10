@@ -1,0 +1,189 @@
+# GitHub Actions Workflow for Spectral API Security Linting
+# This workflow validates OpenAPI/AsyncAPI specifications against security best practices
+
+name: API Security Linting with Spectral
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'api-specs/**/*.yaml'
+      - 'api-specs/**/*.yml'
+      - 'api-specs/**/*.json'
+      - '.spectral.yaml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'api-specs/**/*.yaml'
+      - 'api-specs/**/*.yml'
+      - 'api-specs/**/*.json'
+      - '.spectral.yaml'
+
+jobs:
+  spectral-lint:
+    name: Lint API Specifications
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Spectral CLI
+        run: npm install -g @stoplight/spectral-cli
+
+      - name: Verify Spectral Installation
+        run: spectral --version
+
+      - name: Lint API Specifications (GitHub Actions Format)
+        run: |
+          spectral lint api-specs/**/*.{yaml,yml,json} \
+            --ruleset .spectral.yaml \
+            --format github-actions \
+            --fail-severity error
+        continue-on-error: true
+
+      - name: Generate JSON Report
+        if: always()
+        run: |
+          mkdir -p reports
+          spectral lint api-specs/**/*.{yaml,yml,json} \
+            --ruleset .spectral.yaml \
+            --format json \
+            --output reports/spectral-results.json || true
+
+      - name: Generate HTML Report
+        if: always()
+        run: |
+          # Download parse script if not in repository
+          if [ ! -f "scripts/parse_spectral_results.py" ]; then
+            curl -o scripts/parse_spectral_results.py \
+              https://raw.githubusercontent.com/SecOpsAgentKit/skills/main/appsec/api-spectral/scripts/parse_spectral_results.py
+            chmod +x scripts/parse_spectral_results.py
+          fi
+
+          python3 scripts/parse_spectral_results.py \
+            --input reports/spectral-results.json \
+            --output reports/spectral-report.html \
+            --format html \
+            --map-owasp
+
+      - name: Upload Spectral Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spectral-security-reports
+          path: reports/
+          retention-days: 30
+
+      - name: Check for Critical Issues
+        run: |
+          if [ -f "reports/spectral-results.json" ]; then
+            CRITICAL_COUNT=$(jq '[.[] | select(.severity == 0)] | length' reports/spectral-results.json)
+            echo "Critical security issues found: $CRITICAL_COUNT"
+
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo "::error::Found $CRITICAL_COUNT critical security issues in API specifications"
+              exit 1
+            fi
+          fi
+
+      - name: Comment PR with Results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            if (fs.existsSync('reports/spectral-results.json')) {
+              const results = JSON.parse(fs.readFileSync('reports/spectral-results.json', 'utf8'));
+
+              const severityCounts = results.reduce((acc, finding) => {
+                const severity = ['error', 'warn', 'info', 'hint'][finding.severity] || 'unknown';
+                acc[severity] = (acc[severity] || 0) + 1;
+                return acc;
+              }, {});
+
+              const errorCount = severityCounts.error || 0;
+              const warnCount = severityCounts.warn || 0;
+              const infoCount = severityCounts.info || 0;
+
+              const summary = `## 🔒 API Security Lint Results
+
+              **Total Findings:** ${results.length}
+
+              | Severity | Count |
+              |----------|-------|
+              | 🔴 Error | ${errorCount} |
+              | 🟡 Warning | ${warnCount} |
+              | 🔵 Info | ${infoCount} |
+
+              ${errorCount > 0 ? '⚠️ **Action Required:** Fix error-level security issues before merging.' : '✅ No critical security issues found.'}
+
+              📄 [View Detailed Report](../actions/runs/${context.runId})
+              `;
+
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: summary
+              });
+            }
+
+  # Optional: Separate job for OWASP-specific validation
+  owasp-validation:
+    name: OWASP API Security Validation
+    runs-on: ubuntu-latest
+    needs: spectral-lint
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Spectral CLI
+        run: npm install -g @stoplight/spectral-cli
+
+      - name: Validate Against OWASP Ruleset
+        run: |
+          # Use OWASP-specific ruleset if available
+          if [ -f ".spectral-owasp.yaml" ]; then
+            RULESET=".spectral-owasp.yaml"
+          else
+            # Download OWASP ruleset template
+            curl -o .spectral-owasp.yaml \
+              https://raw.githubusercontent.com/SecOpsAgentKit/skills/main/appsec/api-spectral/assets/spectral-owasp.yaml
+            RULESET=".spectral-owasp.yaml"
+          fi
+
+          spectral lint api-specs/**/*.{yaml,yml,json} \
+            --ruleset "$RULESET" \
+            --format stylish \
+            --fail-severity warn
+
+      - name: Generate OWASP Compliance Report
+        if: always()
+        run: |
+          mkdir -p reports
+          spectral lint api-specs/**/*.{yaml,yml,json} \
+            --ruleset .spectral-owasp.yaml \
+            --format json \
+            --output reports/owasp-validation.json || true
+
+      - name: Upload OWASP Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-compliance-report
+          path: reports/owasp-validation.json
+          retention-days: 30
