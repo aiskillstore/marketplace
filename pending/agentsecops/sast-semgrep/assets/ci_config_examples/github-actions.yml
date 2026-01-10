@@ -1,0 +1,141 @@
+# GitHub Actions - Semgrep Security Scanning
+# Save as .github/workflows/semgrep.yml
+
+name: Semgrep Security Scan
+
+on:
+  # Scan on push to main/master
+  push:
+    branches:
+      - main
+      - master
+  # Scan pull requests
+  pull_request:
+    branches:
+      - main
+      - master
+  # Manual trigger
+  workflow_dispatch:
+  # Schedule daily scans
+  schedule:
+    - cron: '0 0 * * *'  # Run at midnight UTC
+
+jobs:
+  semgrep:
+    name: SAST Security Scan
+    runs-on: ubuntu-latest
+
+    # Required for uploading results to GitHub Security
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          # Ruleset to use
+          config: >-
+            p/security-audit
+            p/owasp-top-ten
+            p/cwe-top-25
+
+          # Generate SARIF for GitHub Security
+          publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
+          publishDeployment: ${{ secrets.SEMGREP_DEPLOYMENT_ID }}
+
+          # Fail on HIGH/ERROR severity
+          # auditOn: push
+
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+
+      - name: Upload scan results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-results
+          path: semgrep.sarif
+
+# Alternative: Simpler configuration without Semgrep Cloud
+---
+name: Semgrep Security Scan (Simple)
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Run Semgrep Scan
+        run: |
+          semgrep --config="p/security-audit" \
+                   --config="p/owasp-top-ten" \
+                   --sarif \
+                   --output=semgrep-results.sarif \
+                   --severity=ERROR \
+                   --severity=WARNING
+
+      - name: Upload SARIF results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep-results.sarif
+
+# PR-specific: Only scan changed files
+---
+name: Semgrep PR Scan
+
+on:
+  pull_request:
+
+jobs:
+  semgrep-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch full history for diff
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      - name: Scan changed files only
+        run: |
+          semgrep --config="p/security-audit" \
+                   --baseline-commit="${{ github.event.pull_request.base.sha }}" \
+                   --json \
+                   --output=results.json
+
+      - name: Check for findings
+        run: |
+          FINDINGS=$(jq '.results | length' results.json)
+          echo "Found $FINDINGS security issues"
+          if [ "$FINDINGS" -gt 0 ]; then
+            echo "❌ Security issues detected!"
+            jq '.results[] | "[\(.extra.severity)] \(.check_id) - \(.path):\(.start.line)"' results.json
+            exit 1
+          else
+            echo "✅ No security issues found"
+          fi

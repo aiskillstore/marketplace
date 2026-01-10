@@ -1,0 +1,92 @@
+# Pre-commit Hook Configuration for Checkov
+# Place this file as .pre-commit-config.yaml in your project root
+#
+# Install: pip install pre-commit
+# Setup:   pre-commit install
+
+repos:
+  # Checkov IaC Security Scanning
+  - repo: https://github.com/bridgecrewio/checkov
+    rev: 2.5.0
+    hooks:
+      - id: checkov
+        name: Checkov IaC Security Scan
+        args:
+          - --soft-fail                 # Don't block commits (warning only)
+          - --compact                   # Concise output
+          - --framework=terraform       # Scan Terraform files
+          - --framework=kubernetes      # Scan Kubernetes files
+          - --framework=dockerfile      # Scan Dockerfiles
+        files: \.(tf|yaml|yml|json|Dockerfile)$
+        exclude: |
+          (?x)^(
+            .terraform/|
+            .terragrunt-cache/|
+            vendor/|
+            node_modules/
+          )
+
+  # Strict mode (fail on Critical/High) - optional
+  - repo: https://github.com/bridgecrewio/checkov
+    rev: 2.5.0
+    hooks:
+      - id: checkov
+        name: Checkov Strict Mode (Critical/High)
+        args:
+          - --hard-fail-on=CRITICAL,HIGH
+          - --compact
+          - --quiet
+        files: \.(tf|yaml|yml)$
+        exclude: |
+          (?x)^(
+            .terraform/|
+            test/|
+            examples/
+          )
+        # Only run on specific branches
+        stages: [push]
+
+  # Terraform-specific scanning with external modules
+  - repo: https://github.com/bridgecrewio/checkov
+    rev: 2.5.0
+    hooks:
+      - id: checkov
+        name: Checkov Terraform (with external modules)
+        args:
+          - --download-external-modules=true
+          - --framework=terraform
+          - --soft-fail
+        files: \.tf$
+        exclude: .terraform/
+
+  # Additional code quality hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key
+        name: Detect Private Keys (Secrets)
+
+  # Terraform formatting
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.86.0
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+      - id: terraform_docs
+        args:
+          - --hook-config=--add-to-existing-file=true
+          - --hook-config=--create-file-if-not-exist=true
+
+  # YAML linting
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.33.0
+    hooks:
+      - id: yamllint
+        args: [-c=.yamllint.yaml]
+        files: \.(yaml|yml)$

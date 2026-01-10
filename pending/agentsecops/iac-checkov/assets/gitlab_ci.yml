@@ -1,0 +1,218 @@
+# GitLab CI/CD Pipeline for Checkov IaC Security Scanning
+# Add this to your .gitlab-ci.yml file
+
+stages:
+  - security
+  - compliance
+  - report
+
+variables:
+  CHECKOV_IMAGE: "bridgecrew/checkov:latest"
+  REPORTS_DIR: "checkov-reports"
+
+# Terraform Security Scan
+checkov_terraform:
+  stage: security
+  image: $CHECKOV_IMAGE
+  script:
+    - mkdir -p $REPORTS_DIR
+    - |
+      checkov -d terraform/ \
+        --framework terraform \
+        -o json -o junitxml -o sarif \
+        --output-file-path $REPORTS_DIR \
+        --compact || EXIT_CODE=$?
+    - echo "Exit code: ${EXIT_CODE:-0}"
+  artifacts:
+    reports:
+      junit: $REPORTS_DIR/results_junitxml.xml
+      sast: $REPORTS_DIR/results_sarif.sarif
+    paths:
+      - $REPORTS_DIR/
+    when: always
+    expire_in: 30 days
+  only:
+    changes:
+      - terraform/**/*
+      - "*.tf"
+  tags:
+    - docker
+
+# Kubernetes Security Scan
+checkov_kubernetes:
+  stage: security
+  image: $CHECKOV_IMAGE
+  script:
+    - mkdir -p $REPORTS_DIR
+    - |
+      checkov -d k8s/ \
+        --framework kubernetes \
+        -o json -o junitxml \
+        --output-file-path $REPORTS_DIR \
+        --compact
+  artifacts:
+    reports:
+      junit: $REPORTS_DIR/results_junitxml.xml
+    paths:
+      - $REPORTS_DIR/
+    when: always
+    expire_in: 30 days
+  only:
+    changes:
+      - k8s/**/*
+      - "*.yaml"
+      - "*.yml"
+  tags:
+    - docker
+
+# CloudFormation Security Scan
+checkov_cloudformation:
+  stage: security
+  image: $CHECKOV_IMAGE
+  script:
+    - mkdir -p $REPORTS_DIR
+    - |
+      checkov -d cloudformation/ \
+        --framework cloudformation \
+        -o json -o junitxml \
+        --output-file-path $REPORTS_DIR \
+        --compact
+  artifacts:
+    reports:
+      junit: $REPORTS_DIR/results_junitxml.xml
+    paths:
+      - $REPORTS_DIR/
+    when: always
+    expire_in: 30 days
+  only:
+    changes:
+      - cloudformation/**/*
+  allow_failure: true
+  tags:
+    - docker
+
+# Compliance Scan (CIS Benchmarks)
+checkov_compliance:
+  stage: compliance
+  image: $CHECKOV_IMAGE
+  script:
+    - mkdir -p $REPORTS_DIR/compliance
+    - |
+      # CIS AWS Benchmark
+      checkov -d terraform/ \
+        --framework terraform \
+        --check CIS_AWS \
+        -o json -o cli \
+        --output-file-path $REPORTS_DIR/compliance \
+        --compact || true
+
+      # Parse results
+      if [ -f "$REPORTS_DIR/compliance/results_json.json" ]; then
+        FAILED=$(jq '.summary.failed' $REPORTS_DIR/compliance/results_json.json)
+        echo "CIS compliance failures: $FAILED"
+      fi
+  artifacts:
+    paths:
+      - $REPORTS_DIR/compliance/
+    when: always
+    expire_in: 90 days
+  only:
+    - main
+    - develop
+  tags:
+    - docker
+
+# Security Gate - Fail on Critical/High
+security_gate:
+  stage: compliance
+  image: $CHECKOV_IMAGE
+  script:
+    - mkdir -p $REPORTS_DIR/gate
+    - |
+      # Run scan with severity filtering
+      checkov -d terraform/ \
+        --framework terraform \
+        --hard-fail-on CRITICAL,HIGH \
+        -o json \
+        --output-file-path $REPORTS_DIR/gate \
+        --compact || EXIT_CODE=$?
+
+      # Check results
+      if [ -f "$REPORTS_DIR/gate/results_json.json" ]; then
+        CRITICAL=$(jq '[.results.failed_checks[] | select(.severity == "CRITICAL")] | length' $REPORTS_DIR/gate/results_json.json)
+        HIGH=$(jq '[.results.failed_checks[] | select(.severity == "HIGH")] | length' $REPORTS_DIR/gate/results_json.json)
+
+        echo "Critical findings: $CRITICAL"
+        echo "High findings: $HIGH"
+
+        if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+          echo "❌ Security gate failed: Critical or High severity issues found"
+          exit 1
+        fi
+
+        echo "✅ Security gate passed"
+      fi
+
+      exit ${EXIT_CODE:-0}
+  artifacts:
+    paths:
+      - $REPORTS_DIR/gate/
+    when: always
+    expire_in: 30 days
+  dependencies:
+    - checkov_terraform
+    - checkov_kubernetes
+  only:
+    - merge_requests
+    - main
+  allow_failure: false
+  tags:
+    - docker
+
+# Generate Summary Report
+generate_report:
+  stage: report
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache jq curl
+  script:
+    - |
+      # Generate markdown summary
+      cat > $REPORTS_DIR/summary.md <<EOF
+      # Checkov IaC Security Scan Summary
+
+      **Pipeline:** $CI_PIPELINE_ID
+      **Branch:** $CI_COMMIT_REF_NAME
+      **Commit:** $CI_COMMIT_SHORT_SHA
+      **Date:** $(date)
+
+      ## Scan Results
+
+      EOF
+
+      # Parse Terraform scan results
+      if [ -f "$REPORTS_DIR/results_json.json" ]; then
+        echo "### Terraform Scan" >> $REPORTS_DIR/summary.md
+        echo "" >> $REPORTS_DIR/summary.md
+        echo "| Metric | Count |" >> $REPORTS_DIR/summary.md
+        echo "|--------|-------|" >> $REPORTS_DIR/summary.md
+        jq -r '.summary | "| Passed | \(.passed) |\n| Failed | \(.failed) |\n| Skipped | \(.skipped) |"' \
+          $REPORTS_DIR/results_json.json >> $REPORTS_DIR/summary.md
+        echo "" >> $REPORTS_DIR/summary.md
+      fi
+
+      cat $REPORTS_DIR/summary.md
+  artifacts:
+    paths:
+      - $REPORTS_DIR/summary.md
+    when: always
+    expire_in: 90 days
+  dependencies:
+    - checkov_terraform
+    - checkov_kubernetes
+  only:
+    - merge_requests
+    - main
+    - develop
+  tags:
+    - docker

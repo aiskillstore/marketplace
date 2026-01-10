@@ -1,0 +1,207 @@
+# GitHub Actions Workflow for OWASP ZAP Security Scanning
+# Place this file in .github/workflows/zap-security-scan.yml
+
+name: OWASP ZAP Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run weekly security scans on Sunday at 2 AM
+    - cron: '0 2 * * 0'
+  workflow_dispatch:  # Allow manual triggering
+
+permissions:
+  contents: read
+  security-events: write  # For uploading SARIF reports
+  issues: write          # For creating security issues
+
+jobs:
+  zap-baseline-scan:
+    name: ZAP Baseline Scan (PR/Push)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.10.0
+        with:
+          target: ${{ secrets.STAGING_URL }}
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a -j'
+          fail_action: true
+          allow_issue_writing: false
+
+      - name: Upload ZAP Scan Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-baseline-report
+          path: |
+            report_html.html
+            report_json.json
+          retention-days: 30
+
+      - name: Create Issue on Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🔒 ZAP Baseline Scan Found Security Issues',
+              body: 'ZAP baseline scan detected security vulnerabilities. Please review the scan report in the workflow artifacts.',
+              labels: ['security', 'automated']
+            })
+
+  zap-full-scan:
+    name: ZAP Full Active Scan (Staging)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || github.event_name == 'schedule'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ZAP Full Scan
+        uses: zaproxy/action-full-scan@v0.8.0
+        with:
+          target: ${{ secrets.STAGING_URL }}
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a -j -x report.xml'
+          fail_action: true
+          allow_issue_writing: true
+          issue_title: 'ZAP Full Scan: Security Vulnerabilities Detected'
+
+      - name: Upload ZAP Full Scan Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-full-scan-report
+          path: |
+            report_html.html
+            report_json.json
+            report.xml
+          retention-days: 90
+
+      - name: Upload SARIF Report to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: report.xml
+
+  zap-api-scan:
+    name: ZAP API Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ZAP API Scan
+        uses: zaproxy/action-api-scan@v0.6.0
+        with:
+          target: ${{ secrets.API_URL }}
+          format: openapi
+          api_spec_file: './openapi.yaml'
+          cmd_options: '-a -j'
+          fail_action: true
+
+      - name: Upload API Scan Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-api-scan-report
+          path: |
+            report_html.html
+            report_json.json
+          retention-days: 30
+
+  zap-authenticated-scan:
+    name: ZAP Authenticated Scan
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Authenticated Scan
+        env:
+          APP_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+          TARGET_URL: ${{ secrets.STAGING_URL }}
+        run: |
+          python3 scripts/zap_auth_scanner.py \
+            --target $TARGET_URL \
+            --auth-type form \
+            --login-url $TARGET_URL/login \
+            --username testuser \
+            --password-env APP_PASSWORD \
+            --output ./authenticated-scan-report.html
+
+      - name: Upload Authenticated Scan Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-authenticated-scan-report
+          path: authenticated-scan-report.*
+          retention-days: 90
+
+  security-gate:
+    name: Security Gate Check
+    runs-on: ubuntu-latest
+    needs: [zap-baseline-scan]
+    if: always()
+
+    steps:
+      - name: Download Scan Results
+        uses: actions/download-artifact@v4
+        with:
+          name: zap-baseline-report
+
+      - name: Check Security Thresholds
+        run: |
+          # Install jq for JSON parsing
+          sudo apt-get update && sudo apt-get install -y jq
+
+          # Count high and medium findings
+          HIGH_COUNT=$(jq '[.site[].alerts[] | select(.risk == "High")] | length' report_json.json)
+          MEDIUM_COUNT=$(jq '[.site[].alerts[] | select(.risk == "Medium")] | length' report_json.json)
+
+          echo "High risk findings: $HIGH_COUNT"
+          echo "Medium risk findings: $MEDIUM_COUNT"
+
+          # Fail if thresholds exceeded
+          if [ "$HIGH_COUNT" -gt 0 ]; then
+            echo "❌ Security gate failed: $HIGH_COUNT high-risk vulnerabilities found"
+            exit 1
+          fi
+
+          if [ "$MEDIUM_COUNT" -gt 10 ]; then
+            echo "❌ Security gate failed: $MEDIUM_COUNT medium-risk vulnerabilities (max: 10)"
+            exit 1
+          fi
+
+          echo "✅ Security gate passed"
+
+      - name: Post Summary
+        if: always()
+        run: |
+          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Risk Level | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|-------|" >> $GITHUB_STEP_SUMMARY
+          jq -r '.site[].alerts[] | .risk' report_json.json | sort | uniq -c | \
+            awk '{print "| " $2 " | " $1 " |"}' >> $GITHUB_STEP_SUMMARY

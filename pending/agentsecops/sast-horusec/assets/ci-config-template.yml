@@ -1,0 +1,357 @@
+# Security-Enhanced CI/CD Pipeline Template
+#
+# This template demonstrates security best practices for CI/CD pipelines.
+# Adapt this template to your specific security tool and workflow needs.
+#
+# Key Security Features:
+# - SAST (Static Application Security Testing)
+# - Dependency vulnerability scanning
+# - Secrets detection
+# - Infrastructure-as-Code security scanning
+# - Container image scanning
+# - Security artifact uploading for compliance
+
+name: Security Scan Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run weekly security scans on Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:  # Allow manual trigger
+
+# Security: Restrict permissions to minimum required
+permissions:
+  contents: read
+  security-events: write  # For uploading SARIF results
+  pull-requests: write    # For commenting on PRs
+
+env:
+  # Configuration
+  SECURITY_SCAN_FAIL_ON: 'critical,high'  # Fail build on these severities
+  REPORT_DIR: 'security-reports'
+
+jobs:
+  # Job 1: Static Application Security Testing (SAST)
+  sast-scan:
+    name: SAST Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run SAST Scanner
+        run: |
+          # Example: Using Semgrep for SAST
+          pip install semgrep
+          semgrep --config=auto \
+            --json \
+            --output ${{ env.REPORT_DIR }}/sast-results.json \
+            . || true
+
+          # Alternative: Bandit for Python projects
+          # pip install bandit
+          # bandit -r . -f json -o ${{ env.REPORT_DIR }}/bandit-results.json
+
+      - name: Process SAST Results
+        run: |
+          # Parse results and fail on critical/high severity
+          python3 -c "
+          import json
+          import sys
+
+          with open('${{ env.REPORT_DIR }}/sast-results.json') as f:
+              results = json.load(f)
+
+          critical = len([r for r in results.get('results', []) if r.get('extra', {}).get('severity') == 'ERROR'])
+          high = len([r for r in results.get('results', []) if r.get('extra', {}).get('severity') == 'WARNING'])
+
+          print(f'Critical findings: {critical}')
+          print(f'High findings: {high}')
+
+          if critical > 0:
+              print('❌ Build failed: Critical security issues found')
+              sys.exit(1)
+          elif high > 0:
+              print('⚠️  Warning: High severity issues found')
+              # Optionally fail on high severity
+              # sys.exit(1)
+          else:
+              print('✅ No critical security issues found')
+          "
+
+      - name: Upload SAST Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sast-results
+          path: ${{ env.REPORT_DIR }}/sast-results.json
+          retention-days: 30
+
+  # Job 2: Dependency Vulnerability Scanning
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Scan Python Dependencies
+        if: hashFiles('requirements.txt') != ''
+        run: |
+          pip install safety
+          safety check \
+            --json \
+            --output ${{ env.REPORT_DIR }}/safety-results.json \
+            || true
+
+      - name: Scan Node Dependencies
+        if: hashFiles('package.json') != ''
+        run: |
+          npm audit --json > ${{ env.REPORT_DIR }}/npm-audit.json || true
+
+      - name: Process Dependency Results
+        run: |
+          # Check for critical vulnerabilities
+          if [ -f "${{ env.REPORT_DIR }}/safety-results.json" ]; then
+            critical_count=$(python3 -c "import json; data=json.load(open('${{ env.REPORT_DIR }}/safety-results.json')); print(len([v for v in data.get('vulnerabilities', []) if v.get('severity', '').lower() == 'critical']))")
+            echo "Critical vulnerabilities: $critical_count"
+            if [ "$critical_count" -gt "0" ]; then
+              echo "❌ Build failed: Critical vulnerabilities in dependencies"
+              exit 1
+            fi
+          fi
+
+      - name: Upload Dependency Scan Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-scan-results
+          path: ${{ env.REPORT_DIR }}/
+          retention-days: 30
+
+  # Job 3: Secrets Detection
+  secrets-scan:
+    name: Secrets Detection
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history to scan all commits
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_SUMMARY: true
+
+      - name: Alternative - TruffleHog Scan
+        if: false  # Set to true to enable
+        run: |
+          pip install truffleHog
+          trufflehog --json --regex --entropy=True . \
+            > ${{ env.REPORT_DIR }}/trufflehog-results.json || true
+
+      - name: Upload Secrets Scan Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: secrets-scan-results
+          path: ${{ env.REPORT_DIR }}/
+          retention-days: 30
+
+  # Job 4: Container Image Scanning
+  container-scan:
+    name: Container Image Security Scan
+    runs-on: ubuntu-latest
+    if: hashFiles('Dockerfile') != ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          docker build -t app:${{ github.sha }} .
+
+      - name: Run Trivy Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: app:${{ github.sha }}
+          format: 'sarif'
+          output: '${{ env.REPORT_DIR }}/trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy Results to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: '${{ env.REPORT_DIR }}/trivy-results.sarif'
+
+      - name: Upload Container Scan Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-scan-results
+          path: ${{ env.REPORT_DIR }}/
+          retention-days: 30
+
+  # Job 5: Infrastructure-as-Code Security Scanning
+  iac-scan:
+    name: IaC Security Scan
+    runs-on: ubuntu-latest
+    if: hashFiles('**/*.tf', '**/*.yaml', '**/*.yml') != ''
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        run: |
+          pip install checkov
+          checkov -d . \
+            --output json \
+            --output-file ${{ env.REPORT_DIR }}/checkov-results.json \
+            --quiet \
+            || true
+
+      - name: Run tfsec (for Terraform)
+        if: hashFiles('**/*.tf') != ''
+        run: |
+          curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+          tfsec . \
+            --format json \
+            --out ${{ env.REPORT_DIR }}/tfsec-results.json \
+            || true
+
+      - name: Process IaC Results
+        run: |
+          # Fail on critical findings
+          if [ -f "${{ env.REPORT_DIR }}/checkov-results.json" ]; then
+            critical_count=$(python3 -c "import json; data=json.load(open('${{ env.REPORT_DIR }}/checkov-results.json')); print(data.get('summary', {}).get('failed', 0))")
+            echo "Failed checks: $critical_count"
+            if [ "$critical_count" -gt "0" ]; then
+              echo "⚠️  Warning: IaC security issues found"
+              # Optionally fail the build
+              # exit 1
+            fi
+          fi
+
+      - name: Upload IaC Scan Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-scan-results
+          path: ${{ env.REPORT_DIR }}/
+          retention-days: 30
+
+  # Job 6: Security Report Generation and Notification
+  security-report:
+    name: Generate Security Report
+    runs-on: ubuntu-latest
+    needs: [sast-scan, dependency-scan, secrets-scan]
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download All Scan Results
+        uses: actions/download-artifact@v4
+        with:
+          path: all-results/
+
+      - name: Generate Consolidated Report
+        run: |
+          # Consolidate all security scan results
+          mkdir -p consolidated-report
+
+          cat > consolidated-report/security-summary.md << 'EOF'
+          # Security Scan Summary
+
+          **Scan Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Commit**: ${{ github.sha }}
+          **Branch**: ${{ github.ref_name }}
+
+          ## Scan Results
+
+          ### SAST Scan
+          See artifacts: `sast-results`
+
+          ### Dependency Scan
+          See artifacts: `dependency-scan-results`
+
+          ### Secrets Scan
+          See artifacts: `secrets-scan-results`
+
+          ### Container Scan
+          See artifacts: `container-scan-results`
+
+          ### IaC Scan
+          See artifacts: `iac-scan-results`
+
+          ---
+
+          For detailed results, download scan artifacts from this workflow run.
+          EOF
+
+      - name: Comment on PR (if applicable)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('consolidated-report/security-summary.md', 'utf8');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
+
+      - name: Upload Consolidated Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: consolidated-security-report
+          path: consolidated-report/
+          retention-days: 90
+
+# Security Best Practices Demonstrated:
+#
+# 1. ✅ Minimal permissions (principle of least privilege)
+# 2. ✅ Multiple security scan types (defense in depth)
+# 3. ✅ Fail-fast on critical findings
+# 4. ✅ Secrets detection across full git history
+# 5. ✅ Container image scanning before deployment
+# 6. ✅ IaC scanning for misconfigurations
+# 7. ✅ Artifact retention for compliance audit trail
+# 8. ✅ SARIF format for GitHub Security integration
+# 9. ✅ Scheduled scans for continuous monitoring
+# 10. ✅ PR comments for developer feedback
+#
+# Compliance Mappings:
+# - SOC 2: CC6.1, CC6.6, CC7.2 (Security monitoring and logging)
+# - PCI-DSS: 6.2, 6.5 (Secure development practices)
+# - NIST: SA-11 (Developer Security Testing)
+# - OWASP: Integrated security testing throughout SDLC

@@ -1,0 +1,175 @@
+stages:
+  - security
+
+variables:
+  REVIEWDOG_REPORTER: "gitlab-mr-discussion"
+  REVIEWDOG_FILTER_MODE: "added"
+
+# Reusable reviewdog setup
+.reviewdog_setup:
+  before_script:
+    - apk add --no-cache git curl
+    - |
+      # Install reviewdog
+      curl -sfL https://raw.githubusercontent.com/reviewdog/reviewdog/master/install.sh | sh -s -- -b /usr/local/bin
+
+# Python SAST with Bandit
+bandit_scan:
+  extends: .reviewdog_setup
+  stage: security
+  image: python:3.11-alpine
+  before_script:
+    - !reference [.reviewdog_setup, before_script]
+    - pip install bandit
+  script:
+    - |
+      bandit -r . -f json 2>/dev/null | \
+        reviewdog -f=bandit \
+                 -name="Bandit Security" \
+                 -reporter=$REVIEWDOG_REPORTER \
+                 -filter-mode=$REVIEWDOG_FILTER_MODE \
+                 -fail-on-error=true \
+                 -level=error
+  only:
+    - merge_requests
+  allow_failure: false
+
+# Multi-language SAST with Semgrep
+semgrep_scan:
+  extends: .reviewdog_setup
+  stage: security
+  image: python:3.11-alpine
+  before_script:
+    - !reference [.reviewdog_setup, before_script]
+    - pip install semgrep
+  script:
+    # Critical findings - block MR
+    - |
+      semgrep --config=auto --severity=ERROR --json --quiet 2>/dev/null | \
+        reviewdog -f=semgrep \
+                 -name="Semgrep Critical" \
+                 -reporter=$REVIEWDOG_REPORTER \
+                 -filter-mode=$REVIEWDOG_FILTER_MODE \
+                 -fail-on-error=true \
+                 -level=error
+    # Warnings - don't block
+    - |
+      semgrep --config=auto --severity=WARNING --json --quiet 2>/dev/null | \
+        reviewdog -f=semgrep \
+                 -name="Semgrep Warnings" \
+                 -reporter=$REVIEWDOG_REPORTER \
+                 -filter-mode=diff_context \
+                 -level=warning || true
+  only:
+    - merge_requests
+  allow_failure: false
+
+# Secret detection with Gitleaks
+gitleaks_scan:
+  extends: .reviewdog_setup
+  stage: security
+  image: zricethezav/gitleaks:latest
+  script:
+    - gitleaks detect --report-format json --report-path gitleaks.json --no-git || true
+    - |
+      if [ -f gitleaks.json ]; then
+        cat gitleaks.json | \
+          reviewdog -f=gitleaks \
+                   -name="Secret Detection" \
+                   -reporter=$REVIEWDOG_REPORTER \
+                   -filter-mode=$REVIEWDOG_FILTER_MODE \
+                   -fail-on-error=true \
+                   -level=error
+      fi
+  only:
+    - merge_requests
+  allow_failure: false
+
+# Dockerfile security with Hadolint
+hadolint_scan:
+  extends: .reviewdog_setup
+  stage: security
+  image: hadolint/hadolint:latest-alpine
+  script:
+    - |
+      find . -type f \( -name "Dockerfile*" -o -name "*.dockerfile" \) | while read dockerfile; do
+        hadolint "$dockerfile" --format json 2>/dev/null | \
+          reviewdog -f=hadolint \
+                   -name="Hadolint: $dockerfile" \
+                   -reporter=$REVIEWDOG_REPORTER \
+                   -filter-mode=diff_context \
+                   -level=warning || true
+      done
+  only:
+    - merge_requests
+    changes:
+      - "**/Dockerfile*"
+      - "**/*.dockerfile"
+  allow_failure: true
+
+# IaC security with Checkov
+checkov_scan:
+  extends: .reviewdog_setup
+  stage: security
+  image: bridgecrew/checkov:latest
+  script:
+    - |
+      checkov -d . --quiet --compact -o json 2>/dev/null | \
+        reviewdog -f=checkov \
+                 -name="Checkov IaC Security" \
+                 -reporter=$REVIEWDOG_REPORTER \
+                 -filter-mode=diff_context \
+                 -level=warning || true
+  only:
+    - merge_requests
+    changes:
+      - "**/*.tf"
+      - "**/*.yml"
+      - "**/*.yaml"
+  allow_failure: true
+
+# ShellCheck for shell scripts
+shellcheck_scan:
+  extends: .reviewdog_setup
+  stage: security
+  image: koalaman/shellcheck-alpine:latest
+  script:
+    - |
+      find . -type f -name "*.sh" | while read script; do
+        shellcheck -f json "$script" 2>/dev/null | \
+          reviewdog -f=shellcheck \
+                   -name="ShellCheck" \
+                   -reporter=$REVIEWDOG_REPORTER \
+                   -filter-mode=diff_context || true
+      done
+  only:
+    - merge_requests
+    changes:
+      - "**/*.sh"
+  allow_failure: true
+
+# Combined security suite (alternative approach)
+security_suite:
+  extends: .reviewdog_setup
+  stage: security
+  image: python:3.11-alpine
+  before_script:
+    - !reference [.reviewdog_setup, before_script]
+    - pip install bandit semgrep
+  script:
+    # Run all tools in parallel
+    - |
+      (bandit -r . -f json 2>/dev/null | \
+        reviewdog -f=bandit -name="Bandit" -reporter=$REVIEWDOG_REPORTER \
+                 -filter-mode=$REVIEWDOG_FILTER_MODE -fail-on-error=true) &
+
+      (semgrep --config=auto --json --quiet 2>/dev/null | \
+        reviewdog -f=semgrep -name="Semgrep" -reporter=$REVIEWDOG_REPORTER \
+                 -filter-mode=$REVIEWDOG_FILTER_MODE) &
+
+      wait
+  only:
+    - merge_requests
+  allow_failure: false
+  # Comment this job out if using individual jobs above
+  when: manual

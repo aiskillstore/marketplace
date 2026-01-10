@@ -1,0 +1,255 @@
+# Grype Configuration File (.grype.yaml)
+#
+# Place this file in your project root or specify with: grype <target> -c .grype.yaml
+#
+# Documentation: https://github.com/anchore/grype#configuration
+
+# =============================================================================
+# Ignore Rules - Suppress False Positives and Accepted Risks
+# =============================================================================
+
+ignore:
+  # Example 1: Ignore specific CVE globally
+  - vulnerability: CVE-2021-12345
+    reason: "False positive - vulnerable code path not used in our application"
+
+  # Example 2: Ignore CVE for specific package only
+  - vulnerability: CVE-2022-67890
+    package:
+      name: example-library
+      version: 1.2.3
+    reason: "Risk accepted - compensating WAF rules deployed to block exploitation"
+
+  # Example 3: Ignore CVE with expiration date (forces re-evaluation)
+  - vulnerability: CVE-2023-11111
+    package:
+      name: lodash
+    reason: "Temporary acceptance while migration to alternative library is in progress"
+    expires: 2025-12-31
+
+  # Example 4: Ignore by fix state
+  - fix-state: wont-fix
+    reason: "Maintainer has stated these will not be fixed"
+
+  # Example 5: Ignore vulnerabilities in test dependencies
+  - package:
+      name: pytest
+      type: python
+    reason: "Test-only dependency, not present in production"
+
+# =============================================================================
+# Match Configuration
+# =============================================================================
+
+match:
+  # Match vulnerabilities in OS packages
+  os:
+    enabled: true
+
+  # Match vulnerabilities in language packages
+  language:
+    enabled: true
+
+  # Control matching behavior
+  go:
+    # Use Go module proxy for additional metadata
+    use-network: true
+    main-module-version:
+      # Use version from go.mod if available
+      from-contents: true
+
+  java:
+    # Use Maven Central for additional metadata
+    use-network: true
+
+  python:
+    # Use PyPI for additional metadata
+    use-network: true
+
+# =============================================================================
+# Search Configuration
+# =============================================================================
+
+search:
+  # Search for packages in these locations
+  scope: all-layers  # Options: all-layers, squashed
+
+  # Exclude paths from scanning
+  exclude:
+    # Exclude documentation directories
+    - "/usr/share/doc/**"
+    - "/usr/share/man/**"
+
+    # Exclude test directories
+    - "**/test/**"
+    - "**/tests/**"
+    - "**/__tests__/**"
+
+    # Exclude development tools not in production
+    - "**/node_modules/.bin/**"
+
+    # Exclude specific files
+    - "**/*.md"
+    - "**/*.txt"
+
+  # Index archives (tar, zip, jar, etc.)
+  index-archives: true
+
+  # Maximum depth to traverse nested archives
+  max-depth: 3
+
+# =============================================================================
+# Database Configuration
+# =============================================================================
+
+db:
+  # Cache directory for vulnerability database
+  cache-dir: ~/.grype/db
+
+  # Auto-update database
+  auto-update: true
+
+  # Validate database checksum
+  validate-by-hash-on-start: true
+
+  # Update check timeout
+  update-url-timeout: 30s
+
+# =============================================================================
+# Vulnerability Matching Configuration
+# =============================================================================
+
+# Adjust matcher configuration
+dev:
+  # Profile memory usage (debugging)
+  profile-mem: false
+
+# =============================================================================
+# Output Configuration
+# =============================================================================
+
+output:
+  # Default output format
+  # Options: table, json, cyclonedx-json, cyclonedx-xml, sarif, template
+  format: table
+
+  # Show suppressed/ignored vulnerabilities in output
+  show-suppressed: false
+
+# =============================================================================
+# Fail-on Configuration
+# =============================================================================
+
+# Uncomment to set default fail-on severity
+# fail-on: high  # Options: negligible, low, medium, high, critical
+
+# =============================================================================
+# Registry Authentication
+# =============================================================================
+
+registry:
+  # Authenticate to private registries
+  # auth:
+  #   - authority: registry.example.com
+  #     username: user
+  #     password: pass
+  #
+  #   - authority: gcr.io
+  #     token: <token>
+
+  # Use Docker config for authentication
+  insecure-use-http: false
+
+# =============================================================================
+# Example Configurations for Different Use Cases
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Use Case 1: Development Environment (Permissive)
+# -----------------------------------------------------------------------------
+#
+# ignore:
+#   # Allow medium and below in dev
+#   - severity: medium
+#     reason: "Development environment - focus on high/critical only"
+#
+# fail-on: critical
+#
+# search:
+#   exclude:
+#     - "**/test/**"
+#     - "**/node_modules/**"
+
+# -----------------------------------------------------------------------------
+# Use Case 2: CI/CD Pipeline (Strict)
+# -----------------------------------------------------------------------------
+#
+# fail-on: high
+#
+# ignore:
+#   # Only allow documented exceptions
+#   - vulnerability: CVE-2024-XXXX
+#     reason: "Documented risk acceptance by Security Team - Ticket SEC-123"
+#     expires: 2025-06-30
+#
+# output:
+#   format: json
+#   show-suppressed: true
+
+# -----------------------------------------------------------------------------
+# Use Case 3: Production Monitoring (Focus on Exploitability)
+# -----------------------------------------------------------------------------
+#
+# match:
+#   # Prioritize known exploited vulnerabilities
+#   only-fixed: true  # Only show CVEs with available fixes
+#
+# ignore:
+#   # Ignore unfixable vulnerabilities with compensating controls
+#   - fix-state: wont-fix
+#     reason: "Compensating controls implemented - network isolation, WAF rules"
+#
+# output:
+#   format: json
+
+# -----------------------------------------------------------------------------
+# Use Case 4: Compliance Scanning (Comprehensive)
+# -----------------------------------------------------------------------------
+#
+# search:
+#   scope: all-layers
+#   index-archives: true
+#   max-depth: 5
+#
+# output:
+#   format: cyclonedx-json
+#   show-suppressed: true
+#
+# # No ignores - report everything for compliance review
+
+# =============================================================================
+# Best Practices
+# =============================================================================
+
+# 1. Document all ignore rules with clear reasons
+#    - Include ticket numbers for risk acceptances
+#    - Set expiration dates for temporary ignores
+#    - Review ignores quarterly
+
+# 2. Use package-specific ignores instead of global CVE ignores
+#    - Reduces risk of suppressing legitimate vulnerabilities in other packages
+#    - Example: CVE-2021-12345 in package-a (ignored) vs package-b (should alert)
+
+# 3. Exclude non-production paths
+#    - Test directories, documentation, dev tools
+#    - Reduces noise and scan time
+
+# 4. Keep configuration in version control
+#    - Track changes to ignore rules
+#    - Audit trail for risk acceptances
+#    - Share consistent configuration across team
+
+# 5. Different configs for different environments
+#    - Development: More permissive, focus on critical
+#    - CI/CD: Strict, block on high/critical
+#    - Production: Monitor all, focus on exploitable CVEs

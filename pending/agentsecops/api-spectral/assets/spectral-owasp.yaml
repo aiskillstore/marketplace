@@ -1,0 +1,293 @@
+# Comprehensive OWASP API Security Top 10 2023 Spectral Ruleset
+# This ruleset enforces OWASP API Security best practices for OpenAPI specifications
+
+extends: ["spectral:oas"]
+
+rules:
+  # ============================================================================
+  # API1:2023 - Broken Object Level Authorization
+  # ============================================================================
+
+  operation-security-defined:
+    description: All operations must have security requirements defined (OWASP API1)
+    severity: error
+    given: $.paths[*][get,post,put,patch,delete,head]
+    then:
+      - field: security
+        function: truthy
+    message: "Operations must define security requirements to prevent unauthorized object access (OWASP API1:2023 - Broken Object Level Authorization)"
+
+  id-parameters-require-security:
+    description: Operations with ID parameters must have security defined
+    severity: error
+    given: $.paths[?(@property =~ /(\/\{id\}|\/\{.*[_-]id\})/i)][get,put,patch,delete]
+    then:
+      - field: security
+        function: truthy
+    message: "Operations with ID parameters require security to prevent IDOR vulnerabilities (OWASP API1:2023)"
+
+  # ============================================================================
+  # API2:2023 - Broken Authentication
+  # ============================================================================
+
+  security-schemes-required:
+    description: API must define security schemes (OWASP API2)
+    severity: error
+    given: $.components
+    then:
+      - field: securitySchemes
+        function: truthy
+    message: "API must define security schemes to prevent authentication bypass (OWASP API2:2023 - Broken Authentication)"
+
+  no-http-basic-auth:
+    description: HTTP Basic authentication is insecure for APIs
+    severity: error
+    given: $.components.securitySchemes[*]
+    then:
+      - field: scheme
+        function: pattern
+        functionOptions:
+          notMatch: "^basic$"
+    message: "HTTP Basic authentication transmits credentials in plain text - use OAuth2, API key, or JWT (OWASP API2:2023)"
+
+  bearer-format-specified:
+    description: Bearer authentication should specify token format (JWT recommended)
+    severity: warn
+    given: $.components.securitySchemes[?(@.type == 'http' && @.scheme == 'bearer')]
+    then:
+      - field: bearerFormat
+        function: truthy
+    message: "Bearer authentication should specify token format (bearerFormat: JWT) for clarity (OWASP API2:2023)"
+
+  # ============================================================================
+  # API3:2023 - Broken Object Property Level Authorization
+  # ============================================================================
+
+  no-additional-properties:
+    description: Prevent mass assignment by disabling additionalProperties
+    severity: warn
+    given: $.components.schemas[?(@.type == 'object')]
+    then:
+      - field: additionalProperties
+        function: falsy
+    message: "Set additionalProperties to false to prevent mass assignment vulnerabilities (OWASP API3:2023 - Broken Object Property Level Authorization)"
+
+  schemas-have-properties:
+    description: Object schemas should explicitly define properties
+    severity: warn
+    given: $.components.schemas[?(@.type == 'object')]
+    then:
+      - field: properties
+        function: truthy
+    message: "Explicitly define object properties to control data exposure (OWASP API3:2023)"
+
+  # ============================================================================
+  # API4:2023 - Unrestricted Resource Consumption
+  # ============================================================================
+
+  rate-limit-headers-documented:
+    description: API should document rate limiting headers
+    severity: warn
+    given: $.paths[*][get,post,put,patch,delete].responses[?(@property < '300')].headers
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          anyOf:
+            - required: [X-RateLimit-Limit]
+            - required: [X-Rate-Limit-Limit]
+            - required: [RateLimit-Limit]
+    message: "Document rate limiting headers to communicate resource consumption limits (OWASP API4:2023 - Unrestricted Resource Consumption)"
+
+  pagination-parameters-present:
+    description: List operations should support pagination
+    severity: warn
+    given: $.paths[*].get
+    then:
+      - field: parameters
+        function: schema
+        functionOptions:
+          schema:
+            type: array
+            contains:
+              anyOf:
+                - properties:
+                    name:
+                      enum: [limit, per_page, page_size]
+                - properties:
+                    name:
+                      enum: [offset, page, cursor]
+    message: "List operations should support pagination (limit/offset or cursor) to prevent resource exhaustion (OWASP API4:2023)"
+
+  # ============================================================================
+  # API5:2023 - Broken Function Level Authorization
+  # ============================================================================
+
+  write-operations-require-security:
+    description: Write operations must have security requirements
+    severity: error
+    given: $.paths[*][post,put,patch,delete]
+    then:
+      - field: security
+        function: truthy
+    message: "Write operations must have security requirements to prevent unauthorized function access (OWASP API5:2023 - Broken Function Level Authorization)"
+
+  admin-paths-require-security:
+    description: Admin endpoints must have strict security
+    severity: error
+    given: $.paths[?(@property =~ /admin/i)][*]
+    then:
+      - field: security
+        function: truthy
+    message: "Admin endpoints require security requirements with appropriate scopes (OWASP API5:2023)"
+
+  # ============================================================================
+  # API7:2023 - Server Side Request Forgery
+  # ============================================================================
+
+  no-url-parameters:
+    description: Avoid URL parameters to prevent SSRF attacks
+    severity: warn
+    given: $.paths[*][*].parameters[?(@.in == 'query' || @.in == 'body')][?(@.name =~ /(url|uri|link|callback|redirect|webhook)/i)]
+    then:
+      function: truthy
+    message: "URL parameters can enable SSRF attacks - validate and whitelist destination URLs (OWASP API7:2023 - Server Side Request Forgery)"
+
+  # ============================================================================
+  # API8:2023 - Security Misconfiguration
+  # ============================================================================
+
+  servers-use-https:
+    description: All API servers must use HTTPS
+    severity: error
+    given: $.servers[*].url
+    then:
+      function: pattern
+      functionOptions:
+        match: "^https://"
+    message: "Server URLs must use HTTPS protocol for secure communication (OWASP API8:2023 - Security Misconfiguration)"
+
+  no-example-servers:
+    description: Replace example server URLs with actual endpoints
+    severity: error
+    given: $.servers[*].url
+    then:
+      function: pattern
+      functionOptions:
+        notMatch: "example\\.com"
+    message: "Replace example.com with actual production server URLs (OWASP API8:2023)"
+
+  security-headers-in-responses:
+    description: Document security headers in responses
+    severity: info
+    given: $.paths[*][*].responses[*].headers
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          anyOf:
+            - required: [X-Content-Type-Options]
+            - required: [X-Frame-Options]
+            - required: [Strict-Transport-Security]
+            - required: [Content-Security-Policy]
+    message: "Consider documenting security headers (X-Content-Type-Options, X-Frame-Options, HSTS, CSP) (OWASP API8:2023)"
+
+  # ============================================================================
+  # API9:2023 - Improper Inventory Management
+  # ============================================================================
+
+  api-version-required:
+    description: API specification must include version
+    severity: error
+    given: $.info
+    then:
+      - field: version
+        function: truthy
+    message: "API version must be specified for proper inventory management (OWASP API9:2023 - Improper Inventory Management)"
+
+  semantic-versioning-format:
+    description: Use semantic versioning for API versions
+    severity: warn
+    given: $.info.version
+    then:
+      function: pattern
+      functionOptions:
+        match: "^\\d+\\.\\d+(\\.\\d+)?$"
+    message: "Use semantic versioning format (MAJOR.MINOR.PATCH) for API versions (OWASP API9:2023)"
+
+  contact-info-required:
+    description: API must include contact information
+    severity: warn
+    given: $.info
+    then:
+      - field: contact
+        function: truthy
+    message: "Include contact information for API support and security reporting (OWASP API9:2023)"
+
+  deprecated-endpoints-documented:
+    description: Deprecated endpoints must document migration path
+    severity: warn
+    given: $.paths[*][*][?(@.deprecated == true)]
+    then:
+      - field: description
+        function: pattern
+        functionOptions:
+          match: "(deprecate|migrate|alternative|replacement|use instead)"
+    message: "Deprecated endpoints must document migration path and timeline (OWASP API9:2023)"
+
+  # ============================================================================
+  # API10:2023 - Unsafe Consumption of APIs
+  # ============================================================================
+
+  validate-external-api-responses:
+    description: Document validation of external API responses
+    severity: info
+    given: $.paths[*][*].responses[*].content[*].schema
+    then:
+      - field: description
+        function: truthy
+    message: "Document schema validation for all API responses, especially from external APIs (OWASP API10:2023 - Unsafe Consumption of APIs)"
+
+  # ============================================================================
+  # Additional Security Best Practices
+  # ============================================================================
+
+  no-pii-in-query-parameters:
+    description: Prevent PII exposure in URL query parameters
+    severity: error
+    given: $.paths[*][*].parameters[?(@.in == 'query')].name
+    then:
+      function: pattern
+      functionOptions:
+        notMatch: "(?i)(ssn|social.?security|credit.?card|password|secret|token|api.?key|private|passport|driver.?license)"
+    message: "Query parameters must not contain PII or sensitive data - use request body with HTTPS instead"
+
+  consistent-error-response-format:
+    description: Error responses should follow consistent format
+    severity: warn
+    given: $.paths[*][*].responses[?(@property >= '400')].content.application/json.schema
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [error, message]
+    message: "Error responses should follow consistent format with 'error' and 'message' fields"
+
+  no-verbose-error-details:
+    description: 5xx errors should not expose internal details
+    severity: warn
+    given: $.paths[*][*].responses[?(@property >= '500')].content[*].schema.properties
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          not:
+            anyOf:
+              - required: [stack_trace]
+              - required: [stackTrace]
+              - required: [debug_info]
+    message: "5xx error responses should not expose stack traces or internal details in production"

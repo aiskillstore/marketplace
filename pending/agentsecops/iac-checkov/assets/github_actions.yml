@@ -1,0 +1,199 @@
+# GitHub Actions Workflow for Checkov IaC Security Scanning
+# Place this file in .github/workflows/checkov.yml
+
+name: Checkov IaC Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+    paths:
+      - '**.tf'
+      - '**.yaml'
+      - '**.yml'
+      - '**.json'
+  schedule:
+    # Run weekly security scans on Sunday at 2 AM
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  checkov-terraform:
+    name: Terraform Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov on Terraform
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: terraform/
+          framework: terraform
+          output_format: sarif
+          output_file_path: checkov-terraform.sarif
+          soft_fail: false
+          download_external_modules: true
+
+      - name: Upload SARIF Report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-terraform.sarif
+          category: terraform
+
+  checkov-kubernetes:
+    name: Kubernetes Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov on Kubernetes
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: k8s/
+          framework: kubernetes
+          output_format: sarif
+          output_file_path: checkov-k8s.sarif
+          soft_fail: false
+
+      - name: Upload SARIF Report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-k8s.sarif
+          category: kubernetes
+
+  checkov-dockerfile:
+    name: Dockerfile Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov on Dockerfiles
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: ./
+          framework: dockerfile
+          output_format: sarif
+          output_file_path: checkov-docker.sarif
+          soft_fail: false
+
+      - name: Upload SARIF Report
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-docker.sarif
+          category: dockerfile
+
+  checkov-compliance:
+    name: Compliance Scan (CIS, PCI-DSS)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run CIS Compliance Scan
+        run: |
+          checkov -d terraform/ \
+            --framework terraform \
+            --check CIS_AWS,CIS_AZURE \
+            -o json -o cli \
+            --output-file-path ./compliance-reports
+
+      - name: Upload Compliance Reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compliance-reports
+          path: compliance-reports/
+          retention-days: 90
+
+  security-gate:
+    name: Security Gate Check
+    runs-on: ubuntu-latest
+    needs: [checkov-terraform, checkov-kubernetes]
+    if: always()
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: pip install checkov
+
+      - name: Run Checkov with Threshold
+        run: |
+          # Fail on CRITICAL and HIGH severity issues
+          checkov -d terraform/ \
+            --framework terraform \
+            --hard-fail-on CRITICAL,HIGH \
+            -o json --output-file-path ./gate-report || EXIT_CODE=$?
+
+          # Parse results
+          if [ -f "gate-report/results_json.json" ]; then
+            CRITICAL=$(jq '[.results.failed_checks[] | select(.severity == "CRITICAL")] | length' gate-report/results_json.json)
+            HIGH=$(jq '[.results.failed_checks[] | select(.severity == "HIGH")] | length' gate-report/results_json.json)
+
+            echo "Critical findings: $CRITICAL"
+            echo "High findings: $HIGH"
+
+            if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+              echo "❌ Security gate failed"
+              exit 1
+            fi
+          fi
+
+          echo "✅ Security gate passed"
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('gate-report/results_json.json', 'utf8'));
+
+            const summary = report.summary || {};
+            const passed = summary.passed || 0;
+            const failed = summary.failed || 0;
+            const skipped = summary.skipped || 0;
+
+            const body = `## Checkov IaC Security Scan Results
+
+            | Status | Count |
+            |--------|-------|
+            | ✅ Passed | ${passed} |
+            | ❌ Failed | ${failed} |
+            | ⏭️  Skipped | ${skipped} |
+
+            ${failed > 0 ? '⚠️ Please review and fix the security findings before merging.' : '✅ No security issues detected!'}
+            `;
+
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
