@@ -1,0 +1,217 @@
+;; Logseq Datalog Query Templates
+;; Copy and modify these patterns for common queries
+
+;; ============================================
+;; BASIC QUERIES
+;; ============================================
+
+;; Find all page titles
+[:find ?title
+ :where
+ [?p :block/title ?title]
+ [?p :block/tags ?t]
+ [?t :db/ident :logseq.class/Page]]
+
+;; Find page by title (exact match)
+[:find (pull ?p [*])
+ :in $ ?title
+ :where
+ [?p :block/title ?title]]
+
+;; Find block by UUID
+[:find (pull ?b [*])
+ :in $ ?uuid
+ :where
+ [?b :block/uuid ?uuid]]
+
+
+;; ============================================
+;; TAG/CLASS QUERIES
+;; ============================================
+
+;; Find all blocks with a specific tag
+[:find (pull ?b [*])
+ :in $ ?tag-name
+ :where
+ [?b :block/tags ?t]
+ [?t :block/title ?tag-name]]
+
+;; Find all user-defined classes
+[:find ?class-name
+ :where
+ [?c :block/tags ?t]
+ [?t :db/ident :logseq.class/Tag]
+ [?c :block/title ?class-name]
+ [(clojure.string/starts-with? (str ?c) ":user.class")]]
+
+;; Find blocks with multiple tags (AND)
+[:find (pull ?b [*])
+ :in $ ?tag1 ?tag2
+ :where
+ [?b :block/tags ?t1]
+ [?t1 :block/title ?tag1]
+ [?b :block/tags ?t2]
+ [?t2 :block/title ?tag2]]
+
+
+;; ============================================
+;; PROPERTY QUERIES
+;; ============================================
+
+;; Find blocks with a specific property value
+[:find (pull ?b [:block/title :user.property/rating])
+ :in $ ?rating-value
+ :where
+ [?b :user.property/rating ?rating-value]]
+
+;; Find blocks where property >= value
+[:find (pull ?b [:block/title :user.property/rating])
+ :in $ ?min-rating
+ :where
+ [?b :user.property/rating ?r]
+ [(>= ?r ?min-rating)]]
+
+;; Find blocks with any value for a property
+[:find ?title ?author
+ :where
+ [?b :block/title ?title]
+ [?b :user.property/author ?author]]
+
+;; Find blocks missing a property
+[:find (pull ?b [:block/title])
+ :in $ ?tag-name
+ :where
+ [?b :block/tags ?t]
+ [?t :block/title ?tag-name]
+ (not [?b :user.property/rating _])]
+
+
+;; ============================================
+;; TASK QUERIES
+;; ============================================
+
+;; Find all tasks
+[:find (pull ?t [*])
+ :where
+ [?t :block/tags ?tag]
+ [?tag :db/ident :logseq.class/Task]]
+
+;; Find tasks by status
+[:find (pull ?t [:block/title :logseq.property/status])
+ :in $ ?status-name
+ :where
+ [?t :block/tags ?tag]
+ [?tag :db/ident :logseq.class/Task]
+ [?t :logseq.property/status ?s]
+ [?s :block/title ?status-name]]
+
+;; Find tasks with deadline before date
+[:find (pull ?t [:block/title :logseq.property/deadline])
+ :in $ ?before-date
+ :where
+ [?t :block/tags ?tag]
+ [?tag :db/ident :logseq.class/Task]
+ [?t :logseq.property/deadline ?d]
+ [(< ?d ?before-date)]]
+
+
+;; ============================================
+;; RELATIONSHIP QUERIES
+;; ============================================
+
+;; Find backlinks (what references this page)
+[:find (pull ?b [:block/title {:block/page [:block/title]}])
+ :in $ ?page-title
+ :where
+ [?p :block/title ?page-title]
+ [?b :block/refs ?p]]
+
+;; Find outgoing references from a page
+[:find (pull ?ref [:block/title])
+ :in $ ?page-title
+ :where
+ [?p :block/title ?page-title]
+ [?b :block/page ?p]
+ [?b :block/refs ?ref]]
+
+;; Find parent-child relationships
+[:find ?parent-title ?child-title
+ :where
+ [?child :block/parent ?parent]
+ [?parent :block/title ?parent-title]
+ [?child :block/title ?child-title]]
+
+
+;; ============================================
+;; AGGREGATION QUERIES
+;; ============================================
+
+;; Count items by tag
+[:find ?tag-name (count ?b)
+ :where
+ [?b :block/tags ?t]
+ [?t :block/title ?tag-name]]
+
+;; Count items by property value
+[:find ?author (count ?b)
+ :where
+ [?b :user.property/author ?author]]
+
+;; Sum, average, min, max
+[:find (sum ?r) (avg ?r) (min ?r) (max ?r)
+ :where
+ [?b :user.property/rating ?r]]
+
+
+;; ============================================
+;; ADVANCED PATTERNS
+;; ============================================
+
+;; OR query (either condition)
+[:find (pull ?b [:block/title])
+ :where
+ (or
+   [?b :user.property/priority "High"]
+   [?b :user.property/status "Urgent"])]
+
+;; NOT query (exclude)
+[:find (pull ?b [:block/title])
+ :in $ ?tag-name
+ :where
+ [?b :block/tags ?t]
+ [?t :block/title ?tag-name]
+ (not [?b :user.property/archived true])]
+
+;; Recursive (descendants)
+;; Note: Define rule first
+[[(descendant ?parent ?child)
+  [?child :block/parent ?parent]]
+ [(descendant ?parent ?child)
+  [?child :block/parent ?p]
+  (descendant ?parent ?p)]]
+
+[:find (pull ?c [:block/title])
+ :in $ % ?root-uuid
+ :where
+ [?root :block/uuid ?root-uuid]
+ (descendant ?root ?c)]
+
+
+;; ============================================
+;; PULL SYNTAX PATTERNS
+;; ============================================
+
+;; Pull all attributes
+(pull ?e [*])
+
+;; Pull specific attributes
+(pull ?e [:block/title :block/uuid :user.property/rating])
+
+;; Pull with nested refs
+(pull ?e [:block/title {:block/tags [:block/title]}])
+
+;; Pull with reverse lookup
+(pull ?e [:block/title {:block/_refs [:block/title]}])
+
+;; Pull with limit
+(pull ?e [:block/title {:block/children [:block/title] :limit 5}])
