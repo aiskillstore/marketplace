@@ -11,6 +11,8 @@ Create skills that embody the wisdom of domain masters. This skill helps users d
 
 Most professional domains have outstanding practitioners who have codified their methods through books, talks, interviews, and frameworks. A skill built on these proven methodologies is far more valuable than one created from scratch.
 
+The goal is not just "good enough" — it's reaching the highest level of human expertise in that domain.
+
 ## Workflow
 
 ### Step 1: Understand the Skill Intent
@@ -32,14 +34,38 @@ Example mappings:
 
 ### Step 3: Surface Expert Methodologies
 
-Consult `references/methodology-database.md` for known frameworks. For each relevant domain, present:
+**Layer 1: Local Database**
+Consult `references/methodology-database.md` for known frameworks.
+
+**Layer 2: Web Search for Experts**
+Search the web to discover additional experts and methodologies:
+- Search: "[domain] best practices expert"
+- Search: "[domain] framework methodology"
+- Search: "[domain] master practitioner"
+
+**Layer 3: Deep Dive on Selected Experts**
+For promising experts, search for their original content:
+- Search: "[expert name] methodology interview"
+- Search: "[expert name] [domain] transcript"
+- Search: "[expert name] framework explained"
+
+Fetch and read primary sources when available (articles, talk transcripts, blog posts).
+
+For each relevant domain, present:
 - Key experts and their core contributions
 - Specific frameworks, principles, or processes
 - Source materials (books, talks, interviews)
 
-If the domain isn't covered in the database, search the web to find recognized experts and their methodologies.
+### Step 4: Find Golden Examples
 
-### Step 4: Collaborative Selection
+Before finalizing methodology selection, search for exemplary outputs:
+- Search: "best [output type] examples"
+- Search: "[output type] template [top company]"
+- Search: "award winning [output type]"
+
+Understanding what excellence looks like helps define the quality bar.
+
+### Step 5: Collaborative Selection
 
 Present the methodologies to the user and discuss:
 - Which frameworks resonate with their goals?
@@ -49,46 +75,92 @@ Present the methodologies to the user and discuss:
 
 Guide the user to select 1-3 primary methodologies that will form the skill's foundation.
 
-### Step 5: Extract Actionable Principles
+### Step 6: Extract Actionable Principles
 
-For each selected methodology, distill:
-- Core principles (the "why")
-- Concrete steps or processes (the "how")
-- Quality criteria or checklists (the "what good looks like")
-- Common pitfalls to avoid (the "watch out for")
+For each selected methodology, search for and distill:
 
-If source material is available online (transcripts, articles, documentation), fetch and review primary sources.
+**The Why (Core Principles)**
+- Search: "[methodology] core principles"
+- Search: "why [methodology] works"
 
-### Step 6: Generate the Skill
+**The How (Concrete Process)**
+- Search: "[methodology] step by step"
+- Search: "[methodology] implementation guide"
 
-With methodologies confirmed, use the **skill-creator** skill to generate the final skill. Follow skill-creator's standard process, ensuring the generated skill:
+**The What (Quality Criteria)**
+- Search: "[methodology] checklist"
+- Search: "[methodology] evaluation criteria"
 
-1. Credits the methodology sources in a comment (documenting provenance)
-2. Translates expert wisdom into actionable instructions
-3. Includes concrete examples derived from the methodologies
-4. Captures the quality bar and evaluation criteria from the experts
+**The Pitfalls (Common Mistakes)**
+- Search: "[domain] common mistakes"
+- Search: "[methodology] pitfalls avoid"
+
+Fetch primary sources to get exact wording and nuance, not just summaries.
+
+### Step 7: Cross-Validate
+
+Compare insights across multiple sources:
+- What principles appear consistently? (high confidence)
+- Where do experts disagree? (flag for user)
+- What's unique to each approach? (differentiation)
+
+Synthesize a coherent framework that takes the best from each source.
+
+### Step 8: Generate the Skill
+
+With methodologies confirmed, use the **skill-creator** skill to generate the final skill. The generated skill should:
+
+1. Credit the methodology sources in a comment (documenting provenance)
+2. Translate expert wisdom into actionable instructions
+3. Include concrete examples derived from golden examples found
+4. Capture quality criteria as explicit checkpoints
+5. Include "don't do this" anti-patterns from pitfall research
+6. Match the quality bar of the best human practitioners
+
+## Quality Checklist
+
+Before finalizing, verify:
+- [ ] Did we search beyond the local database?
+- [ ] Did we find primary sources, not just summaries?
+- [ ] Did we find golden examples of the output?
+- [ ] Did we identify common mistakes to avoid?
+- [ ] Did we cross-validate across multiple experts?
+- [ ] Does the skill encode specific, actionable steps (not vague principles)?
 
 ## Example Interaction
 
 **User**: I want to create a skill for writing product requirement documents.
 
-**Assistant**: Great choice. PRD writing spans several domains where experts have codified best practices:
+**Assistant**: Great choice. Let me search for the best methodologies on PRD writing.
+
+[Searches: "PRD best practices expert", "product requirements document methodology", "best PRD examples"]
+
+I found several strong frameworks:
 
 **Product Management**:
 - Marty Cagan (SVPG): Emphasizes problem-first PRDs, separating problem space from solution space
 - Teresa Torres: Continuous discovery, outcome-focused requirements
-- Gibson Biddle: DHM model for evaluating features
 
 **Business Writing**:
 - Barbara Minto: Pyramid Principle - lead with conclusion, MECE structure
 - Amazon: Working backwards from press release, 6-pager narrative format
 
-**User Research Integration**:
-- Jobs to be Done framework: Focus on what job the user is hiring the product to do
+**Golden Examples Found**:
+- Intercom's public PRD template
+- Linear's product spec format
 
-Which of these approaches resonates with how you want PRDs written? Or should we combine elements?
+**Common Mistakes** (from my search):
+- Jumping to solutions before defining the problem
+- Writing for engineers instead of for alignment
+- Missing success metrics
 
-**User**: I like Amazon's approach combined with Cagan's problem-first thinking.
+Which of these approaches resonates? Or should I search deeper into any of them?
 
-**Assistant**: Perfect combination. Let me extract the key principles from both...
-[Continues to Step 5 and 6]
+**User**: I like Amazon's approach combined with Cagan's problem-first thinking. Can you find more details on Amazon's method?
+
+**Assistant**: [Searches: "Amazon 6-pager template", "Amazon working backwards methodology", "Amazon PR FAQ process"]
+
+[Fetches relevant articles and synthesizes key principles]
+
+Here's what I found from primary sources...
+[Continues to Step 6, 7, and 8]
