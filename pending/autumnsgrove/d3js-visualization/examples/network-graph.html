@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>D3.js Force-Directed Network Graph</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      padding: 30px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    #chart {
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #fafafa;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .control-group label {
+      font-size: 12px;
+      color: #666;
+      font-weight: 600;
+    }
+
+    .control-group input[type="range"] {
+      width: 150px;
+    }
+
+    .control-group .value {
+      font-size: 11px;
+      color: #999;
+      text-align: center;
+    }
+
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 4px;
+      background: #667eea;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.3s;
+    }
+
+    button:hover {
+      background: #5568d3;
+    }
+
+    button:active {
+      transform: scale(0.98);
+    }
+
+    .links line {
+      stroke: #999;
+      stroke-opacity: 0.6;
+    }
+
+    .nodes circle {
+      stroke: #fff;
+      stroke-width: 2px;
+      cursor: pointer;
+    }
+
+    .nodes text {
+      font-size: 10px;
+      pointer-events: none;
+      user-select: none;
+      fill: #333;
+    }
+
+    .tooltip {
+      position: absolute;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 10px;
+      font-size: 12px;
+      pointer-events: none;
+      opacity: 0;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      transition: opacity 0.2s;
+      max-width: 200px;
+    }
+
+    .tooltip.show {
+      opacity: 1;
+    }
+
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin-top: 20px;
+      font-size: 12px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .legend-color {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid white;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+
+    .stats {
+      display: flex;
+      justify-content: center;
+      gap: 30px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      color: #666;
+    }
+
+    .stat-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #667eea;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Force-Directed Network Graph</h1>
+    <p class="subtitle">Interactive visualization with drag, zoom, and dynamic controls</p>
+
+    <div class="stats">
+      <div class="stat-item">
+        <div class="stat-value" id="node-count">0</div>
+        <div class="stat-label">Nodes</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="link-count">0</div>
+        <div class="stat-label">Links</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="group-count">0</div>
+        <div class="stat-label">Groups</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="control-group">
+        <label for="link-strength">Link Strength</label>
+        <input type="range" id="link-strength" min="0" max="2" step="0.1" value="1">
+        <div class="value" id="link-strength-value">1.0</div>
+      </div>
+
+      <div class="control-group">
+        <label for="charge-strength">Charge Force</label>
+        <input type="range" id="charge-strength" min="-500" max="-50" step="10" value="-200">
+        <div class="value" id="charge-strength-value">-200</div>
+      </div>
+
+      <div class="control-group">
+        <label for="collision-radius">Collision Radius</label>
+        <input type="range" id="collision-radius" min="5" max="50" step="1" value="20">
+        <div class="value" id="collision-radius-value">20</div>
+      </div>
+
+      <div class="control-group">
+        <label>&nbsp;</label>
+        <button id="restart-btn">Restart Simulation</button>
+      </div>
+
+      <div class="control-group">
+        <label>&nbsp;</label>
+        <button id="regenerate-btn">Regenerate Network</button>
+      </div>
+    </div>
+
+    <div id="chart"></div>
+
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div class="tooltip"></div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script>
+    // Generate network data
+    function generateNetworkData() {
+      const nodes = [];
+      const links = [];
+
+      // Create central hub
+      nodes.push({ id: 'hub', group: 0, size: 25, label: 'Central Hub' });
+
+      // Create groups (communities)
+      const numGroups = 4;
+      const nodesPerGroup = 6;
+
+      for (let g = 1; g <= numGroups; g++) {
+        // Group leader
+        const leaderId = `leader-${g}`;
+        nodes.push({
+          id: leaderId,
+          group: g,
+          size: 18,
+          label: `Leader ${g}`
+        });
+
+        // Connect leader to hub
+        links.push({
+          source: 'hub',
+          target: leaderId,
+          value: 5
+        });
+
+        // Create group members
+        for (let i = 1; i <= nodesPerGroup; i++) {
+          const nodeId = `node-${g}-${i}`;
+          nodes.push({
+            id: nodeId,
+            group: g,
+            size: 12,
+            label: `Node ${g}-${i}`
+          });
+
+          // Connect to leader
+          links.push({
+            source: leaderId,
+            target: nodeId,
+            value: 2
+          });
+
+          // Random connections within group
+          if (i > 1 && Math.random() > 0.6) {
+            const targetIdx = Math.floor(Math.random() * (i - 1)) + 1;
+            links.push({
+              source: nodeId,
+              target: `node-${g}-${targetIdx}`,
+              value: 1
+            });
+          }
+        }
+      }
+
+      // Add inter-group connections
+      for (let i = 0; i < 8; i++) {
+        const g1 = Math.floor(Math.random() * numGroups) + 1;
+        const g2 = Math.floor(Math.random() * numGroups) + 1;
+        if (g1 !== g2) {
+          const n1 = Math.floor(Math.random() * nodesPerGroup) + 1;
+          const n2 = Math.floor(Math.random() * nodesPerGroup) + 1;
+          links.push({
+            source: `node-${g1}-${n1}`,
+            target: `node-${g2}-${n2}`,
+            value: 1
+          });
+        }
+      }
+
+      return { nodes, links };
+    }
+
+    // Chart dimensions
+    const width = Math.min(window.innerWidth - 100, 1340);
+    const height = 700;
+
+    // Color scale
+    const color = d3.scaleOrdinal(d3.schemeCategory10);
+
+    // Create SVG
+    const svg = d3.select('#chart')
+      .append('svg')
+      .attr('width', width)
+      .attr('height', height)
+      .attr('viewBox', [0, 0, width, height]);
+
+    // Create groups for links and nodes
+    const linkGroup = svg.append('g').attr('class', 'links');
+    const nodeGroup = svg.append('g').attr('class', 'nodes');
+
+    // Create tooltip
+    const tooltip = d3.select('.tooltip');
+
+    // Initial data
+    let data = generateNetworkData();
+    updateStats(data);
+
+    // Force simulation
+    let linkForce = d3.forceLink()
+      .id(d => d.id)
+      .distance(d => 70 / d.value)
+      .strength(1);
+
+    let chargeForce = d3.forceManyBody()
+      .strength(-200);
+
+    let collisionForce = d3.forceCollide()
+      .radius(d => d.size + 20);
+
+    const simulation = d3.forceSimulation(data.nodes)
+      .force('link', linkForce.links(data.links))
+      .force('charge', chargeForce)
+      .force('center', d3.forceCenter(width / 2, height / 2))
+      .force('collision', collisionForce)
+      .on('tick', ticked);
+
+    // Create links
+    let link = linkGroup
+      .selectAll('line')
+      .data(data.links)
+      .join('line')
+      .attr('stroke-width', d => Math.sqrt(d.value) * 2);
+
+    // Create node groups
+    let node = nodeGroup
+      .selectAll('g')
+      .data(data.nodes)
+      .join('g')
+      .call(drag(simulation));
+
+    // Add circles to nodes
+    node.append('circle')
+      .attr('r', d => d.size)
+      .attr('fill', d => color(d.group))
+      .on('mouseover', handleMouseOver)
+      .on('mouseout', handleMouseOut)
+      .on('click', handleClick);
+
+    // Add labels to nodes
+    node.append('text')
+      .attr('dx', d => d.size + 5)
+      .attr('dy', '0.35em')
+      .text(d => d.label)
+      .style('font-size', d => d.size > 15 ? '11px' : '9px');
+
+    // Update positions on each tick
+    function ticked() {
+      link
+        .attr('x1', d => d.source.x)
+        .attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x)
+        .attr('y2', d => d.target.y);
+
+      node.attr('transform', d => `translate(${d.x},${d.y})`);
+    }
+
+    // Drag behavior
+    function drag(simulation) {
+      function dragstarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.3).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+      }
+
+      function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+      }
+
+      function dragended(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        // Keep node fixed (comment out to allow free movement)
+        // d.fx = null;
+        // d.fy = null;
+      }
+
+      return d3.drag()
+        .on('start', dragstarted)
+        .on('drag', dragged)
+        .on('end', dragended);
+    }
+
+    // Event handlers
+    function handleMouseOver(event, d) {
+      // Highlight connected nodes and links
+      const connectedNodes = new Set([d.id]);
+      const connectedLinks = new Set();
+
+      data.links.forEach(l => {
+        if (l.source.id === d.id || l.target.id === d.id) {
+          connectedLinks.add(l);
+          connectedNodes.add(l.source.id);
+          connectedNodes.add(l.target.id);
+        }
+      });
+
+      // Update opacity
+      node.selectAll('circle')
+        .style('opacity', n => connectedNodes.has(n.id) ? 1 : 0.2);
+
+      link
+        .style('opacity', l => connectedLinks.has(l) ? 1 : 0.1)
+        .style('stroke', l => connectedLinks.has(l) ? '#e74c3c' : '#999');
+
+      // Show tooltip
+      const connections = data.links.filter(l =>
+        l.source.id === d.id || l.target.id === d.id
+      ).length;
+
+      tooltip
+        .classed('show', true)
+        .style('left', (event.pageX + 10) + 'px')
+        .style('top', (event.pageY - 10) + 'px')
+        .html(`
+          <strong>${d.label}</strong><br/>
+          <strong>ID:</strong> ${d.id}<br/>
+          <strong>Group:</strong> ${d.group}<br/>
+          <strong>Connections:</strong> ${connections}
+        `);
+    }
+
+    function handleMouseOut() {
+      node.selectAll('circle').style('opacity', 1);
+      link.style('opacity', 0.6).style('stroke', '#999');
+      tooltip.classed('show', false);
+    }
+
+    function handleClick(event, d) {
+      // Center on clicked node
+      simulation.alpha(0.3).restart();
+      d.fx = width / 2;
+      d.fy = height / 2;
+    }
+
+    // Controls
+    d3.select('#link-strength').on('input', function() {
+      const value = +this.value;
+      d3.select('#link-strength-value').text(value.toFixed(1));
+      linkForce.strength(value);
+      simulation.alpha(0.3).restart();
+    });
+
+    d3.select('#charge-strength').on('input', function() {
+      const value = +this.value;
+      d3.select('#charge-strength-value').text(value);
+      chargeForce.strength(value);
+      simulation.alpha(0.3).restart();
+    });
+
+    d3.select('#collision-radius').on('input', function() {
+      const value = +this.value;
+      d3.select('#collision-radius-value').text(value);
+      collisionForce.radius(d => d.size + value);
+      simulation.alpha(0.3).restart();
+    });
+
+    d3.select('#restart-btn').on('click', function() {
+      simulation.alpha(1).restart();
+    });
+
+    d3.select('#regenerate-btn').on('click', function() {
+      regenerateNetwork();
+    });
+
+    // Regenerate network
+    function regenerateNetwork() {
+      data = generateNetworkData();
+      updateStats(data);
+
+      // Update simulation
+      simulation.nodes(data.nodes);
+      linkForce.links(data.links);
+
+      // Update links
+      link = linkGroup
+        .selectAll('line')
+        .data(data.links)
+        .join('line')
+        .attr('stroke-width', d => Math.sqrt(d.value) * 2);
+
+      // Update nodes
+      node = nodeGroup
+        .selectAll('g')
+        .data(data.nodes)
+        .join('g')
+        .call(drag(simulation));
+
+      node.selectAll('*').remove();
+
+      node.append('circle')
+        .attr('r', d => d.size)
+        .attr('fill', d => color(d.group))
+        .on('mouseover', handleMouseOver)
+        .on('mouseout', handleMouseOut)
+        .on('click', handleClick);
+
+      node.append('text')
+        .attr('dx', d => d.size + 5)
+        .attr('dy', '0.35em')
+        .text(d => d.label)
+        .style('font-size', d => d.size > 15 ? '11px' : '9px');
+
+      simulation.alpha(1).restart();
+      updateLegend(data);
+    }
+
+    // Update statistics
+    function updateStats(data) {
+      d3.select('#node-count').text(data.nodes.length);
+      d3.select('#link-count').text(data.links.length);
+      const groups = new Set(data.nodes.map(d => d.group));
+      d3.select('#group-count').text(groups.size);
+    }
+
+    // Update legend
+    function updateLegend(data) {
+      const groups = [...new Set(data.nodes.map(d => d.group))].sort();
+
+      const legend = d3.select('#legend')
+        .selectAll('.legend-item')
+        .data(groups)
+        .join('div')
+        .attr('class', 'legend-item');
+
+      legend.html(d => `
+        <div class="legend-color" style="background-color: ${color(d)}"></div>
+        <span>Group ${d === 0 ? 'Hub' : d}</span>
+      `);
+    }
+
+    // Initial legend
+    updateLegend(data);
+
+    // Zoom behavior
+    const zoom = d3.zoom()
+      .scaleExtent([0.2, 4])
+      .on('zoom', (event) => {
+        linkGroup.attr('transform', event.transform);
+        nodeGroup.attr('transform', event.transform);
+      });
+
+    svg.call(zoom);
+
+    // Double-click to reset zoom
+    svg.on('dblclick.zoom', () => {
+      svg.transition()
+        .duration(750)
+        .call(zoom.transform, d3.zoomIdentity);
+    });
+  </script>
+</body>
+</html>

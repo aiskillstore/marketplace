@@ -1,0 +1,560 @@
+# GraphQL Schema for Blog Platform
+# Complete schema demonstrating types, queries, mutations, and best practices
+
+"""
+Custom scalar type for DateTime values
+"""
+scalar DateTime
+
+"""
+Custom scalar type for URL values
+"""
+scalar URL
+
+"""
+User account in the system
+"""
+type User {
+  id: ID!
+  username: String!
+  email: String!
+  profile: Profile
+  posts(limit: Int = 10, offset: Int = 0, published: Boolean): PostConnection!
+  comments(limit: Int = 10, offset: Int = 0): [Comment!]!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""
+User profile information
+"""
+type Profile {
+  firstName: String
+  lastName: String
+  fullName: String
+  bio: String
+  avatarUrl: URL
+  website: URL
+  location: String
+  socialLinks: SocialLinks
+}
+
+"""
+Social media links for user profile
+"""
+type SocialLinks {
+  twitter: String
+  github: String
+  linkedin: String
+}
+
+"""
+Blog post
+"""
+type Post {
+  id: ID!
+  title: String!
+  slug: String!
+  content: String!
+  excerpt: String
+  published: Boolean!
+  author: User!
+  tags: [String!]!
+  comments(limit: Int = 10, offset: Int = 0): [Comment!]!
+  commentCount: Int!
+  viewCount: Int!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+  publishedAt: DateTime
+}
+
+"""
+Connection type for paginated posts
+"""
+type PostConnection {
+  edges: [Post!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+"""
+Pagination information
+"""
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+"""
+Comment on a post
+"""
+type Comment {
+  id: ID!
+  post: Post!
+  author: User!
+  content: String!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+"""
+Tag for categorizing posts
+"""
+type Tag {
+  name: String!
+  slug: String!
+  postCount: Int!
+  posts(limit: Int = 10, offset: Int = 0): [Post!]!
+}
+
+"""
+Authentication token response
+"""
+type AuthPayload {
+  accessToken: String!
+  refreshToken: String!
+  tokenType: String!
+  expiresIn: Int!
+  user: User!
+}
+
+"""
+Standard error type
+"""
+type Error {
+  field: String
+  message: String!
+  code: String
+}
+
+# ============================================
+# QUERY TYPE
+# ============================================
+
+type Query {
+  """
+  Get current authenticated user
+  """
+  me: User
+
+  """
+  Get user by ID or username
+  """
+  user(id: ID, username: String): User
+
+  """
+  Search users
+  """
+  users(
+    limit: Int = 10
+    offset: Int = 0
+    search: String
+    orderBy: UserOrderBy = CREATED_DESC
+  ): UserConnection!
+
+  """
+  Get post by ID or slug
+  """
+  post(id: ID, slug: String): Post
+
+  """
+  List and filter posts
+  """
+  posts(
+    limit: Int = 10
+    offset: Int = 0
+    published: Boolean
+    authorId: ID
+    tags: [String!]
+    search: String
+    orderBy: PostOrderBy = CREATED_DESC
+  ): PostConnection!
+
+  """
+  Search posts by content
+  """
+  searchPosts(query: String!, limit: Int = 10): [Post!]!
+
+  """
+  Get comment by ID
+  """
+  comment(id: ID!): Comment
+
+  """
+  List all available tags
+  """
+  tags(limit: Int = 50): [Tag!]!
+
+  """
+  Get tag by name or slug
+  """
+  tag(name: String, slug: String): Tag
+}
+
+"""
+Connection type for paginated users
+"""
+type UserConnection {
+  edges: [User!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+"""
+User ordering options
+"""
+enum UserOrderBy {
+  CREATED_ASC
+  CREATED_DESC
+  USERNAME_ASC
+  USERNAME_DESC
+}
+
+"""
+Post ordering options
+"""
+enum PostOrderBy {
+  CREATED_ASC
+  CREATED_DESC
+  UPDATED_ASC
+  UPDATED_DESC
+  PUBLISHED_ASC
+  PUBLISHED_DESC
+  TITLE_ASC
+  TITLE_DESC
+  VIEW_COUNT_DESC
+}
+
+# ============================================
+# MUTATION TYPE
+# ============================================
+
+type Mutation {
+  # Authentication Mutations
+  """
+  Register a new user account
+  """
+  register(input: RegisterInput!): RegisterPayload!
+
+  """
+  Login with email and password
+  """
+  login(input: LoginInput!): LoginPayload!
+
+  """
+  Refresh access token
+  """
+  refreshToken(refreshToken: String!): AuthPayload!
+
+  """
+  Logout (invalidate token)
+  """
+  logout: Boolean!
+
+  # User Mutations
+  """
+  Update current user profile
+  """
+  updateProfile(input: UpdateProfileInput!): UpdateProfilePayload!
+
+  """
+  Change user password
+  """
+  changePassword(input: ChangePasswordInput!): ChangePasswordPayload!
+
+  """
+  Delete user account
+  """
+  deleteAccount(password: String!): DeleteAccountPayload!
+
+  # Post Mutations
+  """
+  Create a new blog post
+  """
+  createPost(input: CreatePostInput!): CreatePostPayload!
+
+  """
+  Update existing post
+  """
+  updatePost(id: ID!, input: UpdatePostInput!): UpdatePostPayload!
+
+  """
+  Publish a draft post
+  """
+  publishPost(id: ID!): PublishPostPayload!
+
+  """
+  Unpublish a post
+  """
+  unpublishPost(id: ID!): UnpublishPostPayload!
+
+  """
+  Delete a post
+  """
+  deletePost(id: ID!): DeletePostPayload!
+
+  # Comment Mutations
+  """
+  Add comment to a post
+  """
+  addComment(postId: ID!, input: CommentInput!): AddCommentPayload!
+
+  """
+  Update comment
+  """
+  updateComment(id: ID!, content: String!): UpdateCommentPayload!
+
+  """
+  Delete comment
+  """
+  deleteComment(id: ID!): DeleteCommentPayload!
+}
+
+# ============================================
+# INPUT TYPES
+# ============================================
+
+"""
+Input for user registration
+"""
+input RegisterInput {
+  username: String!
+  email: String!
+  password: String!
+  profile: ProfileInput
+}
+
+"""
+Input for user login
+"""
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+"""
+Input for profile information
+"""
+input ProfileInput {
+  firstName: String
+  lastName: String
+  bio: String
+  avatarUrl: String
+  website: String
+  location: String
+  socialLinks: SocialLinksInput
+}
+
+"""
+Input for social media links
+"""
+input SocialLinksInput {
+  twitter: String
+  github: String
+  linkedin: String
+}
+
+"""
+Input for updating user profile
+"""
+input UpdateProfileInput {
+  username: String
+  profile: ProfileInput
+}
+
+"""
+Input for changing password
+"""
+input ChangePasswordInput {
+  currentPassword: String!
+  newPassword: String!
+}
+
+"""
+Input for creating a post
+"""
+input CreatePostInput {
+  title: String!
+  content: String!
+  excerpt: String
+  published: Boolean = false
+  tags: [String!]
+}
+
+"""
+Input for updating a post
+"""
+input UpdatePostInput {
+  title: String
+  content: String
+  excerpt: String
+  tags: [String!]
+}
+
+"""
+Input for creating a comment
+"""
+input CommentInput {
+  content: String!
+}
+
+# ============================================
+# PAYLOAD TYPES
+# ============================================
+
+"""
+Payload for user registration
+"""
+type RegisterPayload {
+  user: User
+  errors: [Error!]
+}
+
+"""
+Payload for user login
+"""
+type LoginPayload {
+  authPayload: AuthPayload
+  errors: [Error!]
+}
+
+"""
+Payload for profile update
+"""
+type UpdateProfilePayload {
+  user: User
+  errors: [Error!]
+}
+
+"""
+Payload for password change
+"""
+type ChangePasswordPayload {
+  success: Boolean!
+  errors: [Error!]
+}
+
+"""
+Payload for account deletion
+"""
+type DeleteAccountPayload {
+  success: Boolean!
+  errors: [Error!]
+}
+
+"""
+Payload for post creation
+"""
+type CreatePostPayload {
+  post: Post
+  errors: [Error!]
+}
+
+"""
+Payload for post update
+"""
+type UpdatePostPayload {
+  post: Post
+  errors: [Error!]
+}
+
+"""
+Payload for post publication
+"""
+type PublishPostPayload {
+  post: Post
+  errors: [Error!]
+}
+
+"""
+Payload for post unpublication
+"""
+type UnpublishPostPayload {
+  post: Post
+  errors: [Error!]
+}
+
+"""
+Payload for post deletion
+"""
+type DeletePostPayload {
+  success: Boolean!
+  postId: ID!
+  errors: [Error!]
+}
+
+"""
+Payload for comment addition
+"""
+type AddCommentPayload {
+  comment: Comment
+  errors: [Error!]
+}
+
+"""
+Payload for comment update
+"""
+type UpdateCommentPayload {
+  comment: Comment
+  errors: [Error!]
+}
+
+"""
+Payload for comment deletion
+"""
+type DeleteCommentPayload {
+  success: Boolean!
+  commentId: ID!
+  errors: [Error!]
+}
+
+# ============================================
+# SUBSCRIPTION TYPE (Optional)
+# ============================================
+
+type Subscription {
+  """
+  Subscribe to new posts
+  """
+  postCreated(authorId: ID): Post!
+
+  """
+  Subscribe to new comments on a post
+  """
+  commentAdded(postId: ID!): Comment!
+
+  """
+  Subscribe to user profile updates
+  """
+  userUpdated(userId: ID!): User!
+}
+
+# ============================================
+# DIRECTIVES
+# ============================================
+
+"""
+Requires authentication to access field
+"""
+directive @auth on FIELD_DEFINITION | OBJECT
+
+"""
+Requires specific role to access field
+"""
+directive @hasRole(role: Role!) on FIELD_DEFINITION
+
+"""
+Rate limit directive
+"""
+directive @rateLimit(limit: Int!, window: Int!) on FIELD_DEFINITION
+
+"""
+User roles
+"""
+enum Role {
+  USER
+  EDITOR
+  ADMIN
+}
