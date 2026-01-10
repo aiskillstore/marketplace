@@ -1,0 +1,59 @@
+# Example: Background Worker Service
+
+apiVersion: astrabit.io/v1
+kind: Component
+metadata:
+  name: order-processor
+  description: Background worker that processes orders from the event queue
+  tags:
+    - worker
+    - async
+spec:
+  type: worker
+  category: backend
+  domain: trading
+  owner: trading-team
+  lifecycle: production
+
+  # Worker depends on databases and external services
+  dependsOn:
+    - component: order-db
+      type: database
+    - component: user-service
+      type: service
+
+  # Workers typically don't provide HTTP APIs
+  providesApis: []
+
+  # May consume other service APIs for data
+  consumesApis:
+    - name: User Service API
+      providedBy: user-service
+
+  # Workers produce status events
+  eventProducers:
+    - name: order-processor-events
+      type: kafka
+      topic: order.processed
+      schema: avro
+    - name: order-processor-events
+      type: kafka
+      topic: order.failed
+      schema: avro
+
+  # Workers consume work events
+  eventConsumers:
+    - name: order-events
+      type: kafka
+      topic: order.placed
+      group: order-processor-group
+    - name: order-events
+      type: kafka
+      topic: order.cancelled
+      group: order-processor-group
+
+  # Workers don't have HTTP routes
+  routes: []
+
+  runtime: python
+  framework: fastapi
