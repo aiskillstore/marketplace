@@ -1,0 +1,569 @@
+{
+  "name": "performance-profiler",
+  "version": "1.0.0",
+  "description": "MCP tool for comprehensive multi-dimensional performance profiling and optimization",
+  "type": "mcp-tool",
+  "coordination": "claude-flow",
+
+  "tools": [
+    {
+      "name": "mcp__performance-profiler__analyze",
+      "description": "Comprehensive performance profiling across CPU, memory, I/O, and network",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project_path": {
+            "type": "string",
+            "description": "Absolute path to project directory",
+            "required": true
+          },
+          "profiling_mode": {
+            "type": "string",
+            "enum": ["quick", "standard", "deep", "continuous"],
+            "description": "Profiling mode (quick=30s, standard=5min, deep=30min, continuous=ongoing)",
+            "default": "standard"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["cpu", "memory", "io", "network", "all"]
+            },
+            "description": "Profiling targets",
+            "default": ["all"]
+          },
+          "cpu_options": {
+            "type": "object",
+            "properties": {
+              "generate_flame_graph": {
+                "type": "boolean",
+                "default": true
+              },
+              "sampling_rate_hz": {
+                "type": "integer",
+                "default": 99,
+                "minimum": 10,
+                "maximum": 1000
+              },
+              "stack_depth": {
+                "type": "integer",
+                "default": 128,
+                "minimum": 32,
+                "maximum": 256
+              }
+            }
+          },
+          "memory_options": {
+            "type": "object",
+            "properties": {
+              "detect_leaks": {
+                "type": "boolean",
+                "default": true
+              },
+              "heap_snapshot": {
+                "type": "boolean",
+                "default": true
+              },
+              "track_allocations": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          },
+          "io_options": {
+            "type": "object",
+            "properties": {
+              "database_profiling": {
+                "type": "boolean",
+                "default": true
+              },
+              "explain_queries": {
+                "type": "boolean",
+                "default": true
+              },
+              "detect_n_plus_1": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          },
+          "network_options": {
+            "type": "object",
+            "properties": {
+              "track_external_apis": {
+                "type": "boolean",
+                "default": true
+              },
+              "analyze_connection_pool": {
+                "type": "boolean",
+                "default": true
+              }
+            }
+          },
+          "generate_optimizations": {
+            "type": "boolean",
+            "description": "Generate optimization recommendations",
+            "default": true
+          },
+          "auto_apply_optimizations": {
+            "type": "boolean",
+            "description": "Automatically apply safe optimizations",
+            "default": false
+          },
+          "run_benchmark": {
+            "type": "boolean",
+            "description": "Run benchmark suite after optimizations",
+            "default": false
+          },
+          "save_as_baseline": {
+            "type": "boolean",
+            "description": "Save results as baseline for future comparisons",
+            "default": false
+          },
+          "compare_with_baseline": {
+            "type": "string",
+            "description": "Path to baseline file for comparison"
+          },
+          "output_directory": {
+            "type": "string",
+            "description": "Output directory for reports and visualizations",
+            "default": "./profiling"
+          },
+          "workload_config": {
+            "type": "object",
+            "description": "Custom workload configuration",
+            "properties": {
+              "requests_per_second": {
+                "type": "integer",
+                "default": 100
+              },
+              "concurrent_users": {
+                "type": "integer",
+                "default": 10
+              },
+              "test_duration_seconds": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "required": ["project_path"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "project_name": { "type": "string" },
+              "profiling_mode": { "type": "string" },
+              "duration_seconds": { "type": "integer" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            }
+          },
+          "baseline": {
+            "type": "object",
+            "properties": {
+              "requests_per_second": { "type": "number" },
+              "avg_response_time_ms": { "type": "number" },
+              "p50_response_time_ms": { "type": "number" },
+              "p95_response_time_ms": { "type": "number" },
+              "p99_response_time_ms": { "type": "number" },
+              "cpu_usage_percent": { "type": "number" },
+              "memory_usage_mb": { "type": "number" },
+              "error_rate_percent": { "type": "number" }
+            }
+          },
+          "bottlenecks": {
+            "type": "object",
+            "properties": {
+              "cpu": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "function": { "type": "string" },
+                    "file": { "type": "string" },
+                    "self_time_percent": { "type": "number" },
+                    "complexity": { "type": "string" },
+                    "recommendation": { "type": "string" }
+                  }
+                }
+              },
+              "memory": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": { "type": "string" },
+                    "retained_size_mb": { "type": "number" },
+                    "growth_rate_mb_per_hour": { "type": "number" },
+                    "recommendation": { "type": "string" }
+                  }
+                }
+              },
+              "io": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "query": { "type": "string" },
+                    "avg_duration_ms": { "type": "number" },
+                    "issue": { "type": "string" },
+                    "recommendation": { "type": "string" }
+                  }
+                }
+              },
+              "network": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "endpoint": { "type": "string" },
+                    "avg_duration_ms": { "type": "number" },
+                    "recommendation": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "optimizations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "type": { "type": "string" },
+                "priority": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+                "target": { "type": "string" },
+                "recommendation": { "type": "string" },
+                "estimated_improvement": { "type": "string" },
+                "effort": { "type": "string", "enum": ["low", "medium", "high"] },
+                "implementation": { "type": "object" }
+              }
+            }
+          },
+          "estimated_improvement": {
+            "type": "object",
+            "properties": {
+              "throughput_increase": { "type": "string" },
+              "latency_reduction": { "type": "string" },
+              "cpu_reduction": { "type": "string" },
+              "memory_reduction": { "type": "string" }
+            }
+          },
+          "benchmark_results": {
+            "type": "object",
+            "description": "Benchmark results if run_benchmark=true"
+          },
+          "comparison": {
+            "type": "object",
+            "description": "Comparison with baseline if compare_with_baseline provided"
+          },
+          "output_files": {
+            "type": "object",
+            "properties": {
+              "report": { "type": "string" },
+              "flame_graph": { "type": "string" },
+              "heap_snapshot": { "type": "string" },
+              "optimizations": { "type": "string" },
+              "benchmarks": { "type": "string" }
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "description": "Quick CPU profiling with flame graph",
+          "request": {
+            "project_path": "/path/to/project",
+            "profiling_mode": "quick",
+            "targets": ["cpu"],
+            "cpu_options": {
+              "generate_flame_graph": true
+            }
+          }
+        },
+        {
+          "description": "Memory leak detection",
+          "request": {
+            "project_path": "/path/to/project",
+            "profiling_mode": "deep",
+            "targets": ["memory"],
+            "memory_options": {
+              "detect_leaks": true,
+              "heap_snapshot": true
+            }
+          }
+        },
+        {
+          "description": "Full optimization workflow",
+          "request": {
+            "project_path": "/path/to/project",
+            "profiling_mode": "standard",
+            "targets": ["all"],
+            "generate_optimizations": true,
+            "auto_apply_optimizations": true,
+            "run_benchmark": true
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "mcp__performance-profiler__benchmark",
+      "description": "Run benchmark suite and compare with baseline",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project_path": {
+            "type": "string",
+            "required": true
+          },
+          "baseline_path": {
+            "type": "string",
+            "description": "Path to baseline results for comparison"
+          },
+          "iterations": {
+            "type": "integer",
+            "default": 1000,
+            "minimum": 100,
+            "maximum": 10000
+          },
+          "workload_config": {
+            "type": "object"
+          }
+        },
+        "required": ["project_path"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "metrics": {
+            "type": "object",
+            "properties": {
+              "min_ms": { "type": "number" },
+              "max_ms": { "type": "number" },
+              "mean_ms": { "type": "number" },
+              "median_ms": { "type": "number" },
+              "p95_ms": { "type": "number" },
+              "p99_ms": { "type": "number" },
+              "throughput_rps": { "type": "number" }
+            }
+          },
+          "comparison": {
+            "type": "object",
+            "description": "Comparison with baseline if provided"
+          }
+        }
+      }
+    },
+
+    {
+      "name": "mcp__performance-profiler__apply_optimizations",
+      "description": "Apply recommended optimizations with safety checks",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project_path": {
+            "type": "string",
+            "required": true
+          },
+          "optimizations_file": {
+            "type": "string",
+            "description": "Path to optimizations JSON file",
+            "required": true
+          },
+          "run_tests_before": {
+            "type": "boolean",
+            "default": true
+          },
+          "run_tests_after": {
+            "type": "boolean",
+            "default": true
+          },
+          "run_benchmark_after": {
+            "type": "boolean",
+            "default": true
+          },
+          "revert_on_regression": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": ["project_path", "optimizations_file"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "applied": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "skipped": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "test_results": { "type": "object" },
+          "benchmark_results": { "type": "object" },
+          "improvement": { "type": "object" }
+        }
+      }
+    },
+
+    {
+      "name": "mcp__performance-profiler__compare",
+      "description": "Compare two profiling results",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "baseline_path": {
+            "type": "string",
+            "required": true
+          },
+          "current_path": {
+            "type": "string",
+            "required": true
+          },
+          "fail_on_regression_percent": {
+            "type": "number",
+            "description": "Fail if regression exceeds this percentage",
+            "default": 10
+          }
+        },
+        "required": ["baseline_path", "current_path"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "improvements": {
+            "type": "object",
+            "properties": {
+              "throughput_change_percent": { "type": "number" },
+              "latency_change_percent": { "type": "number" },
+              "cpu_change_percent": { "type": "number" },
+              "memory_change_percent": { "type": "number" }
+            }
+          },
+          "regressions": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "passed": { "type": "boolean" }
+        }
+      }
+    }
+  ],
+
+  "coordination_hooks": {
+    "pre_task": {
+      "command": "npx claude-flow@alpha hooks pre-task",
+      "args": ["--description", "Performance profiling for {project_name}"]
+    },
+    "post_task": {
+      "command": "npx claude-flow@alpha hooks post-task",
+      "args": ["--task-id", "performance-profiler-{timestamp}"]
+    },
+    "memory_store": {
+      "command": "npx claude-flow@alpha hooks post-edit",
+      "args": ["--file", "{output_file}", "--memory-key", "swarm/performance-profiler/report"]
+    },
+    "session_end": {
+      "command": "npx claude-flow@alpha hooks session-end",
+      "args": ["--export-metrics", "true"]
+    }
+  },
+
+  "configuration": {
+    "profiling_modes": {
+      "quick": {
+        "duration_seconds": 30,
+        "overhead": "low",
+        "detail": "basic"
+      },
+      "standard": {
+        "duration_seconds": 300,
+        "overhead": "medium",
+        "detail": "comprehensive"
+      },
+      "deep": {
+        "duration_seconds": 1800,
+        "overhead": "high",
+        "detail": "exhaustive"
+      },
+      "continuous": {
+        "duration_seconds": 0,
+        "overhead": "minimal",
+        "detail": "sampling"
+      }
+    },
+    "performance_budgets": {
+      "api_p50_ms": 100,
+      "api_p95_ms": 500,
+      "api_p99_ms": 1000,
+      "throughput_rps": 1000,
+      "cpu_usage_percent": 70,
+      "memory_usage_percent": 80,
+      "error_rate_percent": 0.1
+    },
+    "thresholds": {
+      "cpu_hot_path_percent": 10,
+      "memory_leak_growth_mb": 10,
+      "slow_query_ms": 100,
+      "slow_request_ms": 1000,
+      "regression_tolerance_percent": 10
+    }
+  },
+
+  "error_codes": {
+    "2000": "Project path not found",
+    "2001": "Application failed to start",
+    "2002": "Profiler not available",
+    "2003": "Workload generation failed",
+    "2004": "Profiling timeout",
+    "2005": "Analysis failed",
+    "2006": "Optimization generation failed",
+    "2007": "Tests failed",
+    "2008": "Benchmark failed",
+    "2009": "Performance regression detected",
+    "2010": "Unknown error"
+  },
+
+  "performance": {
+    "profiling_overhead": {
+      "quick": "5-10%",
+      "standard": "10-20%",
+      "deep": "20-30%",
+      "continuous": "< 5%"
+    },
+    "typical_analysis_time": {
+      "quick": "30 seconds",
+      "standard": "5 minutes",
+      "deep": "30 minutes"
+    }
+  },
+
+  "integration": {
+    "ci_cd_platforms": [
+      "github-actions",
+      "gitlab-ci",
+      "circle-ci",
+      "jenkins"
+    ],
+    "apm_tools": [
+      "new-relic",
+      "datadog",
+      "dynatrace",
+      "splunk"
+    ],
+    "profiling_tools": {
+      "node": ["v8-profiler", "clinic.js", "0x"],
+      "python": ["cProfile", "py-spy", "memory_profiler"],
+      "java": ["JProfiler", "YourKit", "VisualVM"]
+    }
+  },
+
+  "license": "MIT",
+  "author": "Claude Code Skills",
+  "repository": "https://github.com/claude-code/skills",
+  "documentation": "https://docs.claude-code.com/skills/performance-profiler"
+}

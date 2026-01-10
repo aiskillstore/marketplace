@@ -1,0 +1,161 @@
+digraph CodeReviewWorkflow {
+    rankdir=TB;
+    compound=true;
+    node [shape=box, style=filled, fontname="Arial"];
+    edge [fontname="Arial"];
+
+    // Start and end nodes
+    start [shape=ellipse, label="Start:\nPull Request\nSubmitted", fillcolor=lightgreen];
+    end [shape=ellipse, label="Complete:\nReview Decision +\nAuthor Notified", fillcolor=green, fontcolor=white];
+
+    // Phase 1: Automated Checks (30 min)
+    subgraph cluster_phase1 {
+        label="Phase 1: Automated Checks (30 min)\nFast-Fail Gate";
+        fillcolor=lightyellow;
+        style=filled;
+
+        p1_lint [label="Code Analyzer\nESLint, Pylint,\nstyle checks", fillcolor=lightblue];
+        p1_test [label="Tester\nRun test suite,\nall must pass", fillcolor=lightblue];
+        p1_coverage [label="QA Engineer\nCode coverage\n>80% overall", fillcolor=lightblue];
+        p1_build [label="Code Analyzer\nClean build,\nno errors", fillcolor=lightblue];
+
+        // Parallel checks (no direct edges)
+    }
+
+    // Automated Gate Decision
+    gate_automated [shape=diamond, label="All Automated\nChecks Pass?", fillcolor=yellow];
+    p1_lint -> gate_automated [ltail=cluster_phase1];
+
+    // Stop if automated checks fail
+    stop_fixes [shape=octagon, label="STOP:\nRequest Fixes\nfrom Author", fillcolor=red, fontcolor=white];
+    gate_automated -> stop_fixes [label="no", color=red];
+    stop_fixes -> start [label="fixes\npushed", style=dashed, color=gray];
+
+    // Phase 2: Specialized Reviews (2 hours)
+    subgraph cluster_phase2 {
+        label="Phase 2: Specialized Reviews (2 hours)\nParallel Expert Analysis";
+        fillcolor=lightcyan;
+        style=filled;
+
+        // Star topology with coordinator
+        p2_coordinator [label="PR Manager\nCoordinate\nspecialists", fillcolor=orange, shape=octagon];
+
+        // Specialist reviewers (radiate from coordinator)
+        p2_quality [label="Code Analyzer\nReadability,\nmaintainability", fillcolor=lightblue];
+        p2_security [label="Security Manager\nOWASP Top 10,\nvulnerabilities", fillcolor=lightblue];
+        p2_perf [label="Performance Analyst\nAlgorithms,\nresource usage", fillcolor=lightblue];
+        p2_arch [label="System Architect\nDesign patterns,\nscalability", fillcolor=lightblue];
+        p2_docs [label="API Docs Specialist\nCode docs,\nAPI docs", fillcolor=lightblue];
+        p2_style [label="Style Auditor\nCode style\nconsistency", fillcolor=lightblue];
+        p2_deps [label="Dependency Analyzer\nOutdated packages,\nvulnerabilities", fillcolor=lightblue];
+        p2_testcov [label="Test Coverage\nCoverage gaps,\nedge cases", fillcolor=lightblue];
+
+        // Coordinator dispatches to specialists
+        p2_coordinator -> p2_quality [style=dashed, label="review", color=gray];
+        p2_coordinator -> p2_security [style=dashed, color=gray];
+        p2_coordinator -> p2_perf [style=dashed, color=gray];
+        p2_coordinator -> p2_arch [style=dashed, color=gray];
+        p2_coordinator -> p2_docs [style=dashed, color=gray];
+        p2_coordinator -> p2_style [style=dashed, color=gray];
+        p2_coordinator -> p2_deps [style=dashed, color=gray];
+        p2_coordinator -> p2_testcov [style=dashed, color=gray];
+
+        // Specialists report back
+        p2_quality -> p2_coordinator [style=dashed, label="findings", color=purple];
+        p2_security -> p2_coordinator [style=dashed, color=purple];
+        p2_perf -> p2_coordinator [style=dashed, color=purple];
+        p2_arch -> p2_coordinator [style=dashed, color=purple];
+    }
+
+    // Aggregated findings
+    p2_aggregated [label="Aggregated Review\nCategorize by\nseverity", fillcolor=orange, shape=octagon];
+    p2_coordinator -> p2_aggregated;
+
+    // Phase 3: Integration Analysis (1 hour)
+    subgraph cluster_phase3 {
+        label="Phase 3: Integration Analysis (1 hour)\nSequential Impact Assessment";
+        fillcolor=lavender;
+        style=filled;
+
+        p3_integration [label="QA Engineer\nIntegration tests,\nregression check", fillcolor=lightblue];
+        p3_deployment [label="DevOps Engineer\nDeployment impact,\nmigrations", fillcolor=lightblue];
+        p3_user [label="Product Manager\nUser impact,\nUX consistency", fillcolor=lightblue];
+        p3_risk [label="Code Reviewer\nRisk assessment,\nblast radius", fillcolor=lightblue];
+
+        p3_integration -> p3_deployment [label="integration OK"];
+        p3_deployment -> p3_user [label="deploy plan"];
+        p3_user -> p3_risk [label="user impact"];
+    }
+
+    // Quality Gate Decision
+    gate_quality [shape=diamond, label="Blocking\nIssues?", fillcolor=yellow];
+    p3_risk -> gate_quality;
+
+    // Phase 4: Final Approval (30 min)
+    subgraph cluster_phase4 {
+        label="Phase 4: Final Approval (30 min)\nDecision & Notification";
+        fillcolor=lightgreen;
+        style=filled;
+
+        p4_summary [label="PR Manager\nGenerate final\nreview summary", fillcolor=lightblue];
+        p4_decision [label="Determine Decision\nApprove/Request Changes/Reject", fillcolor=orange, shape=diamond];
+
+        p4_approve [label="APPROVE\nReady to merge", fillcolor=green, fontcolor=white];
+        p4_changes [label="REQUEST CHANGES\nFix blocking issues", fillcolor=yellow];
+        p4_reject [label="REJECT\nFundamental problems", fillcolor=red, fontcolor=white];
+
+        p4_notify [label="Notify Author\nGitHub comment,\nlabels, assignment", fillcolor=lightblue];
+
+        p4_summary -> p4_decision;
+        p4_decision -> p4_approve [label="0 blocking"];
+        p4_decision -> p4_changes [label="1-5 blocking"];
+        p4_decision -> p4_reject [label=">5 blocking\nor critical"];
+
+        p4_approve -> p4_notify;
+        p4_changes -> p4_notify;
+        p4_reject -> p4_notify;
+    }
+
+    // Main workflow flow
+    start -> p1_lint [lhead=cluster_phase1];
+    gate_automated -> p2_coordinator [lhead=cluster_phase2, label="yes", color=green];
+    p2_aggregated -> p3_integration [lhead=cluster_phase3, label="reviews\ncomplete"];
+    gate_quality -> p4_summary [lhead=cluster_phase4, label="proceed\nto decision"];
+
+    // Quality gate branches
+    gate_quality -> p2_coordinator [label="yes\n(fix issues)", color=red, style=dashed];
+
+    // End states
+    p4_notify -> end [ltail=cluster_phase4];
+
+    // Re-review loop (changes requested)
+    p4_changes -> start [label="fixes\npushed", style=dashed, color=gray];
+
+    // External references
+    memory [shape=cylinder, label="Memory System\ncode-review/\n{pr-id}/*", fillcolor=lightcoral];
+    github [shape=cylinder, label="GitHub API\nPR comments,\nlabels, status", fillcolor=lightcoral];
+
+    // Memory coordination
+    p1_lint -> memory [style=dashed, label="store\nphase 1", color=purple];
+    p2_aggregated -> memory [style=dashed, label="store\nphase 2", color=purple];
+    p3_risk -> memory [style=dashed, label="store\nphase 3", color=purple];
+    p4_summary -> memory [style=dashed, label="store\nphase 4", color=purple];
+
+    // GitHub integration
+    p4_notify -> github [style=dashed, label="update", color=blue];
+
+    // Critical warnings
+    warning_blocking [shape=octagon, label="CRITICAL:\nBlocking Issues\nMust Be Fixed", fillcolor=orange];
+    p2_security -> warning_blocking [style=dashed];
+    p2_perf -> warning_blocking [style=dashed];
+    warning_blocking -> gate_quality [style=dashed, label="blocks\nmerge"];
+
+    warning_automated [shape=octagon, label="CRITICAL:\nAutomated Checks\nMust Pass First", fillcolor=orange];
+    p1_test -> warning_automated [style=dashed];
+    warning_automated -> gate_automated [style=dashed, label="required"];
+
+    labelloc="t";
+    label="Code Review Orchestration Workflow\n15 Agents | 4 Phases | 4 Hours | Star Topology Coordination";
+    fontsize=16;
+    fontname="Arial Bold";
+}

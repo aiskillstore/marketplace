@@ -1,0 +1,160 @@
+digraph APIDevWorkflow {
+    rankdir=TB;
+    compound=true;
+    node [shape=box, style=filled, fontname="Arial"];
+    edge [fontname="Arial"];
+
+    // Start and end nodes
+    start [shape=ellipse, label="Start:\nAPI Development\nRequirements", fillcolor=lightgreen];
+    end [shape=ellipse, label="Complete:\nProduction API +\nContinuous Monitoring", fillcolor=green, fontcolor=white];
+
+    // Phase 1: Planning & Design (Days 1-2)
+    subgraph cluster_phase1 {
+        label="Phase 1: Planning & Design (Days 1-2)\nSequential Architecture";
+        fillcolor=lightyellow;
+        style=filled;
+
+        p1_product [label="Product Manager\nRequirements,\nendpoints, auth", fillcolor=lightblue];
+        p1_architect [label="System Architect\nRESTful design,\nOpenAPI spec", fillcolor=lightblue];
+        p1_database [label="Database Architect\nSchema, indexes,\nmigrations", fillcolor=lightblue];
+        p1_qa [label="QA Engineer\nTest strategy,\nTDD plan", fillcolor=lightblue];
+
+        p1_product -> p1_architect [label="requirements"];
+        p1_architect -> p1_database [label="API spec"];
+        p1_database -> p1_qa [label="schema"];
+    }
+
+    // Phase 2: Foundation Setup (Days 3-4)
+    subgraph cluster_phase2 {
+        label="Phase 2: Foundation Setup (Days 3-4)\nParallel Infrastructure";
+        fillcolor=lightcyan;
+        style=filled;
+
+        p2_backend [label="Backend Developer\nNode/Express setup,\nTypeScript config", fillcolor=lightblue];
+        p2_database [label="Database Setup\nPostgreSQL,\nconnection pooling", fillcolor=lightblue];
+        p2_cicd [label="DevOps Engineer\nGitHub Actions,\nDocker, testing", fillcolor=lightblue];
+
+        // Parallel setup (no direct dependencies)
+    }
+
+    // Phase 3: TDD Implementation (Days 5-10)
+    subgraph cluster_phase3 {
+        label="Phase 3: TDD Implementation (Days 5-10)\nRed-Green-Refactor Cycle";
+        fillcolor=pink;
+        style=filled;
+
+        // TDD Cycle subgraph
+        subgraph cluster_tdd {
+            label="TDD Cycle per Endpoint";
+            fillcolor=white;
+            style=dashed;
+
+            tdd_red [label="RED\nTester: Write\nfailing tests", fillcolor=red, fontcolor=white];
+            tdd_green [label="GREEN\nBackend Dev:\nImplement to pass", fillcolor=green, fontcolor=white];
+            tdd_refactor [label="REFACTOR\nCode Reviewer:\nImprove quality", fillcolor=lightblue];
+
+            tdd_red -> tdd_green [label="tests\nwritten"];
+            tdd_green -> tdd_refactor [label="tests\npassing"];
+        }
+
+        p3_progress [label="Repeat for All\nEndpoints\n(15-20 endpoints)", fillcolor=orange, shape=octagon];
+        tdd_refactor -> tdd_red [label="next\nendpoint", style=dashed];
+        tdd_refactor -> p3_progress [label="all\ncomplete"];
+    }
+
+    // Coverage gate
+    gate_coverage [shape=diamond, label="Test Coverage\n> 90%?", fillcolor=yellow];
+    p3_progress -> gate_coverage;
+
+    // Phase 4: Testing & Documentation (Days 11-12)
+    subgraph cluster_phase4 {
+        label="Phase 4: Testing & Documentation (Days 11-12)\nParallel Validation";
+        fillcolor=lavender;
+        style=filled;
+
+        p4_e2e [label="QA Engineer\nE2E tests,\nerror scenarios", fillcolor=lightblue];
+        p4_perf [label="Performance Analyst\nLoad, stress,\nendurance tests", fillcolor=lightblue];
+        p4_security [label="Security Specialist\nOWASP Top 10,\npenetration test", fillcolor=lightblue];
+        p4_docs [label="API Docs Specialist\nOpenAPI UI,\ndeveloper guide", fillcolor=lightblue];
+    }
+
+    // Quality gate
+    gate_quality [shape=diamond, label="All Tests Pass?\nSecurity OK?\nPerf OK?", fillcolor=yellow];
+    p4_e2e -> gate_quality [ltail=cluster_phase4];
+
+    // Phase 5: Deployment & Monitoring (Days 13-14)
+    subgraph cluster_phase5 {
+        label="Phase 5: Deployment & Monitoring (Days 13-14)\nBlue-Green Deployment";
+        fillcolor=lightgreen;
+        style=filled;
+
+        p5_validator [label="Production Validator\nGo/no-go\nreadiness check", fillcolor=lightblue];
+        p5_staging [label="DevOps: Staging\nDeploy, smoke test,\nvalidate", fillcolor=lightblue];
+
+        // Blue-Green Deployment
+        subgraph cluster_bluegreen {
+            label="Production Blue-Green";
+            fillcolor=white;
+            style=dashed;
+
+            bg_green [label="Deploy Green\nParallel to Blue", fillcolor=lightgreen];
+            bg_canary10 [label="10% Traffic\nMonitor 5 min", fillcolor=yellow];
+            bg_canary50 [label="50% Traffic\nMonitor 10 min", fillcolor=yellow];
+            bg_full [label="100% Traffic\nFull Rollout", fillcolor=green, fontcolor=white];
+            bg_rollback [label="ROLLBACK\nRevert to Blue", fillcolor=red, fontcolor=white, shape=octagon];
+
+            bg_green -> bg_canary10 [label="smoke\ntests pass"];
+            bg_canary10 -> bg_canary50 [label="healthy"];
+            bg_canary50 -> bg_full [label="healthy"];
+            bg_canary10 -> bg_rollback [label="errors", color=red, style=dashed];
+            bg_canary50 -> bg_rollback [label="errors", color=red, style=dashed];
+        }
+
+        p5_monitor [label="Performance Monitor\nMetrics, alerts,\nSLO tracking", fillcolor=lightblue];
+
+        p5_validator -> p5_staging [label="approved"];
+        p5_staging -> bg_green [lhead=cluster_bluegreen, label="staging OK"];
+        bg_full -> p5_monitor;
+    }
+
+    // Main workflow flow
+    start -> p1_product [lhead=cluster_phase1];
+    p1_qa -> p2_backend [ltail=cluster_phase1, lhead=cluster_phase2, label="design\ncomplete"];
+    p2_cicd -> tdd_red [ltail=cluster_phase2, lhead=cluster_phase3, label="env\nready"];
+
+    // Coverage gate branches
+    gate_coverage -> p4_e2e [lhead=cluster_phase4, label="yes", color=green];
+    gate_coverage -> tdd_red [label="no\n(add tests)", color=red, style=dashed];
+
+    // Quality gate branches
+    gate_quality -> p5_validator [lhead=cluster_phase5, label="yes", color=green];
+    gate_quality -> p3_progress [label="no\n(fix issues)", color=red, style=dashed];
+
+    // End state
+    p5_monitor -> end [ltail=cluster_phase5, label="production\nstable"];
+
+    // External references
+    memory [shape=cylinder, label="Memory System\napi-development/\n{api-id}/*", fillcolor=lightcoral];
+    openapi [shape=cylinder, label="OpenAPI Spec\nAPI Contract\nValidation", fillcolor=lightcoral];
+
+    // Memory coordination
+    p1_architect -> memory [style=dashed, label="store\nphase 1", color=purple];
+    p1_architect -> openapi [style=dashed, label="generate", color=purple];
+    p3_progress -> memory [style=dashed, label="store\nphase 3", color=purple];
+    p4_docs -> memory [style=dashed, label="store\nphase 4", color=purple];
+    p5_monitor -> memory [style=dashed, label="store\nphase 5", color=purple];
+
+    // Critical warnings
+    warning_tdd [shape=octagon, label="CRITICAL:\nTest-First\nAlways RED before GREEN", fillcolor=orange];
+    tdd_red -> warning_tdd [style=dashed];
+    warning_tdd -> tdd_green [style=dashed, label="enforced"];
+
+    warning_security [shape=octagon, label="CRITICAL:\nZero Critical\nSecurity Issues", fillcolor=orange];
+    p4_security -> warning_security [style=dashed];
+    warning_security -> gate_quality [style=dashed, label="required"];
+
+    labelloc="t";
+    label="API Development Orchestration Workflow\n12 Agents | 5 Phases | 14 Days | TDD Methodology + Blue-Green Deployment";
+    fontsize=16;
+    fontname="Arial Bold";
+}
