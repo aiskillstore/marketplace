@@ -1,0 +1,362 @@
+# Home Assistant Scripts Example
+# Reusable script definitions
+
+# Morning routine script
+morning_routine:
+  alias: "Morning Routine"
+  description: "Complete morning routine with customizable brightness"
+  icon: mdi:weather-sunset-up
+  fields:
+    brightness:
+      description: "Target brightness percentage"
+      example: 80
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 10
+          unit_of_measurement: "%"
+  sequence:
+    - action: light.turn_on
+      target:
+        area_id: bedroom
+      data:
+        brightness_pct: "{{ brightness | default(100) }}"
+        transition: 30
+    - action: climate.set_temperature
+      target:
+        entity_id: climate.thermostat
+      data:
+        temperature: 22
+    - action: media_player.volume_set
+      target:
+        entity_id: media_player.bedroom_speaker
+      data:
+        volume_level: 0.3
+
+# Goodbye routine script
+goodbye_routine:
+  alias: "Goodbye Routine"
+  description: "Secure home when leaving"
+  icon: mdi:home-export-outline
+  sequence:
+    - parallel:
+        - action: light.turn_off
+          target:
+            entity_id: all
+        - action: media_player.turn_off
+          target:
+            entity_id: all
+        - action: climate.set_temperature
+          target:
+            entity_id: climate.thermostat
+          data:
+            temperature: 18
+    - action: lock.lock
+      target:
+        entity_id: lock.front_door
+    - action: notify.mobile_app_phone
+      data:
+        title: "Home Secured"
+        message: "All lights off, doors locked, thermostat set to away"
+
+# Movie mode script
+movie_mode:
+  alias: "Movie Mode"
+  description: "Set up living room for movie watching"
+  icon: mdi:movie-open
+  sequence:
+    - action: light.turn_off
+      target:
+        area_id: living_room
+    - delay:
+        seconds: 2
+    - action: light.turn_on
+      target:
+        entity_id: light.living_room_bias
+      data:
+        brightness_pct: 10
+        rgb_color: [255, 147, 41]
+    - action: media_player.turn_on
+      target:
+        entity_id: media_player.tv
+
+# Flash lights script (for notifications)
+flash_lights:
+  alias: "Flash Lights"
+  description: "Flash lights for visual notification"
+  icon: mdi:alarm-light
+  fields:
+    target_light:
+      description: "Light to flash"
+      example: "light.living_room"
+      selector:
+        entity:
+          domain: light
+    flash_count:
+      description: "Number of flashes"
+      example: 3
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 10
+  sequence:
+    - repeat:
+        count: "{{ flash_count | default(3) }}"
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: "{{ target_light }}"
+            data:
+              brightness_pct: 100
+          - delay:
+              milliseconds: 500
+          - action: light.turn_off
+            target:
+              entity_id: "{{ target_light }}"
+          - delay:
+              milliseconds: 500
+
+# Notify all devices
+notify_all:
+  alias: "Notify All Devices"
+  description: "Send notification to all family members"
+  icon: mdi:bell-ring
+  fields:
+    title:
+      description: "Notification title"
+      example: "Alert"
+      selector:
+        text:
+    message:
+      description: "Notification message"
+      example: "Something happened"
+      selector:
+        text:
+          multiline: true
+    priority:
+      description: "Notification priority"
+      example: "high"
+      default: "normal"
+      selector:
+        select:
+          options:
+            - normal
+            - high
+  sequence:
+    - action: notify.notify
+      data:
+        title: "{{ title }}"
+        message: "{{ message }}"
+        data:
+          priority: "{{ priority | default('normal') }}"
+
+# Vacuum room script
+vacuum_room:
+  alias: "Vacuum Specific Room"
+  description: "Start vacuum in selected room"
+  icon: mdi:robot-vacuum
+  fields:
+    room:
+      description: "Room to vacuum"
+      example: "living_room"
+      selector:
+        select:
+          options:
+            - living_room
+            - bedroom
+            - kitchen
+  sequence:
+    - action: vacuum.send_command
+      target:
+        entity_id: vacuum.robot
+      data:
+        command: "app_segment_clean"
+        params:
+          segments:
+            - "{{ room }}"
+
+# Bedtime routine
+bedtime_routine:
+  alias: "Bedtime Routine"
+  description: "Prepare house for sleep"
+  icon: mdi:bed
+  sequence:
+    - parallel:
+        - sequence:
+            - action: light.turn_off
+              target:
+                entity_id:
+                  - light.living_room
+                  - light.kitchen
+                  - light.bathroom
+            - action: light.turn_on
+              target:
+                entity_id: light.bedroom
+              data:
+                brightness_pct: 20
+                color_temp_kelvin: 2700
+        - action: lock.lock
+          target:
+            entity_id: all
+        - action: cover.close_cover
+          target:
+            entity_id: cover.bedroom_blinds
+    - action: climate.set_temperature
+      target:
+        entity_id: climate.thermostat
+      data:
+        temperature: 19
+
+# Get and announce calendar events (2024+ response_variable feature)
+daily_briefing:
+  alias: "Daily Briefing"
+  description: "Announce today's calendar events"
+  icon: mdi:calendar-today
+  sequence:
+    - action: calendar.get_events
+      target:
+        entity_id: calendar.work
+      data:
+        duration:
+          hours: 24
+      response_variable: events
+    - action: tts.speak
+      target:
+        entity_id: tts.google_en
+      data:
+        media_player_entity_id: media_player.speaker
+        message: >
+          {% set items = events['calendar.work'].events %}
+          {% if items | count > 0 %}
+            You have {{ items | count }} events today.
+            {% for event in items[:3] %}
+              {{ event.summary }} at {{ event.start | as_timestamp | timestamp_custom('%H:%M') }}.
+            {% endfor %}
+          {% else %}
+            No events scheduled for today.
+          {% endif %}
+
+# Script with if-then-else (2024+ feature)
+smart_light_control:
+  alias: "Smart Light Control"
+  description: "Control lights based on conditions"
+  icon: mdi:lightbulb-auto
+  fields:
+    target_light:
+      description: "Light to control"
+      selector:
+        entity:
+          domain: light
+    mode:
+      description: "Control mode"
+      default: "auto"
+      selector:
+        select:
+          options:
+            - auto
+            - manual_on
+            - manual_off
+  sequence:
+    - if:
+        - condition: template
+          value_template: "{{ mode == 'manual_on' }}"
+      then:
+        - action: light.turn_on
+          target:
+            entity_id: "{{ target_light }}"
+          data:
+            brightness_pct: 100
+      else:
+        - if:
+            - condition: template
+              value_template: "{{ mode == 'manual_off' }}"
+          then:
+            - action: light.turn_off
+              target:
+                entity_id: "{{ target_light }}"
+          else:
+            # Auto mode - based on sun
+            - if:
+                - condition: sun
+                  after: sunset
+                  before: sunrise
+              then:
+                - action: light.turn_on
+                  target:
+                    entity_id: "{{ target_light }}"
+                  data:
+                    brightness_pct: 70
+                    color_temp_kelvin: 2700
+              else:
+                - action: light.turn_off
+                  target:
+                    entity_id: "{{ target_light }}"
+
+# Script with stop and error handling (2024+ feature)
+safe_vacuum_start:
+  alias: "Safe Vacuum Start"
+  description: "Start vacuum only if conditions are safe"
+  icon: mdi:robot-vacuum
+  sequence:
+    - if:
+        - condition: state
+          entity_id: vacuum.robot
+          state: "unavailable"
+      then:
+        - stop: "Vacuum is unavailable"
+          error: true
+    - if:
+        - condition: state
+          entity_id: binary_sensor.home_occupied
+          state: "off"
+      then:
+        - stop: "Cannot start vacuum when no one is home for safety"
+          error: true
+    - action: vacuum.start
+      target:
+        entity_id: vacuum.robot
+      continue_on_error: true
+    - if:
+        - condition: state
+          entity_id: vacuum.robot
+          state: "cleaning"
+      then:
+        - action: notify.mobile_app_phone
+          data:
+            message: "Vacuum started cleaning"
+      else:
+        - action: notify.mobile_app_phone
+          data:
+            message: "Failed to start vacuum"
+
+# Weather-based actions with response variable
+weather_report:
+  alias: "Weather Report"
+  description: "Get weather forecast and take actions"
+  icon: mdi:weather-cloudy
+  sequence:
+    - action: weather.get_forecasts
+      target:
+        entity_id: weather.home
+      data:
+        type: hourly
+      response_variable: forecast
+    - variables:
+        next_hour: "{{ forecast['weather.home'].forecast[0] }}"
+        will_rain: "{{ next_hour.condition in ['rainy', 'pouring', 'lightning-rainy'] }}"
+    - if:
+        - condition: template
+          value_template: "{{ will_rain }}"
+      then:
+        - parallel:
+            - action: notify.mobile_app_phone
+              data:
+                title: "Weather Alert"
+                message: "Rain expected in the next hour. {{ next_hour.precipitation }}mm precipitation forecasted."
+            - action: cover.close_cover
+              target:
+                entity_id: cover.patio_awning
+              continue_on_error: true
