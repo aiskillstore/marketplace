@@ -1,0 +1,517 @@
+// Prisma schema for Orchestration Service
+// Database: PostgreSQL 15+
+// ORM: Prisma 5.7+
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Workflows - Stored automation workflows
+// ============================================================
+model Workflow {
+  id String @id @default(uuid())
+
+  // Multi-tenant isolation (CRITICAL)
+  organizationId String // Clerk organization ID
+
+  // Metadata
+  name        String
+  description String?
+  version     Int     @default(1)
+  isActive    Boolean @default(true)
+
+  // Workflow definition (WebRecorder export JSON)
+  definition Json
+
+  // Metadata extracted from definition
+  eventsCount       Int
+  estimatedDuration Int? // milliseconds
+
+  // Timestamps
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  jobs      Job[]
+  schedules Schedule[]
+
+  @@index([organizationId])
+  @@index([name])
+  @@index([isActive])
+  @@index([createdAt])
+  @@index([organizationId, isActive]) // Org-specific active workflows
+}
+
+// ============================================================
+// Jobs - Workflow execution jobs
+// ============================================================
+model Job {
+  id String @id @default(uuid())
+
+  // Workflow reference
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  // User ownership
+  userId String // Clerk user ID who created this job
+
+  // Job metadata
+  priority Int @default(5) // 1-10 scale
+
+  // Status tracking
+  status JobStatus @default(QUEUED)
+
+  // Progress tracking
+  currentStep            Int   @default(0)
+  totalSteps             Int
+  progressPercent        Float @default(0)
+  estimatedTimeRemaining Int? // milliseconds
+
+  // Execution details
+  startedAt   DateTime?
+  completedAt DateTime?
+  failedAt    DateTime?
+
+  // Error information
+  errorCode     String?
+  errorMessage  String?
+  isRecoverable Boolean @default(false)
+
+  // Retry logic
+  retryCount  Int       @default(0)
+  maxRetries  Int       @default(3)
+  lastRetryAt DateTime?
+
+  // Result data
+  result Json?
+
+  // Timestamps
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  executionLogs     ExecutionLog[]
+  screenshots       ExecutionScreenshot[]
+  scheduleExecution ScheduleExecution?
+
+  @@index([workflowId])
+  @@index([userId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+  @@index([startedAt])
+  @@index([userId, status]) // Optimize for common "my jobs by status" queries
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  RETRYING
+}
+
+// ============================================================
+// Execution Logs - Step-by-step execution logs
+// ============================================================
+model ExecutionLog {
+  id String @id @default(uuid())
+
+  // Job reference
+  jobId String
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  // Log details
+  stepIndex Int
+  stepName  String?
+  level     LogLevel
+  message   String
+  metadata  Json?
+
+  // Timing
+  timestamp DateTime @default(now())
+  duration  Int? // milliseconds
+
+  @@index([jobId])
+  @@index([level])
+  @@index([timestamp])
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+// ============================================================
+// Execution Screenshots - Captured screenshots during execution
+// ============================================================
+model ExecutionScreenshot {
+  id String @id @default(uuid())
+
+  // Job reference
+  jobId String
+  job   Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  // Screenshot details
+  stepIndex      Int
+  stepName       String?
+  screenshotType ScreenshotType
+
+  // Storage
+  blobUrl   String // Azure Blob Storage URL
+  signedUrl String? // Temporary signed URL
+  size      Int // bytes
+  width     Int
+  height    Int
+  format    String // 'png', 'webp', etc.
+
+  // Compression
+  isCompressed     Boolean @default(false)
+  originalSize     Int?
+  compressionRatio Float?
+
+  // Metadata
+  metadata Json?
+
+  // Timestamps
+  capturedAt DateTime  @default(now())
+  expiresAt  DateTime? // When signed URL expires
+
+  @@index([jobId])
+  @@index([stepIndex])
+}
+
+enum ScreenshotType {
+  VIEWPORT // Full viewport screenshot
+  ELEMENT // Cropped to specific element
+}
+
+// ============================================================
+// Credentials - Encrypted credentials for workflow execution
+// ============================================================
+model Credential {
+  id String @id @default(uuid())
+
+  // Credential metadata
+  name        String
+  description String?
+  type        CredentialType
+
+  // Encrypted data
+  encryptedValue String // AES-256-GCM encrypted
+  iv             String // Initialization vector
+  authTag        String // Authentication tag
+
+  // Key management
+  keyVaultId String? // Azure Key Vault secret ID
+  keyVersion Int     @default(1)
+
+  // Rotation policy
+  rotationDays   Int      @default(90)
+  lastRotatedAt  DateTime @default(now())
+  nextRotationAt DateTime
+
+  // Access audit
+  lastAccessedAt DateTime?
+  accessCount    Int       @default(0)
+
+  // Timestamps
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  auditLogs CredentialAuditLog[]
+
+  @@index([name])
+  @@index([type])
+  @@index([nextRotationAt])
+}
+
+enum CredentialType {
+  PASSWORD
+  API_KEY
+  TOKEN
+  SSH_KEY
+  CERTIFICATE
+}
+
+// ============================================================
+// Credential Audit Logs - Audit trail for credential access
+// ============================================================
+model CredentialAuditLog {
+  id String @id @default(uuid())
+
+  // Credential reference
+  credentialId String
+  credential   Credential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+
+  // Audit details
+  action    CredentialAction
+  userId    String?
+  jobId     String?
+  ipAddress String?
+  userAgent String?
+
+  // Result
+  success      Boolean
+  errorMessage String?
+
+  // Timestamp
+  timestamp DateTime @default(now())
+
+  @@index([credentialId])
+  @@index([action])
+  @@index([timestamp])
+}
+
+enum CredentialAction {
+  READ
+  WRITE
+  UPDATE
+  DELETE
+  ROTATE
+}
+
+// ============================================================
+// Webhooks - Webhook subscriptions for job events
+// ============================================================
+model Webhook {
+  id String @id @default(uuid())
+
+  // Webhook configuration
+  url      String
+  secret   String // HMAC signature secret
+  events   String[] // Array of event types to listen for
+  isActive Boolean  @default(true)
+
+  // Retry configuration
+  maxRetries Int @default(3)
+  retryDelay Int @default(1000) // milliseconds
+
+  // Timestamps
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  deliveries WebhookDelivery[]
+
+  @@index([isActive])
+}
+
+// ============================================================
+// Webhook Deliveries - Webhook delivery attempts and results
+// ============================================================
+model WebhookDelivery {
+  id String @id @default(uuid())
+
+  // Webhook reference
+  webhookId String
+  webhook   Webhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  // Delivery details
+  event   String
+  payload Json
+  attempt Int    @default(1)
+
+  // Response
+  statusCode   Int?
+  responseBody String?
+  responseTime Int? // milliseconds
+
+  // Result
+  success      Boolean
+  errorMessage String?
+
+  // Timing
+  deliveredAt DateTime  @default(now())
+  nextRetryAt DateTime?
+
+  @@index([webhookId])
+  @@index([event])
+  @@index([success])
+  @@index([deliveredAt])
+}
+
+// ============================================================
+// Schedules - CRON-based workflow scheduling
+// ============================================================
+model Schedule {
+  id String @id @default(uuid())
+
+  // Multi-tenant isolation (CRITICAL)
+  organizationId String // Clerk organization ID
+
+  // Workflow reference
+  workflowId String
+  workflow   Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  // Schedule Configuration
+  name           String
+  description    String?
+  cronExpression String // e.g., "0 9 * * 1-5" (9 AM weekdays)
+  timezone       String  @default("UTC") // IANA timezone (e.g., "America/New_York")
+
+  // Status & Timing
+  enabled             Boolean   @default(false)
+  nextExecutionTime   DateTime? // Calculated from CRON + timezone
+  lastExecutionTime   DateTime?
+  lastExecutionStatus String? // 'success' | 'failed' | 'skipped'
+
+  // EventBridge Integration (Phase 3)
+  eventBridgeRuleArn  String?
+  eventBridgeRuleName String? @unique
+
+  // Execution Control
+  executionWindow   Json? // {start: "09:00", end: "17:00", action: "skip" | "queue" | "alert", timezone: "local"}
+  maxConcurrentRuns Int   @default(1)
+  retryPolicy       Json? // {maxAttempts: 3, backoffMultiplier: 2, initialDelaySeconds: 60}
+
+  // Dependencies (Phase 2+)
+  dependencies Json? // {upstreamScheduleIds: string[], waitTimeout: 3600, onFailure: "skip" | "proceed"}
+
+  // Notifications
+  notificationConfig Json? // {channels: ("email" | "slack" | "webhook")[], events: ("start" | "success" | "failure" | "missed")[], recipients: string[]}
+
+  // Metadata
+  tags     String[] @default([])
+  metadata Json? // User-defined key-value pairs
+
+  // Audit Fields
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String
+  updatedBy String?
+  deletedAt DateTime? // Soft delete support
+
+  // Relationships
+  executions ScheduleExecution[]
+  auditLogs  ScheduleAuditLog[]
+
+  // Indexes for performance
+  @@index([workflowId])
+  @@index([enabled, nextExecutionTime]) // Critical for scheduler queries
+  @@index([createdBy])
+  @@index([deletedAt]) // Soft delete filtering
+  @@index([organizationId]) // Multi-tenant queries
+  @@index([organizationId, enabled, nextExecutionTime]) // Org-specific scheduler queries
+  @@index([organizationId, workflowId]) // Ensure workflow belongs to same org
+  @@index([organizationId, createdBy]) // User's schedules within org
+  @@map("schedules")
+}
+
+// ============================================================
+// Schedule Executions - History of scheduled workflow runs
+// ============================================================
+model ScheduleExecution {
+  id String @id @default(uuid())
+
+  // Multi-tenant isolation (CRITICAL - denormalized for query performance)
+  organizationId String // Clerk organization ID
+
+  // Schedule reference
+  scheduleId String
+  schedule   Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  // Link to actual job execution
+  jobId String? @unique
+  job   Job?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  // Timing
+  scheduledTime DateTime // When it was supposed to run
+  startedAt     DateTime?
+  completedAt   DateTime?
+  duration      Int? // Milliseconds
+
+  // Status Tracking
+  status  String // 'pending' | 'running' | 'success' | 'failed' | 'skipped' | 'cancelled' | 'timeout'
+  trigger String // 'scheduled' | 'manual' | 'dependency' | 'catchup' | 'retry'
+
+  // Error Handling
+  errorMessage String?
+  errorStack   String? @db.Text
+  errorCode    String?
+
+  // Execution Metadata
+  attemptNumber Int   @default(1)
+  metadata      Json? // {triggeredBy: string, dependencies: {...}, executionContext: {...}}
+
+  // Audit Fields
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Indexes
+  @@index([scheduleId, scheduledTime(sort: Desc)]) // Schedule history queries
+  @@index([status, scheduledTime]) // Status-based filtering
+  @@index([jobId]) // Job lookup
+  @@index([organizationId]) // Multi-tenant queries
+  @@index([organizationId, scheduleId, scheduledTime(sort: Desc)]) // Org-specific schedule history
+  @@index([organizationId, status, scheduledTime]) // Org-specific execution history
+  @@map("schedule_executions")
+}
+
+// ============================================================
+// Schedule Audit Logs - HIPAA-compliant audit trail
+// ============================================================
+model ScheduleAuditLog {
+  id String @id @default(uuid())
+
+  // Resource Information
+  scheduleId String?
+  schedule   Schedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  organizationId String // Denormalized for fast org-specific queries
+
+  // Action Information
+  action   String // 'CREATE', 'READ', 'UPDATE', 'DELETE', 'ENABLE', 'DISABLE', 'EXECUTE', 'CANCEL', 'RETRY', 'LIST'
+  resource String // 'SCHEDULE', 'SCHEDULE_EXECUTION', 'SCHEDULE_SETTINGS'
+
+  // User Information
+  userId    String  // Clerk user ID
+  userEmail String? // Email for reporting (denormalized)
+
+  // Request Context
+  ipAddress String?
+  userAgent String?
+  requestId String? // Correlation ID for distributed tracing
+
+  // Change Tracking (for UPDATE actions)
+  previousValue Json?    // Snapshot of object before change
+  newValue      Json?    // Snapshot of object after change
+  changedFields String[] @default([]) // Array of field names that changed
+
+  // Result Information
+  status       String  // 'SUCCESS', 'FAILURE', 'UNAUTHORIZED', 'NOT_FOUND', 'VALIDATION_ERROR'
+  errorMessage String?
+  errorCode    String?
+
+  // Execution Metadata
+  durationMs Int?  // Operation duration in milliseconds
+  metadata   Json? // Additional context (e.g., query parameters, affected rows)
+
+  // Audit Timestamps
+  timestamp   DateTime @default(now())
+  retainUntil DateTime // timestamp + retention period (90 days default)
+
+  // Indexes for efficient queries
+  @@index([scheduleId, timestamp(sort: Desc)]) // Schedule history
+  @@index([organizationId, timestamp(sort: Desc)]) // Org audit trail
+  @@index([userId, timestamp(sort: Desc)]) // User activity
+  @@index([action, timestamp(sort: Desc)]) // Action-based filtering
+  @@index([status, timestamp(sort: Desc)]) // Failure analysis
+  @@index([retainUntil]) // Cleanup job queries
+  @@index([timestamp(sort: Desc)]) // Global audit trail
+  @@map("schedule_audit_logs")
+}
