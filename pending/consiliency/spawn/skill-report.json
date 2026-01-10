@@ -1,0 +1,401 @@
+{
+  "schema_version": "2.0",
+  "meta": {
+    "generated_at": "2026-01-10T12:39:11.155Z",
+    "slug": "consiliency-spawn",
+    "source_url": "https://github.com/Consiliency/treesitter-chunker/tree/main/.ai-dev-kit/skills/spawn",
+    "source_ref": "main",
+    "model": "claude",
+    "analysis_version": "2.0.0",
+    "source_type": "community",
+    "content_hash": "77960f2f907c89cc679842012e9c985e9b90410d1ccf49a6fb57b8a9bce46ebd",
+    "tree_hash": "09ab8da9b9114a47090526d97671c31aa1f8d45030aefe9df4eee9bcf52f8ace"
+  },
+  "skill": {
+    "name": "spawn",
+    "description": "Skills for spawning external processes - AI coding agents and generic CLI commands in new terminal windows. Parent skill category for agent and terminal spawning.",
+    "summary": "Skills for spawning external processes - AI coding agents and generic CLI commands in new terminal w...",
+    "icon": "🖥️",
+    "version": "1.0.0",
+    "author": "Consiliency",
+    "license": "MIT",
+    "category": "coding",
+    "tags": [
+      "terminal",
+      "agents",
+      "cli",
+      "process",
+      "orchestration"
+    ],
+    "supported_tools": [
+      "claude",
+      "codex",
+      "claude-code"
+    ],
+    "risk_factors": [
+      "external_commands",
+      "filesystem",
+      "env_access"
+    ]
+  },
+  "security_audit": {
+    "risk_level": "medium",
+    "is_blocked": false,
+    "safe_to_publish": true,
+    "summary": "This skill enables spawning external processes as its core purpose. Uses subprocess execution for launching AI agents and CLI commands. The --dangerously-skip-permissions flag appears in documentation but is a documented CLI feature, not malicious code. The behavior matches the stated purpose of terminal/agent spawning.",
+    "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 58,
+            "line_end": 61
+          },
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 89,
+            "line_end": 93
+          },
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 161,
+            "line_end": 161
+          },
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 176,
+            "line_end": 176
+          },
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 196,
+            "line_end": 196
+          },
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 216,
+            "line_end": 227
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 41,
+            "line_end": 42
+          },
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 134,
+            "line_end": 136
+          },
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 157,
+            "line_end": 159
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 36,
+            "line_end": 36
+          },
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 96,
+            "line_end": 96
+          }
+        ]
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [
+      {
+        "title": "Permission bypass flag in command construction",
+        "description": "The skill documentation instructs to use `--dangerously-skip-permissions` flag when spawning Claude Code agents. This flag bypasses all permission controls, allowing the spawned agent to execute any action without user approval. Documentation at agent/cookbook/claude-code.md:21 states 'Always run with --dangerously-skip-permissions'. An attacker with control over spawn parameters could escalate privileges. Code: `claude --model <MODEL> --dangerously-skip-permissions \"<prompt>\"`",
+        "locations": [
+          {
+            "file": "agent/cookbook/claude-code.md",
+            "line_start": 21,
+            "line_end": 21
+          }
+        ]
+      },
+      {
+        "title": "Sandbox bypass flag in Codex commands",
+        "description": "Codex cookbook instructs to use `--dangerously-bypass-approvals-and-sandbox` flag for 'full auto mode'. This flag disables all sandboxing and approval requirements, providing unrestricted system access. Documentation at agent/cookbook/codex-cli.md:45 states 'Always run with --dangerously-bypass-approvals-and-sandbox'. This is explicitly documented as dangerous behavior. Code: `codex --model <MODEL> --dangerously-bypass-approvals-and-sandbox \"<prompt>\"`",
+        "locations": [
+          {
+            "file": "agent/cookbook/codex-cli.md",
+            "line_start": 45,
+            "line_end": 45
+          },
+          {
+            "file": "agent/cookbook/codex-cli.md",
+            "line_start": 111,
+            "line_end": 111
+          }
+        ]
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Shell=True enables command injection",
+        "description": "The fork_terminal.py uses `subprocess.Popen(command, shell=True)` for background processes on Linux fallback path (line 216-227). When combined with arbitrary command input from users, this could allow command injection if input sanitization is insufficient. The shell=True parameter passes the command through a shell interpreter, enabling potential injection through shell metacharacters. Code: `subprocess.Popen(wrapped_cmd, shell=True, cwd=cwd)`",
+        "locations": [
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 216,
+            "line_end": 216
+          },
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 222,
+            "line_end": 222
+          },
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 227,
+            "line_end": 227
+          }
+        ]
+      },
+      {
+        "title": "Shell string construction on macOS",
+        "description": "macOS path constructs shell commands as strings passed to osascript (line 52-56). While the command is embedded in quoted strings, shell metacharacters in user-provided commands could potentially cause issues. macOS implementation: `shell_cmd = f\"cd {cwd}; {command} | tee {agent_output_file}; touch {done_file}\"`",
+        "locations": [
+          {
+            "file": "agent/fork_terminal.py",
+            "line_start": 46,
+            "line_end": 50
+          }
+        ]
+      }
+    ],
+    "low_findings": [],
+    "dangerous_patterns": [],
+    "files_scanned": 8,
+    "total_lines": 962,
+    "audit_model": "claude",
+    "audited_at": "2026-01-10T12:39:11.155Z"
+  },
+  "content": {
+    "user_title": "Spawn AI Agents and CLI Commands",
+    "value_statement": "Claude Code cannot directly run AI agents from other providers or interactive CLI tools. This skill opens new terminal windows to launch Claude, Codex, Gemini, Cursor, Copilot, and OpenCode agents alongside generic commands like ffmpeg or curl.",
+    "seo_keywords": [
+      "Claude Code",
+      "Claude",
+      "Codex",
+      "Gemini",
+      "Cursor",
+      "Copilot",
+      "OpenCode",
+      "terminal",
+      "CLI",
+      "agent spawning"
+    ],
+    "actual_capabilities": [
+      "Launch AI coding agents in new terminal windows (Claude, Codex, Gemini, Cursor, OpenCode, Copilot)",
+      "Execute generic CLI commands in isolated terminal sessions",
+      "Cross-platform support: macOS Terminal.app, Windows Terminal, WSL, and tmux",
+      "Capture agent output to files for later retrieval",
+      "Chain commands to maintain interactive mode after task completion",
+      "Handle authentication flows for AI provider login"
+    ],
+    "limitations": [
+      "Requires AI providers (Claude, Codex, Gemini) to be installed separately",
+      "Output capture works only when providers support JSON or stdout logging",
+      "Authentication must be completed manually in the spawned terminal"
+    ],
+    "use_cases": [
+      {
+        "target_user": "Multi-provider developers",
+        "title": "Orchestrate multiple AI agents",
+        "description": "Spawn different AI coding agents in separate terminals to work on complex tasks that benefit from multiple perspectives or models."
+      },
+      {
+        "target_user": "Build engineers",
+        "title": "Run long-running CLI tools",
+        "description": "Launch ffmpeg conversions, npm builds, or python scripts in new terminals without blocking Claude Code execution."
+      },
+      {
+        "target_user": "AI power users",
+        "title": "Access Claude CLI features",
+        "description": "Use Claude Code CLI directly with custom models, prompts, or flags not exposed through native Task agents."
+      }
+    ],
+    "prompt_templates": [
+      {
+        "title": "Launch Claude agent",
+        "scenario": "Start Claude in new terminal",
+        "prompt": "Spawn agent use claude code to analyze this codebase and summarize the architecture"
+      },
+      {
+        "title": "Spawn Codex CLI",
+        "scenario": "Run Codex for code generation",
+        "prompt": "Spawn agent use codex to write a Python function that reads a CSV file and outputs statistics"
+      },
+      {
+        "title": "Run CLI command",
+        "scenario": "Execute terminal command",
+        "prompt": "Spawn terminal with ffmpeg to convert video.mp4 to output.gif"
+      },
+      {
+        "title": "With conversation summary",
+        "scenario": "Pass context to spawned agent",
+        "prompt": "Spawn agent use claude code to continue work. Include a summary of the conversation"
+      }
+    ],
+    "output_examples": [
+      {
+        "input": "Spawn agent use claude code to fix the bug in auth.py",
+        "output": [
+          "Terminal opened with Claude Code",
+          "Agent will analyze auth.py",
+          "Fixes applied after your approval",
+          "Output saved to /tmp/fork-agent-xxxxx.json"
+        ]
+      }
+    ],
+    "best_practices": [
+      "Always run the target command with --help first to verify options and syntax",
+      "Use LOG_AGENT_OUTPUT=true to capture clean JSON output for later processing",
+      "Chain commands with && when you need interactive mode after prompt completion"
+    ],
+    "anti_patterns": [
+      "Skipping the --help verification step because the command seems simple",
+      "Assuming you know the correct command syntax without checking documentation",
+      "Spawning an AI agent when a native Task agent would be more efficient"
+    ],
+    "faq": [
+      {
+        "question": "What AI providers are supported?",
+        "answer": "Claude Code, OpenAI Codex, Google Gemini, Cursor, OpenCode, and GitHub Copilot CLI tools are supported."
+      },
+      {
+        "question": "Can I capture the output from spawned agents?",
+        "answer": "Yes. Set LOG_AGENT_OUTPUT=true to save clean JSON output to /tmp/fork-agent-*.json files."
+      },
+      {
+        "question": "Does this work on Windows?",
+        "answer": "Yes. Uses Windows Terminal (wt.exe) on Windows 10/11 and supports WSL with tmux fallback."
+      },
+      {
+        "question": "Is my data sent to external servers?",
+        "answer": "No. This skill only spawns terminals. Data handling depends on the AI provider you choose to invoke."
+      },
+      {
+        "question": "Why does the agent exit immediately?",
+        "answer": "Many AI CLIs exit after completing a prompt. Use command chaining with && --continue to stay interactive."
+      },
+      {
+        "question": "How is this different from native Task agents?",
+        "answer": "Task agents run non-interactively in the same process. This skill spawns interactive TTY sessions in new windows."
+      }
+    ]
+  },
+  "file_structure": [
+    {
+      "name": "agent",
+      "type": "dir",
+      "path": "agent",
+      "children": [
+        {
+          "name": "cookbook",
+          "type": "dir",
+          "path": "agent/cookbook",
+          "children": [
+            {
+              "name": "claude-code.md",
+              "type": "file",
+              "path": "agent/cookbook/claude-code.md"
+            },
+            {
+              "name": "codex-cli.md",
+              "type": "file",
+              "path": "agent/cookbook/codex-cli.md"
+            },
+            {
+              "name": "copilot-cli.md",
+              "type": "file",
+              "path": "agent/cookbook/copilot-cli.md"
+            },
+            {
+              "name": "cursor-cli.md",
+              "type": "file",
+              "path": "agent/cookbook/cursor-cli.md"
+            },
+            {
+              "name": "gemini-cli.md",
+              "type": "file",
+              "path": "agent/cookbook/gemini-cli.md"
+            },
+            {
+              "name": "opencode-cli.md",
+              "type": "file",
+              "path": "agent/cookbook/opencode-cli.md"
+            }
+          ]
+        },
+        {
+          "name": "prompts",
+          "type": "dir",
+          "path": "agent/prompts",
+          "children": [
+            {
+              "name": "fork-summary-user-prompt.md",
+              "type": "file",
+              "path": "agent/prompts/fork-summary-user-prompt.md"
+            }
+          ]
+        },
+        {
+          "name": "fork_terminal.py",
+          "type": "file",
+          "path": "agent/fork_terminal.py"
+        },
+        {
+          "name": "SKILL.md",
+          "type": "file",
+          "path": "agent/SKILL.md"
+        }
+      ]
+    },
+    {
+      "name": "terminal",
+      "type": "dir",
+      "path": "terminal",
+      "children": [
+        {
+          "name": "cookbook",
+          "type": "dir",
+          "path": "terminal/cookbook",
+          "children": [
+            {
+              "name": "cli-command.md",
+              "type": "file",
+              "path": "terminal/cookbook/cli-command.md"
+            }
+          ]
+        },
+        {
+          "name": "SKILL.md",
+          "type": "file",
+          "path": "terminal/SKILL.md"
+        }
+      ]
+    },
+    {
+      "name": "SKILL.md",
+      "type": "file",
+      "path": "SKILL.md"
+    }
+  ]
+}

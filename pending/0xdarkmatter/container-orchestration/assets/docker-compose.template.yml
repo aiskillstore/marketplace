@@ -1,0 +1,140 @@
+# Docker Compose Template
+# For local development and testing
+
+version: "3.9"
+
+services:
+  # ==============================================================================
+  # Application
+  # ==============================================================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # For development, use debug target
+      # target: debug
+    image: ${IMAGE_NAME:-myapp}:${IMAGE_TAG:-latest}
+    container_name: myapp
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      - DATABASE_URL=postgres://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-myapp}
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    volumes:
+      # Development: mount source code
+      # - ./src:/app/src:ro
+      - app_logs:/app/logs
+    networks:
+      - app-network
+
+  # ==============================================================================
+  # Database
+  # ==============================================================================
+  db:
+    image: postgres:15-alpine
+    container_name: myapp-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-myapp}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-myapp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # ==============================================================================
+  # Cache
+  # ==============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: myapp-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # ==============================================================================
+  # Optional: Worker (for background jobs)
+  # ==============================================================================
+  # worker:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   container_name: myapp-worker
+  #   restart: unless-stopped
+  #   command: python -m celery -A src.worker worker --loglevel=info
+  #   environment:
+  #     - DATABASE_URL=postgres://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-myapp}
+  #     - REDIS_URL=redis://redis:6379/0
+  #   depends_on:
+  #     - db
+  #     - redis
+  #   networks:
+  #     - app-network
+
+  # ==============================================================================
+  # Optional: Nginx (reverse proxy)
+  # ==============================================================================
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: myapp-nginx
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./certs:/etc/nginx/certs:ro
+  #   depends_on:
+  #     - app
+  #   networks:
+  #     - app-network
+
+# ==============================================================================
+# Volumes
+# ==============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  app_logs:
+    driver: local
+
+# ==============================================================================
+# Networks
+# ==============================================================================
+networks:
+  app-network:
+    driver: bridge
