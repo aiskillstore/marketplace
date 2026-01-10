@@ -73,8 +73,10 @@ jobs:
         run: |
           echo "Syncing marketplace.json from plugins/ directory..."
 
-          # Build plugins array from plugins/ directory
-          PLUGINS_JSON="[]"
+          # Build plugins using NDJSON (one JSON object per line) to avoid "Argument list too long"
+          TEMP_NDJSON="/tmp/plugins.ndjson"
+          > "$TEMP_NDJSON"
+
           while IFS= read -r entry_file; do
             [ -z "$entry_file" ] && continue
 
@@ -86,25 +88,26 @@ jobs:
             description=$(jq -r '.description // ""' "$entry_file" 2>/dev/null)
             version=$(jq -r '.version // "1.0.0"' "$entry_file" 2>/dev/null)
 
-            # Build plugin entry
-            PLUGIN_ENTRY=$(jq -n \
+            # Append plugin entry as single line JSON
+            jq -c -n \
               --arg name "$name" \
               --arg description "$description" \
               --arg version "$version" \
               --arg source "./$dir" \
-              '{name: $name, description: $description, version: $version, source: $source}')
-
-            PLUGINS_JSON=$(echo "$PLUGINS_JSON" | jq --argjson plugin "$PLUGIN_ENTRY" '. + [$plugin]')
+              '{name: $name, description: $description, version: $version, source: $source}' >> "$TEMP_NDJSON"
           done < <(find plugins -name "marketplace-entry.json" 2>/dev/null | sort)
 
-          # Sort plugins by name
-          PLUGINS_JSON=$(echo "$PLUGINS_JSON" | jq 'sort_by(.name)')
-          PLUGIN_COUNT=$(echo "$PLUGINS_JSON" | jq 'length')
+          # Convert NDJSON to sorted array and get count
+          jq -s 'sort_by(.name)' "$TEMP_NDJSON" > /tmp/plugins_sorted.json
+          PLUGIN_COUNT=$(jq 'length' /tmp/plugins_sorted.json)
 
           # Update marketplace.json with synced plugins
-          jq --argjson plugins "$PLUGINS_JSON" '.plugins = $plugins' \
+          jq --slurpfile plugins /tmp/plugins_sorted.json '.plugins = $plugins[0]' \
             .claude-plugin/marketplace.json > /tmp/marketplace_synced.json
           mv /tmp/marketplace_synced.json .claude-plugin/marketplace.json
+
+          # Cleanup
+          rm -f "$TEMP_NDJSON" /tmp/plugins_sorted.json
 
           echo "Synced $PLUGIN_COUNT plugins to marketplace.json"
           echo "plugin_count=$PLUGIN_COUNT" >> $GITHUB_OUTPUT
