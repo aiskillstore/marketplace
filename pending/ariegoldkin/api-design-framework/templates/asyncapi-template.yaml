@@ -1,0 +1,542 @@
+asyncapi: 3.0.0
+
+# AsyncAPI specification for event-driven and message-based APIs
+# Use for: Kafka, RabbitMQ, WebSockets, MQTT, Server-Sent Events
+
+info:
+  title: Order Processing Events API
+  version: 1.0.0
+  description: |
+    Event-driven API for order processing system.
+    Publishes events when orders are created, updated, or completed.
+    Consumers can subscribe to relevant events for their services.
+
+  contact:
+    name: API Support Team
+    email: api-support@example.com
+    url: https://api.example.com/support
+
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+# Server definitions
+servers:
+  production:
+    host: kafka.production.example.com:9092
+    protocol: kafka
+    description: Production Kafka cluster
+    security:
+      - $ref: '#/components/securitySchemes/saslScram'
+    tags:
+      - name: env:production
+      - name: region:us-east-1
+
+  staging:
+    host: kafka.staging.example.com:9092
+    protocol: kafka
+    description: Staging Kafka cluster
+    tags:
+      - name: env:staging
+
+  development:
+    host: localhost:9092
+    protocol: kafka
+    description: Local Kafka for development
+    tags:
+      - name: env:development
+
+# Channel definitions (topics, queues, etc.)
+channels:
+
+  # Order events topic
+  order/events:
+    address: order.events.v1
+    description: All order lifecycle events
+    messages:
+      orderCreated:
+        $ref: '#/components/messages/OrderCreated'
+      orderUpdated:
+        $ref: '#/components/messages/OrderUpdated'
+      orderCompleted:
+        $ref: '#/components/messages/OrderCompleted'
+      orderCancelled:
+        $ref: '#/components/messages/OrderCancelled'
+
+  # Payment events topic
+  payment/events:
+    address: payment.events.v1
+    description: Payment processing events
+    messages:
+      paymentAuthorized:
+        $ref: '#/components/messages/PaymentAuthorized'
+      paymentCaptured:
+        $ref: '#/components/messages/PaymentCaptured'
+      paymentFailed:
+        $ref: '#/components/messages/PaymentFailed'
+
+  # Notification requests topic
+  notification/requests:
+    address: notification.requests.v1
+    description: Notification delivery requests
+    messages:
+      emailNotification:
+        $ref: '#/components/messages/EmailNotification'
+      smsNotification:
+        $ref: '#/components/messages/SMSNotification'
+
+# Operations (publish/subscribe)
+operations:
+
+  # Publishing operations
+  publishOrderCreated:
+    action: send
+    channel:
+      $ref: '#/channels/order~1events'
+    summary: Publish order created event
+    description: Triggered when a new order is placed
+    messages:
+      - $ref: '#/channels/order~1events/messages/orderCreated'
+    traits:
+      - $ref: '#/components/operationTraits/kafka'
+
+  publishPaymentAuthorized:
+    action: send
+    channel:
+      $ref: '#/channels/payment~1events'
+    summary: Publish payment authorized event
+    messages:
+      - $ref: '#/channels/payment~1events/messages/paymentAuthorized'
+
+  # Subscribing operations
+  subscribeToOrderEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/order~1events'
+    summary: Subscribe to order events
+    description: |
+      Listen for order lifecycle events.
+      Consumers should implement idempotency (events may be delivered multiple times).
+    messages:
+      - $ref: '#/channels/order~1events/messages/orderCreated'
+      - $ref: '#/channels/order~1events/messages/orderUpdated'
+      - $ref: '#/channels/order~1events/messages/orderCompleted'
+      - $ref: '#/channels/order~1events/messages/orderCancelled'
+
+  subscribeToPaymentEvents:
+    action: receive
+    channel:
+      $ref: '#/channels/payment~1events'
+    summary: Subscribe to payment events
+    messages:
+      - $ref: '#/channels/payment~1events/messages/paymentAuthorized'
+      - $ref: '#/channels/payment~1events/messages/paymentCaptured'
+      - $ref: '#/channels/payment~1events/messages/paymentFailed'
+
+# Reusable components
+components:
+
+  # Message definitions
+  messages:
+
+    # Order messages
+    OrderCreated:
+      name: OrderCreated
+      title: Order Created Event
+      summary: Fired when a new order is placed
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/OrderCreatedPayload'
+      examples:
+        - name: Standard Order
+          summary: Typical order creation
+          payload:
+            eventId: evt_1a2b3c4d5e6f
+            eventType: order.created
+            timestamp: '2024-11-01T10:30:00Z'
+            version: '1.0'
+            data:
+              orderId: ord_abc123
+              customerId: cust_xyz789
+              items:
+                - productId: prod_001
+                  quantity: 2
+                  price: 29.99
+              totalAmount: 59.98
+              currency: USD
+              status: pending
+              createdAt: '2024-11-01T10:30:00Z'
+
+    OrderUpdated:
+      name: OrderUpdated
+      title: Order Updated Event
+      summary: Fired when order details change
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/OrderUpdatedPayload'
+
+    OrderCompleted:
+      name: OrderCompleted
+      title: Order Completed Event
+      summary: Fired when order is fulfilled
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/OrderCompletedPayload'
+
+    OrderCancelled:
+      name: OrderCancelled
+      title: Order Cancelled Event
+      summary: Fired when order is cancelled
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/OrderCancelledPayload'
+
+    # Payment messages
+    PaymentAuthorized:
+      name: PaymentAuthorized
+      title: Payment Authorized Event
+      summary: Payment authorization successful
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/PaymentAuthorizedPayload'
+
+    PaymentCaptured:
+      name: PaymentCaptured
+      title: Payment Captured Event
+      summary: Payment funds captured
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/PaymentCapturedPayload'
+
+    PaymentFailed:
+      name: PaymentFailed
+      title: Payment Failed Event
+      summary: Payment processing failed
+      contentType: application/json
+      traits:
+        - $ref: '#/components/messageTraits/commonHeaders'
+      payload:
+        $ref: '#/components/schemas/PaymentFailedPayload'
+
+    # Notification messages
+    EmailNotification:
+      name: EmailNotification
+      title: Email Notification Request
+      summary: Request to send email
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/EmailNotificationPayload'
+
+    SMSNotification:
+      name: SMSNotification
+      title: SMS Notification Request
+      summary: Request to send SMS
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/SMSNotificationPayload'
+
+  # Schema definitions
+  schemas:
+
+    # Base event schema
+    BaseEvent:
+      type: object
+      required:
+        - eventId
+        - eventType
+        - timestamp
+        - version
+      properties:
+        eventId:
+          type: string
+          description: Unique event identifier
+          example: evt_1a2b3c4d5e6f
+        eventType:
+          type: string
+          description: Type of event
+          example: order.created
+        timestamp:
+          type: string
+          format: date-time
+          description: Event occurrence time (ISO 8601)
+        version:
+          type: string
+          description: Event schema version
+          example: '1.0'
+        correlationId:
+          type: string
+          description: Request correlation ID for tracing
+          example: req_abc123xyz
+        metadata:
+          type: object
+          description: Additional metadata
+          additionalProperties: true
+
+    # Order event payloads
+    OrderCreatedPayload:
+      allOf:
+        - $ref: '#/components/schemas/BaseEvent'
+        - type: object
+          required:
+            - data
+          properties:
+            data:
+              type: object
+              required:
+                - orderId
+                - customerId
+                - items
+                - totalAmount
+                - currency
+                - status
+                - createdAt
+              properties:
+                orderId:
+                  type: string
+                  example: ord_abc123
+                customerId:
+                  type: string
+                  example: cust_xyz789
+                items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      productId:
+                        type: string
+                      quantity:
+                        type: integer
+                        minimum: 1
+                      price:
+                        type: number
+                        format: decimal
+                totalAmount:
+                  type: number
+                  format: decimal
+                currency:
+                  type: string
+                  pattern: '^[A-Z]{3}$'
+                  example: USD
+                status:
+                  type: string
+                  enum: [pending, processing, completed, cancelled]
+                createdAt:
+                  type: string
+                  format: date-time
+
+    OrderUpdatedPayload:
+      allOf:
+        - $ref: '#/components/schemas/BaseEvent'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                orderId:
+                  type: string
+                updates:
+                  type: object
+                  description: Fields that were updated
+                  additionalProperties: true
+
+    OrderCompletedPayload:
+      allOf:
+        - $ref: '#/components/schemas/BaseEvent'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                orderId:
+                  type: string
+                completedAt:
+                  type: string
+                  format: date-time
+
+    OrderCancelledPayload:
+      allOf:
+        - $ref: '#/components/schemas/BaseEvent'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                orderId:
+                  type: string
+                reason:
+                  type: string
+                  example: Customer requested cancellation
+                cancelledAt:
+                  type: string
+                  format: date-time
+
+    # Payment event payloads
+    PaymentAuthorizedPayload:
+      allOf:
+        - $ref: '#/components/schemas/BaseEvent'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                paymentId:
+                  type: string
+                orderId:
+                  type: string
+                amount:
+                  type: number
+                  format: decimal
+                currency:
+                  type: string
+                authorizationCode:
+                  type: string
+
+    PaymentCapturedPayload:
+      allOf:
+        - $ref: '#/components/schemas/BaseEvent'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                paymentId:
+                  type: string
+                orderId:
+                  type: string
+                amount:
+                  type: number
+                capturedAt:
+                  type: string
+                  format: date-time
+
+    PaymentFailedPayload:
+      allOf:
+        - $ref: '#/components/schemas/BaseEvent'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                paymentId:
+                  type: string
+                orderId:
+                  type: string
+                errorCode:
+                  type: string
+                  example: insufficient_funds
+                errorMessage:
+                  type: string
+
+    # Notification payloads
+    EmailNotificationPayload:
+      type: object
+      required:
+        - to
+        - subject
+        - body
+      properties:
+        to:
+          type: string
+          format: email
+        subject:
+          type: string
+        body:
+          type: string
+        from:
+          type: string
+          format: email
+          default: noreply@example.com
+        cc:
+          type: array
+          items:
+            type: string
+            format: email
+        attachments:
+          type: array
+          items:
+            type: object
+            properties:
+              filename:
+                type: string
+              url:
+                type: string
+                format: uri
+
+    SMSNotificationPayload:
+      type: object
+      required:
+        - to
+        - message
+      properties:
+        to:
+          type: string
+          pattern: '^\+[1-9]\d{1,14}$'
+          example: '+14155551234'
+        message:
+          type: string
+          maxLength: 160
+        from:
+          type: string
+
+  # Security schemes
+  securitySchemes:
+    saslScram:
+      type: scramSha256
+      description: SASL/SCRAM authentication for Kafka
+
+    apiKey:
+      type: apiKey
+      in: user
+      description: API key for authentication
+
+  # Message traits (reusable message properties)
+  messageTraits:
+    commonHeaders:
+      headers:
+        type: object
+        properties:
+          sentAt:
+            type: string
+            format: date-time
+            description: Message send timestamp
+          correlationId:
+            type: string
+            description: Correlation ID for request tracing
+          messageId:
+            type: string
+            description: Unique message identifier
+
+  # Operation traits (reusable operation properties)
+  operationTraits:
+    kafka:
+      bindings:
+        kafka:
+          groupId:
+            type: string
+            description: Kafka consumer group ID
+
+# Tags for categorization
+tags:
+  - name: order
+    description: Order-related events
+  - name: payment
+    description: Payment-related events
+  - name: notification
+    description: Notification-related events
+
+# External documentation
+externalDocs:
+  description: Full API documentation
+  url: https://docs.example.com/async-api

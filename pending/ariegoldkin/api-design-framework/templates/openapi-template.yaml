@@ -1,0 +1,525 @@
+openapi: 3.1.0
+
+info:
+  title: Your API Name
+  version: 1.0.0
+  description: |
+    Brief description of what this API does.
+
+    ## Authentication
+    This API uses Bearer tokens for authentication.
+
+    ## Rate Limiting
+    - 1000 requests per hour per API key
+    - Rate limit headers included in all responses
+
+    ## Support
+    For questions, contact: api-support@company.com
+
+  contact:
+    name: API Support Team
+    email: api-support@company.com
+    url: https://api.company.com/support
+
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+  termsOfService: https://company.com/terms
+
+servers:
+  - url: https://api.company.com/v1
+    description: Production server
+  - url: https://api-staging.company.com/v1
+    description: Staging server
+  - url: http://localhost:3000/v1
+    description: Local development
+
+tags:
+  - name: users
+    description: User management operations
+  - name: orders
+    description: Order processing operations
+  - name: authentication
+    description: Authentication and authorization
+
+paths:
+  /users:
+    get:
+      summary: List users
+      description: Retrieve a paginated list of users with optional filtering
+      operationId: listUsers
+      tags:
+        - users
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - name: status
+          in: query
+          description: Filter by user status
+          schema:
+            type: string
+            enum: [active, inactive, pending]
+        - name: role
+          in: query
+          description: Filter by user role
+          schema:
+            type: string
+            enum: [admin, developer, viewer]
+      responses:
+        '200':
+          description: Successful response
+          headers:
+            X-RateLimit-Limit:
+              $ref: '#/components/headers/X-RateLimit-Limit'
+            X-RateLimit-Remaining:
+              $ref: '#/components/headers/X-RateLimit-Remaining'
+            X-RateLimit-Reset:
+              $ref: '#/components/headers/X-RateLimit-Reset'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+
+    post:
+      summary: Create user
+      description: Create a new user account
+      operationId: createUser
+      tags:
+        - users
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created successfully
+          headers:
+            Location:
+              description: URL of the created resource
+              schema:
+                type: string
+                format: uri
+                example: /users/123
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserIdParam'
+
+    get:
+      summary: Get user by ID
+      description: Retrieve detailed information about a specific user
+      operationId: getUser
+      tags:
+        - users
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      summary: Update user
+      description: Replace entire user resource
+      operationId: updateUser
+      tags:
+        - users
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+    delete:
+      summary: Delete user
+      description: Permanently delete a user account
+      operationId: deleteUser
+      tags:
+        - users
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: User deleted successfully
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Enter your JWT token
+
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for service-to-service authentication
+
+  parameters:
+    UserIdParam:
+      name: userId
+      in: path
+      required: true
+      description: Unique identifier of the user
+      schema:
+        type: string
+        format: uuid
+        example: "550e8400-e29b-41d4-a716-446655440000"
+
+    PageParam:
+      name: page
+      in: query
+      description: Page number for pagination
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+        example: 1
+
+    PerPageParam:
+      name: per_page
+      in: query
+      description: Number of items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+        example: 20
+
+  headers:
+    X-RateLimit-Limit:
+      description: The maximum number of requests allowed per hour
+      schema:
+        type: integer
+        example: 1000
+
+    X-RateLimit-Remaining:
+      description: The number of requests remaining in the current time window
+      schema:
+        type: integer
+        example: 987
+
+    X-RateLimit-Reset:
+      description: Unix timestamp when the rate limit resets
+      schema:
+        type: integer
+        format: int64
+        example: 1635724800
+
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - name
+        - role
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: "jane@example.com"
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+          description: User's full name
+          example: "Jane Smith"
+        role:
+          type: string
+          enum: [admin, developer, viewer]
+          description: User's role in the system
+          example: "developer"
+        status:
+          type: string
+          enum: [active, inactive, pending]
+          description: Current account status
+          default: active
+          example: "active"
+        avatar:
+          type: string
+          format: uri
+          nullable: true
+          description: URL to user's avatar image
+          example: "https://cdn.example.com/avatars/jane.jpg"
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when user was created
+          example: "2025-10-31T10:30:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when user was last updated
+          example: "2025-10-31T10:30:00Z"
+
+    CreateUserRequest:
+      type: object
+      required:
+        - email
+        - name
+        - role
+      properties:
+        email:
+          type: string
+          format: email
+          example: "jane@example.com"
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+          example: "Jane Smith"
+        role:
+          type: string
+          enum: [admin, developer, viewer]
+          example: "developer"
+        avatar:
+          type: string
+          format: uri
+          nullable: true
+          example: "https://cdn.example.com/avatars/jane.jpg"
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: "jane.smith@example.com"
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+          example: "Jane A. Smith"
+        role:
+          type: string
+          enum: [admin, developer, viewer]
+          example: "admin"
+        status:
+          type: string
+          enum: [active, inactive, pending]
+          example: "active"
+        avatar:
+          type: string
+          format: uri
+          nullable: true
+          example: "https://cdn.example.com/avatars/jane-new.jpg"
+
+    Pagination:
+      type: object
+      required:
+        - page
+        - per_page
+        - total
+        - total_pages
+      properties:
+        page:
+          type: integer
+          description: Current page number
+          example: 2
+        per_page:
+          type: integer
+          description: Items per page
+          example: 20
+        total:
+          type: integer
+          description: Total number of items
+          example: 487
+        total_pages:
+          type: integer
+          description: Total number of pages
+          example: 25
+
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code
+              example: "VALIDATION_ERROR"
+            message:
+              type: string
+              description: Human-readable error message
+              example: "Request validation failed"
+            details:
+              type: array
+              description: Detailed error information
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                    description: Field that caused the error
+                    example: "email"
+                  message:
+                    type: string
+                    description: Error message for this field
+                    example: "Email is already registered"
+                  code:
+                    type: string
+                    description: Field-specific error code
+                    example: "DUPLICATE_EMAIL"
+            timestamp:
+              type: string
+              format: date-time
+              description: When the error occurred
+              example: "2025-10-31T10:30:00Z"
+            request_id:
+              type: string
+              description: Unique request identifier for support
+              example: "req_abc123xyz"
+
+  responses:
+    UnauthorizedError:
+      description: Authentication required or token invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "UNAUTHORIZED"
+              message: "Authentication required"
+              timestamp: "2025-10-31T10:30:00Z"
+              request_id: "req_abc123"
+
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "NOT_FOUND"
+              message: "User not found"
+              timestamp: "2025-10-31T10:30:00Z"
+              request_id: "req_abc123"
+
+    BadRequestError:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "BAD_REQUEST"
+              message: "Invalid request body"
+              timestamp: "2025-10-31T10:30:00Z"
+              request_id: "req_abc123"
+
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "VALIDATION_ERROR"
+              message: "Request validation failed"
+              details:
+                - field: "email"
+                  message: "Email is already registered"
+                  code: "DUPLICATE_EMAIL"
+                - field: "name"
+                  message: "Name must be at least 2 characters"
+                  code: "NAME_TOO_SHORT"
+              timestamp: "2025-10-31T10:30:00Z"
+              request_id: "req_abc123"
+
+    RateLimitError:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          description: Number of seconds to wait before retrying
+          schema:
+            type: integer
+            example: 3600
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "RATE_LIMIT_EXCEEDED"
+              message: "API rate limit exceeded"
+              details:
+                - field: "retry_after"
+                  message: "Retry after 1 hour"
+                  code: "RETRY_AFTER_3600"
+              timestamp: "2025-10-31T10:30:00Z"
+              request_id: "req_abc123"
