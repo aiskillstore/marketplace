@@ -1,0 +1,61 @@
+# Example: API Gateway Service
+
+apiVersion: astrabit.io/v1
+kind: Component
+metadata:
+  name: api-gateway
+  description: API Gateway that routes requests to downstream services
+  tags:
+    - gateway
+    - infrastructure
+spec:
+  type: gateway
+  category: infrastructure
+  domain: platform
+  owner: platform-team
+  lifecycle: production
+
+  # Downstream services this gateway routes to
+  dependsOn:
+    - component: user-service
+      type: service
+    - component: order-service
+      type: service
+    - component: auth-service
+      type: service
+
+  # Gateway provides unified API, consumes downstream service APIs
+  providesApis:
+    - name: Unified API
+      type: REST
+      definition: ./openapi.yaml
+
+  consumesApis:
+    - name: User Service API
+      providedBy: user-service
+    - name: Order Service API
+      providedBy: order-service
+    - name: Auth Service API
+      providedBy: auth-service
+
+  # Gateway typically doesn't produce/consume events directly
+  eventProducers: []
+  eventConsumers: []
+
+  # Route definitions - key for gateways
+  routes:
+    - path: /api/users/*
+      methods: [GET, POST, PUT, DELETE]
+      forwardsTo: user-service
+    - path: /api/orders/*
+      methods: [GET, POST, PUT, DELETE]
+      forwardsTo: order-service
+    - path: /api/auth/*
+      methods: [POST]
+      forwardsTo: auth-service
+    - path: /health
+      methods: [GET]
+      handler: this
+
+  runtime: nodejs
+  framework: nestjs
