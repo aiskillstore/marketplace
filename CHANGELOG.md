@@ -16,6 +16,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+
+## [0.8.0] - 2026-01-10
+
+### Summary
+
+AI Skillstore marketplace v0.8.0 expands the catalog to 716 plugins with 30 new additions, including NotEdit workflow assistants, the x-0xsero agent suite, AI Maestro search/memory tools, and new trading/data connectors (e.g., CCXT, CoinGecko, Cryptofeed, Hummingbot, Polymarket, PostgreSQL/TimescaleDB). This release also includes minor maintenance updates, such as a changelog cleanup and redeploy trigger to keep installations in sync. 
+
+### Statistics
+
+- Total plugins: 716
+- New plugins: 30
+- Updated plugins: 11
+
+### New Plugins
+
+- `notedit-feature-design-assistant`
+- `notedit-screenshot-feature-extractor`
+- `notedit-skill-creation-guide`
+- `notedit-task-execution-engine`
+- `x-0xsero-api-skill`
+- `x-0xsero-architect`
+- `x-0xsero-coder`
+- `x-0xsero-docs`
+- `x-0xsero-explorer`
+- `x-0xsero-linear`
+- `x-0xsero-tester`
+- `x-0xsero-vision`
+- `x-2025emma-ccxt`
+- `x-2025emma-claude-code-guide`
+- `x-2025emma-claude-cookbooks`
+- `x-2025emma-claude-skills`
+- `x-2025emma-coingecko`
+- `x-2025emma-cryptofeed`
+- `x-2025emma-hummingbot`
+- `x-2025emma-polymarket`
+- `x-2025emma-postgresql`
+- `x-2025emma-proxychains`
+- `x-2025emma-snapdom`
+- `x-2025emma-telegram-dev`
+- `x-2025emma-timescaledb`
+- `x-2025emma-twscrape`
+- `x-23blocks-os-ai-maestro-agent-messaging`
+- `x-23blocks-os-ai-maestro-code-graph-query`
+- `x-23blocks-os-ai-maestro-documentation-search`
+- `x-23blocks-os-ai-maestro-memory-search`
+
+### Changes
+
+- chore: trigger redeploy with updated Installation ID
+- chore: add CLAUDE.md to gitignore
+- fix: remove duplicate v0.6.0 entry from CHANGELOG
+
+
 ## [0.7.0] - 2026-01-09
 
 ### Summary
