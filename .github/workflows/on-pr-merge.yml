@@ -92,26 +92,44 @@ jobs:
           done
           
           echo "=== Updating marketplace.json ==="
-          for entry_file in $(find plugins -name "marketplace-entry.json" -newer .claude-plugin/marketplace.json 2>/dev/null || find plugins -name "marketplace-entry.json" 2>/dev/null); do
-            NAMESPACED_SLUG=$(jq -r '.name' "$entry_file")
-            
-            EXISTING=$(jq --arg name "$NAMESPACED_SLUG" '.plugins | map(select(.name == $name)) | length' .claude-plugin/marketplace.json)
-            
-            if [ "$EXISTING" -gt "0" ]; then
-              echo "Plugin $NAMESPACED_SLUG already in marketplace, updating..."
-              jq --arg name "$NAMESPACED_SLUG" --slurpfile entry "$entry_file" \
-                '.plugins = [.plugins[] | if .name == $name then $entry[0] else . end]' \
-                .claude-plugin/marketplace.json > /tmp/marketplace.json
-            else
-              echo "Adding new plugin $NAMESPACED_SLUG to marketplace..."
-              jq --slurpfile entry "$entry_file" \
-                '.plugins += $entry' \
-                .claude-plugin/marketplace.json > /tmp/marketplace.json
-            fi
-            
-            mv /tmp/marketplace.json .claude-plugin/marketplace.json
-          done
-          
+          # High-performance O(1) approach: single jq call to merge all new/updated plugins
+          # Instead of O(n) file read/writes per plugin
+
+          # Collect all new marketplace entries into NDJSON
+          find plugins -name "marketplace-entry.json" -newer .claude-plugin/marketplace.json 2>/dev/null \
+            | xargs -r cat > /tmp/new_entries.ndjson || true
+
+          # If no newer files found, check if any entries exist at all (first run)
+          if [ ! -s /tmp/new_entries.ndjson ]; then
+            find plugins -name "marketplace-entry.json" 2>/dev/null \
+              | xargs -r cat > /tmp/new_entries.ndjson || true
+          fi
+
+          if [ -s /tmp/new_entries.ndjson ]; then
+            # Count entries for logging
+            ENTRY_COUNT=$(wc -l < /tmp/new_entries.ndjson | tr -d ' ')
+            echo "Processing $ENTRY_COUNT plugin entries..."
+
+            # Single jq call: merge new entries with existing, handling both add and update
+            # Uses reduce to upsert each new entry by name
+            jq -s --slurpfile new /tmp/new_entries.ndjson '
+              .[0] as $base |
+              ($new | flatten) as $entries |
+              $base | .plugins = (
+                reduce $entries[] as $entry (
+                  .plugins;
+                  if any(.[]; .name == $entry.name)
+                  then map(if .name == $entry.name then $entry else . end)
+                  else . + [$entry]
+                  end
+                )
+              )
+            ' .claude-plugin/marketplace.json > /tmp/marketplace_merged.json
+
+            mv /tmp/marketplace_merged.json .claude-plugin/marketplace.json
+            rm -f /tmp/new_entries.ndjson
+          fi
+
           echo "Updated marketplace.json:"
           jq '.plugins | length' .claude-plugin/marketplace.json
           
