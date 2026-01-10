@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 ---
 name: {{skill_name}}
 description: "[Domain] capability: includes [key capability]. Use when [decidable triggers]."

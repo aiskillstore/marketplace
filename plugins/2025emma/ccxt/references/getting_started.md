@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Ccxt - Getting Started
 
 **Pages:** 1
@@ -44,7 +43,7 @@ Here is an example using a custom bybit bundle from our cdn in the browser
 
 The default entry point for the browser is window.ccxt and it creates a global ccxt object:
 
-It takes time to load all scripts and resources. The problem with in-browser usage is that the entire CCXT library weighs a few megabytes which is a lot for a web application. Sometimes it is also critical for a Node app. Therefore to lower the loading time you might want to make your own custom build of CCXT for your app with just the exchanges you need. CCXT uses webpack to remove dead code paths to make the package smaller.
+It takes time to load all scripts and resources. The problem with in-browser usage is that the entire CCXT library weighs a few megabytes which is a lot for a web application. Sometimes it is also critical for a Node app. Therefore to lower the loading time you might want to make your own custom build of CCXT for your app with just the exchanwith just the exchanges you need. CCXT uses webpack to remove dead code paths to make the package smaller.
 
 ccxt algotrading library in PyPI
 
@@ -56,7 +55,7 @@ It can also be installed from the source code: ccxt.php
 
 It requires common PHP modules:
 
-The library supports concurrent asynchronous mode using tools from ReactPHP in PHP 8.1+. Read the Manual for more details.
+The library supports concurrent asynchronous modeactPHP in PHP 8.1+. Read the Manual for more details.
 
 ccxt in C# with Nugget (netstandard 2.0 and netstandard 2.1)
 
@@ -69,5 +68,8 @@ Using docker-compose (in the cloned CCXT repository):
 If you are unable to obtain data from exchanges due to location restrictions read the proxy section.
 
 (If the page is not being rendered for you, you can refer to the mirror at https://docs.ccxt.com/)
+
+---
+ocs.ccxt.com/)
 
 ---

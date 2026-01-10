@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Building Effective Agents Cookbook
 
 Reference implementation for [Building Effective Agents](https://anthropic.com/research/building-effective-agents) by Erik Schluntz and Barry Zhang.

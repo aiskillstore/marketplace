@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Skill Spec (This Repo)
 
 This document defines what a "production-grade Skill" means in this repository. Use it as the source of truth when creating or refactoring anything under `skills/`.

@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Hummingbot - Configuration
 
 **Pages:** 24
@@ -54,7 +55,7 @@ Quickswap is the leading AMM DEX on the Polygon Network.
 
 See the quickswap documentation for more information.
 
-Bitmex is a cryptocurrency exchange and derivative trading platform. It is owned and operated bowned and operated by HDR Global Trading Limited, which is registered in the Seychelles.
+Bitmex is a cryptocurrency exchange and derivative trading platform. It is owned and operated by HDR Global Trading Limited, which is registered in the Seychelles.
 
 Latoken is a rapidly growing crypto exchange focusing on liquidity for new tokens.
 

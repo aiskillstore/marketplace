@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Ccxt - Exchanges
 
 **Pages:** 2

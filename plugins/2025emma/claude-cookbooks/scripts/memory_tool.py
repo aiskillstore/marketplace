@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 """
 Production-ready memory tool handler for Claude's memory_20250818 tool.
 

@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Ccxt - Pro
 
 **Pages:** 1

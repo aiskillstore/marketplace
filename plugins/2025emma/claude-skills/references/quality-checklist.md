@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Quality Checklist (Production Gate)
 
 Use this checklist to decide whether a Skill is shippable. It is intentionally biased toward reliability and maintainability over "more content".

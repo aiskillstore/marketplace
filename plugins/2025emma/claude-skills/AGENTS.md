@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # skills/claude-skills
 
 This directory is a **meta-skill**: it turns arbitrary domain material (docs/APIs/code/specs) into a reusable Skill (`SKILL.md` + `references/` + `scripts/` + `assets/`), and ships an executable quality gate + scaffolding.

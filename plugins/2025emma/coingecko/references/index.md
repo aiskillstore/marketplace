@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Coingecko Documentation Index
 
 ## Categories

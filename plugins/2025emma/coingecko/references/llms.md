@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # CoinGecko API
 
 ## Docs

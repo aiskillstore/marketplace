@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 ---
 name: claude-skills
 description: "Claude Skills meta-skill: extract domain material (docs/APIs/code/specs) into a reusable Skill (SKILL.md + references/scripts/assets), and refactor existing Skills for clarity, activation reliability, and quality gates."

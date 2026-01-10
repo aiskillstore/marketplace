@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Cryptocurrency Exchange Feed Handler
 [![License](https://img.shields.io/badge/license-XFree86-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/Python-3.8+-green.svg)

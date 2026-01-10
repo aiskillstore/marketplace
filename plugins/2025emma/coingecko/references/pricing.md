@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Coingecko - Pricing
 
 **Pages:** 1

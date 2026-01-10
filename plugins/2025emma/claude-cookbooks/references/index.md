@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Claude Cookbooks - Reference Index
 
 This skill contains code and guides for building with Claude AI.

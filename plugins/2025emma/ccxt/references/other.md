@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Ccxt - Other
 
 **Pages:** 1

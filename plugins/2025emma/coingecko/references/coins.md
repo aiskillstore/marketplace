@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Coingecko - Coins
 
 **Pages:** 65

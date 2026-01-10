@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Coingecko - Market Data
 
 **Pages:** 3
