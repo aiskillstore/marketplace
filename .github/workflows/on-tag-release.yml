@@ -119,101 +119,81 @@ jobs:
 
           echo "Analyzing commits in range: $RANGE"
 
-          # Get current plugins from synced marketplace.json
-          CURRENT_PLUGINS=$(jq -r '.plugins[].name' .claude-plugin/marketplace.json 2>/dev/null | sort)
-          PLUGIN_COUNT=$(echo "$CURRENT_PLUGINS" | grep -c . || echo "0")
+          # High-performance O(1) approach for plugin comparison
+          # Uses jq set operations instead of O(n²) shell loops
 
-          # Get current plugin data for path lookups
-          CURRENT_PLUGIN_DATA=""
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            name=$(echo "$line" | jq -r '.name')
-            source=$(echo "$line" | jq -r '.source' | sed 's|^\./||')
-            CURRENT_PLUGIN_DATA="${CURRENT_PLUGIN_DATA}${name}|${source}"$'\n'
-          done < <(jq -c '.plugins[]' .claude-plugin/marketplace.json 2>/dev/null)
+          # Get current plugin count and list (single jq call)
+          PLUGIN_COUNT=$(jq '.plugins | length' .claude-plugin/marketplace.json)
+          jq -r '.plugins[].name' .claude-plugin/marketplace.json | sort > /tmp/current_plugins.txt
 
-          # Get previous plugins by scanning plugins/ directory at PREV_TAG
-          # This ensures consistent comparison (both from actual plugin files)
-          PREV_PLUGINS=""
+          # Build current plugin name-to-path map (single jq call)
+          jq -r '.plugins[] | "\(.name)|\(.source | sub("^\\./"; ""))"' \
+            .claude-plugin/marketplace.json > /tmp/current_plugin_paths.txt
+
+          # Get previous plugins using efficient git + jq pipeline
+          PREV_COUNT=0
+          > /tmp/prev_plugins.txt
+          > /tmp/prev_plugin_paths.txt
+
           if [ -n "$PREV_TAG" ]; then
             echo "Scanning plugins at ${PREV_TAG}..."
+
+            # Get all marketplace-entry.json files at PREV_TAG in one git call
+            git ls-tree -r "${PREV_TAG}" --name-only 2>/dev/null | grep "marketplace-entry.json" > /tmp/prev_entry_files.txt || true
+
+            # Extract names efficiently using a single pass
             while IFS= read -r file; do
               [ -z "$file" ] && continue
               name=$(git show "${PREV_TAG}:${file}" 2>/dev/null | jq -r '.name // empty' 2>/dev/null)
-              [ -n "$name" ] && PREV_PLUGINS="${PREV_PLUGINS}${name}"$'\n'
-            done < <(git ls-tree -r "${PREV_TAG}" --name-only 2>/dev/null | grep "marketplace-entry.json" || true)
-            PREV_PLUGINS=$(echo "$PREV_PLUGINS" | sort | grep -v '^$')
+              if [ -n "$name" ]; then
+                echo "$name" >> /tmp/prev_plugins.txt
+                echo "${name}|$(dirname "$file")" >> /tmp/prev_plugin_paths.txt
+              fi
+            done < /tmp/prev_entry_files.txt
+
+            sort -o /tmp/prev_plugins.txt /tmp/prev_plugins.txt
+            PREV_COUNT=$(wc -l < /tmp/prev_plugins.txt | tr -d ' ')
           fi
 
-          PREV_COUNT=$(echo "$PREV_PLUGINS" | grep -c . 2>/dev/null || echo "0")
           echo "Previous tag had $PREV_COUNT plugins"
-          
-          # Calculate added plugins
-          ADDED_PLUGINS=""
-          ADDED_COUNT=0
-          
-          for plugin in $CURRENT_PLUGINS; do
-            if ! echo "$PREV_PLUGINS" | grep -qx "$plugin"; then
-              if [ -z "$ADDED_PLUGINS" ]; then
-                ADDED_PLUGINS="$plugin"
-              else
-                ADDED_PLUGINS="${ADDED_PLUGINS},$plugin"
-              fi
-              ADDED_COUNT=$((ADDED_COUNT + 1))
-            fi
-          done
-          
-          # Calculate removed plugins
-          REMOVED_COUNT=0
-          for plugin in $PREV_PLUGINS; do
-            [ -z "$plugin" ] && continue
-            if ! echo "$CURRENT_PLUGINS" | grep -qx "$plugin"; then
-              REMOVED_COUNT=$((REMOVED_COUNT + 1))
-            fi
-          done
-          
-          # Calculate updated plugins (exist in both tags, but content changed)
-          # Uses git tree hash comparison for efficiency
+
+          # Calculate added/removed using comm (O(n) set difference)
+          ADDED_PLUGINS=$(comm -23 /tmp/current_plugins.txt /tmp/prev_plugins.txt | paste -sd ',' -)
+          ADDED_COUNT=$(comm -23 /tmp/current_plugins.txt /tmp/prev_plugins.txt | wc -l | tr -d ' ')
+          REMOVED_COUNT=$(comm -13 /tmp/current_plugins.txt /tmp/prev_plugins.txt | wc -l | tr -d ' ')
+
+          # Calculate updated plugins using git tree hash comparison
+          # Only compare plugins that exist in both versions
           UPDATED_PLUGINS=""
           UPDATED_COUNT=0
 
-          if [ -n "$PREV_TAG" ]; then
-            while IFS='|' read -r name curr_path; do
+          if [ -n "$PREV_TAG" ] && [ -s /tmp/prev_plugins.txt ]; then
+            # Get plugins in both versions
+            comm -12 /tmp/current_plugins.txt /tmp/prev_plugins.txt > /tmp/common_plugins.txt
+
+            while IFS= read -r name; do
               [ -z "$name" ] && continue
 
-              # Skip if not in previous plugins (it's ADDED, not UPDATED)
-              if ! echo "$PREV_PLUGINS" | grep -qx "$name"; then
-                continue
-              fi
+              # Get paths from lookup tables (grep is O(1) per lookup with small result)
+              curr_path=$(grep "^${name}|" /tmp/current_plugin_paths.txt | cut -d'|' -f2 | head -1)
+              prev_path=$(grep "^${name}|" /tmp/prev_plugin_paths.txt | cut -d'|' -f2 | head -1)
 
-              # Find previous path by searching for the plugin's marketplace-entry.json at PREV_TAG
-              prev_path=$(git ls-tree -r "${PREV_TAG}" --name-only 2>/dev/null | \
-                grep "marketplace-entry.json" | \
-                while read -r file; do
-                  pname=$(git show "${PREV_TAG}:${file}" 2>/dev/null | jq -r '.name // empty' 2>/dev/null)
-                  if [ "$pname" = "$name" ]; then
-                    dirname "$file"
-                    break
-                  fi
-                done)
-
-              [ -z "$prev_path" ] && continue
+              [ -z "$curr_path" ] || [ -z "$prev_path" ] && continue
 
               # Compare git tree hashes
               prev_hash=$(git rev-parse "${PREV_TAG}:${prev_path}" 2>/dev/null || echo "")
               curr_hash=$(git rev-parse "HEAD:${curr_path}" 2>/dev/null || echo "")
 
               if [ -n "$prev_hash" ] && [ -n "$curr_hash" ] && [ "$prev_hash" != "$curr_hash" ]; then
-                if [ -z "$UPDATED_PLUGINS" ]; then
-                  UPDATED_PLUGINS="$name"
-                else
-                  UPDATED_PLUGINS="${UPDATED_PLUGINS},$name"
-                fi
+                [ -z "$UPDATED_PLUGINS" ] && UPDATED_PLUGINS="$name" || UPDATED_PLUGINS="${UPDATED_PLUGINS},$name"
                 UPDATED_COUNT=$((UPDATED_COUNT + 1))
-                echo "  Updated: $name (hash changed)"
               fi
-            done <<< "$CURRENT_PLUGIN_DATA"
+            done < /tmp/common_plugins.txt
           fi
+
+          # Cleanup temp files
+          rm -f /tmp/current_plugins.txt /tmp/prev_plugins.txt /tmp/current_plugin_paths.txt \
+                /tmp/prev_plugin_paths.txt /tmp/prev_entry_files.txt /tmp/common_plugins.txt
           
           # Collect commit messages for infrastructure changes
           INFRA_CHANGES=""
