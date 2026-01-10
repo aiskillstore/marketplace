@@ -1,0 +1,203 @@
+"""
+Pytest configuration and fixtures.
+
+This is a template conftest.py with common patterns.
+Copy to tests/conftest.py and customize for your project.
+"""
+import pytest
+from typing import Generator, Any
+from pathlib import Path
+
+
+# ============================================================
+# Pytest Hooks
+# ============================================================
+
+def pytest_configure(config):
+    """Configure pytest with custom markers."""
+    config.addinivalue_line("markers", "slow: marks tests as slow")
+    config.addinivalue_line("markers", "integration: marks integration tests")
+    config.addinivalue_line("markers", "e2e: marks end-to-end tests")
+
+
+def pytest_addoption(parser):
+    """Add custom CLI options."""
+    parser.addoption(
+        "--slow",
+        action="store_true",
+        default=False,
+        help="Run slow tests",
+    )
+    parser.addoption(
+        "--integration",
+        action="store_true",
+        default=False,
+        help="Run integration tests",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Modify test collection based on options."""
+    # Skip slow tests unless --slow
+    if not config.getoption("--slow"):
+        skip_slow = pytest.mark.skip(reason="use --slow to run")
+        for item in items:
+            if "slow" in item.keywords:
+                item.add_marker(skip_slow)
+
+    # Skip integration tests unless --integration
+    if not config.getoption("--integration"):
+        skip_integration = pytest.mark.skip(reason="use --integration to run")
+        for item in items:
+            if "integration" in item.keywords:
+                item.add_marker(skip_integration)
+
+
+# ============================================================
+# Session-Scoped Fixtures
+# ============================================================
+
+@pytest.fixture(scope="session")
+def project_root() -> Path:
+    """Return project root directory."""
+    return Path(__file__).parent.parent
+
+
+@pytest.fixture(scope="session")
+def test_data_dir(project_root: Path) -> Path:
+    """Return test data directory."""
+    return project_root / "tests" / "data"
+
+
+# ============================================================
+# Common Fixtures
+# ============================================================
+
+@pytest.fixture
+def sample_dict() -> dict[str, Any]:
+    """Provide sample dictionary for testing."""
+    return {
+        "id": 1,
+        "name": "Test Item",
+        "active": True,
+        "tags": ["a", "b", "c"],
+    }
+
+
+@pytest.fixture
+def temp_file(tmp_path: Path) -> Generator[Path, None, None]:
+    """Create temporary file with cleanup."""
+    file_path = tmp_path / "test_file.txt"
+    file_path.write_text("test content")
+    yield file_path
+    # Cleanup happens automatically via tmp_path
+
+
+@pytest.fixture
+def mock_env(monkeypatch) -> Generator[dict[str, str], None, None]:
+    """Set up mock environment variables."""
+    env_vars = {
+        "TEST_MODE": "true",
+        "API_KEY": "test-key-12345",
+        "DATABASE_URL": "sqlite:///:memory:",
+    }
+    for key, value in env_vars.items():
+        monkeypatch.setenv(key, value)
+    yield env_vars
+
+
+# ============================================================
+# Factory Fixtures
+# ============================================================
+
+@pytest.fixture
+def user_factory():
+    """Factory to create user objects with custom attributes."""
+    def _create_user(
+        id: int = 1,
+        name: str = "Test User",
+        email: str = "test@example.com",
+        active: bool = True,
+    ) -> dict[str, Any]:
+        return {
+            "id": id,
+            "name": name,
+            "email": email,
+            "active": active,
+        }
+    return _create_user
+
+
+# ============================================================
+# Database Fixtures (uncomment if using SQLAlchemy)
+# ============================================================
+
+# from sqlalchemy import create_engine
+# from sqlalchemy.orm import sessionmaker, Session
+# from myapp.database import Base
+#
+# @pytest.fixture(scope="session")
+# def db_engine():
+#     """Create test database engine."""
+#     engine = create_engine(
+#         "sqlite:///:memory:",
+#         echo=False,
+#     )
+#     Base.metadata.create_all(engine)
+#     yield engine
+#     engine.dispose()
+#
+# @pytest.fixture
+# def db_session(db_engine) -> Generator[Session, None, None]:
+#     """Create database session with rollback."""
+#     Session = sessionmaker(bind=db_engine)
+#     session = Session()
+#     yield session
+#     session.rollback()
+#     session.close()
+
+
+# ============================================================
+# API Fixtures (uncomment if using FastAPI)
+# ============================================================
+
+# from fastapi.testclient import TestClient
+# from myapp import create_app
+#
+# @pytest.fixture
+# def app():
+#     """Create test application."""
+#     return create_app(testing=True)
+#
+# @pytest.fixture
+# def client(app) -> Generator[TestClient, None, None]:
+#     """Create test client."""
+#     with TestClient(app) as client:
+#         yield client
+#
+# @pytest.fixture
+# def auth_client(client: TestClient) -> TestClient:
+#     """Create authenticated test client."""
+#     client.headers["Authorization"] = "Bearer test-token"
+#     return client
+
+
+# ============================================================
+# Async Fixtures (uncomment if using pytest-asyncio)
+# ============================================================
+
+# import asyncio
+# import aiohttp
+#
+# @pytest.fixture(scope="session")
+# def event_loop():
+#     """Create event loop for async tests."""
+#     loop = asyncio.new_event_loop()
+#     yield loop
+#     loop.close()
+#
+# @pytest.fixture
+# async def async_client():
+#     """Async HTTP client."""
+#     async with aiohttp.ClientSession() as session:
+#         yield session
