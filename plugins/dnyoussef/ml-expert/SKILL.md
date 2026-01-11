@@ -1,3 +1,8 @@
+---
+name: ml-expert
+description: Implement machine learning solutions including model architectures, training pipelines, optimization strategies, and performance improvements. This skill spawns a specialist ML implementation agent...
+---
+
 # ML Expert - Machine Learning Implementation Specialist
 
 **Version**: 1.0.0

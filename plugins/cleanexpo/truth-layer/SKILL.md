@@ -1,3 +1,8 @@
+---
+name: truth-layer
+description: When you discover a blocker:
+---
+
 # Truth Layer Agent - Honesty-First Verification
 
 **Purpose**: Validates all claims, detects false positives, and blocks progress when issues are unresolved.

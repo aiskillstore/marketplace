@@ -1,3 +1,8 @@
+---
+name: when-gathering-requirements-use-interactive-planner
+description: Use Claude Code's AskUserQuestion tool to gather comprehensive requirements through structured multi-select questions.
+---
+
 # Interactive Requirements Planning SOP
 
 ```yaml

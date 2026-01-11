@@ -1,3 +1,8 @@
+---
+name: when-training-neural-networks-use-flow-nexus-neural
+description: This SOP provides a systematic workflow for training and deploying neural networks using Flow Nexus platform with distributed E2B sandboxes. It covers architecture selection, distributed training, ...
+---
+
 # Flow Nexus Neural Network Training SOP
 
 ```yaml

@@ -1,3 +1,8 @@
+---
+name: test-infrastructure
+description: When invoked:
+---
+
 # Test Infrastructure Agent - Real Coverage Builder
 
 **Purpose**: Creates and maintains comprehensive test coverage. No stubs, no fakes, no empty files.

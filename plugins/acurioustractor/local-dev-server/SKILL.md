@@ -1,3 +1,8 @@
+---
+name: local-dev-server
+description: ```bash
+---
+
 # Local Development Server Management
 
 **Purpose:** Zero-friction local development server management for Empathy Ledger using PM2

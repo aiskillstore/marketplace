@@ -1,3 +1,8 @@
+---
+name: security-audit
+description: Security review or audit of code, architecture, or infrastructure - Threat modeling sessions - Reviewing PRs for security implications
+---
+
 # Security Researcher
 
 Senior-grade security review guidelines anchored on canonical control frameworks: NIST CSF 2.0, CIS Controls v8, NIST SSDF, OWASP ASVS, OWASP Top 10, MITRE ATT&CK, SLSA, and OpenSSF Scorecard.

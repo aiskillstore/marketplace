@@ -1,3 +1,8 @@
+---
+name: stripe-agent
+description: Manages all Stripe billing operations for Unite-Hub including product/price creation, subscription management, checkout sessions, webhooks, and dual-mode (test/live) billing for staff vs. customer ...
+---
+
 # Stripe Agent Skill
 
 **Agent ID**: `unite-hub.stripe-agent`

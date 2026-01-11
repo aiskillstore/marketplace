@@ -1,3 +1,8 @@
+---
+name: animated-focus
+description: This document captures learnings from fixing keyboard navigation issues when floating components (Select, DropdownMenu, Popover) have CSS open/close animations.
+---
+
 # Focus Management with CSS Animations
 
 This document captures learnings from fixing keyboard navigation issues when floating components (Select, DropdownMenu, Popover) have CSS open/close animations.

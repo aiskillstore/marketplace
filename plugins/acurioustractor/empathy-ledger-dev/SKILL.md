@@ -1,3 +1,8 @@
+---
+name: empathy-ledger-dev
+description: Invoke this skill when: - Starting work on any Empathy Ledger feature - Need quick reference to project patterns
+---
+
 # Empathy Ledger Development Skill
 
 This skill provides comprehensive context for developing the Empathy Ledger v2 platform - a multi-tenant storytelling platform for Indigenous communities with cultural safety protocols.

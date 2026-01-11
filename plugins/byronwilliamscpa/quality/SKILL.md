@@ -1,3 +1,8 @@
+---
+name: quality
+description: Code quality validation, formatting, linting, and pre-commit checks.
+---
+
 # Code Quality Skill
 
 Code quality validation, formatting, linting, and pre-commit checks.

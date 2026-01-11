@@ -1,3 +1,8 @@
+---
+name: git
+description: Git workflow management including branch validation, commit conventions, PR preparation, and repository health checks.
+---
+
 # Git Workflow Skill
 
 Git workflow management including branch validation, commit conventions, PR preparation, and repository health checks.

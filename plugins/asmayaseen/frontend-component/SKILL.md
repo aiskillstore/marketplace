@@ -1,3 +1,8 @@
+---
+name: frontend-component
+description: Next.js 16+ uses App Router with Server Components by default. Client Components are only used when interactivity is needed (hooks, event handlers, browser APIs).
+---
+
 # Frontend Component Skill
 
 **Purpose**: Guidance for creating Next.js components following server/client patterns and existing component structures.

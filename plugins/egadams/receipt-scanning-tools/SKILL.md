@@ -1,3 +1,8 @@
+---
+name: receipt-scanning-tools
+description: This skill helps you work with the receipt scanning tools in the nonprofit_finance_db project. It includes manual entry tools, automated OCR scanning, and database integration for tracking receipts...
+---
+
 # Receipt Scanning Tools Skill
 
 ## Project Overview

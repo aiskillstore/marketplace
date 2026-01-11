@@ -1,3 +1,8 @@
+---
+name: when-debugging-code-use-debugging-assistant
+description: Intelligent debugging workflow that systematically identifies symptoms, performs root cause analysis, generates fixes with explanations, validates solutions, and prevents regressions through compre...
+---
+
 # Debugging Assistant Skill
 
 ## Overview

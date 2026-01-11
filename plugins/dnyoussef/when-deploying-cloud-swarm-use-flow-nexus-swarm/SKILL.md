@@ -1,3 +1,8 @@
+---
+name: when-deploying-cloud-swarm-use-flow-nexus-swarm
+description: Deploy cloud-based AI agent swarms with event-driven workflow automation using Flow Nexus platform. Supports hierarchical, mesh, ring, and star topologies with E2B sandbox distribution.
+---
+
 # Flow Nexus Cloud Swarm Deployment SOP
 
 ```yaml

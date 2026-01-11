@@ -1,3 +1,8 @@
+---
+name: wp-test-analyzer
+description: Analyze WordPress theme PHP files to extract testable elements for E2E test generation.
+---
+
 # WordPress Test Analyzer Skill
 
 Analyze WordPress theme PHP files to extract testable elements for E2E test generation.

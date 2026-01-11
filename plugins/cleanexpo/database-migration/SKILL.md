@@ -1,3 +1,8 @@
+---
+name: database-migration
+description: ```bash
+---
+
 # Database Migration Skill
 ## Creating Idempotent Supabase Migrations
 

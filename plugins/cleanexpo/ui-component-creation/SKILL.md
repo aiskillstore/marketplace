@@ -1,3 +1,8 @@
+---
+name: ui-component-creation
+description: ```typescript
+---
+
 # UI Component Creation Skill
 ## shadcn/ui + Design System Patterns
 

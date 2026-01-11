@@ -1,3 +1,8 @@
+---
+name: when-configuring-sandbox-security-use-sandbox-configurator
+description: Configure Claude Code sandbox security with file system and network isolation boundaries. Ensures safe code execution with proper access controls and resource limits.
+---
+
 # Sandbox Security Configuration SOP
 
 ```yaml

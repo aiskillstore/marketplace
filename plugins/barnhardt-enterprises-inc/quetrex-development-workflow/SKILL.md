@@ -1,3 +1,8 @@
+---
+name: quetrex-development-workflow
+description: Each project card should show the current month's API costs with a small trend indicator (up/down arrow).
+---
+
 # Quetrex Development Workflow Skill
 
 **Purpose:** Bootstrap new Claude Code sessions with complete Quetrex project context and enable efficient issue-driven development.

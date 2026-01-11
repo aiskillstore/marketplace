@@ -1,3 +1,8 @@
+---
+name: testing
+description: Automated test generation, review, and execution for pytest-based projects.
+---
+
 # Testing Skill
 
 Automated test generation, review, and execution for pytest-based projects.

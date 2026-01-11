@@ -1,3 +1,8 @@
+---
+name: when-using-flow-nexus-platform-use-flow-nexus-platform
+description: Comprehensive Flow Nexus platform management covering authentication, sandboxes, storage, databases, app deployment, payments, and monitoring. This SOP provides end-to-end platform operations.
+---
+
 # Flow Nexus Platform Management SOP
 
 ```yaml

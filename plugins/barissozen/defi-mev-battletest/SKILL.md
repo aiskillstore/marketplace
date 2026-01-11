@@ -1,3 +1,8 @@
+---
+name: defi-mev-battletest
+description: ```
+---
+
 # DeFi/MEV Battle-Tested Expert Skill
 
 **MANDATORY CONSULTATION**: This skill MUST be consulted for ANY DeFi bot development, MEV strategy implementation, or automated trading system. Real-world failures and lessons learned here prevent catastrophic losses.

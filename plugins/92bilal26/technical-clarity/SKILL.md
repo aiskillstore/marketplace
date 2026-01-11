@@ -1,3 +1,8 @@
+---
+name: technical-clarity
+description: Audit technical writing for learner comprehension and accessibility. Use when reviewing documentation, tutorials, or educational content for clarity.
+---
+
 # Technical Clarity Skill v3.0 (Reasoning-Activated)
 
 **Version**: 3.0.0

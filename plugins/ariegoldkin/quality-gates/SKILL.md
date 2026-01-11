@@ -1,3 +1,8 @@
+---
+name: quality-gates
+description: This skill teaches agents how to assess task complexity, enforce quality gates, and prevent wasted work on incomplete or poorly-defined tasks. Inspired by production-grade development practices, qu...
+---
+
 # Quality Gates Skill
 
 **Version:** 1.0.0

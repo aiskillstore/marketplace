@@ -1,3 +1,8 @@
+---
+name: functional-patterns
+description: Functional programming patterns that promote testability, composability, and maintainability.
+---
+
 # Functional Patterns for Node.js/TypeScript
 
 ## Overview
