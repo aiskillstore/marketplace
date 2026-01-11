@@ -1,6 +1,6 @@
 ---
 name: new-agent-creation
-description: ```typescript
+description: Provides step-by-step templates and guidance for creating new AI agents in Unite-Hub with proper registration, testing, and governance
 ---
 
 # New Agent Creation Skill

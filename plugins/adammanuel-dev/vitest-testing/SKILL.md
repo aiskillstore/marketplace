@@ -1,6 +1,6 @@
 ---
 name: vitest-testing
-description: **AI-friendly comprehensive testing guidance for Vitest with practical patterns and behavior-driven development.**
+description: "**AI-friendly comprehensive testing guidance for Vitest with practical patterns and behavior-driven development.**"
 ---
 
 # Vitest Testing Skill - Master Reference

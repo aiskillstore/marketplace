@@ -1,6 +1,6 @@
 ---
 name: database-migration
-description: ```bash
+description: Guide for creating idempotent Supabase database migrations with RLS policies and workspace isolation
 ---
 
 # Database Migration Skill

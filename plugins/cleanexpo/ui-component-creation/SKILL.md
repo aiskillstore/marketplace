@@ -1,6 +1,6 @@
 ---
 name: ui-component-creation
-description: ```typescript
+description: Creates UI components using shadcn/ui and design system patterns
 ---
 
 # UI Component Creation Skill

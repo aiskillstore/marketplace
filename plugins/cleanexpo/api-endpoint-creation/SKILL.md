@@ -1,6 +1,6 @@
 ---
 name: api-endpoint-creation
-description: ```typescript
+description: Next.js 15+ API endpoint creation patterns with Supabase and workspace validation
 ---
 
 # API Endpoint Creation Skill

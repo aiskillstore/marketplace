@@ -1,6 +1,7 @@
 ---
 skill_id: when-building-semantic-search-use-agentdb-vector-search
 name: agentdb-semantic-vector-search
+description: Build semantic vector search systems with AgentDB for intelligent document retrieval, RAG applications, and knowledge bases using embedding-based similarity matching
 version: 1.0.0
 category: agentdb
 subcategory: semantic-search

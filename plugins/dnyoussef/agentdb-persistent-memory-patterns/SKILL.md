@@ -1,6 +1,7 @@
 ---
 skill_id: when-implementing-persistent-memory-use-agentdb-memory
 name: agentdb-persistent-memory-patterns
+description: "Implement persistent memory patterns for AI agents using AgentDB - session memory, long-term storage, pattern learning, and context management for stateful agents, chat systems, and intelligent assistants"
 version: 1.0.0
 category: agentdb
 subcategory: memory-management

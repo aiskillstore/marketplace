@@ -1,6 +1,7 @@
 ---
 skill_id: when-training-rl-agents-use-agentdb-learning
 name: agentdb-reinforcement-learning-training
+description: "Train AI agents using AgentDB's 9 reinforcement learning algorithms including Q-Learning, DQN, PPO, and Actor-Critic. Build self-learning agents, implement RL training loops with experience replay, and deploy optimized models to production."
 version: 1.0.0
 category: agentdb
 subcategory: machine-learning
