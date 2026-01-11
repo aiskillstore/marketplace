@@ -1,0 +1,576 @@
+{
+  "name": "security_analyzer",
+  "description": "Comprehensive security analysis across static code analysis, dynamic testing, dependency audit, secrets detection, and OWASP Top 10 compliance checking. Coordinates multiple agents with validation gates.",
+  "version": "1.0.0",
+  "category": "security",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "scan_type": {
+        "type": "string",
+        "description": "Type of security scan to perform",
+        "enum": [
+          "static",
+          "dynamic",
+          "dependencies",
+          "secrets",
+          "owasp",
+          "all"
+        ],
+        "default": "all"
+      },
+      "path": {
+        "type": "string",
+        "description": "Path to codebase to scan",
+        "default": "."
+      },
+      "severity_threshold": {
+        "type": "string",
+        "description": "Minimum severity level to report",
+        "enum": [
+          "critical",
+          "high",
+          "medium",
+          "low"
+        ],
+        "default": "medium"
+      },
+      "output_format": {
+        "type": "string",
+        "description": "Output format for security report",
+        "enum": [
+          "json",
+          "markdown",
+          "html"
+        ],
+        "default": "json"
+      },
+      "quick_mode": {
+        "type": "boolean",
+        "description": "Skip time-consuming dynamic testing",
+        "default": false
+      },
+      "strict_mode": {
+        "type": "boolean",
+        "description": "Fail on any findings (not just critical)",
+        "default": false
+      },
+      "baseline_report": {
+        "type": "string",
+        "description": "Path to baseline report for comparison",
+        "default": null
+      },
+      "config_file": {
+        "type": "string",
+        "description": "Path to custom configuration file",
+        "default": ".security-analyzer.json"
+      },
+      "enable_hooks": {
+        "type": "boolean",
+        "description": "Enable Claude Flow hooks integration",
+        "default": true
+      },
+      "topology": {
+        "type": "string",
+        "description": "Swarm coordination topology",
+        "enum": [
+          "hierarchical",
+          "mesh",
+          "star"
+        ],
+        "default": "hierarchical"
+      },
+      "max_agents": {
+        "type": "integer",
+        "description": "Maximum number of concurrent agents",
+        "minimum": 1,
+        "maximum": 10,
+        "default": 4
+      },
+      "exclude_patterns": {
+        "type": "array",
+        "description": "File patterns to exclude from scanning",
+        "items": {
+          "type": "string"
+        },
+        "default": [
+          "node_modules/**",
+          "test/**",
+          "*.test.js",
+          "docs/**"
+        ]
+      },
+      "custom_rules": {
+        "type": "object",
+        "description": "Custom security rules to apply",
+        "properties": {
+          "max_function_complexity": {
+            "type": "integer",
+            "default": 10
+          },
+          "require_auth_on_routes": {
+            "type": "boolean",
+            "default": true
+          },
+          "enforce_https": {
+            "type": "boolean",
+            "default": true
+          },
+          "min_password_strength": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 3
+          }
+        }
+      }
+    },
+    "required": []
+  },
+  "returns": {
+    "type": "object",
+    "properties": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the scan completed successfully"
+      },
+      "scan_duration": {
+        "type": "number",
+        "description": "Total scan duration in seconds"
+      },
+      "summary": {
+        "type": "object",
+        "properties": {
+          "total_issues": {
+            "type": "integer",
+            "description": "Total number of issues found"
+          },
+          "critical_issues": {
+            "type": "integer",
+            "description": "Number of critical severity issues"
+          },
+          "high_issues": {
+            "type": "integer",
+            "description": "Number of high severity issues"
+          },
+          "medium_issues": {
+            "type": "integer",
+            "description": "Number of medium severity issues"
+          },
+          "low_issues": {
+            "type": "integer",
+            "description": "Number of low severity issues"
+          },
+          "owasp_compliance_score": {
+            "type": "number",
+            "description": "OWASP Top 10 compliance score (0-100)"
+          }
+        }
+      },
+      "phases": {
+        "type": "object",
+        "properties": {
+          "static_analysis": {
+            "type": "object",
+            "properties": {
+              "completed": {
+                "type": "boolean"
+              },
+              "duration": {
+                "type": "number"
+              },
+              "findings": {
+                "type": "object",
+                "properties": {
+                  "sql_injection": {
+                    "type": "integer"
+                  },
+                  "xss": {
+                    "type": "integer"
+                  },
+                  "path_traversal": {
+                    "type": "integer"
+                  },
+                  "weak_crypto": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          },
+          "dynamic_testing": {
+            "type": "object",
+            "properties": {
+              "completed": {
+                "type": "boolean"
+              },
+              "duration": {
+                "type": "number"
+              },
+              "vulnerabilities": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "remediation": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "dependency_audit": {
+            "type": "object",
+            "properties": {
+              "completed": {
+                "type": "boolean"
+              },
+              "duration": {
+                "type": "number"
+              },
+              "vulnerabilities": {
+                "type": "object",
+                "properties": {
+                  "critical": {
+                    "type": "integer"
+                  },
+                  "high": {
+                    "type": "integer"
+                  },
+                  "moderate": {
+                    "type": "integer"
+                  },
+                  "low": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          },
+          "secrets_detection": {
+            "type": "object",
+            "properties": {
+              "completed": {
+                "type": "boolean"
+              },
+              "duration": {
+                "type": "number"
+              },
+              "secrets_found": {
+                "type": "integer"
+              },
+              "high_entropy_strings": {
+                "type": "integer"
+              }
+            }
+          },
+          "owasp_compliance": {
+            "type": "object",
+            "properties": {
+              "completed": {
+                "type": "boolean"
+              },
+              "duration": {
+                "type": "number"
+              },
+              "score": {
+                "type": "number"
+              },
+              "checks_passed": {
+                "type": "integer"
+              },
+              "total_checks": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      },
+      "validation_gates": {
+        "type": "array",
+        "description": "Status of each validation gate",
+        "items": {
+          "type": "object",
+          "properties": {
+            "gate_id": {
+              "type": "string"
+            },
+            "phase": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "warning",
+                "failed"
+              ]
+            },
+            "reason": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "report_location": {
+        "type": "string",
+        "description": "Path to generated security report"
+      },
+      "memory_keys": {
+        "type": "array",
+        "description": "Memory keys where results are stored",
+        "items": {
+          "type": "string"
+        }
+      },
+      "recommendations": {
+        "type": "array",
+        "description": "Prioritized security recommendations",
+        "items": {
+          "type": "object",
+          "properties": {
+            "priority": {
+              "type": "string",
+              "enum": [
+                "critical",
+                "high",
+                "medium",
+                "low"
+              ]
+            },
+            "category": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "remediation": {
+              "type": "string"
+            },
+            "code_example": {
+              "type": "object",
+              "properties": {
+                "vulnerable": {
+                  "type": "string"
+                },
+                "secure": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "baseline_comparison": {
+        "type": "object",
+        "description": "Comparison with baseline (if provided)",
+        "properties": {
+          "baseline_file": {
+            "type": "string"
+          },
+          "delta": {
+            "type": "integer",
+            "description": "Change in total issues (+/- from baseline)"
+          },
+          "new_issues": {
+            "type": "integer"
+          },
+          "resolved_issues": {
+            "type": "integer"
+          },
+          "trend": {
+            "type": "string",
+            "enum": [
+              "improving",
+              "degrading",
+              "stable"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "errors": {
+    "CONFIGURATION_ERROR": {
+      "code": 3,
+      "message": "Invalid configuration or missing required files"
+    },
+    "CRITICAL_VULNERABILITIES": {
+      "code": 1,
+      "message": "Critical vulnerabilities detected"
+    },
+    "HIGH_SEVERITY_ISSUES": {
+      "code": 2,
+      "message": "High-severity issues found"
+    },
+    "SCAN_INCOMPLETE": {
+      "code": 4,
+      "message": "Security scan could not complete"
+    }
+  },
+  "examples": [
+    {
+      "name": "Full Security Audit",
+      "description": "Run comprehensive security audit with all checks",
+      "request": {
+        "scan_type": "all",
+        "path": ".",
+        "severity_threshold": "medium",
+        "enable_hooks": true
+      },
+      "response": {
+        "success": true,
+        "scan_duration": 327.5,
+        "summary": {
+          "total_issues": 12,
+          "critical_issues": 2,
+          "high_issues": 4,
+          "medium_issues": 5,
+          "low_issues": 1,
+          "owasp_compliance_score": 75.0
+        }
+      }
+    },
+    {
+      "name": "Quick Static Analysis",
+      "description": "Fast static code analysis only",
+      "request": {
+        "scan_type": "static",
+        "path": "./src",
+        "quick_mode": true,
+        "severity_threshold": "high"
+      },
+      "response": {
+        "success": true,
+        "scan_duration": 45.2,
+        "summary": {
+          "total_issues": 3,
+          "critical_issues": 1,
+          "high_issues": 2
+        }
+      }
+    },
+    {
+      "name": "Secrets Detection",
+      "description": "Scan for exposed secrets and credentials",
+      "request": {
+        "scan_type": "secrets",
+        "path": ".",
+        "severity_threshold": "critical",
+        "strict_mode": true
+      },
+      "response": {
+        "success": false,
+        "scan_duration": 18.7,
+        "summary": {
+          "total_issues": 2,
+          "critical_issues": 2
+        }
+      }
+    },
+    {
+      "name": "Baseline Comparison",
+      "description": "Compare security posture against baseline",
+      "request": {
+        "scan_type": "all",
+        "baseline_report": ".security-baseline.json",
+        "output_format": "json"
+      },
+      "response": {
+        "success": true,
+        "baseline_comparison": {
+          "delta": -5,
+          "new_issues": 2,
+          "resolved_issues": 7,
+          "trend": "improving"
+        }
+      }
+    }
+  ],
+  "agent_coordination": {
+    "primary_coordinator": "security-manager",
+    "child_agents": [
+      "code-analyzer",
+      "tester"
+    ],
+    "coordination_topology": "hierarchical",
+    "validation_gates": [
+      {
+        "gate_id": "gate1",
+        "after_phase": "static_analysis",
+        "condition": "critical_count > 0",
+        "action": "warn_and_continue"
+      },
+      {
+        "gate_id": "gate2",
+        "after_phase": "dynamic_testing",
+        "condition": "critical_runtime > 0",
+        "action": "fail"
+      },
+      {
+        "gate_id": "gate3",
+        "after_phase": "dependency_audit",
+        "condition": "critical_deps > 0",
+        "action": "fail"
+      },
+      {
+        "gate_id": "gate4",
+        "after_phase": "secrets_detection",
+        "condition": "secrets_count > 0",
+        "action": "fail"
+      },
+      {
+        "gate_id": "gate5",
+        "after_phase": "owasp_compliance",
+        "condition": "compliance_score < 70",
+        "action": "fail"
+      }
+    ],
+    "memory_pattern": "swarm/security/*",
+    "hooks_integration": [
+      "pre-task",
+      "post-task",
+      "session-restore",
+      "session-end",
+      "notify"
+    ]
+  },
+  "implementation": {
+    "command": "npx claude-flow@alpha skill run when-auditing-security-use-security-analyzer",
+    "slash_command": "/security-analyzer",
+    "programmatic": {
+      "language": "javascript",
+      "example": "const result = await claudeFlow.mcp.invoke('security_analyzer', { scan_type: 'all', path: '.' });"
+    }
+  },
+  "metadata": {
+    "author": "Claude Flow Team",
+    "license": "MIT",
+    "repository": "https://github.com/ruvnet/claude-flow",
+    "documentation": "https://github.com/ruvnet/claude-flow/docs/skills/security-analyzer",
+    "tags": [
+      "security",
+      "vulnerability-scanning",
+      "static-analysis",
+      "dynamic-testing",
+      "owasp",
+      "compliance",
+      "secrets-detection",
+      "dependency-audit"
+    ],
+    "complexity": "HIGH",
+    "estimated_duration": "5-10 minutes",
+    "requires_network": true,
+    "requires_running_app": false
+  }
+}

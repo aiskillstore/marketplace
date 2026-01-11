@@ -1,0 +1,362 @@
+{
+  "name": "dependency-mapper",
+  "version": "1.0.0",
+  "description": "MCP tool for comprehensive dependency mapping, analysis, and visualization",
+  "type": "mcp-tool",
+  "coordination": "claude-flow",
+
+  "tools": [
+    {
+      "name": "mcp__dependency-mapper__analyze",
+      "description": "Analyze project dependencies with security audit and visualization",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project_path": {
+            "type": "string",
+            "description": "Absolute path to project directory",
+            "required": true
+          },
+          "include_security": {
+            "type": "boolean",
+            "description": "Include security vulnerability scanning",
+            "default": true
+          },
+          "detect_circular": {
+            "type": "boolean",
+            "description": "Detect circular dependencies",
+            "default": true
+          },
+          "check_outdated": {
+            "type": "boolean",
+            "description": "Check for outdated packages",
+            "default": true
+          },
+          "max_depth": {
+            "type": "integer",
+            "description": "Maximum dependency tree depth",
+            "default": 10,
+            "minimum": 1,
+            "maximum": 50
+          },
+          "visualization_format": {
+            "type": "string",
+            "enum": ["console", "json", "html", "svg", "all"],
+            "description": "Output visualization format",
+            "default": "console"
+          },
+          "output_directory": {
+            "type": "string",
+            "description": "Output directory for reports and visualizations",
+            "default": "./dependency-analysis"
+          },
+          "cache_enabled": {
+            "type": "boolean",
+            "description": "Enable result caching (1 hour TTL)",
+            "default": true
+          },
+          "package_manager": {
+            "type": "string",
+            "enum": ["auto", "npm", "yarn", "pnpm", "pip", "poetry", "cargo", "maven", "go", "bundler", "composer", "nuget"],
+            "description": "Package manager (auto-detect if not specified)",
+            "default": "auto"
+          }
+        },
+        "required": ["project_path"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "metadata": {
+            "type": "object",
+            "properties": {
+              "project_name": { "type": "string" },
+              "package_manager": { "type": "string" },
+              "analysis_date": { "type": "string", "format": "date-time" },
+              "analysis_duration_ms": { "type": "integer" }
+            }
+          },
+          "statistics": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "direct": { "type": "integer" },
+              "dev": { "type": "integer" },
+              "transitive": { "type": "integer" },
+              "max_depth": { "type": "integer" }
+            }
+          },
+          "security": {
+            "type": "object",
+            "properties": {
+              "vulnerabilities": {
+                "type": "object",
+                "properties": {
+                  "critical": { "type": "integer" },
+                  "high": { "type": "integer" },
+                  "medium": { "type": "integer" },
+                  "low": { "type": "integer" }
+                }
+              },
+              "affected_packages": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "package": { "type": "string" },
+                    "version": { "type": "string" },
+                    "vulnerability": { "type": "string" },
+                    "severity": { "type": "string" },
+                    "cvss_score": { "type": "number" },
+                    "cve_id": { "type": "string" },
+                    "fixed_in": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "circular_dependencies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": { "type": "array", "items": { "type": "string" } },
+                "length": { "type": "integer" },
+                "severity": { "type": "string" }
+              }
+            }
+          },
+          "outdated_packages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "current": { "type": "string" },
+                "latest": { "type": "string" },
+                "update_type": { "type": "string", "enum": ["major", "minor", "patch"] },
+                "breaking_changes": { "type": "boolean" }
+              }
+            }
+          },
+          "dependency_tree": {
+            "type": "object",
+            "description": "Complete hierarchical dependency tree structure"
+          },
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "priority": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+                "category": { "type": "string" },
+                "title": { "type": "string" },
+                "description": { "type": "string" },
+                "action": { "type": "string" }
+              }
+            }
+          },
+          "output_files": {
+            "type": "object",
+            "properties": {
+              "json_report": { "type": "string" },
+              "html_visualization": { "type": "string" },
+              "svg_diagram": { "type": "string" }
+            }
+          }
+        }
+      },
+      "examples": [
+        {
+          "description": "Basic dependency analysis",
+          "request": {
+            "project_path": "/path/to/project"
+          }
+        },
+        {
+          "description": "Full security audit with HTML visualization",
+          "request": {
+            "project_path": "/path/to/project",
+            "include_security": true,
+            "visualization_format": "html"
+          }
+        },
+        {
+          "description": "Circular dependency detection only",
+          "request": {
+            "project_path": "/path/to/project",
+            "include_security": false,
+            "detect_circular": true,
+            "check_outdated": false
+          }
+        }
+      ]
+    },
+
+    {
+      "name": "mcp__dependency-mapper__get_graph",
+      "description": "Get dependency graph data in D3.js-compatible format",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project_path": {
+            "type": "string",
+            "description": "Project path (uses cached analysis)",
+            "required": true
+          },
+          "filter_vulnerable": {
+            "type": "boolean",
+            "description": "Only include vulnerable packages",
+            "default": false
+          },
+          "filter_outdated": {
+            "type": "boolean",
+            "description": "Only include outdated packages",
+            "default": false
+          },
+          "max_nodes": {
+            "type": "integer",
+            "description": "Maximum nodes to include (for large graphs)",
+            "default": 1000
+          }
+        },
+        "required": ["project_path"]
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "nodes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "label": { "type": "string" },
+                "color": { "type": "string" },
+                "size": { "type": "number" },
+                "metadata": { "type": "object" }
+              }
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "source": { "type": "string" },
+                "target": { "type": "string" },
+                "type": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    {
+      "name": "mcp__dependency-mapper__clear_cache",
+      "description": "Clear cached dependency analysis results",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "project_path": {
+            "type": "string",
+            "description": "Specific project path (or all if not provided)"
+          },
+          "older_than_hours": {
+            "type": "integer",
+            "description": "Clear cache older than N hours",
+            "minimum": 1
+          }
+        }
+      },
+      "returns": {
+        "type": "object",
+        "properties": {
+          "cleared_count": { "type": "integer" },
+          "total_size_mb": { "type": "number" }
+        }
+      }
+    }
+  ],
+
+  "coordination_hooks": {
+    "pre_task": {
+      "command": "npx claude-flow@alpha hooks pre-task",
+      "args": ["--description", "Dependency mapping for {project_name}"]
+    },
+    "post_task": {
+      "command": "npx claude-flow@alpha hooks post-task",
+      "args": ["--task-id", "dependency-mapper-{timestamp}"]
+    },
+    "memory_store": {
+      "command": "npx claude-flow@alpha hooks post-edit",
+      "args": ["--file", "{output_file}", "--memory-key", "swarm/dependency-mapper/report"]
+    },
+    "session_end": {
+      "command": "npx claude-flow@alpha hooks session-end",
+      "args": ["--export-metrics", "true"]
+    }
+  },
+
+  "configuration": {
+    "cache_directory": "$HOME/.claude-cache/dependency-mapper",
+    "cache_ttl_seconds": 3600,
+    "max_concurrent_scans": 5,
+    "timeout_seconds": 300,
+    "vulnerability_sources": [
+      "npm",
+      "snyk",
+      "github",
+      "osv"
+    ],
+    "graphviz_command": "dot",
+    "default_output_dir": "./dependency-analysis"
+  },
+
+  "error_codes": {
+    "1000": "Project path not found",
+    "1001": "Package manager not detected",
+    "1002": "Lock file not found",
+    "1003": "Manifest file parsing failed",
+    "1004": "Lock file parsing failed",
+    "1005": "Network timeout (security scan)",
+    "1006": "GraphViz not installed",
+    "1007": "Invalid configuration",
+    "1008": "Cache read/write error",
+    "1009": "Analysis timeout",
+    "1010": "Unknown error"
+  },
+
+  "performance": {
+    "typical_analysis_time_ms": 5000,
+    "large_project_threshold_dependencies": 1000,
+    "max_tree_depth": 50,
+    "visualization_node_limit": 1000
+  },
+
+  "integration": {
+    "ci_cd_platforms": [
+      "github-actions",
+      "gitlab-ci",
+      "circle-ci",
+      "jenkins",
+      "travis-ci"
+    ],
+    "git_hooks": [
+      "pre-commit",
+      "pre-push",
+      "post-merge"
+    ],
+    "ide_plugins": [
+      "vscode",
+      "jetbrains",
+      "vim"
+    ]
+  },
+
+  "license": "MIT",
+  "author": "Claude Code Skills",
+  "repository": "https://github.com/claude-code/skills",
+  "documentation": "https://docs.claude-code.com/skills/dependency-mapper"
+}

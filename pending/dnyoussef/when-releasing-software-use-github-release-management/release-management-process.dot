@@ -1,0 +1,211 @@
+digraph ReleaseManagementProcess {
+    rankdir=TB;
+    compound=true;
+    node [shape=box, style=filled, fontname="Arial"];
+    edge [fontname="Arial"];
+
+    // Start and end
+    start [shape=ellipse, label="Start:\nRelease Trigger", fillcolor=lightgreen];
+    end [shape=ellipse, label="Complete:\nProduction Release", fillcolor=green, fontcolor=white];
+
+    // Pre-release preparation
+    subgraph cluster_prep {
+        label="Phase 1: Pre-Release Preparation";
+        fillcolor=lightyellow;
+        style=filled;
+
+        init_hierarchy [label="Initialize Release\nSwarm (Hierarchical)"];
+        determine_version [label="Release Manager:\nDetermine Semver"];
+        create_branch [label="Create Release\nBranch"];
+        update_versions [label="CI/CD Engineer:\nUpdate Version Files"];
+
+        init_hierarchy -> determine_version;
+        determine_version -> create_branch;
+        create_branch -> update_versions;
+    }
+
+    // Release candidate testing
+    subgraph cluster_testing {
+        label="Phase 2: Release Candidate Testing";
+        fillcolor=lightblue;
+        style=filled;
+
+        build_rc [label="CI/CD Engineer:\nBuild RC Artifacts"];
+        deploy_staging [label="Deploy to\nStaging Environment"];
+        validate_suite [label="Tester:\nValidation Suite"];
+        security_review [label="Reviewer:\nSecurity & Compliance"];
+
+        build_rc -> deploy_staging;
+        deploy_staging -> validate_suite;
+        validate_suite -> security_review;
+    }
+
+    // Release artifacts
+    subgraph cluster_artifacts {
+        label="Phase 3: Release Artifacts";
+        fillcolor=lightcoral;
+        style=filled;
+
+        gen_changelog [label="Docs Writer:\nGenerate Changelog"];
+        write_notes [label="Docs Writer:\nWrite Release Notes"];
+        update_docs [label="Update\nDocumentation"];
+        create_draft [label="Create Draft\nGitHub Release"];
+
+        gen_changelog -> write_notes;
+        write_notes -> update_docs;
+        update_docs -> create_draft;
+    }
+
+    // Production deployment
+    subgraph cluster_deploy {
+        label="Phase 4: Production Deployment";
+        fillcolor=lightsalmon;
+        style=filled;
+
+        go_nogo [label="Release Manager:\nGo/No-Go Decision"];
+        choose_strategy [label="Choose Deployment\nStrategy"];
+        execute_deploy [label="CI/CD Engineer:\nExecute Deployment"];
+        monitor_deploy [label="Monitor Health\nMetrics"];
+
+        go_nogo -> choose_strategy;
+        choose_strategy -> execute_deploy;
+        execute_deploy -> monitor_deploy;
+    }
+
+    // Post-release validation
+    subgraph cluster_postrelease {
+        label="Phase 5: Post-Release Validation";
+        fillcolor=lightgreen;
+        style=filled;
+
+        smoke_tests [label="Tester:\nProduction Smoke Tests"];
+        publish_release [label="Publish GitHub\nRelease"];
+        post_monitoring [label="Release Manager:\n24h Monitoring"];
+        merge_branch [label="Merge Release\nBranch"];
+
+        smoke_tests -> publish_release;
+        publish_release -> post_monitoring;
+        post_monitoring -> merge_branch;
+    }
+
+    // Hotfix workflow
+    subgraph cluster_hotfix {
+        label="Hotfix Workflow";
+        fillcolor=lightyellow;
+        style=filled;
+
+        create_hotfix [label="Create Hotfix\nBranch from Tag"];
+        apply_fix [label="CI/CD Engineer:\nApply & Test Fix"];
+        fast_track [label="Release Manager:\nFast-Track Approval"];
+        deploy_hotfix [label="Deploy Hotfix\nImmediately"];
+        backport [label="Backport to\nMain & Develop"];
+
+        create_hotfix -> apply_fix;
+        apply_fix -> fast_track;
+        fast_track -> deploy_hotfix;
+        deploy_hotfix -> backport;
+    }
+
+    // Rollback workflow
+    subgraph cluster_rollback {
+        label="Rollback Workflow";
+        fillcolor=lightcoral;
+        style=filled;
+
+        detect_failure [label="Monitor:\nDetect Failure"];
+        assess_rollback [label="Release Manager:\nAssess Severity"];
+        trigger_rollback [label="Trigger Automated\nRollback"];
+        validate_rollback [label="Tester:\nValidate Rollback"];
+        postmortem [label="Conduct\nPost-Mortem"];
+
+        detect_failure -> assess_rollback;
+        assess_rollback -> trigger_rollback;
+        trigger_rollback -> validate_rollback;
+        validate_rollback -> postmortem;
+    }
+
+    // Decision points
+    version_type [shape=diamond, label="Breaking\nChanges?", fillcolor=yellow];
+    tests_pass [shape=diamond, label="All Tests\nPass?", fillcolor=yellow];
+    go_decision [shape=diamond, label="Go for\nDeployment?", fillcolor=yellow];
+    deploy_success [shape=diamond, label="Deployment\nHealthy?", fillcolor=yellow];
+    hotfix_needed [shape=diamond, label="Critical\nIssue?", fillcolor=yellow];
+
+    // Deployment strategies
+    rolling [shape=folder, label="Rolling:\n10% → 25% → 50% → 100%", fillcolor=lightyellow];
+    bluegreen [shape=folder, label="Blue-Green:\nParallel Environment", fillcolor=lightyellow];
+    canary [shape=folder, label="Canary:\n1-5% Traffic Split", fillcolor=lightyellow];
+
+    // External tools
+    mcp_hierarchy [shape=cylinder, label="MCP Swarm:\nHierarchical\nRelease Coordination", fillcolor=lightcoral];
+    semver_script [shape=cylinder, label="semver.sh:\nVersion Calculation\nSemantic Versioning", fillcolor=lightcoral];
+    deploy_script [shape=cylinder, label="deploy.sh:\nMulti-Strategy\nDeployment", fillcolor=lightcoral];
+
+    // Main flow
+    start -> init_hierarchy;
+    update_versions -> version_type;
+
+    version_type -> build_rc [lhead=cluster_testing, label="major:\nbreaking"];
+    version_type -> build_rc [lhead=cluster_testing, label="minor/patch"];
+
+    security_review -> tests_pass;
+    tests_pass -> gen_changelog [lhead=cluster_artifacts, label="pass"];
+    tests_pass -> build_rc [label="fail:\nfix issues", style=dashed, color=red];
+
+    create_draft -> go_decision;
+    go_decision -> go_nogo [lhead=cluster_deploy, label="proceed"];
+    go_decision -> start [label="abort", style=dashed, color=red];
+
+    // Deployment strategy selection
+    choose_strategy -> rolling [style=dashed, label="default"];
+    choose_strategy -> bluegreen [style=dashed, label="migration"];
+    choose_strategy -> canary [style=dashed, label="high-risk"];
+
+    rolling -> execute_deploy [style=dashed];
+    bluegreen -> execute_deploy [style=dashed];
+    canary -> execute_deploy [style=dashed];
+
+    monitor_deploy -> deploy_success;
+    deploy_success -> smoke_tests [lhead=cluster_postrelease, label="healthy"];
+    deploy_success -> detect_failure [lhead=cluster_rollback, label="failing", color=red];
+
+    merge_branch -> end;
+
+    // Hotfix path
+    merge_branch -> hotfix_needed [style=dashed];
+    hotfix_needed -> create_hotfix [lhead=cluster_hotfix, label="yes", color=orange];
+    hotfix_needed -> end [label="no"];
+
+    backport -> end [style=dashed];
+
+    // Rollback path
+    postmortem -> create_hotfix [lhead=cluster_hotfix, label="fix & re-release"];
+
+    // External tool usage
+    init_hierarchy -> mcp_hierarchy [style=dashed, label="uses", dir=both];
+    determine_version -> semver_script [style=dashed, label="uses"];
+    execute_deploy -> deploy_script [style=dashed, label="uses"];
+    trigger_rollback -> deploy_script [style=dashed, label="uses"];
+
+    // Critical warnings
+    security_block [shape=octagon, label="STOP:\nCritical Security\nVulnerabilities", fillcolor=red, fontcolor=white];
+    no_rollback [shape=octagon, label="WARNING:\nRollback Failed", fillcolor=orange];
+
+    security_review -> security_block [style=dashed, label="critical issues", color=red];
+    security_block -> build_rc [label="must fix", color=red];
+
+    validate_rollback -> no_rollback [style=dashed, label="rollback failed", color=red];
+    no_rollback -> assess_rollback [label="retry", color=red];
+
+    // Best practices
+    semver_rules [shape=folder, label="Semantic\nVersioning Rules", fillcolor=lightyellow];
+    deploy_checklist [shape=folder, label="Pre-Deploy\nChecklist", fillcolor=lightyellow];
+
+    determine_version -> semver_rules [style=dashed, label="follows"];
+    go_nogo -> deploy_checklist [style=dashed, label="validates"];
+
+    labelloc="t";
+    label="Release Management Process: Automated Versioning, Testing, and Multi-Strategy Deployment with Rollback";
+    fontsize=16;
+    fontname="Arial Bold";
+}

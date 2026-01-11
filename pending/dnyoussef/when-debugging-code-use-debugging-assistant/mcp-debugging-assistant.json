@@ -1,0 +1,561 @@
+{
+  "name": "debug_analyze",
+  "description": "Systematically analyze and fix bugs through 5-phase debugging workflow: symptom identification, root cause analysis, fix generation, validation testing, and regression prevention. Coordinates code-analyzer, coder, and tester agents.",
+  "version": "1.0.0",
+  "category": "debugging",
+  "integration": {
+    "mcp_version": "2.0.0",
+    "claude_flow_version": "2.0.0+",
+    "requires_agents": [
+      "code-analyzer",
+      "coder",
+      "tester"
+    ]
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "description": {
+        "type": "string",
+        "description": "Brief description of the bug or issue to debug",
+        "minLength": 10,
+        "maxLength": 500
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Exact error message (optional)",
+        "examples": [
+          "TypeError: Cannot read property 'name' of undefined",
+          "UnhandledPromiseRejectionWarning: Error: Connection timeout"
+        ]
+      },
+      "stackTrace": {
+        "type": "string",
+        "description": "Full stack trace (optional)"
+      },
+      "affectedFiles": {
+        "type": "array",
+        "description": "List of files potentially involved (optional)",
+        "items": {
+          "type": "string"
+        },
+        "examples": [
+          ["src/users.js", "src/auth.js"]
+        ]
+      },
+      "reproductionSteps": {
+        "type": "array",
+        "description": "Steps to reproduce the issue (optional)",
+        "items": {
+          "type": "string"
+        },
+        "examples": [
+          ["Navigate to /login", "Enter credentials", "Click submit"]
+        ]
+      },
+      "environment": {
+        "type": "object",
+        "description": "Environment details (optional)",
+        "properties": {
+          "os": {
+            "type": "string",
+            "enum": ["linux", "darwin", "win32"]
+          },
+          "nodeVersion": {
+            "type": "string"
+          },
+          "runtime": {
+            "type": "string"
+          }
+        }
+      },
+      "logFile": {
+        "type": "string",
+        "description": "Path to error log file (optional)"
+      },
+      "logLines": {
+        "type": "integer",
+        "description": "Number of log lines to analyze (default: 100)",
+        "minimum": 1,
+        "maximum": 1000,
+        "default": 100
+      },
+      "severity": {
+        "type": "string",
+        "description": "Issue severity (optional)",
+        "enum": ["low", "medium", "high", "critical"],
+        "default": "medium"
+      },
+      "frequency": {
+        "type": "string",
+        "description": "How often the issue occurs (optional)",
+        "enum": ["always", "intermittent", "rare"],
+        "default": "always"
+      },
+      "issueTrackerId": {
+        "type": "string",
+        "description": "Link to issue tracker (e.g., JIRA-1234, GitHub #123)",
+        "pattern": "^[A-Z]+-[0-9]+$|^#[0-9]+$"
+      },
+      "options": {
+        "type": "object",
+        "description": "Debugging options",
+        "properties": {
+          "skipTesting": {
+            "type": "boolean",
+            "description": "Skip automatic test execution (not recommended)",
+            "default": false
+          },
+          "analysisOnly": {
+            "type": "boolean",
+            "description": "Only analyze, don't generate fix",
+            "default": false
+          },
+          "includePerformance": {
+            "type": "boolean",
+            "description": "Include performance profiling",
+            "default": false
+          },
+          "includeSecurity": {
+            "type": "boolean",
+            "description": "Include security vulnerability scan",
+            "default": false
+          },
+          "distributed": {
+            "type": "boolean",
+            "description": "Debug distributed system issue",
+            "default": false
+          },
+          "maxFixAttempts": {
+            "type": "integer",
+            "description": "Maximum fix attempts if validation fails",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 3
+          },
+          "timeoutMinutes": {
+            "type": "integer",
+            "description": "Maximum time for debugging workflow",
+            "minimum": 5,
+            "maximum": 120,
+            "default": 60
+          }
+        }
+      }
+    },
+    "required": ["description"],
+    "additionalProperties": false
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "status": {
+        "type": "string",
+        "enum": ["resolved", "partial", "failed", "timeout"],
+        "description": "Overall debugging outcome"
+      },
+      "issueId": {
+        "type": "string",
+        "description": "Unique identifier for this debugging session"
+      },
+      "summary": {
+        "type": "string",
+        "description": "Brief summary of findings and resolution"
+      },
+      "phases": {
+        "type": "object",
+        "description": "Results from each phase",
+        "properties": {
+          "symptomIdentification": {
+            "type": "object",
+            "properties": {
+              "duration": {
+                "type": "string",
+                "description": "Time taken for this phase"
+              },
+              "findings": {
+                "type": "string",
+                "description": "Key findings"
+              },
+              "classification": {
+                "type": "string",
+                "enum": [
+                  "null-error",
+                  "race-condition",
+                  "memory-leak",
+                  "async-issue",
+                  "type-error",
+                  "logic-error",
+                  "performance-issue",
+                  "security-issue",
+                  "other"
+                ]
+              }
+            }
+          },
+          "rootCauseAnalysis": {
+            "type": "object",
+            "properties": {
+              "duration": {
+                "type": "string"
+              },
+              "cause": {
+                "type": "string",
+                "description": "Identified root cause"
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Confidence score (0-1)"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Evidence supporting root cause"
+              }
+            }
+          },
+          "fixGeneration": {
+            "type": "object",
+            "properties": {
+              "duration": {
+                "type": "string"
+              },
+              "approach": {
+                "type": "string",
+                "description": "Selected fix approach"
+              },
+              "alternativesConsidered": {
+                "type": "integer",
+                "description": "Number of alternative approaches evaluated"
+              },
+              "files": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Files modified"
+              }
+            }
+          },
+          "validationTesting": {
+            "type": "object",
+            "properties": {
+              "duration": {
+                "type": "string"
+              },
+              "testsCreated": {
+                "type": "integer",
+                "description": "Number of new test cases"
+              },
+              "testsPassed": {
+                "type": "integer"
+              },
+              "testsFailed": {
+                "type": "integer"
+              },
+              "regressionsPassed": {
+                "type": "string",
+                "description": "Regression test results (e.g., 247/247)"
+              },
+              "coverageDelta": {
+                "type": "string",
+                "description": "Change in test coverage (e.g., +1.9%)"
+              }
+            }
+          },
+          "regressionPrevention": {
+            "type": "object",
+            "properties": {
+              "duration": {
+                "type": "string"
+              },
+              "testAdded": {
+                "type": "string",
+                "description": "Path to permanent test file"
+              },
+              "documentationUpdated": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Documentation files updated"
+              },
+              "monitoringAdded": {
+                "type": "boolean",
+                "description": "Whether monitoring/assertions were added"
+              },
+              "similarIssuesFound": {
+                "type": "integer",
+                "description": "Number of similar issues found and addressed"
+              }
+            }
+          }
+        }
+      },
+      "fix": {
+        "type": "object",
+        "description": "Details of the fix applied",
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Files modified"
+          },
+          "changes": {
+            "type": "string",
+            "description": "Summary of changes"
+          },
+          "testCoverage": {
+            "type": "string",
+            "description": "Test coverage impact"
+          }
+        }
+      },
+      "totalDuration": {
+        "type": "string",
+        "description": "Total time for debugging workflow"
+      },
+      "recommendedActions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "Next steps to take"
+      },
+      "memoryKeys": {
+        "type": "object",
+        "description": "Memory keys for accessing detailed results",
+        "properties": {
+          "symptoms": {
+            "type": "string"
+          },
+          "rootCause": {
+            "type": "string"
+          },
+          "fix": {
+            "type": "string"
+          },
+          "validation": {
+            "type": "string"
+          },
+          "prevention": {
+            "type": "string"
+          }
+        }
+      },
+      "metrics": {
+        "type": "object",
+        "description": "Performance metrics",
+        "properties": {
+          "timeToRootCause": {
+            "type": "number",
+            "description": "Minutes to identify root cause"
+          },
+          "fixSuccessRate": {
+            "type": "number",
+            "description": "Success rate (0-1)"
+          },
+          "regressionRate": {
+            "type": "number",
+            "description": "Regression rate (0-1)"
+          },
+          "testCoverageDelta": {
+            "type": "number",
+            "description": "Test coverage increase percentage"
+          }
+        }
+      }
+    },
+    "required": ["status", "issueId", "summary"]
+  },
+  "examples": [
+    {
+      "name": "Simple Null Error",
+      "description": "Debugging a null pointer exception",
+      "input": {
+        "description": "Users getting undefined error when logging in",
+        "errorMessage": "TypeError: Cannot read property 'name' of undefined",
+        "affectedFiles": ["src/auth.js"]
+      },
+      "output": {
+        "status": "resolved",
+        "issueId": "debug-20231015-001",
+        "summary": "Fixed TypeError caused by missing await on async database call",
+        "phases": {
+          "symptomIdentification": {
+            "duration": "3m 45s",
+            "findings": "User object undefined due to unresolved Promise",
+            "classification": "null-error"
+          },
+          "rootCauseAnalysis": {
+            "duration": "7m 12s",
+            "cause": "Missing await keyword on getUserById call",
+            "confidence": 0.95
+          }
+        }
+      }
+    },
+    {
+      "name": "Race Condition",
+      "description": "Debugging intermittent data corruption",
+      "input": {
+        "description": "Shopping cart items randomly disappear",
+        "frequency": "intermittent",
+        "affectedFiles": ["src/cart.js"],
+        "options": {
+          "distributed": true
+        }
+      },
+      "output": {
+        "status": "resolved",
+        "issueId": "debug-20231015-002",
+        "summary": "Fixed race condition with optimistic locking",
+        "phases": {
+          "rootCauseAnalysis": {
+            "cause": "Concurrent updates without synchronization",
+            "confidence": 0.87
+          }
+        }
+      }
+    },
+    {
+      "name": "Performance Issue",
+      "description": "Debugging API slowdown",
+      "input": {
+        "description": "API response time degraded from 100ms to 2s",
+        "severity": "high",
+        "options": {
+          "includePerformance": true
+        }
+      },
+      "output": {
+        "status": "resolved",
+        "issueId": "debug-20231015-003",
+        "summary": "Fixed N+1 query problem with eager loading"
+      }
+    }
+  ],
+  "errors": [
+    {
+      "code": "CANNOT_REPRODUCE",
+      "message": "Unable to reproduce the issue with provided information",
+      "details": "Additional information needed to reproduce the bug",
+      "requestedInfo": [
+        "Exact steps to reproduce",
+        "Environment details",
+        "Specific input values"
+      ]
+    },
+    {
+      "code": "COMPLEX_ROOT_CAUSE",
+      "message": "Root cause is too complex for automated analysis",
+      "details": "Issue requires architectural-level changes or expert review",
+      "escalation": "Recommend consulting with senior developer or architect"
+    },
+    {
+      "code": "VALIDATION_FAILED",
+      "message": "Fix validation failed - regression tests failing",
+      "details": "Generated fix causes test failures",
+      "action": "Revising fix approach"
+    },
+    {
+      "code": "TIMEOUT",
+      "message": "Debugging workflow exceeded time limit",
+      "details": "Maximum debugging time reached without complete resolution"
+    }
+  ],
+  "tags": [
+    "debugging",
+    "bug-fix",
+    "testing",
+    "validation",
+    "sparc",
+    "tdd",
+    "root-cause-analysis"
+  ],
+  "performance": {
+    "averageExecutionTime": "15-45 minutes",
+    "successRate": 0.95,
+    "targetMetrics": {
+      "timeToRootCause": "< 30 minutes",
+      "fixSuccessRate": "> 95%",
+      "regressionRate": "< 2%",
+      "testCoverageDelta": "+5-10%"
+    }
+  },
+  "coordination": {
+    "memoryKeyPattern": "debug/[issue-id]/{phase}",
+    "hooks": [
+      "pre-task",
+      "post-edit",
+      "notify",
+      "post-task",
+      "session-restore",
+      "session-end"
+    ],
+    "agentSequence": [
+      {
+        "phase": 1,
+        "agent": "code-analyzer",
+        "task": "symptom-identification"
+      },
+      {
+        "phase": 2,
+        "agent": "code-analyzer",
+        "task": "root-cause-analysis",
+        "assist": "coder"
+      },
+      {
+        "phase": 3,
+        "agent": "coder",
+        "task": "fix-generation"
+      },
+      {
+        "phase": 4,
+        "agent": "tester",
+        "task": "validation-testing"
+      },
+      {
+        "phase": 5,
+        "agent": "tester",
+        "task": "regression-prevention",
+        "assist": "coder"
+      }
+    ]
+  },
+  "integration": {
+    "issueTrackers": [
+      "github",
+      "jira",
+      "linear"
+    ],
+    "cicd": [
+      "github-actions",
+      "gitlab-ci",
+      "jenkins"
+    ],
+    "monitoring": [
+      "datadog",
+      "newrelic",
+      "sentry"
+    ]
+  },
+  "documentation": {
+    "skillPath": ".claude/skills/debugging/when-debugging-code-use-debugging-assistant",
+    "files": {
+      "overview": "SKILL.md",
+      "quickstart": "README.md",
+      "process": "PROCESS.md",
+      "diagram": "process-diagram.gv",
+      "subagent": "subagent-debugging-assistant.md",
+      "slashCommand": "slash-command-debugging-assistant.sh",
+      "mcpTool": "mcp-debugging-assistant.json"
+    }
+  }
+}
