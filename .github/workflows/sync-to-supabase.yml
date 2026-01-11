@@ -497,11 +497,45 @@ jobs:
           echo "::notice::Sync completed - Mode: ${{ steps.changes.outputs.mode }}, Plugins: ${{ steps.changes.outputs.changed_plugins }}"
 
   # ============================================================
+  # CALCULATE QUALITY SCORES
+  # Calculates quality scores for synced skills using skillstore-cli
+  # ============================================================
+  calculate-scores:
+    needs: sync
+    if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != ''
+    runs-on: self-hosted
+    steps:
+      - name: Download skillstore-cli
+        run: |
+          CLI_URL="https://github.com/aiskillstore/skillstore/releases/latest/download/skillstore-cli-linux-x64"
+          curl -fsSL "$CLI_URL" -o skillstore-cli
+          chmod +x skillstore-cli
+          ./skillstore-cli --version
+
+      - name: Calculate quality scores for synced skills
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
+        run: |
+          echo "🎯 Calculating quality scores for: $SYNCED_SLUGS"
+
+          # Convert comma-separated to space-separated
+          SLUGS=$(echo "$SYNCED_SLUGS" | tr ',' ' ')
+
+          for slug in $SLUGS; do
+            echo "Scoring: $slug"
+            ./skillstore-cli skill score "$slug" || echo "⚠️ Failed to score $slug"
+          done
+
+          echo "✅ Quality score calculation complete"
+
+  # ============================================================
   # CACHE INVALIDATION JOB
   # Invalidates API and page cache for synced skills
   # ============================================================
   cache-invalidate:
-    needs: sync
+    needs: [sync, calculate-scores]
     if: needs.sync.outputs.skip_sync != 'true'
     runs-on: self-hosted
     steps:
@@ -537,7 +571,7 @@ jobs:
   # Warms KV cache for synced skills across all locales
   # ============================================================
   cache-warm:
-    needs: [sync, cache-invalidate]
+    needs: [sync, calculate-scores, cache-invalidate]
     if: needs.sync.outputs.skip_sync != 'true' && inputs.skip_cache_warm != true
     runs-on: self-hosted
     steps:
