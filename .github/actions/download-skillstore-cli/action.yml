@@ -13,7 +13,7 @@ inputs:
 outputs:
   cli-path:
     description: 'Path to the CLI binary'
-    value: ${{ steps.setup.outputs.cli-path }}
+    value: ${{ github.workspace }}/skillstore-cli
   cache-hit:
     description: 'Whether cache was hit'
     value: ${{ steps.restore-cache.outputs.cache-hit }}
@@ -40,11 +40,12 @@ runs:
         echo "release-tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
 
     # Use restore/save separately to avoid "path not found" when cleanup deletes the CLI
+    # Use absolute path ($GITHUB_WORKSPACE) for consistent behavior in composite actions
     - name: Restore CLI from cache
       id: restore-cache
       uses: actions/cache/restore@v4
       with:
-        path: skillstore-cli
+        path: ${{ github.workspace }}/skillstore-cli
         key: skillstore-cli-${{ steps.resolve.outputs.release-tag }}-${{ runner.os }}
 
     - name: Download CLI
@@ -55,30 +56,35 @@ runs:
         CLI_REPO: aiskillstore/skillstore
         RELEASE_TAG: ${{ steps.resolve.outputs.release-tag }}
       run: |
-        echo "Downloading skillstore-cli ($RELEASE_TAG)..."
+        echo "Downloading skillstore-cli ($RELEASE_TAG) to $GITHUB_WORKSPACE..."
 
         gh release download "$RELEASE_TAG" \
           --repo "$CLI_REPO" \
           --pattern "skillstore-cli-linux-x64" \
-          --output skillstore-cli \
+          --output "$GITHUB_WORKSPACE/skillstore-cli" \
           --clobber
 
-        chmod +x skillstore-cli
+        chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
 
     # Save cache immediately after download (before any cleanup can delete it)
     - name: Save CLI to cache
       if: steps.restore-cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@v4
       with:
-        path: skillstore-cli
+        path: ${{ github.workspace }}/skillstore-cli
         key: skillstore-cli-${{ steps.resolve.outputs.release-tag }}-${{ runner.os }}
 
-    - name: Setup CLI
-      id: setup
+    - name: Verify CLI
       shell: bash
       run: |
-        chmod +x skillstore-cli
-        echo "cli-path=$(pwd)/skillstore-cli" >> $GITHUB_OUTPUT
+        CLI_PATH="$GITHUB_WORKSPACE/skillstore-cli"
+
+        if [ ! -f "$CLI_PATH" ]; then
+          echo "❌ CLI not found at $CLI_PATH"
+          exit 1
+        fi
+
+        chmod +x "$CLI_PATH"
 
         if [ "${{ steps.restore-cache.outputs.cache-hit }}" = "true" ]; then
           echo "✅ CLI restored from cache"
@@ -86,5 +92,6 @@ runs:
           echo "✅ CLI downloaded and cached"
         fi
 
+        echo "CLI path: $CLI_PATH"
         echo "CLI version:"
-        ./skillstore-cli --version
+        "$CLI_PATH" --version
