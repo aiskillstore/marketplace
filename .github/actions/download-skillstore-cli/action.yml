@@ -1,5 +1,5 @@
 name: Download Skillstore CLI
-description: Download and setup skillstore-cli binary with caching support
+description: Download and setup skillstore-cli binary
 
 inputs:
   version:
@@ -14,9 +14,6 @@ outputs:
   cli-path:
     description: 'Path to the CLI binary'
     value: ${{ github.workspace }}/skillstore-cli
-  cache-hit:
-    description: 'Whether cache was hit'
-    value: ${{ steps.restore-cache.outputs.cache-hit }}
 
 runs:
   using: composite
@@ -39,24 +36,14 @@ runs:
         fi
         echo "release-tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
 
-    # Use restore/save separately to avoid "path not found" when cleanup deletes the CLI
-    # Use absolute path ($GITHUB_WORKSPACE) for consistent behavior in composite actions
-    - name: Restore CLI from cache
-      id: restore-cache
-      uses: actions/cache/restore@v4
-      with:
-        path: ${{ github.workspace }}/skillstore-cli
-        key: skillstore-cli-${{ steps.resolve.outputs.release-tag }}-${{ runner.os }}
-
     - name: Download CLI
-      if: steps.restore-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
         CLI_REPO: aiskillstore/skillstore
         RELEASE_TAG: ${{ steps.resolve.outputs.release-tag }}
       run: |
-        echo "Downloading skillstore-cli ($RELEASE_TAG) to $GITHUB_WORKSPACE..."
+        echo "Downloading skillstore-cli ($RELEASE_TAG)..."
 
         gh release download "$RELEASE_TAG" \
           --repo "$CLI_REPO" \
@@ -65,14 +52,6 @@ runs:
           --clobber
 
         chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
-
-    # Save cache immediately after download (before any cleanup can delete it)
-    - name: Save CLI to cache
-      if: steps.restore-cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v4
-      with:
-        path: ${{ github.workspace }}/skillstore-cli
-        key: skillstore-cli-${{ steps.resolve.outputs.release-tag }}-${{ runner.os }}
 
     - name: Verify CLI
       shell: bash
@@ -84,14 +63,7 @@ runs:
           exit 1
         fi
 
-        chmod +x "$CLI_PATH"
-
-        if [ "${{ steps.restore-cache.outputs.cache-hit }}" = "true" ]; then
-          echo "✅ CLI restored from cache"
-        else
-          echo "✅ CLI downloaded and cached"
-        fi
-
+        echo "✅ CLI downloaded successfully"
         echo "CLI path: $CLI_PATH"
         echo "CLI version:"
         "$CLI_PATH" --version
