@@ -1,5 +1,5 @@
 ---
-name: Gemini Research Subagent
+name: gemini-research-subagent
 description: Delegates large-context code analysis to Gemini CLI. Use when analyzing codebases, tracing bugs across files, reviewing architecture, or performing security audits. Gemini reads, Claude implements.
 dependencies:
   - gemini-cli

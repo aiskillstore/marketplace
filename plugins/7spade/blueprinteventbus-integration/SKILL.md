@@ -1,5 +1,5 @@
 ---
-name: "BlueprintEventBus Integration"
+name: blueprinteventbus-integration
 description: "Implement event-driven communication using BlueprintEventBus for cross-module coordination. Use this skill when modules need to communicate without tight coupling, broadcasting domain events (task.created, member.added), subscribing to events with proper lifecycle management, and implementing event-driven workflows. Ensures events follow naming conventions ([module].[action]), include Blueprint context, and use takeUntilDestroyed() for automatic cleanup."
 license: "MIT"
 ---

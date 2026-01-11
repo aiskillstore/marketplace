@@ -1,5 +1,5 @@
 ---
-name: binary-re:static-analysis
+name: binary-re-static-analysis
 description: Use when analyzing binary structure, disassembling code, or decompiling functions. Deep static analysis via radare2 (r2) and Ghidra headless - function enumeration, cross-references (xrefs), decompilation, control flow graphs. Keywords - "disassemble", "decompile", "what does this function do", "find functions", "analyze code", "r2", "ghidra", "pdg", "afl"
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: tavily_search
+name: tavily-search
 description: 使用Tavily API进行网络搜索，获取实时信息、回答问题或研究主题
 tool_name: tavily_search
 category: search

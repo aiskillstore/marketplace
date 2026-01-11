@@ -1,4 +1,5 @@
 ---
+name: uuid
 description: 'UUID generation skill - Universally Unique Identifiers v4 and v7 for entity IDs. For ng-events construction site progress tracking system.'
 ---
 

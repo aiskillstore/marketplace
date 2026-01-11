@@ -1,5 +1,5 @@
 ---
-name: Metacognitive Guard
+name: metacognitive-guard
 description: >-
     Monitors Claude's responses for struggle signals and suggests escalation
     to deep-thinking agents when complexity exceeds comfortable reasoning capacity.

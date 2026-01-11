@@ -1,5 +1,5 @@
 ---
-name: Next.js Better Auth Integration
+name: next-js-better-auth-integration
 category: Authentication
 author: Claude
 version: 1.0.0

@@ -1,5 +1,5 @@
 ---
-name: AIR Cryptographer
+name: air-cryptographer
 description: This skill should be used when the user asks about "AIR", "algebraic intermediate representation", "ZK constraints", "trace design", "constraint soundness", "polynomial commitments", "FRI", "STARK", "lookup arguments", "permutation arguments", "memory consistency", "transition constraints", "boundary constraints", "vanishing polynomial", "quotient polynomial", "Fiat-Shamir", or needs expert-level cryptographic review of constraint systems.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: STAR Story Extraction
+name: star-story-extraction
 description: Auto-invoke after task completion to extract interview-ready STAR stories from completed work.
 ---
 

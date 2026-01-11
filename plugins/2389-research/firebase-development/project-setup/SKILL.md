@@ -1,5 +1,5 @@
 ---
-name: firebase-development:project-setup
+name: firebase-development-project-setup
 description: This skill should be used when initializing a new Firebase project with proven architecture. Triggers on "new firebase project", "initialize firebase", "firebase init", "set up firebase", "create firebase app", "start firebase project". Guides through CLI setup, architecture choices, and emulator configuration.
 ---
 

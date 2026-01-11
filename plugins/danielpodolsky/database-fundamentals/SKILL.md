@@ -1,5 +1,5 @@
 ---
-name: Database Fundamentals
+name: database-fundamentals
 description: Auto-invoke when reviewing schema design, database queries, ORM usage, or migrations. Enforces normalization, indexing awareness, query optimization, and migration safety.
 ---
 

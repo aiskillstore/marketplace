@@ -1,4 +1,5 @@
 ---
+name: delon-util
 description: '@delon/util skill - Utility functions library for array, string, date, number manipulation. For ng-events construction site progress tracking system.'
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: Backend Models
+name: backend-models
 description: Define database models and ORM entities with proper naming, relationships, validation, and data integrity constraints. Use this skill when creating or modifying model classes, database table definitions, model relationships (one-to-many, many-to-many), data validation rules, database constraints, or model methods. Apply when working with ORM model files, ActiveRecord, SQLAlchemy, Sequelize, Prisma schemas, or any database model definitions that map objects to database tables and enforce data structure and relationships.
 ---
 

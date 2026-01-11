@@ -1,5 +1,5 @@
 ---
-name: Frontend Accessibility
+name: frontend-accessibility
 description: Implement accessible user interfaces with semantic HTML, keyboard navigation, sufficient color contrast, screen reader support, ARIA attributes, and proper focus management. Use this skill when creating or editing React components (.tsx, .jsx files), when implementing forms with labels and inputs, when building interactive elements (buttons, modals, menus, dialogs), when implementing keyboard navigation, when choosing colors and ensuring contrast ratios, when adding ARIA attributes, when testing with screen readers, when implementing focus states and focus management, or when creating heading structures and page landmarks.
 ---
 

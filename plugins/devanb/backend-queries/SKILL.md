@@ -1,5 +1,5 @@
 ---
-name: Backend Queries
+name: backend-queries
 description: Write secure, performant, and optimized database queries using parameterized queries, eager loading, proper indexing, and transaction management. Use this skill when writing database queries in controllers, repositories, services, or model methods, when using query builders or ORM methods, when implementing filtering/sorting/pagination logic, when optimizing N+1 query problems with eager loading, when working with joins and complex queries, when implementing query caching, or when wrapping related operations in database transactions.
 ---
 

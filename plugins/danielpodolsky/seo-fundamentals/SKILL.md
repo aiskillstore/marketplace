@@ -1,5 +1,5 @@
 ---
-name: SEO Fundamentals
+name: seo-fundamentals
 description: Auto-invoke when reviewing HTML head, meta tags, or Next.js page components. Enforces semantic HTML and search optimization.
 ---
 

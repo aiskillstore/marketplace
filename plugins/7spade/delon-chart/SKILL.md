@@ -1,4 +1,5 @@
 ---
+name: delon-chart
 description: '@delon/chart skill - G2Plot enterprise charting components with @delon/chart. For ng-events construction site progress tracking system.'
 ---
 

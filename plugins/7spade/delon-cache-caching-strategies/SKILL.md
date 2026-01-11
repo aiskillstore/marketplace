@@ -1,5 +1,5 @@
 ---
-name: "@delon/cache Caching Strategies"
+name: delon-cache-caching-strategies
 description: "Implement caching strategies using @delon/cache. Use this skill when adding memory cache, LocalStorage cache, SessionStorage cache, or cache interceptors for HTTP requests. Supports TTL-based expiration, cache invalidation, cache grouping, and persistent storage. Optimizes performance by reducing redundant API calls and database queries."
 license: "MIT"
 ---

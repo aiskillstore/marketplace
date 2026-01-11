@@ -1,5 +1,5 @@
 ---
-name: Global Coding Style
+name: global-coding-style
 description: Maintain consistent code formatting, naming conventions, type safety, and automated code quality standards across PHP and TypeScript/JavaScript. Use this skill when writing or editing any PHP files (.php), TypeScript/JavaScript files (.ts, .tsx, .js, .jsx), when implementing type declarations and return types, when running code formatters (Laravel Pint, Ultracite) or linters, when running static analysis tools (Larastan), when naming variables, functions, classes, or files, when applying DRY principles, when removing dead code, or when preparing code for review or commit.
 ---
 

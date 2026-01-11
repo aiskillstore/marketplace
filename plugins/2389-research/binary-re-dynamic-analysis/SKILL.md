@@ -1,5 +1,5 @@
 ---
-name: binary-re:dynamic-analysis
+name: binary-re-dynamic-analysis
 description: Use when you need to run a binary, trace execution, or observe runtime behavior. Runtime analysis via QEMU emulation, GDB debugging, and Frida hooking - syscall tracing (strace), breakpoints, memory inspection, function interception. Keywords - "run binary", "execute", "debug", "trace syscalls", "set breakpoint", "qemu", "gdb", "frida", "strace", "watch memory"
 ---
 

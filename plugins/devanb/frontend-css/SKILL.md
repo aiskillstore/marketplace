@@ -1,5 +1,5 @@
 ---
-name: Frontend CSS
+name: frontend-css
 description: Write consistent, maintainable CSS following the project's methodology (Tailwind utility classes) while minimizing custom CSS and adhering to design system tokens. Use this skill when writing or editing CSS files, Tailwind classes in React components (.tsx, .jsx files), when implementing design system colors/spacing/typography, when using Tailwind utility classes, when deciding between framework utilities vs. custom CSS, when optimizing CSS for production with tree-shaking, when configuring Tailwind theme extensions, or when maintaining design consistency across the application.
 ---
 

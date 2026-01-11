@@ -1,5 +1,5 @@
 ---
-name: AI Maestro Documentation Search
+name: ai-maestro-documentation-search
 description: PROACTIVELY search auto-generated documentation when receiving ANY user instruction. Search for function signatures, API documentation, class definitions, and code comments BEFORE implementing anything. Your codebase documentation is valuable - use it first.
 allowed-tools: Bash
 ---

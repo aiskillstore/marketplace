@@ -1,5 +1,5 @@
 ---
-name: Frontend Responsive
+name: frontend-responsive
 description: Build mobile-first responsive layouts with fluid containers, relative units, standard breakpoints, and touch-friendly design that adapts seamlessly across devices. Use this skill when creating or modifying layouts, implementing media queries, defining breakpoints, choosing sizing units, optimizing for mobile devices, or testing UI across screen sizes. Apply when working with responsive design, mobile layouts, tablet views, desktop views, viewport configuration, or any styling that needs to adapt to different screen sizes and device capabilities.
 ---
 

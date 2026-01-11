@@ -1,5 +1,5 @@
 ---
-name: Frontend Accessibility
+name: frontend-accessibility
 description: Build accessible user interfaces using semantic HTML, ARIA attributes, keyboard navigation, color contrast, and screen reader compatibility. Use this skill when creating or modifying HTML templates, React/Vue components, forms, interactive elements, navigation menus, modals, or any UI code. Apply when implementing keyboard navigation, focus management, alt text for images, form labels, heading structure, color contrast, or testing with screen readers. Use for all frontend development to ensure interfaces are usable by people with disabilities and meet WCAG accessibility standards.
 ---
 

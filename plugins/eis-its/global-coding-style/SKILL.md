@@ -1,5 +1,5 @@
 ---
-name: Global Coding Style
+name: global-coding-style
 description: Write clean, consistent code following naming conventions, DRY principles, small focused functions, automated formatting, and meaningful variable names. Use this skill when writing or refactoring any code in any language, naming variables/functions/classes/files, structuring code logic, removing dead code, or ensuring code readability and maintainability. Apply to all programming tasks including Python, JavaScript, TypeScript, Ruby, Java, Go, or any other language files (.py, .js, .ts, .rb, .java, .go) to maintain consistent style, improve code quality, and enhance team collaboration across the entire codebase.
 ---
 

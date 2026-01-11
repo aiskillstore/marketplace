@@ -1,5 +1,5 @@
 ---
-name: Chatbot Implementation
+name: chatbot-implementation
 description: Details of the RAG Chatbot, including UI and backend logic.
 ---
 

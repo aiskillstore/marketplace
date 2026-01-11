@@ -1,5 +1,5 @@
 ---
-name: "RxJS Patterns for Angular"
+name: rxjs-patterns-for-angular
 description: "Implement RxJS patterns for reactive programming in Angular. Use this skill when working with Observables, operators, subscriptions, async data flows, and error handling. Covers common patterns like combineLatest, switchMap, debounceTime, catchError, retry logic, and integration with Angular Signals using toSignal() and toObservable(). Ensures proper subscription cleanup with takeUntilDestroyed()."
 license: "MIT"
 ---

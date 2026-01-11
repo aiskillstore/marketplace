@@ -1,5 +1,5 @@
 ---
-name: Screenfull Fullscreen API
+name: screenfull-fullscreen-api
 description: Implement fullscreen functionality using screenfull library for cross-browser fullscreen support in ng-events project
 license: MIT
 ---

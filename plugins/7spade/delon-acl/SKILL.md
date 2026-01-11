@@ -1,4 +1,5 @@
 ---
+name: delon-acl
 description: '@delon/acl skill - Access Control List for role-based permissions and UI element visibility. For ng-events construction site progress tracking system.'
 ---
 

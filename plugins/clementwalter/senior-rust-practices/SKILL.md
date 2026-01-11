@@ -1,5 +1,5 @@
 ---
-name: Senior Rust Practices
+name: senior-rust-practices
 description: This skill should be used when the user asks about "rust workspace", "rust best practices", "cargo workspace setup", "rust code organization", "rust dependency management", "rust testing strategy", "rust project", "scalable rust", "rust CI setup", or needs guidance on senior-level Rust development patterns, workspace design, code organization strategies, or production-ready Rust architectures.
 ---
 

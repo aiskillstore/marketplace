@@ -1,5 +1,5 @@
 ---
-name: firebase-development:add-feature
+name: firebase-development-add-feature
 description: This skill should be used when adding features to existing Firebase projects. Triggers on "add function", "create endpoint", "new tool", "add api", "new collection", "implement", "build feature". Guides TDD workflow with test-first development, security rules, and emulator verification.
 ---
 

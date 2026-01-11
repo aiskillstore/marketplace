@@ -1,6 +1,6 @@
 ---
 skill_id: when-implementing-adaptive-learning-use-reasoningbank-agentdb
-name: ReasoningBank Adaptive Learning with AgentDB
+name: reasoningbank-adaptive-learning-with-agentdb
 version: 1.0.0
 category: agentdb
 subcategory: adaptive-learning

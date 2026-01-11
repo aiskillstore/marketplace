@@ -1,6 +1,6 @@
 ---
 skill_id: when-building-semantic-search-use-agentdb-vector-search
-name: AgentDB Semantic Vector Search
+name: agentdb-semantic-vector-search
 version: 1.0.0
 category: agentdb
 subcategory: semantic-search

@@ -1,5 +1,5 @@
 ---
-name: Backend Migrations
+name: backend-migrations
 description: Create and manage database schema migrations with reversibility, zero-downtime deployment support, and proper version control. Use this skill when creating database migration files, modifying schema, adding or removing tables/columns, creating indexes, managing migration rollbacks, or planning database changes. Apply when working with migration files, schema changes, database versioning, or any task involving evolving database structure over time while maintaining backwards compatibility and data integrity.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: Global Error Handling
+name: global-error-handling
 description: Implement user-friendly error handling with specific exception types, centralized error handling, graceful degradation, and proper resource cleanup. Use this skill when implementing error handling in controllers, services, or API endpoints, when creating custom exception classes, when writing try-catch blocks, when handling external service failures, when implementing retry strategies, when displaying error messages to users, when cleaning up resources in finally blocks, or when implementing fail-fast validation and error detection.
 ---
 

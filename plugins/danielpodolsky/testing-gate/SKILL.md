@@ -1,5 +1,5 @@
 ---
-name: Testing Gate
+name: testing-gate
 description: Gate 6 - Verify tests exist and cover critical paths. Issues result in WARNINGS (encourages tests, doesn't block).
 ---
 

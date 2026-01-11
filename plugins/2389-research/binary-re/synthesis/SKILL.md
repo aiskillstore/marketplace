@@ -1,5 +1,5 @@
 ---
-name: binary-re:synthesis
+name: binary-re-synthesis
 description: Use when ready to document findings, generate a report, or summarize binary analysis results. Compiles analysis findings into structured reports - correlates facts from triage/static/dynamic phases, validates hypotheses, generates documentation with evidence chains. Keywords - "summarize findings", "generate report", "document analysis", "what did we find", "write up results", "export findings"
 ---
 

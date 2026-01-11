@@ -1,5 +1,5 @@
 ---
-name: firebase-development:debug
+name: firebase-development-debug
 description: This skill should be used when troubleshooting Firebase emulator issues, rules violations, function errors, auth problems, or deployment failures. Triggers on "error", "not working", "debug", "troubleshoot", "failing", "broken", "permission denied", "emulator issue".
 ---
 

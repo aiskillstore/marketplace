@@ -1,5 +1,5 @@
 ---
-name: Resume Bullet Extraction
+name: resume-bullet-extraction
 description: Auto-invoke after task completion to generate powerful resume bullet points from completed work.
 ---
 

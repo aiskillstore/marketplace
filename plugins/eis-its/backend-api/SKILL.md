@@ -1,5 +1,5 @@
 ---
-name: Backend API
+name: backend-api
 description: Design and implement RESTful API endpoints following REST principles, HTTP standards, and resource-based URL conventions. Use this skill when creating or modifying API endpoints, routes, controllers, request handlers, or API documentation. Apply when working with REST API design, API versioning, HTTP methods (GET, POST, PUT, PATCH, DELETE), URL structure, query parameters, response formatting, status codes, rate limiting, or API middleware. Use when building web services, microservices, or any backend code that exposes HTTP endpoints for client consumption.
 ---
 

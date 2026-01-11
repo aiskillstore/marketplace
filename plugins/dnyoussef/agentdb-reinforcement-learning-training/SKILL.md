@@ -1,6 +1,6 @@
 ---
 skill_id: when-training-rl-agents-use-agentdb-learning
-name: AgentDB Reinforcement Learning Training
+name: agentdb-reinforcement-learning-training
 version: 1.0.0
 category: agentdb
 subcategory: machine-learning

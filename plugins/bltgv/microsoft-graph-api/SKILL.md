@@ -1,5 +1,5 @@
 ---
-name: Microsoft Graph API
+name: microsoft-graph-api
 description: This skill should be used when the user asks to "read my emails", "send an email", "compose email", "check my calendar", "get calendar events", "create a meeting", "schedule an event", "add calendar event", "search emails", "list mail folders", "show unread messages", "what meetings do I have", "fetch emails from Microsoft", "access Outlook", or mentions Microsoft Graph, Office 365 email, or Outlook calendar integration.
 version: 0.3.0
 ---

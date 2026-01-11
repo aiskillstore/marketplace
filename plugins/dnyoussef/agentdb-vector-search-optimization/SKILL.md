@@ -1,6 +1,6 @@
 ---
 skill_id: when-optimizing-vector-search-use-agentdb-optimization
-name: AgentDB Vector Search Optimization
+name: agentdb-vector-search-optimization
 version: 1.0.0
 category: agentdb
 subcategory: performance-optimization

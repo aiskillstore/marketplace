@@ -1,5 +1,5 @@
 ---
-name: Frontend Components
+name: frontend-components
 description: Build reusable, composable UI components with single responsibilities, clear prop interfaces, proper state management, and minimal coupling. Use this skill when creating or editing React components (.tsx, .jsx files), when designing component APIs with props, when implementing component composition patterns, when managing local component state, when building shadcn/ui components, when creating shared UI components in resources/js/Components/, when implementing component documentation, or when refactoring large components into smaller, focused pieces.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: Accessibility Fundamentals
+name: accessibility-fundamentals
 description: Auto-invoke when reviewing JSX with interactive elements, forms, buttons, or navigation. Enforces WCAG compliance and inclusive design.
 ---
 

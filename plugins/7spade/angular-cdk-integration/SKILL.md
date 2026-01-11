@@ -1,5 +1,5 @@
 ---
-name: Angular CDK Integration
+name: angular-cdk-integration
 description: Create components using Angular CDK utilities including drag-drop, overlay, portal, scrolling, a11y, clipboard, and platform detection for ng-events project
 license: MIT
 ---

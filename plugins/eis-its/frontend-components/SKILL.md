@@ -1,5 +1,5 @@
 ---
-name: Frontend Components
+name: frontend-components
 description: Design and build reusable, composable UI components following single responsibility principle with clear props, proper encapsulation, and minimal state management. Use this skill when creating or modifying React, Vue, Svelte, or web components, defining component props or interfaces, managing component state, building component libraries, or refactoring UI code. Apply when working with .jsx, .tsx, .vue, .svelte files, component directories, or any code that defines reusable UI building blocks with configurable interfaces and composable architectures.
 ---
 

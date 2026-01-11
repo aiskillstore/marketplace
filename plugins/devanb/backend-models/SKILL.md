@@ -1,5 +1,5 @@
 ---
-name: Backend Models
+name: backend-models
 description: Define and configure database models with proper naming, relationships, timestamps, data types, constraints, and validation. Use this skill when creating or editing model files in app/Models/, Eloquent model classes, model relationships (hasMany, belongsTo, etc.), database table structures, model attributes and casts, model factories, or seeders. Use when working on model validation logic, database constraints, foreign key relationships, indexes, scopes, accessors, mutators, or any ORM-related model configuration.
 ---
 

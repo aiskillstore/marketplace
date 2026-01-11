@@ -1,4 +1,5 @@
 ---
+name: material-component-dev
 skill_name: material-component-dev
 description: FlowGram 物料组件开发指南 - 用于在 form-materials 包中创建新的物料组件
 version: 1.0.0

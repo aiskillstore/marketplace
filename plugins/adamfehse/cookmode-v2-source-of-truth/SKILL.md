@@ -1,5 +1,5 @@
 ---
-name: CookMode V2 Source of Truth
+name: cookmode-v2-source-of-truth
 description: Documents and explains the CookMode V2 codebase as it exists. Use this when the user needs factual information about the current implementation, architecture, file locations, or how components work. DOES NOT suggest improvements unless explicitly asked.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: Recipe Manager
+name: recipe-manager
 description: Helps add, edit, validate, and manage recipe data in recipes.js. Use this when the user wants to create new recipes, modify existing ones, fix recipe formatting, or validate recipe structure.
 ---
 

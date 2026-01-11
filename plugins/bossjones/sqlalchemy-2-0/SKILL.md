@@ -1,5 +1,5 @@
 ---
-name: SQLAlchemy 2.0+
+name: sqlalchemy-2-0
 description: Modern async ORM with type-safe models and efficient queries
 when_to_use: Building database backends, APIs, data services with async support
 ---

@@ -1,5 +1,5 @@
 ---
-name: Security Gate
+name: security-gate
 description: Verify security considerations were addressed before shipping. Issues result in WARNINGS that strongly recommend fixing.
 ---
 

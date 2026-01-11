@@ -1,5 +1,5 @@
 ---
-name: Security Fundamentals
+name: security-fundamentals
 description: Auto-invoke when reviewing authentication, authorization, input handling, data exposure, or any user-facing code. Enforces OWASP top 10 awareness and security-first thinking.
 ---
 

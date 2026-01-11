@@ -1,5 +1,5 @@
 ---
-name: glm4v_analyze_image
+name: glm4v-analyze-image
 description: 智谱AI的视觉语言模型，用于图像分析、内容识别和视觉问答
 tool_name: glm4v_analyze_image
 category: vision

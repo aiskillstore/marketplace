@@ -1,5 +1,5 @@
 ---
-name: stockfish_analyzer
+name: stockfish-analyzer
 description: 国际象棋引擎分析工具，提供最佳走法推荐、局面评估和多种走法选择分析。支持FEN字符串直接输入分析。
 tool_name: stockfish_analyzer
 category: chess

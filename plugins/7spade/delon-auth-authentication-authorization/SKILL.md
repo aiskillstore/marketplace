@@ -1,5 +1,5 @@
 ---
-name: "@delon/auth Authentication & Authorization"
+name: delon-auth-authentication-authorization
 description: "Implement authentication and authorization using @delon/auth. Use this skill when adding login/logout flows, JWT token management, role-based access control (RBAC), route guards, HTTP interceptors, and session management. Integrates with Firebase Auth and custom permission systems. Ensures secure token storage, automatic token refresh, and consistent authorization checks across components and services."
 license: "MIT"
 ---

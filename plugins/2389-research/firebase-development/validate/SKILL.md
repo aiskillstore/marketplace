@@ -1,5 +1,5 @@
 ---
-name: firebase-development:validate
+name: firebase-development-validate
 description: This skill should be used when reviewing Firebase code against security model and best practices. Triggers on "review firebase", "check firebase", "validate", "audit firebase", "security review", "look at firebase code". Validates configuration, rules, architecture, and security.
 ---
 

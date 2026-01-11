@@ -1,5 +1,5 @@
 ---
-name: css-development:create-component
+name: css-development-create-component
 description: This skill should be used when creating new styled components or adding new CSS classes. Triggers on "create component", "new button", "new card", "add styles", "style component", "build UI element". Guides semantic naming, Tailwind composition, dark mode support, and test coverage.
 ---
 

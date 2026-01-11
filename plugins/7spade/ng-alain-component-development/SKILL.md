@@ -1,5 +1,5 @@
 ---
-name: "ng-alain Component Development"
+name: ng-alain-component-development
 description: "Create components using ng-alain (@delon/abc) and ng-zorro-antd UI libraries. Use this skill when building enterprise UI features with ST (Simple Table), SF (Schema Form), ACL (Access Control), PageHeader, ReuseTab, and other @delon components. Ensures proper integration with ng-alain architecture, theming system, responsive layouts, and accessibility standards while following Angular 20 patterns."
 license: "MIT"
 ---

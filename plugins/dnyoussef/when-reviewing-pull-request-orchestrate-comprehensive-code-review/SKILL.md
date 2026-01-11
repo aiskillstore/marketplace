@@ -1,5 +1,5 @@
 ---
-name: when-reviewing-pull-request-orchestrate-comprehensive-code-review
+name: when-reviewing-pull-request-orchestrate-comprehensive-code-revie
 type: sop-workflow
 description: |
   Use when conducting comprehensive code review for pull requests across multiple quality dimensions.

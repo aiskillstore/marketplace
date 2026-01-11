@@ -1,5 +1,5 @@
 ---
-name: {project}-testing
+name: project-testing
 description: "Custom test patterns and fixtures for {project}. Covers E2E, integration, and specialized testing requirements."
 generated_by: ai-dev-kit:recommend-skills
 ---

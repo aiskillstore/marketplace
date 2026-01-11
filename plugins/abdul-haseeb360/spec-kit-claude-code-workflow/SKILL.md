@@ -1,5 +1,5 @@
 ---
-name: Spec-Kit Claude Code Workflow
+name: spec-kit-claude-code-workflow
 category: Development Process
 author: Claude
 version: 1.0.0

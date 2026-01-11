@@ -1,5 +1,5 @@
 ---
-name: css-development:validate
+name: css-development-validate
 description: This skill should be used when reviewing or auditing existing CSS code for consistency with established patterns. Triggers on "review CSS", "audit styles", "check CSS", "validate stylesheet", "CSS review". Checks semantic naming, dark mode coverage, Tailwind usage, and test coverage.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: Testing Fundamentals
+name: testing-fundamentals
 description: Auto-invoke when reviewing test files or discussing testing strategy. Enforces testing pyramid, strategic coverage, and stack-appropriate frameworks.
 ---
 

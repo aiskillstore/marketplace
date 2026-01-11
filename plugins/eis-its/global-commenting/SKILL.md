@@ -1,5 +1,5 @@
 ---
-name: Global Commenting
+name: global-commenting
 description: Write self-documenting code with minimal, evergreen comments that explain complex logic without describing recent changes or temporary fixes. Use this skill when writing code comments, documentation strings, explaining complex algorithms, clarifying business logic, or deciding whether code needs comments. Apply when working with any source code files where comments or documentation might be added, ensuring comments remain relevant, helpful, and focused on explaining why rather than what the code does, while preferring clear code structure and naming over excessive commenting.
 ---
 

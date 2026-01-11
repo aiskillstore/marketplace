@@ -1,5 +1,5 @@
 ---
-name: RAG Pipeline
+name: rag-pipeline
 description: Details on the Retrieval Augmented Generation pipeline, Ingestion, and Vector Search.
 ---
 

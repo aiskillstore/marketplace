@@ -1,5 +1,5 @@
 ---
-name: Global Validation
+name: global-validation
 description: Implement comprehensive server-side validation with allowlists, type checking, input sanitization, and consistent error messages, while using client-side validation for user experience. Use this skill when validating user input, form data, API requests, implementing security checks, preventing injection attacks, checking data types/formats/ranges, or providing validation feedback. Apply when working with form validation, API endpoint validation, input sanitization, business rule enforcement, or any code that accepts and validates external data to ensure security, data integrity, and proper user feedback across all entry points.
 ---
 

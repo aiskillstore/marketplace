@@ -1,5 +1,5 @@
 ---
-name: Frontend Fundamentals
+name: frontend-fundamentals
 description: Auto-invoke when reviewing React, Vue, or frontend component code. Enforces component architecture, state management patterns, and UI best practices.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: Agent Communication Debugger
+name: agent-communication-debugger
 description: Diagnoses and debugs A2A agent communication issues including agent status, message routing, transport connectivity, and log analysis. Use when agents aren't responding, messages aren't being delivered, routing is incorrect, or when debugging orchestrator, coder-agent, tester-agent communication problems.
 allowed-tools: Bash, Read, Grep, Glob
 ---

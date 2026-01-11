@@ -1,5 +1,5 @@
 ---
-name: Backend Fundamentals
+name: backend-fundamentals
 description: Auto-invoke when reviewing API routes, server logic, Express/Node.js code, or backend architecture. Enforces REST conventions, middleware patterns, and separation of concerns.
 ---
 

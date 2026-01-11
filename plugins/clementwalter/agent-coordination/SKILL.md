@@ -1,5 +1,5 @@
 ---
-name: Agent Coordination
+name: agent-coordination
 description: This skill should be used when the user asks about "coordinate coding agents", "orchestrate agent team", "manage multiple agents", "vibekanban workflow", "task delegation to agents", "agent swarm coordination", "parallel agent execution", "chief of staff mode", "cos mode", "you're my cos", "your my cos", "act as cos", "be my cos", "you are my chief of staff", "create tasks for agents", "dispatch agents", or needs guidance on coordinating autonomous coding agents, task breakdown strategies, or multi-agent workflow patterns.
 ---
 

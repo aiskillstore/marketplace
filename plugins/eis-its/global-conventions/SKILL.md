@@ -1,5 +1,5 @@
 ---
-name: Global Conventions
+name: global-conventions
 description: Follow project-wide development conventions including project structure, version control practices, environment configuration, documentation, dependency management, and code review processes. Use this skill when organizing files/directories, writing commit messages, managing branches, configuring environments, handling secrets, maintaining documentation, or establishing team workflows. Apply when working with project structure, README files, .gitignore, environment variables, dependency files (package.json, requirements.txt), feature flags, changelogs, or any aspect of project organization and team collaboration that requires consistency across the development lifecycle.
 ---
 

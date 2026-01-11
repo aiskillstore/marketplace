@@ -1,5 +1,5 @@
 ---
-name: Video Processor
+name: video-processor
 description: Process video files with audio extraction, format conversion (mp4, webm), and Whisper transcription. Use when user mentions video conversion, audio extraction, transcription, mp4, webm, ffmpeg, or whisper transcription.
 ---
 

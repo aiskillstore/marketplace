@@ -1,5 +1,5 @@
 ---
-name: Global Conventions
+name: global-conventions
 description: Follow consistent project structure, version control practices, environment configuration, code review processes, and development conventions across the entire application. Use this skill when organizing project files and directories, when writing commit messages or creating pull requests, when managing environment variables and configuration, when participating in code reviews, when defining testing requirements, when using feature flags, when maintaining changelogs, when documenting setup instructions, or when establishing consistent development practices across the team.
 ---
 

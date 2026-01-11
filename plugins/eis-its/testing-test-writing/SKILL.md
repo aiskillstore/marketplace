@@ -1,5 +1,5 @@
 ---
-name: Testing Test Writing
+name: testing-test-writing
 description: Write minimal, focused tests for core user flows and critical paths during development, testing behavior rather than implementation with clear test names and mocked dependencies. Use this skill when writing unit tests, integration tests, test files, test cases for critical workflows, or mocking external dependencies. Apply when working with test files (.test.js, .spec.ts, _test.py), test frameworks (Jest, RSpec, pytest), testing user journeys, or implementing fast-executing tests that validate business-critical functionality without over-testing implementation details or edge cases during feature development.
 ---
 

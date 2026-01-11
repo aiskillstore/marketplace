@@ -1,5 +1,5 @@
 ---
-name: Engineering Fundamentals
+name: engineering-fundamentals
 description: Auto-invoke for general code quality review. Enforces naming conventions, function size, DRY principles, SOLID principles, and code organization.
 ---
 

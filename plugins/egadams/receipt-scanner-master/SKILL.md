@@ -1,5 +1,5 @@
 ---
-name: Receipt Scanner Master
+name: receipt-scanner-master
 description: Master receipt scanning operations including parsing, debugging, enhancing accuracy, and database integration. Use when working with receipts, images, OCR issues, expense categorization, or troubleshooting receipt uploads.
 ---
 

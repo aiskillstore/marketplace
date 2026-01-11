@@ -1,5 +1,5 @@
 ---
-name: DevOps & Quality
+name: devops-quality
 description: Code quality standards, linting rules, and CI/CD principles.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: Frontend CSS
+name: frontend-css
 description: Write and maintain CSS using consistent methodology (Tailwind, BEM, CSS Modules), design tokens, framework patterns, and optimized production builds. Use this skill when writing or modifying CSS files, applying utility classes, styling components, creating design systems, defining color/spacing tokens, or working with CSS frameworks. Apply when working with .css, .scss, .sass files, Tailwind config, styled-components, CSS-in-JS, or any styling code that controls visual presentation, layout, typography, and design consistency across the application.
 ---
 

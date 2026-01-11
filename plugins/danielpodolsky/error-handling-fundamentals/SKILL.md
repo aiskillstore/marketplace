@@ -1,5 +1,5 @@
 ---
-name: Error Handling Fundamentals
+name: error-handling-fundamentals
 description: Auto-invoke when reviewing try/catch blocks, API error responses, async operations, or user feedback patterns. Enforces graceful degradation and meaningful error messages.
 ---
 

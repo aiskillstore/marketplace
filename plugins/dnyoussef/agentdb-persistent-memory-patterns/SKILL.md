@@ -1,6 +1,6 @@
 ---
 skill_id: when-implementing-persistent-memory-use-agentdb-memory
-name: AgentDB Persistent Memory Patterns
+name: agentdb-persistent-memory-patterns
 version: 1.0.0
 category: agentdb
 subcategory: memory-management

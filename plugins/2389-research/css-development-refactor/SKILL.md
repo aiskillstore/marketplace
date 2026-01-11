@@ -1,5 +1,5 @@
 ---
-name: css-development:refactor
+name: css-development-refactor
 description: This skill should be used when refactoring existing CSS from inline styles or utility classes to semantic patterns. Triggers on "refactor CSS", "extract styles", "consolidate CSS", "convert inline", "clean up styles", "migrate to semantic". Transforms to semantic classes with dark mode and tests.
 ---
 

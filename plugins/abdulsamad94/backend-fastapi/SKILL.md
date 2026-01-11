@@ -1,5 +1,5 @@
 ---
-name: Backend (FastAPI)
+name: backend-fastapi
 description: Documentation for the FastAPI backend, endpoints, and dependency injection.
 ---
 

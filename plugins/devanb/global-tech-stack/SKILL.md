@@ -1,5 +1,5 @@
 ---
-name: Global Tech Stack
+name: global-tech-stack
 description: Understand and adhere to the project's technology stack including Laravel, PHP, React, PostgreSQL, Pest, Tailwind CSS, and all configured tools and services. Use this skill when making architectural decisions, when choosing libraries or packages, when configuring development tools, when setting up testing frameworks, when implementing authentication, when integrating third-party services, when configuring CI/CD pipelines, when setting up local development environments, or when ensuring consistency with the established tech stack across all parts of the application.
 ---
 

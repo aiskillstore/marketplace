@@ -1,5 +1,5 @@
 ---
-name: Error Handling Gate
+name: error-handling-gate
 description: Verify errors are handled gracefully with meaningful user feedback. Issues result in WARNINGS.
 ---
 

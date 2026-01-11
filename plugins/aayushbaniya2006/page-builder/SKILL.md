@@ -1,4 +1,5 @@
 ---
+name: page-builder
 description: Helper for building landing pages and marketing sites using Tailark components.
 deps: ["ui-handler"]
 ---

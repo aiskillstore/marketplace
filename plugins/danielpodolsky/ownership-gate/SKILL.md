@@ -1,5 +1,5 @@
 ---
-name: Ownership Gate
+name: ownership-gate
 description: Verify the junior can explain and defend every line of code they wrote. This gate BLOCKS completion if failed.
 ---
 

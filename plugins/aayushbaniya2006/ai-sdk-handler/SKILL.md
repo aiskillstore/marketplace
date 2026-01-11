@@ -1,4 +1,5 @@
 ---
+name: ai-sdk-handler
 description: Integrate Vercel AI SDK for LLMs, Chatbots, Generative UI, and Agentic Workflows.
 deps: ["auth-handler", "inngest-handler"]
 ---

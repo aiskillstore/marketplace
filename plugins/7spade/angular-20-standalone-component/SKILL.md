@@ -1,5 +1,5 @@
 ---
-name: "Angular 20 Standalone Component"
+name: angular-20-standalone-component
 description: "Create Angular 20 standalone components using modern patterns: Signals for state management, input()/output() functions (not decorators), @if/@for/@switch control flow (not *ngIf/*ngFor), inject() dependency injection (not constructor), and OnPush change detection. Use this skill when scaffolding new UI components that need reactive state, form handling, or integration with services following the three-layer architecture."
 license: "MIT"
 ---

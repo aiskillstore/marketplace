@@ -1,6 +1,6 @@
 ---
 skill_id: when-using-advanced-vector-search-use-agentdb-advanced
-name: Advanced AgentDB Vector Search Implementation
+name: advanced-agentdb-vector-search-implementation
 version: 1.0.0
 category: agentdb
 subcategory: distributed-systems

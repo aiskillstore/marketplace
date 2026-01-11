@@ -1,5 +1,5 @@
 ---
-name: Performance Fundamentals
+name: performance-fundamentals
 description: Auto-invoke when reviewing loops, data fetching, rendering, database queries, or resource-intensive operations. Identifies N+1 queries, unnecessary re-renders, memory leaks, and scalability issues.
 ---
 

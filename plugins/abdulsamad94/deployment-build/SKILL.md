@@ -1,5 +1,5 @@
 ---
-name: Deployment & Build
+name: deployment-build
 description: Knowledge of the Vercel deployment pipeline, hybrid build scripts, and environment configuration.
 ---
 

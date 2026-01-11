@@ -1,5 +1,5 @@
 ---
-name: Testing Test Writing
+name: testing-test-writing
 description: Write focused tests for core user flows and critical paths using Pest framework, with minimal tests during development and strategic coverage at completion points. Use this skill when creating or editing test files in tests/Feature/ or tests/Unit/ directories, when writing Pest tests with descriptive names, when testing critical user workflows and business logic, when mocking external dependencies, when implementing fast unit tests, when testing behavior rather than implementation details, or when deciding what needs test coverage at feature completion.
 ---
 

@@ -1,5 +1,5 @@
 ---
-name: Global Error Handling
+name: global-error-handling
 description: Implement robust error handling with user-friendly messages, specific exception types, fail-fast validation, centralized error boundaries, graceful degradation, and proper resource cleanup. Use this skill when writing try-catch blocks, raising exceptions, handling API errors, validating input, implementing error boundaries, managing external service failures, or ensuring resource cleanup. Apply when working with error handling code in any language, exception classes, error middleware, API error responses, retry logic, or any code that needs to handle failures gracefully while maintaining system stability and providing clear feedback to users.
 ---
 

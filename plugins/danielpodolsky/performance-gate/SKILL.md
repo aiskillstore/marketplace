@@ -1,5 +1,5 @@
 ---
-name: Performance Gate
+name: performance-gate
 description: Verify performance implications were considered and no obvious anti-patterns exist. Issues result in WARNINGS.
 ---
 

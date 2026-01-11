@@ -1,5 +1,5 @@
 ---
-name: Global Tech Stack
+name: global-tech-stack
 description: Understand and apply project-specific technology choices including frameworks, languages, databases, testing tools, and third-party services to maintain consistency across the stack. Use this skill when making technology decisions, adding new dependencies, choosing libraries/frameworks, configuring build tools, setting up databases, implementing authentication, or integrating third-party services. Apply when working with framework-specific code, package managers, ORM configurations, testing setups, deployment configurations, or any task that requires knowledge of the project's chosen technologies to ensure architectural consistency and avoid introducing conflicting tools or patterns.
 ---
 

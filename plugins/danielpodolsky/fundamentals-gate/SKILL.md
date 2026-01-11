@@ -1,5 +1,5 @@
 ---
-name: Fundamentals Gate
+name: fundamentals-gate
 description: Verify code quality standards are met - naming, structure, DRY principles. Issues result in SUGGESTIONS for improvement.
 ---
 

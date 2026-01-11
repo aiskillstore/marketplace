@@ -1,5 +1,5 @@
 ---
-name: "@delon/form Dynamic Schema Forms"
+name: delon-form-dynamic-schema-forms
 description: "Create dynamic schema-based forms using @delon/form (SF component). Use this skill when building complex forms with validation, conditional rendering, async data loading, custom widgets, and multi-step workflows. Ensures forms follow JSON Schema standards, integrate with Angular reactive forms, support internationalization, and maintain consistent validation patterns across the application."
 license: "MIT"
 ---

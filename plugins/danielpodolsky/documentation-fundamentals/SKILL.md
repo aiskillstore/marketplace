@@ -1,5 +1,5 @@
 ---
-name: Documentation Fundamentals
+name: documentation-fundamentals
 description: Auto-invoke when reviewing README files, JSDoc comments, or inline documentation. Enforces "WHY not WHAT" principle.
 ---
 

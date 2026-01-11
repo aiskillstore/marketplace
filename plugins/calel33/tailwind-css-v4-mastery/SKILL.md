@@ -1,5 +1,5 @@
 ---
-name: Tailwind CSS V4 Mastery
+name: tailwind-css-v4-mastery
 description: >
   Expert guidance for leveraging Tailwind CSS V4's new Oxide engine, CSS-first
   configuration, and modern styling paradigms. This skill transforms Claude

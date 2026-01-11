@@ -1,5 +1,5 @@
 ---
-name: binary-re:triage
+name: binary-re-triage
 description: Use when first encountering an unknown binary, ELF file, executable, or firmware blob. Fast fingerprinting via rabin2 - architecture detection (ARM, x86, MIPS), ABI identification, dependency mapping, string extraction. Keywords - "what is this binary", "identify architecture", "check file type", "rabin2", "file analysis", "quick scan"
 ---
 

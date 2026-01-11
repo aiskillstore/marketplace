@@ -1,4 +1,5 @@
 ---
+name: stripe-handler
 description: Handle Stripe payments, custom checkouts, and webhook fulfillment outside of standard plans/credits.
 deps: ["plans-handler", "credits-handler", "inngest-handler"]
 ---

@@ -1,5 +1,5 @@
 ---
-name: Agent Generation
+name: agent-generation
 description: This skill provides knowledge for generating effective Claude Code agents tailored to specific projects. It is used internally by the agent-team-creator plugin when analyzing codebases and creating specialized agent teams. Contains templates, best practices, and patterns for writing project-aware agents.
 version: 1.0.0
 ---
