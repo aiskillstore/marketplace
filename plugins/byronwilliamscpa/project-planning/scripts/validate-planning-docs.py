@@ -17,14 +17,7 @@ from pathlib import Path
 
 
 def count_words(text: str) -> int:
-    """Count words in text, excluding code blocks.
-
-    Args:
-        text: The text content to count words in.
-
-    Returns:
-        The number of words in the text.
-    """
+    """Count words in text, excluding code blocks."""
     # Remove code blocks
     text = re.sub(r"```[\s\S]*?```", "", text)
     text = re.sub(r"`[^`]+`", "", text)
@@ -32,15 +25,7 @@ def count_words(text: str) -> int:
 
 
 def check_placeholders(content: str, filepath: Path) -> list[str]:
-    """Check for remaining placeholder text.
-
-    Args:
-        content: The document content to check.
-        filepath: Path to the document being checked.
-
-    Returns:
-        List of issues found (empty if none).
-    """
+    """Check for remaining placeholder text."""
     issues = []
     placeholders = [
         r"\[TODO\]",
@@ -56,26 +41,13 @@ def check_placeholders(content: str, filepath: Path) -> list[str]:
     for pattern in placeholders:
         matches = re.findall(pattern, content, re.IGNORECASE)
         if matches:
-            issues.append(
-                f"{filepath}: Found placeholder '{matches[0]}' ({len(matches)} occurrences)"
-            )
+            issues.append(f"{filepath}: Found placeholder '{matches[0]}' ({len(matches)} occurrences)")
 
     return issues
 
 
-def check_required_sections(
-    content: str, filepath: Path, required: list[str]
-) -> list[str]:
-    """Check that required sections exist.
-
-    Args:
-        content: The document content to check.
-        filepath: Path to the document being checked.
-        required: List of required section names.
-
-    Returns:
-        List of issues found (empty if none).
-    """
+def check_required_sections(content: str, filepath: Path, required: list[str]) -> list[str]:
+    """Check that required sections exist."""
     issues = []
     for section in required:
         # Check for section as H2 or H3
@@ -86,31 +58,14 @@ def check_required_sections(
 
 
 def check_tldr(content: str, filepath: Path) -> list[str]:
-    """Check for TL;DR section.
-
-    Args:
-        content: The document content to check.
-        filepath: Path to the document being checked.
-
-    Returns:
-        List of issues found (empty if none).
-    """
+    """Check for TL;DR section."""
     if not re.search(r"##\s*TL;DR|^TL;DR", content, re.MULTILINE | re.IGNORECASE):
         return [f"{filepath}: Missing TL;DR section"]
     return []
 
 
 def check_cross_references(content: str, filepath: Path, docs_dir: Path) -> list[str]:
-    """Check that cross-references point to existing files.
-
-    Args:
-        content: The document content to check.
-        filepath: Path to the document being checked.
-        docs_dir: Path to the docs directory for resolving relative links.
-
-    Returns:
-        List of issues found (empty if none).
-    """
+    """Check that cross-references point to existing files."""
     issues = []
     # Find markdown links to local files
     links = re.findall(r"\[([^\]]+)\]\(\.?/?([^)]+\.md)\)", content)
@@ -121,27 +76,18 @@ def check_cross_references(content: str, filepath: Path, docs_dir: Path) -> list
             continue
 
         # Resolve relative to docs/planning/
-        link_path = link_path.removeprefix("./")
+        if link_path.startswith("./"):
+            link_path = link_path[2:]
 
         target = docs_dir / link_path
         if not target.exists():
-            issues.append(
-                f"{filepath}: Broken link to '{link_path}' (text: '{link_text}')"
-            )
+            issues.append(f"{filepath}: Broken link to '{link_path}' (text: '{link_text}')")
 
     return issues
 
 
 def validate_pvs(content: str, filepath: Path) -> list[str]:
-    """Validate Project Vision & Scope document.
-
-    Args:
-        content: The document content to validate.
-        filepath: Path to the document being validated.
-
-    Returns:
-        List of issues found (empty if none).
-    """
+    """Validate Project Vision & Scope document."""
     issues = []
 
     # Check length (target 500-800, max 1000)
@@ -163,15 +109,7 @@ def validate_pvs(content: str, filepath: Path) -> list[str]:
 
 
 def validate_tech_spec(content: str, filepath: Path) -> list[str]:
-    """Validate Technical Specification document.
-
-    Args:
-        content: The document content to validate.
-        filepath: Path to the document being validated.
-
-    Returns:
-        List of issues found (empty if none).
-    """
+    """Validate Technical Specification document."""
     issues = []
 
     # Check length (target 1000-1500, max 2000)
@@ -193,15 +131,7 @@ def validate_tech_spec(content: str, filepath: Path) -> list[str]:
 
 
 def validate_roadmap(content: str, filepath: Path) -> list[str]:
-    """Validate Development Roadmap document.
-
-    Args:
-        content: The document content to validate.
-        filepath: Path to the document being validated.
-
-    Returns:
-        List of issues found (empty if none).
-    """
+    """Validate Development Roadmap document."""
     issues = []
 
     # Check length (target 800-1200, max 1500)
@@ -223,15 +153,7 @@ def validate_roadmap(content: str, filepath: Path) -> list[str]:
 
 
 def validate_adr(content: str, filepath: Path) -> list[str]:
-    """Validate Architecture Decision Record.
-
-    Args:
-        content: The document content to validate.
-        filepath: Path to the document being validated.
-
-    Returns:
-        List of issues found (empty if none).
-    """
+    """Validate Architecture Decision Record."""
     issues = []
 
     # Check length (target 300-600, max 800)
@@ -244,11 +166,7 @@ def validate_adr(content: str, filepath: Path) -> list[str]:
     issues.extend(check_required_sections(content, filepath, required))
 
     # Check for status
-    if not re.search(
-        r"Status.*:.*\b(Proposed|Accepted|Deprecated|Superseded)\b",
-        content,
-        re.IGNORECASE,
-    ):
+    if not re.search(r"Status.*:.*\b(Proposed|Accepted|Deprecated|Superseded)\b", content, re.IGNORECASE):
         issues.append(f"{filepath}: Missing or invalid Status field")
 
     # TL;DR
@@ -261,11 +179,7 @@ def validate_adr(content: str, filepath: Path) -> list[str]:
 
 
 def main() -> int:
-    """Run validation on planning documents.
-
-    Returns:
-        Exit code (0 for success, 1 for validation failures).
-    """
+    """Run validation on planning documents."""
     # Find docs/planning directory
     project_root = Path.cwd()
     docs_dir = project_root / "docs" / "planning"
@@ -295,9 +209,7 @@ def main() -> int:
 
         # Check if still placeholder
         if "Awaiting Generation" in content:
-            all_issues.append(
-                f"{filepath}: Document not yet generated (still placeholder)"
-            )
+            all_issues.append(f"{filepath}: Document not yet generated (still placeholder)")
             continue
 
         # Run document-specific validation
@@ -337,9 +249,10 @@ def main() -> int:
             print(f"  - {issue}")
         print(f"\n{'=' * 60}")
         return 1
-    print("Status: All documents valid")
-    print(f"\n{'=' * 60}")
-    return 0
+    else:
+        print("Status: All documents valid")
+        print(f"\n{'=' * 60}")
+        return 0
 
 
 if __name__ == "__main__":

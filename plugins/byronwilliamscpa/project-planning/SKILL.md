@@ -153,10 +153,15 @@ When generating, incorporate known information:
 
 ```python
 # From pyproject.toml / cookiecutter context
-python_version = "3.12"
-project_name = "RAG Processor"
-project_slug = "rag_processor"
+python_version = "{{cookiecutter.python_version}}"
+project_name = "{{cookiecutter.project_name}}"
+project_slug = "{{cookiecutter.project_slug}}"
+{%- if cookiecutter.include_cli == "yes" %}
+cli_framework = "Click"
+{%- endif %}
+{%- if cookiecutter.include_docker == "yes" %}
 containerization = "Docker"
+{%- endif %}
 ```
 
 ## Quality Checklist
@@ -231,7 +236,7 @@ When user says: "I want to build a CLI tool for managing personal finances..."
 ```
 mcp__zen__consensus with gemini-3-pro-preview:
 
-Review this Project Vision & Scope document for RAG Processor.
+Review this Project Vision & Scope document for {{cookiecutter.project_name}}.
 
 EVALUATION CRITERIA:
 1. SPECIFICITY - Can a developer implement from these requirements?

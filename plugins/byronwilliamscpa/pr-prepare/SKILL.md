@@ -90,6 +90,21 @@ Follow conventional commits format:
 | `perf:` | Performance improvement |
 | `chore:` | Maintenance, dependencies |
 
+{%- if cookiecutter.include_linear == "yes" %}
+
+### 5. Linear Integration
+
+If addressing a Linear issue, include:
+
+```markdown
+## Linear Issue
+
+Closes {{ cookiecutter.linear_team_key }}-[NUMBER]
+```
+
+Ask the user if they want to link a Linear issue.
+{%- endif %}
+
 ### 6. Output
 
 Present the complete PR description ready to copy-paste into GitHub.
