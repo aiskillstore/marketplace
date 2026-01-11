@@ -395,34 +395,65 @@ jobs:
 
       - name: Validate SKILL.md files have proper YAML frontmatter
         id: validate-skill-md
+        continue-on-error: true
         run: |
           node -e "
             const fs = require('fs');
             const path = require('path');
+            const matter = require('gray-matter');
 
             /**
-             * Validate that content has valid SKILL.md structure (YAML frontmatter)
-             * Returns error message if invalid, null if valid
+             * Validate that content has valid SKILL.md structure (YAML frontmatter + required fields)
+             * Returns array of error messages, empty if valid
              */
-            function validateSkillMdContent(rawContent) {
+            function validateSkillMdContent(rawContent, dirName) {
+              const errors = [];
+
+              // Check for binary content (null bytes)
+              if (rawContent.includes('\\x00')) {
+                return ['File contains binary content - skipping'];
+              }
+
               // Check for YAML frontmatter delimiters
               if (!rawContent.startsWith('---')) {
-                return 'Missing YAML frontmatter (must start with ---)';
+                errors.push('Missing YAML frontmatter (must start with ---)');
+                return errors;
               }
 
               // Check for closing delimiter
               const endIndex = rawContent.indexOf('---', 3);
               if (endIndex === -1) {
-                return 'Missing closing YAML frontmatter delimiter (---)';
+                errors.push('Missing closing YAML frontmatter delimiter (---)');
+                return errors;
               }
 
               // Check if frontmatter section has content
               const frontmatterContent = rawContent.slice(3, endIndex).trim();
               if (!frontmatterContent) {
-                return 'Empty YAML frontmatter (no metadata found)';
+                errors.push('Empty YAML frontmatter (no metadata found)');
+                return errors;
               }
 
-              return null; // Valid
+              // Parse with gray-matter for field validation
+              try {
+                const { data } = matter(rawContent);
+
+                // Check required field: name
+                if (!data.name) {
+                  errors.push('Missing required field: name');
+                } else if (data.name !== dirName) {
+                  errors.push(\`Field 'name' (\${data.name}) must match directory name (\${dirName})\`);
+                }
+
+                // Check required field: description
+                if (!data.description) {
+                  errors.push('Missing required field: description');
+                }
+              } catch (e) {
+                errors.push(\`Failed to parse YAML frontmatter: \${e.message}\`);
+              }
+
+              return errors;
             }
 
             const findSkillMdFiles = (dir) => {
@@ -442,17 +473,35 @@ jobs:
 
             const skillMdFiles = [...findSkillMdFiles('plugins'), ...findSkillMdFiles('pending')];
             let hasInvalidFiles = false;
+            let skippedBinary = 0;
 
             for (const file of skillMdFiles) {
               try {
                 const content = fs.readFileSync(file, 'utf8');
-                const validationError = validateSkillMdContent(content);
 
-                if (validationError) {
-                  console.error(\`::error file=\${file}::\${validationError}\`);
+                // Check if content is empty or looks binary
+                if (!content.trim()) {
+                  console.log(\`Skipping empty file: \${file}\`);
+                  skippedBinary++;
+                  continue;
+                }
+
+                const dirName = path.basename(path.dirname(file));
+                const validationErrors = validateSkillMdContent(content, dirName);
+
+                if (validationErrors.length > 0) {
+                  // Check if it's just a binary skip
+                  if (validationErrors[0].includes('binary content')) {
+                    console.log(\`Skipping binary file: \${file}\`);
+                    skippedBinary++;
+                    continue;
+                  }
+
+                  console.error(\`::error file=\${file}::\${validationErrors.join('; ')}\`);
                   console.error(\`  Plugin: \${file}\`);
-                  console.error(\`  This SKILL.md file is invalid and will be rejected.\`);
-                  console.error(\`  Please ensure the file starts with valid YAML frontmatter.\`);
+                  for (const err of validationErrors) {
+                    console.error(\`    - \${err}\`);
+                  }
                   hasInvalidFiles = true;
                 }
               } catch (e) {
@@ -463,12 +512,179 @@ jobs:
 
             if (hasInvalidFiles) {
               console.error('\\n❌ Invalid SKILL.md files detected');
-              console.error('These plugins must have proper YAML frontmatter to be accepted.');
+              console.error('These plugins must have proper YAML frontmatter with name and description fields.');
               process.exit(1);
             }
 
-            console.log(\`✅ All \${skillMdFiles.length} SKILL.md files have valid YAML frontmatter\`);
+            console.log(\`✅ All \${skillMdFiles.length - skippedBinary} SKILL.md files are valid (skipped \${skippedBinary} binary/empty files)\`);
           "
+
+      - name: Download skillstore CLI for SKILL.md auto-fix
+        if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
+        id: download-cli-skillmd
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Auto-fix SKILL.md validation errors
+        if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLI_PATH: ${{ steps.download-cli-skillmd.outputs.cli-path }}
+        run: |
+          echo "::notice::SKILL.md validation failed. Attempting AI-powered auto-fix..."
+          echo "Running AI-powered fix-md on plugins directory..."
+          "$CLI_PATH" skill fix-md ./plugins || true
+
+          echo "Running AI-powered fix-md on pending directory..."
+          "$CLI_PATH" skill fix-md ./pending || true
+
+          echo "::notice::SKILL.md auto-fix completed. Re-validating..."
+
+      - name: Re-validate SKILL.md after auto-fix
+        if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
+        id: revalidate-skill-md
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+            const matter = require('gray-matter');
+
+            function validateSkillMdContent(rawContent, dirName) {
+              const errors = [];
+              if (rawContent.includes('\\x00')) return ['binary'];
+              if (!rawContent.startsWith('---')) {
+                errors.push('Missing YAML frontmatter');
+                return errors;
+              }
+              const endIndex = rawContent.indexOf('---', 3);
+              if (endIndex === -1) {
+                errors.push('Missing closing YAML delimiter');
+                return errors;
+              }
+              try {
+                const { data } = matter(rawContent);
+                if (!data.name) errors.push('Missing name');
+                else if (data.name !== dirName) errors.push('name must match directory');
+                if (!data.description) errors.push('Missing description');
+              } catch (e) {
+                errors.push('YAML parse error');
+              }
+              return errors;
+            }
+
+            const findSkillMdFiles = (dir) => {
+              const files = [];
+              if (!fs.existsSync(dir)) return files;
+              const entries = fs.readdirSync(dir, { withFileTypes: true });
+              for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) files.push(...findSkillMdFiles(fullPath));
+                else if (entry.name === 'SKILL.md') files.push(fullPath);
+              }
+              return files;
+            };
+
+            const skillMdFiles = [...findSkillMdFiles('plugins'), ...findSkillMdFiles('pending')];
+            let hasInvalidFiles = false;
+            let fixedCount = 0;
+
+            for (const file of skillMdFiles) {
+              try {
+                const content = fs.readFileSync(file, 'utf8');
+                if (!content.trim()) continue;
+                const dirName = path.basename(path.dirname(file));
+                const errors = validateSkillMdContent(content, dirName);
+                if (errors.length > 0 && errors[0] !== 'binary') {
+                  console.error(\`Still invalid: \${file} - \${errors.join(', ')}\`);
+                  hasInvalidFiles = true;
+                } else {
+                  fixedCount++;
+                }
+              } catch (e) {
+                console.error(\`Error reading \${file}: \${e.message}\`);
+                hasInvalidFiles = true;
+              }
+            }
+
+            console.log(\`Validation summary: \${fixedCount}/\${skillMdFiles.length} files valid\`);
+            if (hasInvalidFiles) {
+              console.error('Some SKILL.md files still have validation errors after auto-fix');
+              process.exit(1);
+            }
+            console.log('All SKILL.md files are now valid after auto-fix');
+          "
+
+      - name: Commit auto-fixed SKILL.md files
+        if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate-skill-md.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          WORKSPACE: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" == "pull_request" ]; then
+            BRANCH="$HEAD_REF"
+          else
+            BRANCH="$REF_NAME"
+          fi
+
+          echo "Target branch: $BRANCH"
+
+          WORK_DIR="/tmp/marketplace-validate-skillmd-$RUN_ID"
+
+          cleanup() {
+            rm -rf "$WORK_DIR" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          rm -rf "$WORK_DIR"
+          mkdir -p "$WORK_DIR"
+
+          git clone --depth 1 --branch "$BRANCH" \
+            "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" \
+            "$WORK_DIR"
+
+          cd "$WORK_DIR"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          for dir in plugins pending; do
+            if [ -d "${WORKSPACE}/$dir" ]; then
+              rsync -av --include='*/' --include='SKILL.md' --exclude='*' \
+                "${WORKSPACE}/$dir/" "$WORK_DIR/$dir/" 2>/dev/null || true
+            fi
+          done
+
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No SKILL.md changes to commit"
+            exit 0
+          fi
+
+          git add -A
+          git commit -m "fix(skills): auto-fix SKILL.md frontmatter validation errors
+
+          AI-powered fix applied by GitHub Actions workflow.
+          - Added missing name/description fields
+          - Fixed YAML frontmatter structure
+
+          Co-Authored-By: Claude <noreply@anthropic.com>"
+
+          git push origin "$BRANCH"
+          echo "::notice::Successfully committed auto-fixed SKILL.md files"
+
+      - name: Fail if SKILL.md errors remain
+        if: steps.validate-skill-md.outcome == 'failure' && (env.AUTO_FIX_ENABLED != 'true' || steps.revalidate-skill-md.outcome == 'failure')
+        run: |
+          echo "::error::SKILL.md validation failed"
+          exit 1
 
       - name: Validate skill-report.json files
         id: validate-skill-reports
