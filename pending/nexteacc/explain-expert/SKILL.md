@@ -1,7 +1,7 @@
-```yaml
+---
 name: explain-expert
 description: Analyze codebases and provide technical overviews covering core components, interactions, deployment architecture, and runtime behavior. Use when the user asks for codebase analysis, project overview, technical architecture explanation, or system documentation.
-```
+---
 
 # Explain Expert
 
