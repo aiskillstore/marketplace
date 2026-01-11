@@ -1,6 +1,7 @@
 ---
 skill_id: when-implementing-adaptive-learning-use-reasoningbank-agentdb
 name: reasoningbank-adaptive-learning-with-agentdb
+description: Implement ReasoningBank adaptive learning with AgentDB for trajectory tracking, verdict judgment, memory distillation, and pattern recognition to build self-learning agents that improve decision-making through experience.
 version: 1.0.0
 category: agentdb
 subcategory: adaptive-learning

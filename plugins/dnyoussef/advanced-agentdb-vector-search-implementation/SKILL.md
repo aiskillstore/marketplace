@@ -1,6 +1,7 @@
 ---
 skill_id: when-using-advanced-vector-search-use-agentdb-advanced
 name: advanced-agentdb-vector-search-implementation
+description: Master advanced AgentDB features including QUIC synchronization, multi-database management, custom distance metrics, and hybrid search for distributed AI systems.
 version: 1.0.0
 category: agentdb
 subcategory: distributed-systems

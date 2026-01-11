@@ -1,6 +1,7 @@
 ---
 skill_id: when-optimizing-vector-search-use-agentdb-optimization
 name: agentdb-vector-search-optimization
+description: Optimize AgentDB vector search performance using quantization for 4-32x memory reduction, HNSW indexing for 150x faster search, caching, and batch operations for scaling to millions of vectors.
 version: 1.0.0
 category: agentdb
 subcategory: performance-optimization

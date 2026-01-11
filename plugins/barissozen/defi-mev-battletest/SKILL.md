@@ -1,6 +1,6 @@
 ---
 name: defi-mev-battletest
-description: ```
+description: Expert knowledge for DeFi/MEV bot development including critical pitfalls, backtesting realities, AMM mechanics, MEV extraction strategies, and production failure modes
 ---
 
 # DeFi/MEV Battle-Tested Expert Skill

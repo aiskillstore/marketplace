@@ -1,6 +1,6 @@
 ---
 name: testing-patterns
-description: ```typescript
+description: Vitest testing patterns and strategies for unit tests, agent tests, and API tests with Supabase mocking
 ---
 
 # Testing Patterns Skill

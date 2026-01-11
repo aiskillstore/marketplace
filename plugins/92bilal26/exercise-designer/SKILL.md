@@ -1,6 +1,5 @@
 ---
 name: exercise-designer
-version: 2.0
 description: |
   Designs deliberate practice exercises applying evidence-based learning strategies like retrieval
   practice, spaced repetition, and interleaving. Activate when educators need varied exercise types
