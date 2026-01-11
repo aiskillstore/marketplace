@@ -1,0 +1,103 @@
+# Prometheus Alerting Rules
+# Place in /etc/prometheus/rules/ or configure in alertmanager
+
+groups:
+  - name: app-alerts
+    rules:
+      # =============================================
+      # CRITICAL ALERTS (P1)
+      # =============================================
+
+      # Service Down
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.instance }} is down"
+          description: "Service has been down for more than 1 minute"
+
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+
+      # Database Connection Pool Exhausted
+      - alert: DBConnectionPoolExhausted
+        expr: |
+          db_connection_pool_size{state="available"} < 2
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "Only {{ $value }} connections available"
+
+      # =============================================
+      # HIGH ALERTS (P2)
+      # =============================================
+
+      # High Latency
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route))
+          > 2
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "High latency on {{ $labels.route }}"
+          description: "95th percentile latency is {{ $value | humanizeDuration }}"
+
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: |
+          process_resident_memory_bytes / 1024 / 1024 > 512
+        for: 5m
+        labels:
+          severity: high
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanize }}MB"
+
+      # =============================================
+      # MEDIUM ALERTS (P3)
+      # =============================================
+
+      # Cache Hit Rate Low
+      - alert: LowCacheHitRate
+        expr: |
+          sum(rate(cache_hits_total[5m]))
+          /
+          (sum(rate(cache_hits_total[5m])) + sum(rate(cache_misses_total[5m])))
+          < 0.7
+        for: 10m
+        labels:
+          severity: medium
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }}"
+
+      # Increased Error Rate (Warning)
+      - alert: IncreasedErrorRate
+        expr: |
+          sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m]))
+          > 0.01
+        for: 10m
+        labels:
+          severity: medium
+        annotations:
+          summary: "Increased error rate"
+          description: "Error rate is {{ $value | humanizePercentage }}"
