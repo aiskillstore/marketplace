@@ -123,378 +123,47 @@ jobs:
             echo "skip_sync=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Download skillstore-cli
+        if: steps.changes.outputs.skip_sync != 'true'
+        run: |
+          CLI_URL="https://github.com/aiskillstore/skillstore/releases/latest/download/skillstore-cli-linux-x64"
+          curl -fsSL "$CLI_URL" -o skillstore-cli
+          chmod +x skillstore-cli
+          ./skillstore-cli --version
+
       - name: Sync plugins to Supabase
         id: sync
         if: steps.changes.outputs.skip_sync != 'true'
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           CHANGED_PLUGINS: ${{ steps.changes.outputs.changed_plugins }}
           SYNC_MODE: ${{ steps.changes.outputs.mode }}
         run: |
-          SYNCED_SLUGS=$(node << 'EOF'
-          const { createClient } = require('@supabase/supabase-js');
-          const fs = require('fs');
-          const path = require('path');
+          echo "Sync mode: $SYNC_MODE"
+          echo "Syncing plugins: $CHANGED_PLUGINS"
 
-          const supabase = createClient(
-            process.env.SUPABASE_URL,
-            process.env.SUPABASE_SERVICE_KEY
-          );
+          # Transform space-separated relative paths to comma-separated full paths
+          # Input:  "author1/skill1 author2/skill2"
+          # Output: "plugins/author1/skill1,plugins/author2/skill2"
+          PLUGIN_PATHS=$(echo "$CHANGED_PLUGINS" | tr ' ' '\n' | sed 's|^|plugins/|' | tr '\n' ',' | sed 's/,$//')
 
-          // Extract GitHub username from repository URL
-          // e.g., "https://github.com/K-Dense-AI/repo" → "K-Dense-AI"
-          function extractGithubUsername(repoUrl) {
-            if (!repoUrl) return null;
-            const match = repoUrl.match(/github\.com\/([^\/]+)/);
-            return match ? match[1] : null;
-          }
+          echo "Plugin paths: $PLUGIN_PATHS"
 
-          /**
-           * Validate that SKILL.md content has valid structure (YAML frontmatter)
-           * Returns error message if invalid, null if valid
-           */
-          function validateSkillMdContent(rawContent) {
-            if (!rawContent) return 'Empty content';
-            // Check for YAML frontmatter delimiters
-            if (!rawContent.startsWith('---')) {
-              return 'Missing YAML frontmatter (must start with ---)';
-            }
-            // Check for closing delimiter
-            const endIndex = rawContent.indexOf('---', 3);
-            if (endIndex === -1) {
-              return 'Missing closing YAML frontmatter delimiter (---)';
-            }
-            // Check if frontmatter section has content
-            const frontmatterContent = rawContent.slice(3, endIndex).trim();
-            if (!frontmatterContent) {
-              return 'Empty YAML frontmatter (no metadata found)';
-            }
-            return null; // Valid
-          }
+          # Run skillstore-cli sync command
+          # Output is comma-separated synced slugs on stdout
+          SYNCED_SLUGS=$(./skillstore-cli skill sync --slugs "$PLUGIN_PATHS" --verbose 2>&1 | tee /dev/stderr | tail -1)
 
-          // Sanitize and truncate text field
-          function sanitizeText(text, maxLength = 2048) {
-            if (!text) return '';
-            // Truncate to max length
-            return String(text).slice(0, maxLength);
-          }
-
-          async function syncPlugins() {
-            const changedPlugins = process.env.CHANGED_PLUGINS.trim().split(/\s+/).filter(Boolean);
-            const mode = process.env.SYNC_MODE;
-            
-            console.error(`Sync mode: ${mode}`);
-            console.error(`Syncing ${changedPlugins.length} plugin(s): ${changedPlugins.join(', ')}`);
-
-            let synced = 0;
-            let errors = 0;
-            const syncedSlugs = [];
-
-            for (const dirPath of changedPlugins) {
-              const pluginPath = `plugins/${dirPath}`;
-              const reportPath = path.join(pluginPath, 'skill-report.json');
-              const manifestPath = path.join(pluginPath, '.claude-plugin', 'plugin.json');
-              const entryPath = path.join(pluginPath, 'marketplace-entry.json');
-
-              if (!fs.existsSync(pluginPath)) {
-                console.error(`Skipping ${dirPath}: directory not found`);
-                continue;
-              }
-
-              let skillReport = null;
-              let manifest = null;
-              let entry = null;
-
-              if (fs.existsSync(reportPath)) {
-                skillReport = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-              }
-              if (fs.existsSync(manifestPath)) {
-                manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-              }
-              if (fs.existsSync(entryPath)) {
-                entry = JSON.parse(fs.readFileSync(entryPath, 'utf8'));
-              }
-
-              if (!skillReport && !entry) {
-                console.error(`Skipping ${dirPath}: no skill-report.json or marketplace-entry.json`);
-                continue;
-              }
-
-              // Validate SKILL.md has proper YAML frontmatter
-              const skillMdPath = path.join(pluginPath, 'SKILL.md');
-              if (fs.existsSync(skillMdPath)) {
-                const skillMdContent = fs.readFileSync(skillMdPath, 'utf8');
-                const validationError = validateSkillMdContent(skillMdContent);
-                if (validationError) {
-                  console.error(`Skipping ${dirPath}: invalid SKILL.md - ${validationError}`);
-                  errors++;
-                  continue;
-                }
-              }
-
-              const description = skillReport?.skill?.description || entry?.description || '';
-              const summary = skillReport?.skill?.summary || '';
-              const slug = entry?.name || manifest?.name || dirPath.replace(/\//g, '-');
-
-              // ============================================================
-              // 1. SYNC TO skills TABLE (main skill record)
-              // ============================================================
-              const skillRecord = {
-                slug: slug,
-
-                // Basic info - prefer skill-report, fallback to entry
-                // Apply truncation to prevent database constraint violations
-                name: skillReport?.skill?.name || entry?.name || slug,
-                description: sanitizeText(description, 1024),
-                summary: sanitizeText(summary, 1024),
-                icon: skillReport?.skill?.icon || null,
-                
-                // Categorization - default to 'productivity' (must match skillstore.categories table)
-                category: skillReport?.skill?.category || 'productivity',
-                tags: skillReport?.skill?.tags || entry?.keywords || [],
-                supported_tools: skillReport?.skill?.supported_tools || ['claude', 'codex', 'claude-code'],
-                
-                // Version & licensing
-                version: skillReport?.skill?.version || entry?.version || '1.0.0',
-                license: skillReport?.skill?.license || entry?.license || 'MIT',
-                
-                // Author info
-                author_name: entry?.author?.name || skillReport?.skill?.author || 'Community',
-                author_email: entry?.author?.email || null,
-                github_username: extractGithubUsername(entry?.repository || skillReport?.meta?.source_url),
-                
-                // URLs & paths
-                repository: entry?.repository || skillReport?.meta?.source_url || null,
-                source_ref: skillReport?.meta?.source_ref || 'main',
-                plugin_path: pluginPath,
-                
-                // Content hashes for deduplication
-                content_hash: skillReport?.meta?.content_hash || null,
-                tree_hash: skillReport?.meta?.tree_hash || null,
-                skill_report_url: `https://github.com/aiskillstore/marketplace/blob/main/${pluginPath}/skill-report.json`,
-                homepage: `https://skillstore.io/skills/${slug}`,
-                
-                // File structure (from skill-report.json)
-                file_structure: skillReport?.file_structure || null,
-                
-                // Marketplace source
-                marketplace_source: 'aiskillstore',
-                
-                // Risk assessment (5-tier: safe, low, medium, high, critical)
-                risk_level: skillReport?.security_audit?.risk_level || 'safe',
-                risk_factors: skillReport?.skill?.risk_factors || [],
-                
-                // Publishing status - directly approved with KV-based ISR
-                // No more 'building' status needed since pages render on-demand
-                status: 'approved',
-                published_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              };
-
-              // Upsert skill record
-              const { data: skillData, error: skillError } = await supabase
-                .schema('skillstore')
-                .from('skills')
-                .upsert(skillRecord, { onConflict: 'slug' })
-                .select('id')
-                .single();
-
-              if (skillError) {
-                console.error(`Error syncing skill ${slug}: ${skillError.message}`);
-                errors++;
-                continue;
-              }
-
-              const skillId = skillData.id;
-              console.error(`✅ Synced skill: ${slug} (id: ${skillId})`);
-              syncedSlugs.push(slug);
-
-              // ============================================================
-              // 2. SYNC TO skill_ai_content TABLE (rich AI-generated content)
-              // ============================================================
-              if (skillReport?.content) {
-                const extraContent = {
-                  meta: {
-                    schema_version: skillReport.schema_version || null,
-                    generated_at: skillReport.meta?.generated_at || null,
-                    analysis_version: skillReport.meta?.analysis_version || null,
-                    model: skillReport.meta?.model || null,
-                  },
-                };
-
-                const aiContentRecord = {
-                  skill_id: skillId,
-                  
-                  // Basic AI content
-                  user_title: skillReport.content.user_title || '',
-                  value_statement: skillReport.content.value_statement || '',
-                  seo_keywords: skillReport.content.seo_keywords || [],
-                  
-                  // Structured content
-                  use_cases: skillReport.content.use_cases || [],
-                  prompt_templates: skillReport.content.prompt_templates || [],
-                  output_examples: skillReport.content.output_examples || [],
-                  faq: skillReport.content.faq || [],
-                  
-                  // Lists
-                  best_practices: skillReport.content.best_practices || [],
-                  anti_patterns: skillReport.content.anti_patterns || [],
-                  actual_capabilities: skillReport.content.actual_capabilities || [],
-                  limitations: skillReport.content.limitations || [],
-                  
-                  // Extra content (JSONB for display-only metadata)
-                  extra_content: extraContent,
-                  
-                  // Versioning
-                  content_version: 1,
-                  updated_at: new Date().toISOString(),
-                };
-
-                const { error: aiError } = await supabase
-                  .schema('skillstore')
-                  .from('skill_ai_content')
-                  .upsert(aiContentRecord, { onConflict: 'skill_id' });
-
-                if (aiError) {
-                  console.error(`  ⚠️ Error syncing AI content for ${slug}: ${aiError.message}`);
-                } else {
-                  console.error(`  ✅ Synced AI content for ${slug}`);
-                }
-              }
-
-              // ============================================================
-              // 3. SYNC TO skill_security_audit TABLE (security analysis)
-              // Deduplication: only insert if content changed OR 24+ hours elapsed
-              // ============================================================
-              if (skillReport?.security_audit) {
-                const audit = skillReport.security_audit;
-                const crypto = require('crypto');
-
-                // Build content object for hashing (excludes version, timestamps, metadata)
-                const auditContent = {
-                  risk_level: audit.risk_level || 'low',
-                  is_blocked: audit.is_blocked ?? false,
-                  safe_to_publish: audit.safe_to_publish ?? true,
-                  summary: audit.summary || '',
-                  critical_findings: audit.critical_findings || [],
-                  high_findings: audit.high_findings || [],
-                  medium_findings: audit.medium_findings || [],
-                  low_findings: audit.low_findings || [],
-                  dangerous_patterns: audit.dangerous_patterns || [],
-                  risk_factor_evidence: audit.risk_factor_evidence || [],
-                  files_scanned: audit.files_scanned || 0,
-                  total_lines: audit.total_lines || 0,
-                };
-
-                // Calculate content hash
-                const contentHash = crypto
-                  .createHash('sha256')
-                  .update(JSON.stringify(auditContent))
-                  .digest('hex')
-                  .substring(0, 32); // Use first 32 chars for brevity
-
-                // Get latest audit for this skill (version, content_hash, created_at)
-                const { data: existingAudits } = await supabase
-                  .schema('skillstore')
-                  .from('skill_security_audit')
-                  .select('version, content_hash, created_at')
-                  .eq('skill_id', skillId)
-                  .order('version', { ascending: false })
-                  .limit(1);
-
-                const latestAudit = existingAudits?.[0];
-                const currentVersion = latestAudit?.version ?? 0;
-                const lastHash = latestAudit?.content_hash;
-                const lastCreatedAt = latestAudit?.created_at ? new Date(latestAudit.created_at) : null;
-
-                // Check if we should insert a new version:
-                // 1. Content hash differs (audit content changed), OR
-                // 2. 24+ hours since last audit (periodic re-audit allowed)
-                const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
-                const timeSinceLastAudit = lastCreatedAt ? (Date.now() - lastCreatedAt.getTime()) : Infinity;
-                const hashChanged = !lastHash || lastHash !== contentHash;
-                const timeElapsed = timeSinceLastAudit >= TWENTY_FOUR_HOURS;
-
-                if (!hashChanged && !timeElapsed) {
-                  // Skip: same content and less than 24 hours
-                  console.error(`  ⏭️ Skipped security audit for ${slug} (unchanged, ${Math.round(timeSinceLastAudit / 3600000)}h ago)`);
-                } else {
-                  const nextVersion = currentVersion + 1;
-                  const auditRecord = {
-                    skill_id: skillId,
-                    version: nextVersion,
-                    content_hash: contentHash,
-
-                    // Risk assessment
-                    risk_level: auditContent.risk_level,
-                    is_blocked: auditContent.is_blocked,
-                    safe_to_publish: auditContent.safe_to_publish,
-                    summary: auditContent.summary,
-
-                    // Findings by severity
-                    critical_findings: auditContent.critical_findings,
-                    high_findings: auditContent.high_findings,
-                    medium_findings: auditContent.medium_findings,
-                    low_findings: auditContent.low_findings,
-
-                    // Patterns detected
-                    dangerous_patterns: auditContent.dangerous_patterns,
-
-                    // Risk factor evidence
-                    risk_factor_evidence: auditContent.risk_factor_evidence,
-
-                    // Metrics
-                    files_scanned: auditContent.files_scanned,
-                    total_lines: auditContent.total_lines,
-
-                    // Audit metadata
-                    audit_model: audit.audit_model || 'claude',
-                    audited_at: audit.audited_at || new Date().toISOString(),
-                  };
-
-                  const { error: auditError } = await supabase
-                    .schema('skillstore')
-                    .from('skill_security_audit')
-                    .insert(auditRecord);
-
-                  if (auditError) {
-                    console.error(`  ⚠️ Error syncing security audit for ${slug}: ${auditError.message}`);
-                  } else {
-                    const reason = hashChanged ? 'content changed' : '24h+ elapsed';
-                    console.error(`  ✅ Synced security audit v${nextVersion} for ${slug} (${reason})`);
-                  }
-                }
-              }
-
-              synced++;
-            }
-
-            console.error(`\n========================================`);
-            console.error(`Sync complete: ${synced} synced, ${errors} errors`);
-            console.error(`========================================`);
-            
-            // Output synced slugs to stdout (comma-separated for translate workflow)
-            console.log(syncedSlugs.join(','));
-            
-            if (errors > 0) {
-              process.exit(1);
-            }
-          }
-
-          syncPlugins().catch(err => {
-            console.error('Sync failed:', err);
-            process.exit(1);
-          });
-          EOF
-          )
-          
           echo "synced_slugs=$SYNCED_SLUGS" >> $GITHUB_OUTPUT
           echo "::notice::Synced skills: $SYNCED_SLUGS"
 
       - name: Report sync status
         run: |
           echo "::notice::Sync completed - Mode: ${{ steps.changes.outputs.mode }}, Plugins: ${{ steps.changes.outputs.changed_plugins }}"
+
+      - name: Cleanup CLI
+        if: always()
+        run: rm -f skillstore-cli
 
   # ============================================================
   # CALCULATE QUALITY SCORES
