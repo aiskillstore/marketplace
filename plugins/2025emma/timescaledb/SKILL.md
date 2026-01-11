@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 ---
 name: timescaledb
 description: TimescaleDB - PostgreSQL extension for high-performance time-series and event data analytics, hypertables, continuous aggregates, compression, and real-time analytics

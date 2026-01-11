@@ -1,3 +1,8 @@
+---
+name: canton-network-repos
+description: Canton Network open-source ecosystem guide covering DAML SDK, Canton runtime, and Splice applications. Use when working with Canton Network, DAML smart contracts, or building decentralized applications.
+---
+
 # Canton Network Open-Source Repositories
 
 This skill provides comprehensive knowledge about the Canton Network open-source ecosystem, repository relationships, and build processes.

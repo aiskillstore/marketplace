@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 ---
 name: postgresql
 description: PostgreSQL database documentation - SQL queries, database design, administration, performance tuning, and advanced features. Use when working with PostgreSQL databases, writing SQL, or managing database systems.

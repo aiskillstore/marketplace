@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 ---
 name: cryptofeed
 description: Cryptofeed - Real-time cryptocurrency market data feeds from 40+ exchanges. WebSocket streaming, normalized data, order books, trades, tickers. Python library for algorithmic trading and market data analysis.

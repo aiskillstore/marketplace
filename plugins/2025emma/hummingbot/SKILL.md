@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 ---
 name: hummingbot
 description: Hummingbot trading bot framework - automated trading strategies, market making, arbitrage, connectors for crypto exchanges. Use when working with algorithmic trading, crypto trading bots, or exchange integrations.
