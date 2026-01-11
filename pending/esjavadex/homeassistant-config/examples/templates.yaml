@@ -1,0 +1,203 @@
+# Home Assistant Template Sensors Example
+# Template sensor definitions
+
+# Power and energy sensors
+- sensor:
+    - name: "Total Power Usage"
+      unique_id: total_power_usage
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      state: >
+        {{ (states('sensor.plug_1_power') | float(0) +
+            states('sensor.plug_2_power') | float(0) +
+            states('sensor.plug_3_power') | float(0)) | round(1) }}
+      availability: >
+        {{ states('sensor.plug_1_power') not in ['unknown', 'unavailable'] }}
+
+    - name: "Daily Energy Cost"
+      unique_id: daily_energy_cost
+      unit_of_measurement: "EUR"
+      state_class: total_increasing
+      state: >
+        {% set kwh = states('sensor.daily_energy') | float(0) %}
+        {% set rate = 0.25 %}
+        {{ (kwh * rate) | round(2) }}
+      icon: mdi:currency-eur
+
+# Temperature sensors
+- sensor:
+    - name: "Average Indoor Temperature"
+      unique_id: average_indoor_temperature
+      unit_of_measurement: "C"
+      device_class: temperature
+      state_class: measurement
+      state: >
+        {% set temps = [
+          states('sensor.living_room_temperature') | float(0),
+          states('sensor.bedroom_temperature') | float(0),
+          states('sensor.kitchen_temperature') | float(0)
+        ] | reject('eq', 0) | list %}
+        {{ (temps | sum / temps | count) | round(1) if temps else 'unknown' }}
+
+    - name: "Temperature Difference Indoor Outdoor"
+      unique_id: temp_diff_indoor_outdoor
+      unit_of_measurement: "C"
+      device_class: temperature
+      state: >
+        {% set indoor = states('sensor.average_indoor_temperature') | float(0) %}
+        {% set outdoor = states('sensor.outdoor_temperature') | float(0) %}
+        {{ (indoor - outdoor) | round(1) }}
+
+# Time-based sensors
+- sensor:
+    - name: "Time of Day"
+      unique_id: time_of_day
+      state: >
+        {% set hour = now().hour %}
+        {% if 5 <= hour < 12 %}
+          Morning
+        {% elif 12 <= hour < 17 %}
+          Afternoon
+        {% elif 17 <= hour < 21 %}
+          Evening
+        {% else %}
+          Night
+        {% endif %}
+      icon: >
+        {% set hour = now().hour %}
+        {% if 5 <= hour < 12 %}
+          mdi:weather-sunset-up
+        {% elif 12 <= hour < 17 %}
+          mdi:weather-sunny
+        {% elif 17 <= hour < 21 %}
+          mdi:weather-sunset-down
+        {% else %}
+          mdi:weather-night
+        {% endif %}
+
+    - name: "Day Type"
+      unique_id: day_type
+      state: >
+        {% set day = now().isoweekday() %}
+        {{ 'Weekend' if day in [6, 7] else 'Weekday' }}
+
+# Status and count sensors
+- sensor:
+    - name: "Lights On Count"
+      unique_id: lights_on_count
+      unit_of_measurement: "lights"
+      state: >
+        {{ states.light | selectattr('state', 'eq', 'on') | list | count }}
+      icon: mdi:lightbulb-group
+
+    - name: "Open Windows Count"
+      unique_id: open_windows_count
+      unit_of_measurement: "windows"
+      state: >
+        {{ states.binary_sensor
+           | selectattr('attributes.device_class', 'defined')
+           | selectattr('attributes.device_class', 'eq', 'window')
+           | selectattr('state', 'eq', 'on')
+           | list | count }}
+      icon: mdi:window-open
+
+    - name: "Active Automations"
+      unique_id: active_automations_count
+      state: >
+        {{ states.automation | selectattr('state', 'eq', 'on') | list | count }}
+      icon: mdi:robot
+
+# Device status sensors
+- sensor:
+    - name: "Thermostat Status"
+      unique_id: thermostat_status
+      state: >
+        {% set hvac = state_attr('climate.thermostat', 'hvac_action') %}
+        {% set target = state_attr('climate.thermostat', 'temperature') %}
+        {% set current = state_attr('climate.thermostat', 'current_temperature') %}
+        {{ hvac | title }} ({{ current }}C → {{ target }}C)
+      icon: >
+        {% set hvac = state_attr('climate.thermostat', 'hvac_action') %}
+        {% if hvac == 'heating' %}
+          mdi:fire
+        {% elif hvac == 'cooling' %}
+          mdi:snowflake
+        {% else %}
+          mdi:thermostat
+        {% endif %}
+
+# Binary sensors
+- binary_sensor:
+    - name: "Home Occupied"
+      unique_id: home_occupied
+      device_class: occupancy
+      state: >
+        {{ states.person | selectattr('state', 'eq', 'home') | list | count > 0 }}
+
+    - name: "Any Window Open"
+      unique_id: any_window_open
+      device_class: window
+      state: >
+        {{ states.binary_sensor
+           | selectattr('attributes.device_class', 'defined')
+           | selectattr('attributes.device_class', 'eq', 'window')
+           | selectattr('state', 'eq', 'on')
+           | list | count > 0 }}
+
+    - name: "Workday"
+      unique_id: is_workday
+      state: >
+        {{ now().isoweekday() <= 5 }}
+
+    - name: "Night Mode"
+      unique_id: night_mode
+      state: >
+        {% set hour = now().hour %}
+        {{ hour >= 22 or hour < 6 }}
+      icon: mdi:moon-waning-crescent
+
+# Trigger-based template (for event counting)
+- trigger:
+    - trigger: state
+      entity_id: binary_sensor.front_door
+      to: "on"
+  sensor:
+    - name: "Front Door Opens Today"
+      unique_id: front_door_opens_today
+      state: >
+        {% set current = this.state | int(0) %}
+        {% if now().hour == 0 and now().minute < 5 %}
+          1
+        {% else %}
+          {{ current + 1 }}
+        {% endif %}
+      icon: mdi:door
+
+# Sensor with attributes
+- sensor:
+    - name: "Home Status"
+      unique_id: home_status
+      state: >
+        {% if is_state('binary_sensor.home_occupied', 'on') %}
+          Occupied
+        {% elif is_state('input_boolean.vacation_mode', 'on') %}
+          Vacation
+        {% else %}
+          Away
+        {% endif %}
+      attributes:
+        persons_home: >
+          {{ states.person | selectattr('state', 'eq', 'home') | map(attribute='name') | list }}
+        lights_on: >
+          {{ states.light | selectattr('state', 'eq', 'on') | list | count }}
+        windows_open: >
+          {{ states.binary_sensor
+             | selectattr('attributes.device_class', 'defined')
+             | selectattr('attributes.device_class', 'eq', 'window')
+             | selectattr('state', 'eq', 'on')
+             | map(attribute='name')
+             | list }}
+        climate_status: >
+          {{ states('climate.thermostat') }}
+      icon: mdi:home
