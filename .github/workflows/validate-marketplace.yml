@@ -45,7 +45,7 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
-        run: npm install ajv ajv-formats
+        run: npm install ajv ajv-formats gray-matter
 
       - name: Validate marketplace.json
         run: |
@@ -439,10 +439,16 @@ jobs:
                 const { data } = matter(rawContent);
 
                 // Check required field: name
+                // Allow hierarchical names with colons (e.g., 'spawn:terminal' in directory 'terminal')
+                // The last segment after colon must match the directory name
                 if (!data.name) {
                   errors.push('Missing required field: name');
-                } else if (data.name !== dirName) {
-                  errors.push(\`Field 'name' (\${data.name}) must match directory name (\${dirName})\`);
+                } else {
+                  const nameParts = data.name.split(':');
+                  const baseName = nameParts[nameParts.length - 1];
+                  if (baseName !== dirName) {
+                    errors.push(\`Field 'name' base (\${baseName}) must match directory name (\${dirName})\`);
+                  }
                 }
 
                 // Check required field: description
@@ -565,7 +571,11 @@ jobs:
               try {
                 const { data } = matter(rawContent);
                 if (!data.name) errors.push('Missing name');
-                else if (data.name !== dirName) errors.push('name must match directory');
+                else {
+                  // Allow hierarchical names with colons
+                  const baseName = data.name.split(':').pop();
+                  if (baseName !== dirName) errors.push('name must match directory');
+                }
                 if (!data.description) errors.push('Missing description');
               } catch (e) {
                 errors.push('YAML parse error');
