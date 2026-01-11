@@ -16,7 +16,7 @@ outputs:
     value: ${{ steps.setup.outputs.cli-path }}
   cache-hit:
     description: 'Whether cache was hit'
-    value: ${{ steps.cache.outputs.cache-hit }}
+    value: ${{ steps.restore-cache.outputs.cache-hit }}
 
 runs:
   using: composite
@@ -39,15 +39,16 @@ runs:
         fi
         echo "release-tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
 
-    - name: Cache CLI binary
-      id: cache
-      uses: actions/cache@v4
+    # Use restore/save separately to avoid "path not found" when cleanup deletes the CLI
+    - name: Restore CLI from cache
+      id: restore-cache
+      uses: actions/cache/restore@v4
       with:
         path: skillstore-cli
         key: skillstore-cli-${{ steps.resolve.outputs.release-tag }}-${{ runner.os }}
 
     - name: Download CLI
-      if: steps.cache.outputs.cache-hit != 'true'
+      if: steps.restore-cache.outputs.cache-hit != 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
@@ -64,6 +65,14 @@ runs:
 
         chmod +x skillstore-cli
 
+    # Save cache immediately after download (before any cleanup can delete it)
+    - name: Save CLI to cache
+      if: steps.restore-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: skillstore-cli
+        key: skillstore-cli-${{ steps.resolve.outputs.release-tag }}-${{ runner.os }}
+
     - name: Setup CLI
       id: setup
       shell: bash
@@ -71,10 +80,10 @@ runs:
         chmod +x skillstore-cli
         echo "cli-path=$(pwd)/skillstore-cli" >> $GITHUB_OUTPUT
 
-        if [ "${{ steps.cache.outputs.cache-hit }}" = "true" ]; then
+        if [ "${{ steps.restore-cache.outputs.cache-hit }}" = "true" ]; then
           echo "✅ CLI restored from cache"
         else
-          echo "✅ CLI downloaded fresh"
+          echo "✅ CLI downloaded and cached"
         fi
 
         echo "CLI version:"
