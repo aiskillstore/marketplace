@@ -9,13 +9,16 @@ Auto-activates on keywords: git, branch, commit, pull request, PR, merge, rebase
 ## Workflows
 
 ### Branch Management
+
 - **branch.md**: Branch creation, validation, and naming conventions
 - **status.md**: Repository status and health checks
 
 ### Commit Management
+
 - **commit.md**: Conventional commit message preparation
 
 ### PR Workflow
+
 - **pr-prepare.md**: Pull request description generation
 - **pr-check.md**: PR validation and checklist
 

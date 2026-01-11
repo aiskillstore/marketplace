@@ -39,7 +39,8 @@
 [Monolith | Microservices | Serverless | etc] - See [ADR-XXX]
 
 ### Component Diagram
-```
+```text
+
 ┌─────────────────────────────────────────┐
 │              [Component]                │
 ├─────────────┬─────────────┬─────────────┤
@@ -50,7 +51,8 @@
 ┌─────────────────────────────────────────┐
 │            [Data Layer]                 │
 └─────────────────────────────────────────┘
-```
+
+```text
 
 ### Component Responsibilities
 | Component | Purpose | Key Functions |
@@ -69,46 +71,52 @@ class [Entity]:
     [field]: [type]
     created_at: datetime
     updated_at: datetime
-```
+```text
 
 ### Relationships
+
 - [Entity A] → [Entity B]: [Relationship type]
 
 ## 4. API Specification (if applicable)
 
 ### Endpoints
+
 | Method | Path | Purpose | Auth |
 |--------|------|---------|------|
 | GET | /api/v1/[resource] | [Purpose] | [Yes/No] |
 | POST | /api/v1/[resource] | [Purpose] | [Yes/No] |
 
 ### Request/Response Format
+
 ```json
 {
   "[field]": "[type]",
   "[field]": "[type]"
 }
-```
+```text
 
 ## 5. CLI Specification (if applicable)
 
 ### Commands
+
 | Command | Purpose | Example |
 |---------|---------|---------|
 | `[cmd] [subcmd]` | [Purpose] | `[example]` |
 
 ### Arguments
+
 - `--[arg]`: [Description] (default: [value])
 
 ## 6. Security
 
 ### Authentication
+
 [Method]: [Details] - See [ADR-XXX]
 
 ### Authorization
-[RBAC/ABAC/etc]: [Details]
 
 ### Data Protection
+
 - **At Rest**: [Encryption method]
 - **In Transit**: [TLS/etc]
 - **Sensitive Data**: [Handling approach]
@@ -116,14 +124,17 @@ class [Entity]:
 ## 7. Error Handling
 
 ### Strategy
+
 [Approach to errors - fail fast, graceful degradation, etc]
 
 ### Error Codes
+
 | Code | Meaning | User Action |
 |------|---------|-------------|
 | [Code] | [Description] | [What user should do] |
 
 ### Logging
+
 - **Format**: Structured JSON
 - **Levels**: DEBUG, INFO, WARNING, ERROR
 - **Sensitive**: [What NOT to log]
@@ -139,19 +150,23 @@ class [Entity]:
 ## 9. Testing Strategy
 
 ### Coverage Target
+
 - Minimum: [X]%
 - Critical paths: 100%
 
 ### Test Types
+
 - **Unit**: [Focus areas]
 - **Integration**: [Key scenarios]
 - **E2E**: [User workflows]
 
 ## Related Documents
+
 - [Project Vision](./project-vision.md)
 - [Architecture Decisions](./adr/)
 - [Development Roadmap](./roadmap.md)
-```
+
+```text
 
 ## Generation Notes
 

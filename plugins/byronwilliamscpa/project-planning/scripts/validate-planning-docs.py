@@ -41,12 +41,16 @@ def check_placeholders(content: str, filepath: Path) -> list[str]:
     for pattern in placeholders:
         matches = re.findall(pattern, content, re.IGNORECASE)
         if matches:
-            issues.append(f"{filepath}: Found placeholder '{matches[0]}' ({len(matches)} occurrences)")
+            issues.append(
+                f"{filepath}: Found placeholder '{matches[0]}' ({len(matches)} occurrences)"
+            )
 
     return issues
 
 
-def check_required_sections(content: str, filepath: Path, required: list[str]) -> list[str]:
+def check_required_sections(
+    content: str, filepath: Path, required: list[str]
+) -> list[str]:
     """Check that required sections exist."""
     issues = []
     for section in required:
@@ -80,7 +84,9 @@ def check_cross_references(content: str, filepath: Path, docs_dir: Path) -> list
 
         target = docs_dir / link_path
         if not target.exists():
-            issues.append(f"{filepath}: Broken link to '{link_path}' (text: '{link_text}')")
+            issues.append(
+                f"{filepath}: Broken link to '{link_path}' (text: '{link_text}')"
+            )
 
     return issues
 
@@ -165,7 +171,11 @@ def validate_adr(content: str, filepath: Path) -> list[str]:
     issues.extend(check_required_sections(content, filepath, required))
 
     # Check for status
-    if not re.search(r"Status.*:.*\b(Proposed|Accepted|Deprecated|Superseded)\b", content, re.IGNORECASE):
+    if not re.search(
+        r"Status.*:.*\b(Proposed|Accepted|Deprecated|Superseded)\b",
+        content,
+        re.IGNORECASE,
+    ):
         issues.append(f"{filepath}: Missing or invalid Status field")
 
     # TL;DR
@@ -208,7 +218,9 @@ def main() -> int:
 
         # Check if still placeholder
         if "Awaiting Generation" in content:
-            all_issues.append(f"{filepath}: Document not yet generated (still placeholder)")
+            all_issues.append(
+                f"{filepath}: Document not yet generated (still placeholder)"
+            )
             continue
 
         # Run document-specific validation

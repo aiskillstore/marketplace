@@ -9,13 +9,16 @@ Auto-activates on keywords: quality, lint, format, precommit, naming, black, ruf
 ## Workflows
 
 ### Formatting
+
 - **format.md**: Code formatting with Black and Ruff
 
 ### Linting
+
 - **lint.md**: Linting checks with Ruff
 - **naming.md**: Naming convention validation
 
 ### Pre-commit
+
 - **precommit.md**: Pre-commit hook validation
 
 ## Commands
@@ -39,11 +42,13 @@ uv run pre-commit run --all-files
 ## Quality Standards
 
 ### Python Standards
+
 - **Line Length**: 88 characters (Black default)
 - **Type Checking**: BasedPyright strict mode
 - **Linting**: Ruff with PyStrict-aligned rules
 
 ### Rule Categories
+
 - **BLE**: Blind except detection
 - **EM**: Error message best practices
 - **SLF**: Private member access violations
@@ -52,4 +57,5 @@ uv run pre-commit run --all-files
 - **G**: Logging format strings
 
 ### Per-File Ignores
+
 Tests and scripts have relaxed rules for pragmatic development.

@@ -9,12 +9,15 @@ Auto-activates on keywords: security, vulnerability, audit, OWASP, encryption, G
 ## Workflows
 
 ### Environment Validation
+
 - **validate-env.md**: GPG/SSH key validation
 
 ### Scanning
+
 - **scan.md**: Security vulnerability scanning
 
 ### Encryption
+
 - **encrypt.md**: Secret encryption and management
 
 ## Commands
@@ -43,11 +46,13 @@ uv run semgrep scan --config auto src/
 ## Security Checklist
 
 ### Pre-Commit
+
 - [ ] No secrets in code (checked by gitleaks)
 - [ ] Dependencies scanned for vulnerabilities
 - [ ] Bandit security scan passes
 
 ### Pre-Release
+
 - [ ] All known vulnerabilities addressed
 - [ ] Security advisory published (if applicable)
 - [ ] Dependencies updated to secure versions
