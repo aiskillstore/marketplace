@@ -33,13 +33,13 @@ jobs:
           # Full history needed to diff against last successful sync
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
         with:
-          node-version: '24'
-
-      - name: Install dependencies
-        run: npm install @supabase/supabase-js
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
 
       - name: Find last successful sync commit
         id: last_sync
@@ -125,11 +125,9 @@ jobs:
 
       - name: Download skillstore-cli
         if: steps.changes.outputs.skip_sync != 'true'
-        run: |
-          CLI_URL="https://github.com/aiskillstore/skillstore/releases/latest/download/skillstore-cli-linux-x64"
-          curl -fsSL "$CLI_URL" -o skillstore-cli
-          chmod +x skillstore-cli
-          ./skillstore-cli --version
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Sync plugins to Supabase
         id: sync
@@ -174,17 +172,26 @@ jobs:
     if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != ''
     runs-on: self-hosted
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
       - name: Download skillstore-cli
-        run: |
-          CLI_URL="https://github.com/aiskillstore/skillstore/releases/latest/download/skillstore-cli-linux-x64"
-          curl -fsSL "$CLI_URL" -o skillstore-cli
-          chmod +x skillstore-cli
-          ./skillstore-cli --version
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Calculate quality scores for synced skills
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
         run: |
           echo "🎯 Calculating quality scores for: $SYNCED_SLUGS"
