@@ -365,63 +365,105 @@ jobs:
 
               // ============================================================
               // 3. SYNC TO skill_security_audit TABLE (security analysis)
-              // Each audit creates a new version (history preserved)
+              // Deduplication: only insert if content changed OR 24+ hours elapsed
               // ============================================================
               if (skillReport?.security_audit) {
                 const audit = skillReport.security_audit;
-                
-                // Get current max version for this skill
-                const { data: existingAudits } = await supabase
-                  .schema('skillstore')
-                  .from('skill_security_audit')
-                  .select('version')
-                  .eq('skill_id', skillId)
-                  .order('version', { ascending: false })
-                  .limit(1);
-                
-                const nextVersion = (existingAudits?.[0]?.version ?? 0) + 1;
-                
-                const auditRecord = {
-                  skill_id: skillId,
-                  version: nextVersion,
-                  
-                  // Risk assessment
+                const crypto = require('crypto');
+
+                // Build content object for hashing (excludes version, timestamps, metadata)
+                const auditContent = {
                   risk_level: audit.risk_level || 'low',
                   is_blocked: audit.is_blocked ?? false,
                   safe_to_publish: audit.safe_to_publish ?? true,
                   summary: audit.summary || '',
-                  
-                  // Findings by severity
                   critical_findings: audit.critical_findings || [],
                   high_findings: audit.high_findings || [],
                   medium_findings: audit.medium_findings || [],
                   low_findings: audit.low_findings || [],
-                  
-                  // Patterns detected
                   dangerous_patterns: audit.dangerous_patterns || [],
-                  
-                  // Risk factor evidence (detailed locations for each risk factor)
                   risk_factor_evidence: audit.risk_factor_evidence || [],
-                  
-                  // Metrics
                   files_scanned: audit.files_scanned || 0,
                   total_lines: audit.total_lines || 0,
-                  
-                  // Audit metadata
-                  audit_model: audit.audit_model || 'claude',
-                  audited_at: audit.audited_at || new Date().toISOString(),
                 };
 
-                // Insert new audit version (preserves history)
-                const { error: auditError } = await supabase
+                // Calculate content hash
+                const contentHash = crypto
+                  .createHash('sha256')
+                  .update(JSON.stringify(auditContent))
+                  .digest('hex')
+                  .substring(0, 32); // Use first 32 chars for brevity
+
+                // Get latest audit for this skill (version, content_hash, created_at)
+                const { data: existingAudits } = await supabase
                   .schema('skillstore')
                   .from('skill_security_audit')
-                  .insert(auditRecord);
+                  .select('version, content_hash, created_at')
+                  .eq('skill_id', skillId)
+                  .order('version', { ascending: false })
+                  .limit(1);
 
-                if (auditError) {
-                  console.error(`  ⚠️ Error syncing security audit for ${slug}: ${auditError.message}`);
+                const latestAudit = existingAudits?.[0];
+                const currentVersion = latestAudit?.version ?? 0;
+                const lastHash = latestAudit?.content_hash;
+                const lastCreatedAt = latestAudit?.created_at ? new Date(latestAudit.created_at) : null;
+
+                // Check if we should insert a new version:
+                // 1. Content hash differs (audit content changed), OR
+                // 2. 24+ hours since last audit (periodic re-audit allowed)
+                const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+                const timeSinceLastAudit = lastCreatedAt ? (Date.now() - lastCreatedAt.getTime()) : Infinity;
+                const hashChanged = !lastHash || lastHash !== contentHash;
+                const timeElapsed = timeSinceLastAudit >= TWENTY_FOUR_HOURS;
+
+                if (!hashChanged && !timeElapsed) {
+                  // Skip: same content and less than 24 hours
+                  console.error(`  ⏭️ Skipped security audit for ${slug} (unchanged, ${Math.round(timeSinceLastAudit / 3600000)}h ago)`);
                 } else {
-                  console.error(`  ✅ Synced security audit v${nextVersion} for ${slug}`);
+                  const nextVersion = currentVersion + 1;
+                  const auditRecord = {
+                    skill_id: skillId,
+                    version: nextVersion,
+                    content_hash: contentHash,
+
+                    // Risk assessment
+                    risk_level: auditContent.risk_level,
+                    is_blocked: auditContent.is_blocked,
+                    safe_to_publish: auditContent.safe_to_publish,
+                    summary: auditContent.summary,
+
+                    // Findings by severity
+                    critical_findings: auditContent.critical_findings,
+                    high_findings: auditContent.high_findings,
+                    medium_findings: auditContent.medium_findings,
+                    low_findings: auditContent.low_findings,
+
+                    // Patterns detected
+                    dangerous_patterns: auditContent.dangerous_patterns,
+
+                    // Risk factor evidence
+                    risk_factor_evidence: auditContent.risk_factor_evidence,
+
+                    // Metrics
+                    files_scanned: auditContent.files_scanned,
+                    total_lines: auditContent.total_lines,
+
+                    // Audit metadata
+                    audit_model: audit.audit_model || 'claude',
+                    audited_at: audit.audited_at || new Date().toISOString(),
+                  };
+
+                  const { error: auditError } = await supabase
+                    .schema('skillstore')
+                    .from('skill_security_audit')
+                    .insert(auditRecord);
+
+                  if (auditError) {
+                    console.error(`  ⚠️ Error syncing security audit for ${slug}: ${auditError.message}`);
+                  } else {
+                    const reason = hashChanged ? 'content changed' : '24h+ elapsed';
+                    console.error(`  ✅ Synced security audit v${nextVersion} for ${slug} (${reason})`);
+                  }
                 }
               }
 
