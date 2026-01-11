@@ -393,6 +393,65 @@ jobs:
           echo "::error::Marketplace consistency check failed"
           exit 1
 
+      - name: Detect binary/corrupt data in skill-report.json
+        id: detect-binary
+        run: |
+          node -e "
+            const fs = require('fs');
+            const path = require('path');
+
+            // Detect binary/corrupt data (ZIP headers, control characters)
+            function hasBinaryData(text) {
+              if (!text) return false;
+              // ZIP header (PK\x03\x04) or excessive control characters
+              return /^PK\x03\x04|[\x00-\x08\x0E-\x1F]/.test(text);
+            }
+
+            const findReportFiles = (dir) => {
+              const files = [];
+              if (!fs.existsSync(dir)) return files;
+              const entries = fs.readdirSync(dir, { withFileTypes: true });
+              for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                  files.push(...findReportFiles(fullPath));
+                } else if (entry.name === 'skill-report.json') {
+                  files.push(fullPath);
+                }
+              }
+              return files;
+            };
+
+            const reportFiles = [...findReportFiles('plugins'), ...findReportFiles('pending')];
+            let hasCorruptData = false;
+
+            for (const file of reportFiles) {
+              try {
+                const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+                const description = data?.skill?.description || '';
+                const summary = data?.skill?.summary || '';
+
+                if (hasBinaryData(description) || hasBinaryData(summary)) {
+                  console.error(\`::error file=\${file}::Contains binary/corrupt data (likely ZIP or binary file content)\`);
+                  console.error(\`  Plugin: \${file}\`);
+                  console.error(\`  This usually means the source SKILL.md file is corrupt or is a binary file.\`);
+                  console.error(\`  Please check the source repository and regenerate the skill-report.json.\`);
+                  hasCorruptData = true;
+                }
+              } catch (e) {
+                // JSON parse errors will be caught by the next validation step
+              }
+            }
+
+            if (hasCorruptData) {
+              console.error('\\n❌ Binary/corrupt data detected in skill-report.json files');
+              console.error('These plugins must be removed or regenerated from valid source files.');
+              process.exit(1);
+            }
+
+            console.log('✅ No binary/corrupt data detected in skill-report.json files');
+          "
+
       - name: Validate skill-report.json files
         id: validate-skill-reports
         continue-on-error: true

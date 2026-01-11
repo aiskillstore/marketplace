@@ -150,6 +150,20 @@ jobs:
             return match ? match[1] : null;
           }
 
+          // Detect binary/corrupt data (ZIP headers, control characters)
+          function hasBinaryData(text) {
+            if (!text) return false;
+            // ZIP header or excessive control characters
+            return /^PK\x03\x04|[\x00-\x08\x0E-\x1F]/.test(text);
+          }
+
+          // Sanitize and truncate text field
+          function sanitizeText(text, maxLength = 2048) {
+            if (!text) return '';
+            // Truncate to max length
+            return String(text).slice(0, maxLength);
+          }
+
           async function syncPlugins() {
             const changedPlugins = process.env.CHANGED_PLUGINS.trim().split(/\s+/).filter(Boolean);
             const mode = process.env.SYNC_MODE;
@@ -191,6 +205,15 @@ jobs:
                 continue;
               }
 
+              // Check for binary/corrupt data in critical fields
+              const description = skillReport?.skill?.description || entry?.description || '';
+              const summary = skillReport?.skill?.summary || '';
+              if (hasBinaryData(description) || hasBinaryData(summary)) {
+                console.error(`Skipping ${dirPath}: contains binary/corrupt data`);
+                errors++;
+                continue;
+              }
+
               const slug = entry?.name || manifest?.name || dirPath.replace(/\//g, '-');
 
               // ============================================================
@@ -198,11 +221,12 @@ jobs:
               // ============================================================
               const skillRecord = {
                 slug: slug,
-                
+
                 // Basic info - prefer skill-report, fallback to entry
+                // Apply truncation to prevent database constraint violations
                 name: skillReport?.skill?.name || entry?.name || slug,
-                description: skillReport?.skill?.description || entry?.description || '',
-                summary: skillReport?.skill?.summary || '',
+                description: sanitizeText(description, 2048),
+                summary: sanitizeText(summary, 1024),
                 icon: skillReport?.skill?.icon || null,
                 
                 // Categorization - default to 'productivity' (must match skillstore.categories table)
