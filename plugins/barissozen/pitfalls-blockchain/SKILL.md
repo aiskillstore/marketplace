@@ -1,6 +1,6 @@
 ---
 name: pitfalls-blockchain
-description: Blockchain RPC error handling, gas estimation, multi-chain config, and transaction management. Use when interacting with smart contracts, estimating gas, or managing transactions. Triggers on: RPC, contract call, gas, multicall, nonce, transaction, revert.
+description: "Blockchain RPC error handling, gas estimation, multi-chain config, and transaction management. Use when interacting with smart contracts, estimating gas, or managing transactions. Triggers on: RPC, contract call, gas, multicall, nonce, transaction, revert."
 ---
 
 # Blockchain Pitfalls

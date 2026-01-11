@@ -1,6 +1,6 @@
 ---
 name: iterative-runner
-description: Runs Claude in a retry loop until tests pass or task completes. Use for TDD loops, overnight builds, or any task needing repeated iteration until success. Triggers on: loop until done, keep trying, retry until pass, TDD loop, iterate until tests pass.
+description: "Runs Claude in a retry loop until tests pass or task completes. Use for TDD loops, overnight builds, or any task needing repeated iteration until success. Triggers on: loop until done, keep trying, retry until pass, TDD loop, iterate until tests pass."
 ---
 
 # Iterative Runner

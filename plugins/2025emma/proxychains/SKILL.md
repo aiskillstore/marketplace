@@ -1,6 +1,6 @@
 ---
 name: proxychains
-description: Auto-detect network issues and force proxy usage with proxychains4. Use this skill when encountering connection timeouts, DNS failures, or blocked network access. Default proxy is http://127.0.0.1:9910
+description: "Auto-detect network issues and force proxy usage with proxychains4. Use this skill when encountering connection timeouts, DNS failures, or blocked network access. Default proxy is http://127.0.0.1:9910"
 ---
 
 # Proxychains Network Proxy Skill

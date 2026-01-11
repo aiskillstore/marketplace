@@ -1,6 +1,6 @@
 ---
 name: pitfalls-express-api
-description: Express API conventions and storage patterns. Use when building REST APIs, defining routes, or implementing storage interfaces. Triggers on: Express, router, API route, status code, storage interface.
+description: "Express API conventions and storage patterns. Use when building REST APIs, defining routes, or implementing storage interfaces. Triggers on: Express, router, API route, status code, storage interface."
 ---
 
 # Express API Pitfalls

@@ -1,6 +1,6 @@
 ---
 name: claude-plugin
-description: **Use MCP repo-map tools when:** - Searching for symbols by name pattern (faster than Grep) - Getting all symbols in a file (faster than Read + parsing)
+description: "**Use MCP repo-map tools when:** - Searching for symbols by name pattern (faster than Grep) - Getting all symbols in a file (faster than Read + parsing)"
 ---
 
 # Context Tools Plugin - Usage Guide

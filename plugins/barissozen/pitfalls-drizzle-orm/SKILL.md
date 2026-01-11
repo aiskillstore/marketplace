@@ -1,6 +1,6 @@
 ---
 name: pitfalls-drizzle-orm
-description: Drizzle ORM patterns and migration safety rules. Use when defining schemas, running migrations, or debugging database issues. Triggers on: Drizzle, schema, migration, db:push, $inferSelect, array column.
+description: "Drizzle ORM patterns and migration safety rules. Use when defining schemas, running migrations, or debugging database issues. Triggers on: Drizzle, schema, migration, db:push, $inferSelect, array column."
 ---
 
 # Drizzle ORM Pitfalls

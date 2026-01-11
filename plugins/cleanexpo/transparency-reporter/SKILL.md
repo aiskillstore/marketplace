@@ -1,6 +1,6 @@
 ---
 name: transparency-reporter
-description: When Truth Layer identifies a blocker:
+description: "When Truth Layer identifies a blocker:"
 ---
 
 # Transparency Reporter Agent - Truth Chronicler

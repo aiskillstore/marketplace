@@ -1,6 +1,6 @@
 ---
 name: gitea
-description: Gitea operations via tea CLI. Use when user mentions: gitea, tea, or when git remote shows a Gitea instance.
+description: "Gitea operations via tea CLI. Use when user mentions: gitea, tea, or when git remote shows a Gitea instance."
 ---
 
 # Gitea CLI (tea)

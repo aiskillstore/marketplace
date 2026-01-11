@@ -1,6 +1,6 @@
 ---
 name: truth-layer
-description: When you discover a blocker:
+description: "When you discover a blocker:"
 ---
 
 # Truth Layer Agent - Honesty-First Verification

@@ -1,6 +1,6 @@
 ---
 name: test-infrastructure
-description: When invoked:
+description: "When invoked:"
 ---
 
 # Test Infrastructure Agent - Real Coverage Builder

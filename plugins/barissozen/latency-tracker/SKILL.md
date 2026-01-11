@@ -1,6 +1,6 @@
 ---
 name: latency-tracker
-description: Per-call and aggregated latency tracking for MEV infrastructure. Use when implementing performance monitoring or debugging slow operations. Triggers on: latency, timing, performance, slow, speed, instrumentation.
+description: "Per-call and aggregated latency tracking for MEV infrastructure. Use when implementing performance monitoring or debugging slow operations. Triggers on: latency, timing, performance, slow, speed, instrumentation."
 ---
 
 # Latency Tracker

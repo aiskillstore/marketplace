@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 /**
- * Batch fix SKILL.md name fields to conform to Agent Skills Specification
+ * Batch fix SKILL.md files to conform to Agent Skills Specification
  *
- * Per specification (https://agentskills.io/specification):
- * - name must be 1-64 characters
- * - name must be lowercase alphanumeric + hyphens only (a-z, 0-9, -)
- * - name must not start or end with hyphen
- * - name must not contain consecutive hyphens (--)
+ * Fixes:
+ * 1. name field: lowercase alphanumeric + hyphens only (1-64 chars)
+ * 2. description field: properly quoted if contains colons
  *
- * This script converts invalid names to valid slugs (e.g., "Writing Hookify Rules" → "writing-hookify-rules")
+ * Per specification (https://agentskills.io/specification)
  */
 
 const fs = require('fs');
@@ -23,10 +21,10 @@ const VALID_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 function slugify(text) {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')  // Replace non-alphanumeric with hyphens
-    .replace(/^-+|-+$/g, '')       // Remove leading/trailing hyphens
-    .replace(/-{2,}/g, '-')        // Replace consecutive hyphens with single
-    .slice(0, 64);                 // Max 64 characters
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 64);
 }
 
 function isValidName(name) {
@@ -88,47 +86,60 @@ function fixSkillMd(filePath, dryRun = false) {
   const frontmatter = content.slice(3, endIndex);
   const body = content.slice(endIndex + 3);
 
-  // Parse name field - handle both quoted and unquoted values
-  const nameMatch = frontmatter.match(/^name:\s*["']?(.+?)["']?\s*$/m);
+  let newFrontmatter = frontmatter;
+  const changes = [];
 
-  if (!nameMatch) {
-    // No name field - use directory name as fallback
+  // Fix 1: name field - must be valid slug
+  const nameMatch = frontmatter.match(/^name:\s*["']?(.+?)["']?\s*$/m);
+  if (nameMatch) {
+    const currentName = nameMatch[1].trim();
+    if (!isValidName(currentName)) {
+      const validName = slugify(currentName);
+      if (validName) {
+        newFrontmatter = newFrontmatter.replace(
+          /^name:\s*["']?.+?["']?\s*$/m,
+          `name: ${validName}`
+        );
+        changes.push(`name: "${currentName}" → ${validName}`);
+      }
+    }
+  } else {
+    // No name field - add one
     const dirName = path.basename(path.dirname(filePath));
     const validName = slugify(dirName);
-    if (!dryRun) {
-      const newFrontmatter = `name: ${validName}\n${frontmatter.trim()}`;
-      const newContent = `---\n${newFrontmatter}\n---${body}`;
-      fs.writeFileSync(filePath, newContent, 'utf8');
-    }
-    return { status: 'fixed', change: `added name: ${validName}` };
+    newFrontmatter = `name: ${validName}\n${newFrontmatter.trim()}`;
+    changes.push(`name: added ${validName}`);
   }
 
-  const currentName = nameMatch[1].trim();
+  // Fix 2: description field - quote if contains unescaped colons
+  const descMatch = newFrontmatter.match(/^description:\s*(.+)$/m);
+  if (descMatch) {
+    const descValue = descMatch[1].trim();
+    // Check if unquoted and contains a colon (besides being a quoted string)
+    const isQuoted = (descValue.startsWith('"') && descValue.endsWith('"')) ||
+                     (descValue.startsWith("'") && descValue.endsWith("'"));
 
-  // Check if already valid
-  if (isValidName(currentName)) {
+    if (!isQuoted && descValue.includes(':')) {
+      // Need to quote - escape any existing quotes
+      const escaped = descValue.replace(/"/g, '\\"');
+      newFrontmatter = newFrontmatter.replace(
+        /^description:\s*.+$/m,
+        `description: "${escaped}"`
+      );
+      changes.push(`description: quoted (contains colon)`);
+    }
+  }
+
+  if (changes.length === 0) {
     return { status: 'ok' };
   }
 
-  // Convert to valid slug
-  const validName = slugify(currentName);
-
-  if (!validName) {
-    return { status: 'error', error: `Cannot slugify: "${currentName}"` };
-  }
-
   if (!dryRun) {
-    // Fix name field - preserve quote style if present
-    const newFrontmatter = frontmatter.replace(
-      /^name:\s*["']?.+?["']?\s*$/m,
-      `name: ${validName}`
-    );
-
     const newContent = `---${newFrontmatter}---${body}`;
     fs.writeFileSync(filePath, newContent, 'utf8');
   }
 
-  return { status: 'fixed', change: `"${currentName}" → ${validName}` };
+  return { status: 'fixed', change: changes.join('; ') };
 }
 
 // Main
@@ -140,8 +151,8 @@ if (targetDirs.length === 0) {
   targetDirs.push('./plugins', './pending');
 }
 
-console.log(`SKILL.md Name Fixer (Specification Compliance)`);
-console.log(`==============================================`);
+console.log(`SKILL.md Fixer (Specification Compliance)`);
+console.log(`=========================================`);
 console.log(`Targets: ${targetDirs.join(', ')}`);
 console.log(`Mode: ${dryRun ? 'DRY RUN' : 'LIVE'}`);
 console.log();
@@ -182,9 +193,9 @@ for (const file of allFiles) {
 
 console.log();
 console.log(`Summary:`);
-console.log(`  Already valid:   ${stats.ok}`);
-console.log(`  ${dryRun ? 'Would fix' : 'Fixed'}:        ${stats.fixed}`);
-console.log(`  Errors:          ${stats.error}`);
+console.log(`  Already valid:    ${stats.ok}`);
+console.log(`  ${dryRun ? 'Would fix' : 'Fixed'}:         ${stats.fixed}`);
+console.log(`  Errors:           ${stats.error}`);
 console.log(`  Skipped (binary): ${stats.skip}`);
 
 if (dryRun && stats.fixed > 0) {

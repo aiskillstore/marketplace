@@ -1,6 +1,6 @@
 ---
 name: architecture-reference
-description: Quick reference for Portfolio Buddy 2 project structure. Use when: adding new features, modifying existing components, understanding data flow, or onboarding to the codebase. Contains component hierarchy, hook patterns, and utility functions.
+description: "Quick reference for Portfolio Buddy 2 project structure. Use when: adding new features, modifying existing components, understanding data flow, or onboarding to the codebase. Contains component hierarchy, hook patterns, and utility functions."
 ---
 
 # Portfolio Buddy 2 - Architecture Reference

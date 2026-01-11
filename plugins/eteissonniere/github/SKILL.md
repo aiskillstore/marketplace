@@ -1,6 +1,6 @@
 ---
 name: github
-description: GitHub operations via gh CLI. Use when user mentions: PR, pull request, github issue, workflow, actions, gh, or when git remote shows github.com.
+description: "GitHub operations via gh CLI. Use when user mentions: PR, pull request, github issue, workflow, actions, gh, or when git remote shows github.com."
 ---
 
 # GitHub CLI (gh)

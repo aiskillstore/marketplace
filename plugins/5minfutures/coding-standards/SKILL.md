@@ -1,6 +1,6 @@
 ---
 name: coding-standards
-description: React 19 and TypeScript coding standards for Portfolio Buddy 2. Use when: writing new components, reviewing code, refactoring, or ensuring consistency. Contains component patterns, TypeScript rules, and best practices.
+description: "React 19 and TypeScript coding standards for Portfolio Buddy 2. Use when: writing new components, reviewing code, refactoring, or ensuring consistency. Contains component patterns, TypeScript rules, and best practices."
 ---
 
 # Coding Standards - Portfolio Buddy 2

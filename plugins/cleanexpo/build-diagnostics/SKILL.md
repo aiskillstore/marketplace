@@ -1,6 +1,6 @@
 ---
 name: build-diagnostics
-description: When given a blocker:
+description: "When given a blocker:"
 ---
 
 # Build Diagnostics Agent - Deep Problem Solver

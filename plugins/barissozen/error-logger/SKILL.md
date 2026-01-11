@@ -1,6 +1,6 @@
 ---
 name: error-logger
-description: Structured JSON logging with correlation IDs for multi-service systems. Use when implementing logging, debugging failures, or tracing errors across services. Triggers on: add logging, error handling, debug failures, trace errors.
+description: "Structured JSON logging with correlation IDs for multi-service systems. Use when implementing logging, debugging failures, or tracing errors across services. Triggers on: add logging, error handling, debug failures, trace errors."
 ---
 
 # Error Logger

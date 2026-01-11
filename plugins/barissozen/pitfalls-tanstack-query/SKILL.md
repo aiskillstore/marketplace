@@ -1,6 +1,6 @@
 ---
 name: pitfalls-tanstack-query
-description: TanStack Query v5 patterns and common pitfalls. Use when implementing data fetching, cache invalidation, or debugging stale data issues. Triggers on: useQuery, useMutation, queryKey, invalidate, TanStack, React Query.
+description: "TanStack Query v5 patterns and common pitfalls. Use when implementing data fetching, cache invalidation, or debugging stale data issues. Triggers on: useQuery, useMutation, queryKey, invalidate, TanStack, React Query."
 ---
 
 # TanStack Query v5 Pitfalls

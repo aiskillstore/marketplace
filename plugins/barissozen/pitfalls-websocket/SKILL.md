@@ -1,6 +1,6 @@
 ---
 name: pitfalls-websocket
-description: WebSocket server and client patterns with heartbeat and reconnection. Use when implementing real-time features, debugging connection issues, or reviewing WebSocket code. Triggers on: WebSocket, wss, heartbeat, reconnect, real-time.
+description: "WebSocket server and client patterns with heartbeat and reconnection. Use when implementing real-time features, debugging connection issues, or reviewing WebSocket code. Triggers on: WebSocket, wss, heartbeat, reconnect, real-time."
 ---
 
 # WebSocket Pitfalls

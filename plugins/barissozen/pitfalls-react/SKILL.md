@@ -1,6 +1,6 @@
 ---
 name: pitfalls-react
-description: React component patterns, forms, accessibility, and responsive design. Use when building React components, handling forms, or ensuring accessibility. Triggers on: React component, useEffect, form validation, a11y, responsive, Error Boundary.
+description: "React component patterns, forms, accessibility, and responsive design. Use when building React components, handling forms, or ensuring accessibility. Triggers on: React component, useEffect, form validation, a11y, responsive, Error Boundary."
 ---
 
 # React Pitfalls

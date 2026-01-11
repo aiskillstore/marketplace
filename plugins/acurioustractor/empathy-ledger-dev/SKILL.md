@@ -1,6 +1,6 @@
 ---
 name: empathy-ledger-dev
-description: Invoke this skill when: - Starting work on any Empathy Ledger feature - Need quick reference to project patterns
+description: "Invoke this skill when: - Starting work on any Empathy Ledger feature - Need quick reference to project patterns"
 ---
 
 # Empathy Ledger Development Skill

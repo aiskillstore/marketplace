@@ -1,6 +1,6 @@
 ---
 name: gitlab
-description: GitLab operations via glab CLI. Use when user mentions: MR, merge request, gitlab issue, pipeline, CI status, glab, or when git remote shows gitlab.com or self-hosted GitLab.
+description: "GitLab operations via glab CLI. Use when user mentions: MR, merge request, gitlab issue, pipeline, CI status, glab, or when git remote shows gitlab.com or self-hosted GitLab."
 ---
 
 # GitLab CLI (glab)
