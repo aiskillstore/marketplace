@@ -1,5 +1,5 @@
 name: Download Skillstore CLI
-description: Download and setup skillstore-cli binary
+description: Download and setup skillstore-cli binary with caching support
 
 inputs:
   version:
@@ -13,21 +13,22 @@ inputs:
 outputs:
   cli-path:
     description: 'Path to the CLI binary'
-    value: ${{ steps.download.outputs.cli-path }}
+    value: ${{ steps.setup.outputs.cli-path }}
+  cache-hit:
+    description: 'Whether cache was hit'
+    value: ${{ steps.cache.outputs.cache-hit }}
 
 runs:
   using: composite
   steps:
-    - name: Download CLI
-      id: download
+    - name: Resolve CLI version
+      id: resolve
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
         CLI_VERSION: ${{ inputs.version }}
         CLI_REPO: aiskillstore/skillstore
       run: |
-        echo "Downloading skillstore-cli..."
-
         if [ "$CLI_VERSION" = "latest" ]; then
           echo "Fetching latest release tag..."
           RELEASE_TAG=$(gh release view --repo "$CLI_REPO" --json tagName -q '.tagName')
@@ -36,6 +37,24 @@ runs:
           RELEASE_TAG="cli-v$CLI_VERSION"
           echo "Using specified version: $RELEASE_TAG"
         fi
+        echo "release-tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
+
+    - name: Cache CLI binary
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: skillstore-cli
+        key: skillstore-cli-${{ steps.resolve.outputs.release-tag }}-${{ runner.os }}
+
+    - name: Download CLI
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CLI_REPO: aiskillstore/skillstore
+        RELEASE_TAG: ${{ steps.resolve.outputs.release-tag }}
+      run: |
+        echo "Downloading skillstore-cli ($RELEASE_TAG)..."
 
         gh release download "$RELEASE_TAG" \
           --repo "$CLI_REPO" \
@@ -44,7 +63,19 @@ runs:
           --clobber
 
         chmod +x skillstore-cli
+
+    - name: Setup CLI
+      id: setup
+      shell: bash
+      run: |
+        chmod +x skillstore-cli
         echo "cli-path=$(pwd)/skillstore-cli" >> $GITHUB_OUTPUT
+
+        if [ "${{ steps.cache.outputs.cache-hit }}" = "true" ]; then
+          echo "✅ CLI restored from cache"
+        else
+          echo "✅ CLI downloaded fresh"
+        fi
 
         echo "CLI version:"
         ./skillstore-cli --version

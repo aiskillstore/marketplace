@@ -47,6 +47,14 @@ jobs:
       - name: Install dependencies
         run: npm install ajv ajv-formats gray-matter
 
+      # Download CLI once at start - used by both SKILL.md and skill-report.json auto-fix steps
+      - name: Download skillstore CLI for auto-fix
+        if: env.AUTO_FIX_ENABLED == 'true'
+        id: download-cli
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
       - name: Validate marketplace.json
         run: |
           node -e "
@@ -525,18 +533,11 @@ jobs:
             console.log(\`✅ All \${skillMdFiles.length - skippedBinary} SKILL.md files are valid (skipped \${skippedBinary} binary/empty files)\`);
           "
 
-      - name: Download skillstore CLI for SKILL.md auto-fix
-        if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
-        id: download-cli-skillmd
-        uses: ./.github/actions/download-skillstore-cli
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-
       - name: Auto-fix SKILL.md validation errors
         if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CLI_PATH: ${{ steps.download-cli-skillmd.outputs.cli-path }}
+          CLI_PATH: ${{ steps.download-cli.outputs.cli-path }}
         run: |
           echo "::notice::SKILL.md validation failed. Attempting AI-powered auto-fix..."
           echo "Running AI-powered fix-md on plugins directory..."
@@ -752,13 +753,6 @@ jobs:
             }
           "
 
-      - name: Download skillstore CLI for auto-fix
-        if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
-        id: download-cli
-        uses: ./.github/actions/download-skillstore-cli
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-
       - name: Auto-fix skill-report.json validation errors
         if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
         env:
@@ -932,3 +926,7 @@ jobs:
         run: |
           echo "::error::skill-report.json validation failed"
           exit 1
+
+      - name: Cleanup CLI
+        if: always() && env.AUTO_FIX_ENABLED == 'true'
+        run: rm -f skillstore-cli
