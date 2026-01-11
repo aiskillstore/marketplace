@@ -1,0 +1,388 @@
+{
+  "schema_version": "2.0",
+  "meta": {
+    "generated_at": "2026-01-10T14:41:31.007Z",
+    "slug": "dwsy-tmux",
+    "source_url": "https://github.com/Dwsy/agent/tree/main/skills/tmux",
+    "source_ref": "main",
+    "model": "claude",
+    "analysis_version": "2.0.0",
+    "source_type": "community",
+    "content_hash": "7c9e17372e906ed46b60354a6ceba27a5d172517e045456bf8ac3df3a7a190b9",
+    "tree_hash": "46ae07706df241b72bb86277b191503e9e9d828a821f6a45c79285d6a183365f"
+  },
+  "skill": {
+    "name": "tmux",
+    "description": "Remote control tmux sessions for interactive CLIs, background tasks, and services. Supports sub-tasks, long-running processes, and service management with session persistence and automatic cleanup.",
+    "summary": "Remote control tmux sessions for interactive CLIs, background tasks, and services. Supports sub-task...",
+    "icon": "🖥️",
+    "version": "1.0.0",
+    "author": "Dwsy",
+    "license": "MIT",
+    "category": "devops",
+    "tags": [
+      "terminal",
+      "tmux",
+      "sessions",
+      "background-tasks",
+      "automation"
+    ],
+    "supported_tools": [
+      "claude",
+      "codex",
+      "claude-code"
+    ],
+    "risk_factors": [
+      "scripts",
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ]
+  },
+  "security_audit": {
+    "risk_level": "medium",
+    "is_blocked": false,
+    "safe_to_publish": true,
+    "summary": "The tmux skill provides legitimate terminal session management capabilities but requires elevated permissions to execute shell commands and access system resources. It uses private sockets to avoid conflicts and implements proper input sanitization.",
+    "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/wait-for-text.sh",
+            "line_start": 1,
+            "line_end": 84
+          },
+          {
+            "file": "scripts/find-sessions.sh",
+            "line_start": 1,
+            "line_end": 113
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "lib.ts",
+            "line_start": 14,
+            "line_end": 20
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 49,
+            "line_end": 66
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 59,
+            "line_end": 66
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "lib.ts",
+            "line_start": 12,
+            "line_end": 12
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 15,
+            "line_end": 15
+          },
+          {
+            "file": "scripts/find-sessions.sh",
+            "line_start": 23,
+            "line_end": 23
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "lib.ts",
+            "line_start": 89,
+            "line_end": 90
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 122,
+            "line_end": 122
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 130,
+            "line_end": 130
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 135,
+            "line_end": 135
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 159,
+            "line_end": 159
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 185,
+            "line_end": 185
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 201,
+            "line_end": 201
+          }
+        ]
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Shell command execution with user input",
+        "description": "The skill executes tmux commands with user-provided input via Bun's shell execution. While it uses proper escaping for send-keys, the createSession function directly embeds user commands: `await $`tmux -S ${socket} send-keys -t ${target} -- ${command} Enter``.quiet()`. This could allow command injection if the input is not properly sanitized.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 90,
+            "line_end": 90
+          }
+        ]
+      },
+      {
+        "title": "File system access outside project directory",
+        "description": "The skill reads and writes to system-wide temporary directories (/tmp/pi-tmux-sockets and /tmp/pi-tmux-sessions.json) which are shared across users. It also reads environment variables like TMPDIR which could be manipulated to redirect file operations.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 14,
+            "line_end": 20
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 51,
+            "line_end": 65
+          }
+        ]
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Environment variable dependency",
+        "description": "The skill relies on environment variables (TMPDIR, PI_TMUX_SOCKET_DIR) for critical path configuration. While this provides flexibility, it could be exploited if these variables are set maliciously.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 12,
+            "line_end": 15
+          },
+          {
+            "file": "scripts/find-sessions.sh",
+            "line_start": 23,
+            "line_end": 23
+          }
+        ]
+      }
+    ],
+    "dangerous_patterns": [],
+    "files_scanned": 9,
+    "total_lines": 684,
+    "audit_model": "claude",
+    "audited_at": "2026-01-10T14:41:31.006Z"
+  },
+  "content": {
+    "user_title": "Manage tmux sessions for background tasks",
+    "value_statement": "Running long tasks in terminals often blocks your workflow. This skill creates isolated tmux sessions for background processes, letting you run compiles, servers, and interactive tools without interruption.",
+    "seo_keywords": [
+      "tmux",
+      "terminal multiplexer",
+      "background tasks",
+      "session management",
+      "Claude",
+      "Claude Code",
+      "dev server",
+      "long running processes"
+    ],
+    "actual_capabilities": [
+      "Create isolated tmux sessions for tasks, services, and agent operations",
+      "Send commands and capture output from running sessions",
+      "Monitor session status and automatically clean up old sessions",
+      "Use private sockets to avoid conflicts with personal tmux config",
+      "Wait for specific text patterns in session output with timeout"
+    ],
+    "limitations": [
+      "Requires tmux installed on Linux or macOS systems",
+      "Cannot access existing user tmux sessions due to socket isolation",
+      "Session data stored in temporary directory (cleared on reboot)",
+      "No built-in encryption for session data storage"
+    ],
+    "use_cases": [
+      {
+        "target_user": "Software developers",
+        "title": "Run compilation in background",
+        "description": "Start long compilation processes in tmux sessions and check progress later without blocking your terminal."
+      },
+      {
+        "target_user": "DevOps engineers",
+        "title": "Manage development services",
+        "description": "Start web servers, databases, and other services in persistent sessions that survive disconnections."
+      },
+      {
+        "target_user": "Data scientists",
+        "title": "Interactive Python REPL sessions",
+        "description": "Create persistent Python environments for data analysis that maintain state across interactions."
+      }
+    ],
+    "prompt_templates": [
+      {
+        "title": "Start background compilation",
+        "scenario": "Compiling a large project",
+        "prompt": "Create a tmux session to compile my project in the background. Run 'make clean && make all' and tell me how to monitor progress."
+      },
+      {
+        "title": "Run development server",
+        "scenario": "Starting a web server",
+        "prompt": "Start a development server in a tmux session. Use Python to serve the current directory on port 8000. Set it up as a service so I can check logs later."
+      },
+      {
+        "title": "Interactive debugging",
+        "scenario": "Debugging with Python REPL",
+        "prompt": "Create a Python REPL session in tmux. Set it up so I can send commands and capture output for debugging my script."
+      },
+      {
+        "title": "Long-running data processing",
+        "scenario": "Processing large datasets",
+        "prompt": "Start a data processing task in tmux that will run for several hours. Process all CSV files in the data/ directory and save results to output/. Monitor for completion."
+      }
+    ],
+    "output_examples": [
+      {
+        "input": "Create a tmux session to run my tests",
+        "output": [
+          "✅ Created session: pi-task-tests-20250110-143022",
+          "",
+          "To monitor this session:",
+          "  tmux -S /tmp/pi-tmux-sockets/pi.sock attach -t pi-task-tests-20250110-143022",
+          "",
+          "Or capture output:",
+          "  tmux -S /tmp/pi-tmux-sockets/pi.sock capture-pane -p -J -t pi-task-tests-20250110-143022:1.1 -S -200"
+        ]
+      }
+    ],
+    "best_practices": [
+      "Always use the monitoring commands provided after creating a session to track progress",
+      "Set appropriate timeouts when waiting for text patterns to avoid infinite waits",
+      "Clean up completed sessions regularly to free system resources"
+    ],
+    "anti_patterns": [
+      "Do not create sessions without monitoring - always check if tasks complete successfully",
+      "Avoid storing sensitive data in session commands as they're saved in plain text",
+      "Never attach to sessions in automated scripts - use capture instead"
+    ],
+    "faq": [
+      {
+        "question": "Is this compatible with my existing tmux configuration?",
+        "answer": "Yes, it uses private sockets that don't interfere with your personal tmux sessions or configuration."
+      },
+      {
+        "question": "What happens to sessions when my computer restarts?",
+        "answer": "Sessions are stored in /tmp and will be lost on reboot. Use the cleanup command to manage old sessions."
+      },
+      {
+        "question": "Can I integrate this with my CI/CD pipeline?",
+        "answer": "Yes, the skill works well in automated environments. Use wait-for-text to detect completion before proceeding."
+      },
+      {
+        "question": "Is my data safe when using this skill?",
+        "answer": "Session data is stored locally in temporary files. Avoid passing sensitive information in commands as they're saved in plain text."
+      },
+      {
+        "question": "The session command failed, how do I troubleshoot?",
+        "answer": "Use 'sync' to refresh session status, check tmux is installed, and verify socket permissions with 'ls -la /tmp/pi-tmux-sockets/'."
+      },
+      {
+        "question": "How does this compare to running tmux directly?",
+        "answer": "This provides programmatic control with automatic session tracking, cleanup, and isolation from your personal tmux setup."
+      }
+    ]
+  },
+  "file_structure": [
+    {
+      "name": "examples",
+      "type": "dir",
+      "path": "examples",
+      "children": [
+        {
+          "name": "long-task.ts",
+          "type": "file",
+          "path": "examples/long-task.ts"
+        },
+        {
+          "name": "python-repl.ts",
+          "type": "file",
+          "path": "examples/python-repl.ts"
+        },
+        {
+          "name": "start-service.ts",
+          "type": "file",
+          "path": "examples/start-service.ts"
+        }
+      ]
+    },
+    {
+      "name": "scripts",
+      "type": "dir",
+      "path": "scripts",
+      "children": [
+        {
+          "name": "find-sessions.sh",
+          "type": "file",
+          "path": "scripts/find-sessions.sh"
+        },
+        {
+          "name": "wait-for-text.sh",
+          "type": "file",
+          "path": "scripts/wait-for-text.sh"
+        }
+      ]
+    },
+    {
+      "name": "types",
+      "type": "dir",
+      "path": "types",
+      "children": [
+        {
+          "name": "index.ts",
+          "type": "file",
+          "path": "types/index.ts"
+        }
+      ]
+    },
+    {
+      "name": "lib.ts",
+      "type": "file",
+      "path": "lib.ts"
+    },
+    {
+      "name": "package.json",
+      "type": "file",
+      "path": "package.json"
+    },
+    {
+      "name": "SKILL.md",
+      "type": "file",
+      "path": "SKILL.md"
+    },
+    {
+      "name": "tsconfig.json",
+      "type": "file",
+      "path": "tsconfig.json"
+    }
+  ]
+}
