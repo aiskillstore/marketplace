@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>D3.js Interactive Bar Chart Example</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      padding: 30px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    #chart {
+      margin: 20px 0;
+    }
+
+    .axis path,
+    .axis line {
+      stroke: #ccc;
+    }
+
+    .axis text {
+      font-size: 12px;
+      fill: #666;
+    }
+
+    .grid line {
+      stroke: #e0e0e0;
+      stroke-dasharray: 2,2;
+    }
+
+    .grid path {
+      stroke-width: 0;
+    }
+
+    .bar {
+      cursor: pointer;
+      transition: opacity 0.2s ease;
+    }
+
+    .bar:hover {
+      opacity: 0.8;
+    }
+
+    .bar.selected {
+      stroke: #333;
+      stroke-width: 2;
+    }
+
+    .tooltip {
+      position: absolute;
+      display: none;
+      padding: 12px 16px;
+      background: rgba(0, 0, 0, 0.9);
+      color: white;
+      border-radius: 6px;
+      pointer-events: none;
+      font-size: 13px;
+      line-height: 1.6;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+    }
+
+    .tooltip strong {
+      color: #ffd700;
+      display: block;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin: 20px 0;
+      flex-wrap: wrap;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .control-group label {
+      font-size: 12px;
+      color: #666;
+      font-weight: 500;
+    }
+
+    button, select {
+      padding: 10px 20px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    button {
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+      color: white;
+      border: none;
+      font-weight: 500;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+
+    button.secondary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    select {
+      background: white;
+    }
+
+    select:hover, select:focus {
+      border-color: #f093fb;
+      outline: none;
+    }
+
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin: 20px 0;
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      padding: 6px 12px;
+      border-radius: 4px;
+      transition: background 0.2s ease;
+    }
+
+    .legend-item:hover {
+      background: #f5f5f5;
+    }
+
+    .legend-swatch {
+      width: 20px;
+      height: 20px;
+      border-radius: 3px;
+    }
+
+    .legend-label {
+      font-size: 13px;
+      color: #333;
+    }
+
+    .mode-indicator {
+      text-align: center;
+      font-size: 16px;
+      font-weight: 600;
+      color: #f5576c;
+      margin: 10px 0;
+    }
+
+    .info-box {
+      background: #f8f9fa;
+      border-left: 4px solid #f093fb;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 20px 0;
+    }
+
+    .info-box h3 {
+      margin: 0 0 10px 0;
+      color: #333;
+      font-size: 16px;
+    }
+
+    .info-box p {
+      margin: 5px 0;
+      color: #666;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+
+    .stat-card {
+      background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+      padding: 15px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 5px;
+    }
+
+    .stat-value {
+      font-size: 22px;
+      font-weight: bold;
+      color: #333;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Interactive Grouped & Stacked Bar Chart</h1>
+    <p class="subtitle">Toggle between grouped and stacked layouts with smooth animations</p>
+
+    <div class="controls">
+      <button id="toggle-mode">Switch to Stacked</button>
+      <button id="sort-bars" class="secondary">Sort by Total</button>
+      <button id="regenerate-data" class="secondary">New Random Data</button>
+
+      <div class="control-group">
+        <label for="category-count">Categories</label>
+        <select id="category-count">
+          <option value="4" selected>4 Quarters</option>
+          <option value="6">6 Periods</option>
+          <option value="8">8 Periods</option>
+          <option value="12">12 Months</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="mode-indicator" id="mode-indicator">Current Mode: Grouped</div>
+
+    <div class="legend" id="legend"></div>
+
+    <div id="chart"></div>
+
+    <div class="stats" id="stats"></div>
+
+    <div class="info-box">
+      <h3>How to Use</h3>
+      <p><strong>Switch Mode:</strong> Click "Switch to Grouped/Stacked" to toggle between layouts</p>
+      <p><strong>Hover:</strong> Mouse over bars to see detailed values</p>
+      <p><strong>Click Legend:</strong> Toggle series visibility</p>
+      <p><strong>Sort:</strong> Sort categories by total value</p>
+    </div>
+  </div>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script>
+    // Generate sample data
+    function generateData(categoryCount = 4, seriesCount = 3) {
+      const categories = [];
+      const periodNames = ['Q1', 'Q2', 'Q3', 'Q4', 'H1', 'H2', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const seriesNames = ['Product A', 'Product B', 'Product C'];
+
+      for (let i = 0; i < categoryCount; i++) {
+        const category = {
+          name: periodNames[i] || `Period ${i + 1}`
+        };
+
+        for (let s = 0; s < seriesCount; s++) {
+          const key = seriesNames[s];
+          category[key] = Math.floor(Math.random() * 50) + 20;
+        }
+
+        categories.push(category);
+      }
+
+      return categories;
+    }
+
+    // Configuration
+    const seriesNames = ['Product A', 'Product B', 'Product C'];
+    const seriesColors = {
+      'Product A': '#667eea',
+      'Product B': '#f093fb',
+      'Product C': '#4facfe'
+    };
+
+    let seriesVisibility = {
+      'Product A': true,
+      'Product B': true,
+      'Product C': true
+    };
+
+    // Initial data
+    let data = generateData(4, 3);
+    let isStacked = false;
+    let isSorted = false;
+
+    // Chart dimensions
+    const margin = { top: 20, right: 30, bottom: 60, left: 60 };
+    const width = 1000 - margin.left - margin.right;
+    const height = 500 - margin.top - margin.bottom;
+
+    // Create SVG
+    const svg = d3.select('#chart')
+      .append('svg')
+      .attr('width', width + margin.left + margin.right)
+      .attr('height', height + margin.top + margin.bottom);
+
+    const g = svg.append('g')
+      .attr('transform', `translate(${margin.left}, ${margin.top})`);
+
+    // Tooltip
+    const tooltip = d3.select('#tooltip');
+
+    // Scales
+    const x0 = d3.scaleBand().range([0, width]).padding(0.2);
+    const x1 = d3.scaleBand().padding(0.05);
+    const y = d3.scaleLinear().range([height, 0]);
+    const color = d3.scaleOrdinal()
+      .domain(seriesNames)
+      .range(seriesNames.map(s => seriesColors[s]));
+
+    // Axes
+    const xAxisG = g.append('g')
+      .attr('class', 'x-axis')
+      .attr('transform', `translate(0, ${height})`);
+
+    const yAxisG = g.append('g')
+      .attr('class', 'y-axis');
+
+    // Grid
+    const gridG = g.append('g')
+      .attr('class', 'grid');
+
+    // Axis labels
+    g.append('text')
+      .attr('class', 'x-label')
+      .attr('text-anchor', 'middle')
+      .attr('x', width / 2)
+      .attr('y', height + 45)
+      .attr('fill', '#666')
+      .style('font-size', '12px')
+      .text('Time Period');
+
+    g.append('text')
+      .attr('class', 'y-label')
+      .attr('text-anchor', 'middle')
+      .attr('transform', 'rotate(-90)')
+      .attr('y', -45)
+      .attr('x', -height / 2)
+      .attr('fill', '#666')
+      .style('font-size', '12px')
+      .text('Value');
+
+    function getVisibleSeries() {
+      return seriesNames.filter(s => seriesVisibility[s]);
+    }
+
+    function drawChart(animate = true) {
+      const visibleSeries = getVisibleSeries();
+
+      // Sort data if needed
+      let chartData = [...data];
+      if (isSorted) {
+        chartData.sort((a, b) => {
+          const sumA = visibleSeries.reduce((sum, key) => sum + (a[key] || 0), 0);
+          const sumB = visibleSeries.reduce((sum, key) => sum + (b[key] || 0), 0);
+          return sumB - sumA;
+        });
+      }
+
+      // Update scales
+      x0.domain(chartData.map(d => d.name));
+      x1.domain(visibleSeries).range([0, x0.bandwidth()]);
+
+      const yMax = isStacked
+        ? d3.max(chartData, d => visibleSeries.reduce((sum, key) => sum + (d[key] || 0), 0))
+        : d3.max(chartData, d => d3.max(visibleSeries, key => d[key] || 0));
+
+      y.domain([0, yMax]).nice();
+
+      // Update axes
+      xAxisG.transition()
+        .duration(animate ? 500 : 0)
+        .call(d3.axisBottom(x0));
+
+      yAxisG.transition()
+        .duration(animate ? 500 : 0)
+        .call(d3.axisLeft(y).ticks(5));
+
+      // Update grid
+      gridG.transition()
+        .duration(animate ? 500 : 0)
+        .call(d3.axisLeft(y)
+          .ticks(5)
+          .tickSize(-width)
+          .tickFormat(''));
+
+      if (isStacked) {
+        drawStackedBars(chartData, visibleSeries, animate);
+      } else {
+        drawGroupedBars(chartData, visibleSeries, animate);
+      }
+
+      updateLegend();
+      updateStats(chartData, visibleSeries);
+    }
+
+    function drawGroupedBars(chartData, visibleSeries, animate) {
+      // Remove any stacked bars
+      g.selectAll('.stacked-group').remove();
+
+      // Bind category groups
+      const categoryGroups = g.selectAll('.category-group')
+        .data(chartData, d => d.name);
+
+      categoryGroups.exit().remove();
+
+      const categoryEnter = categoryGroups.enter()
+        .append('g')
+        .attr('class', 'category-group');
+
+      const categoryMerge = categoryEnter.merge(categoryGroups)
+        .attr('transform', d => `translate(${x0(d.name)}, 0)`);
+
+      // Bind bars within each category
+      const bars = categoryMerge.selectAll('.bar')
+        .data(d => visibleSeries.map(key => ({ key, value: d[key], category: d.name })), d => d.key);
+
+      bars.exit()
+        .transition()
+        .duration(animate ? 300 : 0)
+        .attr('y', height)
+        .attr('height', 0)
+        .remove();
+
+      const barsEnter = bars.enter()
+        .append('rect')
+        .attr('class', 'bar')
+        .attr('x', d => x1(d.key))
+        .attr('width', x1.bandwidth())
+        .attr('y', height)
+        .attr('height', 0)
+        .attr('fill', d => color(d.key));
+
+      const barsMerge = barsEnter.merge(bars);
+
+      if (animate) {
+        barsMerge
+          .transition()
+          .duration(500)
+          .delay((d, i) => i * 30)
+          .attr('x', d => x1(d.key))
+          .attr('y', d => y(d.value))
+          .attr('width', x1.bandwidth())
+          .attr('height', d => height - y(d.value))
+          .attr('fill', d => color(d.key));
+      } else {
+        barsMerge
+          .attr('x', d => x1(d.key))
+          .attr('y', d => y(d.value))
+          .attr('width', x1.bandwidth())
+          .attr('height', d => height - y(d.value))
+          .attr('fill', d => color(d.key));
+      }
+
+      barsMerge
+        .on('mouseover', function(event, d) {
+          d3.select(this).classed('selected', true);
+          showTooltip(event, d);
+        })
+        .on('mouseout', function() {
+          d3.select(this).classed('selected', false);
+          hideTooltip();
+        });
+    }
+
+    function drawStackedBars(chartData, visibleSeries, animate) {
+      // Remove any grouped bars
+      g.selectAll('.category-group').remove();
+
+      // Create stack generator
+      const stack = d3.stack()
+        .keys(visibleSeries);
+
+      const stackedData = stack(chartData);
+
+      // Bind stacked groups
+      const stackGroups = g.selectAll('.stacked-group')
+        .data(stackedData, d => d.key);
+
+      stackGroups.exit().remove();
+
+      const stackEnter = stackGroups.enter()
+        .append('g')
+        .attr('class', 'stacked-group')
+        .attr('fill', d => color(d.key));
+
+      const stackMerge = stackEnter.merge(stackGroups)
+        .attr('fill', d => color(d.key));
+
+      // Bind bars
+      const bars = stackMerge.selectAll('.bar')
+        .data(d => d, d => d.data.name);
+
+      bars.exit()
+        .transition()
+        .duration(animate ? 300 : 0)
+        .attr('y', height)
+        .attr('height', 0)
+        .remove();
+
+      const barsEnter = bars.enter()
+        .append('rect')
+        .attr('class', 'bar')
+        .attr('x', d => x0(d.data.name))
+        .attr('width', x0.bandwidth())
+        .attr('y', height)
+        .attr('height', 0);
+
+      const barsMerge = barsEnter.merge(bars);
+
+      if (animate) {
+        barsMerge
+          .transition()
+          .duration(500)
+          .delay((d, i) => i * 30)
+          .attr('x', d => x0(d.data.name))
+          .attr('y', d => y(d[1]))
+          .attr('width', x0.bandwidth())
+          .attr('height', d => y(d[0]) - y(d[1]));
+      } else {
+        barsMerge
+          .attr('x', d => x0(d.data.name))
+          .attr('y', d => y(d[1]))
+          .attr('width', x0.bandwidth())
+          .attr('height', d => y(d[0]) - y(d[1]));
+      }
+
+      barsMerge
+        .on('mouseover', function(event, d) {
+          const key = d3.select(this.parentNode).datum().key;
+          d3.select(this).classed('selected', true);
+          showTooltip(event, {
+            category: d.data.name,
+            key: key,
+            value: d.data[key]
+          });
+        })
+        .on('mouseout', function() {
+          d3.select(this).classed('selected', false);
+          hideTooltip();
+        });
+    }
+
+    function showTooltip(event, d) {
+      tooltip
+        .style('display', 'block')
+        .html(`
+          <strong>${d.category || d.key}</strong>
+          ${d.key ? d.key + ': ' : ''}${d.value.toFixed(1)}
+        `)
+        .style('left', (event.pageX + 10) + 'px')
+        .style('top', (event.pageY - 28) + 'px');
+    }
+
+    function hideTooltip() {
+      tooltip.style('display', 'none');
+    }
+
+    function updateLegend() {
+      const legend = d3.select('#legend');
+
+      const items = legend.selectAll('.legend-item')
+        .data(seriesNames);
+
+      const itemsEnter = items.enter()
+        .append('div')
+        .attr('class', 'legend-item');
+
+      itemsEnter.append('div')
+        .attr('class', 'legend-swatch');
+
+      itemsEnter.append('span')
+        .attr('class', 'legend-label');
+
+      const itemsMerge = itemsEnter.merge(items);
+
+      itemsMerge
+        .style('opacity', d => seriesVisibility[d] ? 1 : 0.3)
+        .on('click', (event, d) => {
+          seriesVisibility[d] = !seriesVisibility[d];
+          drawChart();
+        });
+
+      itemsMerge.select('.legend-swatch')
+        .style('background', d => color(d));
+
+      itemsMerge.select('.legend-label')
+        .text(d => d);
+    }
+
+    function updateStats(chartData, visibleSeries) {
+      const allValues = chartData.flatMap(d =>
+        visibleSeries.map(key => d[key] || 0)
+      );
+
+      const totalSum = d3.sum(allValues);
+      const avgValue = d3.mean(allValues);
+
+      const stats = [
+        { label: 'Total Sum', value: totalSum.toFixed(0) },
+        { label: 'Average', value: avgValue.toFixed(1) },
+        { label: 'Max Value', value: d3.max(allValues).toFixed(1) },
+        { label: 'Min Value', value: d3.min(allValues).toFixed(1) },
+        { label: 'Categories', value: chartData.length },
+        { label: 'Series', value: visibleSeries.length }
+      ];
+
+      const statsContainer = d3.select('#stats');
+
+      const cards = statsContainer.selectAll('.stat-card')
+        .data(stats);
+
+      const cardsEnter = cards.enter()
+        .append('div')
+        .attr('class', 'stat-card');
+
+      cardsEnter.append('div')
+        .attr('class', 'stat-label');
+
+      cardsEnter.append('div')
+        .attr('class', 'stat-value');
+
+      const cardsMerge = cardsEnter.merge(cards);
+
+      cardsMerge.select('.stat-label')
+        .text(d => d.label);
+
+      cardsMerge.select('.stat-value')
+        .text(d => d.value);
+    }
+
+    // Event listeners
+    document.getElementById('toggle-mode').addEventListener('click', function() {
+      isStacked = !isStacked;
+      this.textContent = isStacked ? 'Switch to Grouped' : 'Switch to Stacked';
+      document.getElementById('mode-indicator').textContent =
+        `Current Mode: ${isStacked ? 'Stacked' : 'Grouped'}`;
+      drawChart();
+    });
+
+    document.getElementById('sort-bars').addEventListener('click', function() {
+      isSorted = !isSorted;
+      this.textContent = isSorted ? 'Original Order' : 'Sort by Total';
+      drawChart();
+    });
+
+    document.getElementById('regenerate-data').addEventListener('click', function() {
+      const count = parseInt(document.getElementById('category-count').value);
+      data = generateData(count, 3);
+      isSorted = false;
+      document.getElementById('sort-bars').textContent = 'Sort by Total';
+      drawChart();
+    });
+
+    document.getElementById('category-count').addEventListener('change', function() {
+      data = generateData(parseInt(this.value), 3);
+      isSorted = false;
+      document.getElementById('sort-bars').textContent = 'Sort by Total';
+      drawChart();
+    });
+
+    // Initial draw
+    drawChart();
+  </script>
+</body>
+</html>

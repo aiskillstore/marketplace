@@ -1,0 +1,358 @@
+# Multi-Stage Dockerfile Examples
+# Optimized builds for different languages and frameworks
+
+# ============================================================================
+# Node.js Application (React/Next.js Frontend + Express Backend)
+# ============================================================================
+
+# Stage 1: Build dependencies and application
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install dependencies (cached until package files change)
+RUN npm ci --only=production && \
+    npm cache clean --force
+
+# Copy application source
+COPY . .
+
+# Build application (if applicable)
+RUN npm run build
+
+# Stage 2: Production runtime
+FROM node:18-alpine AS production
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+WORKDIR /app
+
+# Copy built artifacts and dependencies from builder
+COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nodejs:nodejs /app/package*.json ./
+
+# Switch to non-root user
+USER nodejs
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s \
+  CMD node -e "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))"
+
+# Start application
+CMD ["node", "dist/index.js"]
+
+
+# ============================================================================
+# Python Application (FastAPI/Django/Flask)
+# ============================================================================
+
+# Stage 1: Build with full Python image
+FROM python:3.11 AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        gcc \
+        g++ \
+        make \
+        libpq-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies to a specific directory
+RUN pip install --user --no-cache-dir -r requirements.txt
+
+# Stage 2: Slim production runtime
+FROM python:3.11-slim AS production
+
+# Install runtime dependencies only
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        libpq5 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1001 appuser
+
+WORKDIR /app
+
+# Copy Python dependencies from builder
+COPY --from=builder /root/.local /home/appuser/.local
+
+# Copy application code
+COPY --chown=appuser:appuser . .
+
+# Update PATH to include local binaries
+ENV PATH=/home/appuser/.local/bin:$PATH
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+
+# Start application (adjust command for your framework)
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+
+# ============================================================================
+# Go Application
+# ============================================================================
+
+# Stage 1: Build with full Go toolchain
+FROM golang:1.21-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache git
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies (cached until go.mod changes)
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build binary with optimizations
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s" \
+    -o /app/server \
+    ./cmd/server
+
+# Stage 2: Minimal runtime (scratch or alpine)
+FROM alpine:latest AS production
+
+# Install CA certificates for HTTPS
+RUN apk --no-cache add ca-certificates
+
+# Create non-root user
+RUN addgroup -g 1001 -S appuser && \
+    adduser -S appuser -u 1001
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder --chown=appuser:appuser /app/server .
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Run binary
+CMD ["./server"]
+
+# Alternative: Ultra-minimal with scratch base (no shell)
+# FROM scratch AS production-minimal
+# COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+# COPY --from=builder /app/server /server
+# EXPOSE 8080
+# CMD ["/server"]
+
+
+# ============================================================================
+# Java Application (Spring Boot)
+# ============================================================================
+
+# Stage 1: Build with Maven
+FROM maven:3.9-eclipse-temurin-17 AS builder
+
+WORKDIR /app
+
+# Copy pom.xml
+COPY pom.xml .
+
+# Download dependencies (cached until pom.xml changes)
+RUN mvn dependency:go-offline
+
+# Copy source code
+COPY src ./src
+
+# Build application
+RUN mvn clean package -DskipTests
+
+# Stage 2: Runtime with JRE
+FROM eclipse-temurin:17-jre-alpine AS production
+
+# Create non-root user
+RUN addgroup -g 1001 -S spring && \
+    adduser -S spring -u 1001
+
+WORKDIR /app
+
+# Copy JAR from builder
+COPY --from=builder --chown=spring:spring /app/target/*.jar app.jar
+
+# Switch to non-root user
+USER spring
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1
+
+# JVM options for container
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+# Run application
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+
+
+# ============================================================================
+# Rust Application
+# ============================================================================
+
+# Stage 1: Build with Rust toolchain
+FROM rust:1.75-alpine AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache musl-dev
+
+# Copy Cargo files
+COPY Cargo.toml Cargo.lock ./
+
+# Create dummy source to cache dependencies
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    cargo build --release && \
+    rm -rf src
+
+# Copy real source code
+COPY src ./src
+
+# Build application (only rebuilds if source changed)
+RUN touch src/main.rs && \
+    cargo build --release
+
+# Stage 2: Minimal runtime
+FROM alpine:latest AS production
+
+# Install runtime dependencies if needed
+RUN apk --no-cache add ca-certificates
+
+# Create non-root user
+RUN addgroup -g 1001 -S appuser && \
+    adduser -S appuser -u 1001
+
+WORKDIR /app
+
+# Copy binary from builder
+COPY --from=builder --chown=appuser:appuser /app/target/release/myapp .
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1
+
+# Run application
+CMD ["./myapp"]
+
+
+# ============================================================================
+# Development Stage (for any language)
+# ============================================================================
+
+# Development stage with all tools
+FROM node:18 AS development
+
+WORKDIR /app
+
+# Install development tools
+RUN npm install -g nodemon
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies (including dev)
+RUN npm install
+
+# Copy source (will be mounted as volume in dev)
+COPY . .
+
+# Expose port
+EXPOSE 3000
+
+# Development command with hot reload
+CMD ["npm", "run", "dev"]
+
+
+# ============================================================================
+# Usage Examples
+# ============================================================================
+
+# Build production image:
+# docker build --target production -t myapp:prod .
+
+# Build development image:
+# docker build --target development -t myapp:dev .
+
+# Build specific language:
+# docker build --target production -f Dockerfile.multi-stage -t myapp:prod .
+
+# Run production container:
+# docker run -d -p 8080:8080 myapp:prod
+
+# Run development container with volume mount:
+# docker run -d -p 3000:3000 -v $(pwd)/src:/app/src myapp:dev
+
+
+# ============================================================================
+# Size Comparison (approximate)
+# ============================================================================
+
+# Node.js:
+#   - Full image (node:18): ~1GB
+#   - Alpine image (node:18-alpine): ~180MB
+#   - Multi-stage production: ~180MB (just runtime + code)
+
+# Python:
+#   - Full image (python:3.11): ~900MB
+#   - Slim image (python:3.11-slim): ~150MB
+#   - Multi-stage production: ~150MB
+
+# Go:
+#   - Builder (golang:1.21): ~800MB
+#   - Production (alpine): ~15-30MB
+#   - Production (scratch): ~5-15MB
+
+# Java:
+#   - Builder (maven): ~700MB
+#   - Production (JRE alpine): ~200MB
+
+# Rust:
+#   - Builder (rust): ~1.2GB
+#   - Production (alpine): ~10-20MB

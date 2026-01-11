@@ -1,0 +1,341 @@
+ANNOTATED STACK TRACES WITH ANALYSIS
+=====================================
+
+This file contains real-world stack traces with annotations explaining
+how to read them and identify the root cause.
+
+═══════════════════════════════════════════════════════════════════════
+EXAMPLE 1: Python Stack Trace - AttributeError
+═══════════════════════════════════════════════════════════════════════
+
+Traceback (most recent call last):
+  File "/app/main.py", line 12, in <module>
+    ← [1] ENTRY POINT: Program started from main.py, line 12
+    run_application()
+    ← [2] Called run_application() function
+
+  File "/app/main.py", line 8, in run_application
+    ← [3] Inside run_application, line 8
+    result = process_user_data(user_id=123)
+    ← [4] Called process_user_data with user_id=123
+
+  File "/app/services/user_service.py", line 45, in process_user_data
+    ← [5] Inside process_user_data, line 45
+    profile_name = user.profile.get_display_name()
+    ← [6] FAILURE POINT: Tried to access user.profile.get_display_name()
+
+AttributeError: 'NoneType' object has no attribute 'get_display_name'
+← [7] ERROR: user.profile is None, can't call method on it
+
+ANALYSIS:
+- Read from BOTTOM to TOP to follow error chain
+- Line 45 in user_service.py is where error occurred
+- user.profile is None (should be a Profile object)
+- Need to check why user.profile is None
+- Likely causes: User has no profile, or profile fetch failed
+
+ROOT CAUSE LOCATION: /app/services/user_service.py, line 45
+INVESTIGATION: Check user record, profile relationship, profile creation
+
+═══════════════════════════════════════════════════════════════════════
+EXAMPLE 2: JavaScript Stack Trace - TypeError in Promise
+═══════════════════════════════════════════════════════════════════════
+
+Uncaught (in promise) TypeError: Cannot read property 'items' of undefined
+    ← [1] ERROR TYPE: TypeError, specifically property access on undefined
+    ← [2] CONTEXT: Inside a Promise (async operation)
+
+    at updateCart (http://localhost:3000/static/js/cart.js:23:15)
+    ← [3] Function: updateCart
+    ← [4] File: cart.js, Line: 23, Column: 15
+    ← [5] This is where the error occurred
+
+    at HTMLButtonElement.<anonymous> (http://localhost:3000/static/js/cart.js:15:9)
+    ← [6] Event handler on button element
+    ← [7] Triggered from cart.js line 15
+
+    at HTMLButtonElement.dispatch (http://localhost:3000/static/js/vendor/jquery.min.js:3:10315)
+    ← [8] jQuery event dispatch mechanism
+    ← [9] Not relevant to our error - library internals
+
+    at HTMLButtonElement.v.handle (http://localhost:3000/static/js/vendor/jquery.min.js:3:8228)
+    ← [10] More jQuery internals - can ignore
+
+ANALYSIS:
+- JavaScript stacks read TOP to BOTTOM (opposite of Python!)
+- Error at cart.js:23 - trying to access .items on undefined
+- Triggered by button click (line 15)
+- jQuery click handler called updateCart
+- Likely async API call returned undefined instead of expected object
+
+ROOT CAUSE LOCATION: cart.js, line 23
+INVESTIGATION: Check API response, add error handling for failed requests
+
+═══════════════════════════════════════════════════════════════════════
+EXAMPLE 3: Java Stack Trace - NullPointerException with Cause
+═══════════════════════════════════════════════════════════════════════
+
+java.lang.NullPointerException: Cannot invoke "com.example.model.User.getEmail()" because "user" is null
+    ← [1] ERROR: Trying to call getEmail() on null user object
+    ← [2] Modern Java includes helpful message about what was null
+
+    at com.example.service.EmailService.sendWelcomeEmail(EmailService.java:34)
+    ← [3] Method: sendWelcomeEmail in EmailService
+    ← [4] Location: EmailService.java, line 34
+
+    at com.example.controller.UserController.registerUser(UserController.java:67)
+    ← [5] Called from registerUser in UserController
+    ← [6] Location: UserController.java, line 67
+
+    at com.example.controller.UserController$$FastClassBySpringCGLIB$$a1b2c3d4.invoke(<generated>)
+    ← [7] Spring framework proxy (CGLIB)
+    ← [8] Framework internals - not relevant to our code
+
+    at org.springframework.cglib.proxy.MethodProxy.invoke(MethodProxy.java:218)
+    ← [9] More framework internals - can skip
+
+    at org.springframework.aop.framework.CglibAopProxy$CglibMethodInvocation.invokeJoinpoint(CglibAopProxy.java:793)
+    ← [10] Spring AOP internals - not our bug
+
+    ... 45 more
+    ← [11] Stack continues but is truncated for readability
+
+Caused by: java.sql.SQLException: Connection timed out
+    ← [12] ORIGINAL CAUSE: This is what started the problem!
+    ← [13] Database connection timeout led to null user
+
+    at com.mysql.cj.jdbc.ConnectionImpl.connectToServer(ConnectionImpl.java:1247)
+    ← [14] MySQL driver trying to connect
+    ← [15] Location: ConnectionImpl.java, line 1247
+
+    at com.mysql.cj.jdbc.ConnectionImpl.<init>(ConnectionImpl.java:1143)
+    ← [16] Connection initialization
+
+    at com.example.repository.UserRepository.findById(UserRepository.java:23)
+    ← [17] Repository trying to fetch user from database
+    ← [18] Location: UserRepository.java, line 23
+    ← [19] THIS IS THE ROOT CAUSE!
+
+ANALYSIS:
+- Read top error first, but check "Caused by" section for root cause
+- NullPointerException at EmailService.java:34 is the SYMPTOM
+- SQLException "Connection timed out" is the ROOT CAUSE
+- UserRepository.findById failed due to database timeout
+- Returned null instead of User object
+- EmailService didn't check for null before calling .getEmail()
+
+ROOT CAUSE: Database connection timeout
+IMMEDIATE FIX: Add null check in EmailService
+LONG-TERM FIX: Fix database connectivity, add connection pool monitoring
+
+═══════════════════════════════════════════════════════════════════════
+EXAMPLE 4: Python Django Stack Trace - Template Error
+═══════════════════════════════════════════════════════════════════════
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.9/site-packages/django/core/handlers/exception.py", line 47, in inner
+    ← [1] Django request handler
+    response = get_response(request)
+
+  File "/usr/local/lib/python3.9/site-packages/django/core/handlers/base.py", line 181, in _get_response
+    ← [2] Django internal routing
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+
+  File "/app/views/product_views.py", line 89, in product_detail
+    ← [3] Our view function: product_detail
+    return render(request, 'products/detail.html', context)
+    ← [4] Rendering template with context
+
+  File "/usr/local/lib/python3.9/site-packages/django/shortcuts.py", line 24, in render
+    ← [5] Django's render function
+    content = loader.render_to_string(template_name, context, request, using=using)
+
+  File "/usr/local/lib/python3.9/site-packages/django/template/loader.py", line 61, in render_to_string
+    ← [6] Template loading
+    return template.render(context, request)
+
+  File "/usr/local/lib/python3.9/site-packages/django/template/base.py", line 170, in render
+    ← [7] Template rendering
+    return self._render(context)
+
+  File "/usr/local/lib/python3.9/site-packages/django/template/base.py", line 162, in _render
+    ← [8] Internal render
+    return self.nodelist.render(context)
+
+  File "/usr/local/lib/python3.9/site-packages/django/template/base.py", line 938, in render
+    ← [9] Rendering template nodes
+    bit = node.render_annotated(context)
+
+  File "/usr/local/lib/python3.9/site-packages/django/template/base.py", line 905, in render_annotated
+    ← [10] Annotated rendering (for better error messages)
+    return self.render(context)
+
+  File "/usr/local/lib/python3.9/site-packages/django/template/defaulttags.py", line 214, in render
+    ← [11] Rendering a template tag
+    nodelist.append(node.render_annotated(context))
+
+  File "/usr/local/lib/python3.9/site-packages/django/template/base.py", line 905, in render_annotated
+    ← [12] More template rendering
+    return self.render(context)
+
+  File "/usr/local/lib/python3.9/site-packages/django/template/base.py", line 997, in render
+    ← [13] Variable resolution
+    output = self.filter_expression.resolve(context)
+
+  File "/usr/local/lib/python3.9/site-packages/django/template/base.py", line 698, in resolve
+    ← [14] Resolving template variable
+    obj = self.var.resolve(context)
+
+  File "/usr/local/lib/python3.9/site-packages/django/template/base.py", line 847, in resolve
+    ← [15] Variable lookup
+    value = self._resolve_lookup(context)
+
+  File "/usr/local/lib/python3.9/site-packages/django/template/base.py", line 910, in _resolve_lookup
+    ← [16] Lookup in context
+    current = current[bit]
+
+TypeError: 'NoneType' object is not subscriptable
+    ← [17] ERROR: Trying to use [] on None
+    ← [18] HINT: Template variable is None when expecting dict or list
+
+During handling of the above exception, another exception occurred:
+    ← [19] Secondary error during error handling
+
+[... error handling stack ...]
+
+Template error in 'products/detail.html' at line 42:
+    ← [20] HELPFUL: Django tells us which template and line!
+
+{{ product.reviews[0].text }}
+    ← [21] This is the problematic template code
+    ← [22] product.reviews is None, can't subscript it
+
+ANALYSIS:
+- Long stack trace, but most is Django internals
+- KEY INFO: "Template error in 'products/detail.html' at line 42"
+- Problem: {{ product.reviews[0].text }} where product.reviews is None
+- In view (product_views.py:89), context didn't include reviews
+- Need to add reviews to context or use safer template syntax
+
+ROOT CAUSE: Missing data in template context
+FIX: Add reviews to context, or use {{ product.reviews.0.text|default:"" }}
+
+═══════════════════════════════════════════════════════════════════════
+EXAMPLE 5: Go Panic - Runtime Error
+═══════════════════════════════════════════════════════════════════════
+
+panic: runtime error: invalid memory address or nil pointer dereference
+    ← [1] ERROR: Nil pointer dereference (Go's NPE)
+    ← [2] Trying to access memory through nil pointer
+
+[signal SIGSEGV: segmentation violation code=0x1 addr=0x0 pc=0x10a5c47]
+    ← [3] System signal details (segmentation fault)
+    ← [4] Memory address 0x0 (null pointer)
+
+goroutine 1 [running]:
+    ← [5] This happened in main goroutine
+    ← [6] State: running (active execution)
+
+main.processOrder(0xc0000b4000, 0x0)
+    ← [7] Function: main.processOrder
+    ← [8] Parameters: order pointer, nil pointer (0x0)
+    ← [9] CLUE: Second parameter is nil!
+
+    /app/handlers/order.go:156 +0x47
+    ← [10] Location: order.go, line 156
+    ← [11] Offset: +0x47 bytes into function
+
+main.handleOrderRequest(0xc0000b4000, 0xc0000b4100, 0xc0000b4200)
+    ← [12] Called from: handleOrderRequest
+
+    /app/handlers/order.go:89 +0x2b3
+    ← [13] Location: order.go, line 89
+
+main.main()
+    ← [14] Called from: main function
+
+    /app/main.go:42 +0x9d
+    ← [15] Location: main.go, line 42
+
+ANALYSIS:
+- Panic at order.go:156 in processOrder function
+- Second parameter to processOrder is nil (0x0)
+- Called from handleOrderRequest at line 89
+- Need to check why nil was passed as second parameter
+- Go panics are easier to read: start from first panic line
+
+ROOT CAUSE: Nil pointer passed to processOrder
+INVESTIGATION: Check handleOrderRequest:89, what's the second parameter?
+
+═══════════════════════════════════════════════════════════════════════
+KEY PATTERNS TO RECOGNIZE
+═══════════════════════════════════════════════════════════════════════
+
+1. FRAMEWORK NOISE
+   - Spring CGLIB proxies: com.example.Class$$EnhancerBySpringCGLIB
+   - Django internals: /site-packages/django/...
+   - React internals: node_modules/react-dom/...
+   → SKIP THESE: Focus on your application code
+
+2. HELPFUL INDICATORS
+   - "Caused by:" - Shows root cause in Java
+   - "During handling of..." - Secondary error in Python
+   - Template/file references - Django, Flask show exact location
+   - Line numbers in YOUR code - Always investigate these first
+
+3. COMMON NULL/UNDEFINED PATTERNS
+   Python: AttributeError: 'NoneType' object...
+   JavaScript: TypeError: Cannot read property ... of undefined
+   Java: NullPointerException: Cannot invoke ... because ... is null
+   Go: panic: runtime error: invalid memory address or nil pointer
+
+4. READING DIRECTION
+   Python: BOTTOM to TOP (start at actual error)
+   JavaScript: TOP to BOTTOM (error listed first)
+   Java: TOP to BOTTOM, but check "Caused by" at bottom
+   Go: TOP to BOTTOM (panic listed first)
+
+5. FINDING YOUR CODE
+   Look for:
+   - Paths in your project directory (/app/, /src/, /project/)
+   - Your package names (com.yourcompany, yourapp)
+   - Avoid: /site-packages/, /node_modules/, framework internals
+
+═══════════════════════════════════════════════════════════════════════
+STACK TRACE READING CHECKLIST
+═══════════════════════════════════════════════════════════════════════
+
+☐ 1. Read the error message completely
+     - What type of error?
+     - What does the message say?
+
+☐ 2. Find YOUR code in the stack
+     - Ignore framework/library internals
+     - Look for your project paths
+
+☐ 3. Identify the error location
+     - File name
+     - Line number
+     - Function/method name
+
+☐ 4. Trace the call chain
+     - How did execution reach this point?
+     - What functions called what?
+
+☐ 5. Check for root cause indicators
+     - "Caused by:" sections
+     - Nested exceptions
+     - Original error vs. handling errors
+
+☐ 6. Look for parameter values
+     - Are any null/undefined/0x0?
+     - Do they match expected types?
+
+☐ 7. Cross-reference with code
+     - Open the file at the line number
+     - Check variable states
+     - Verify assumptions
+
+═══════════════════════════════════════════════════════════════════════
+END OF ANNOTATED STACK TRACES
+═══════════════════════════════════════════════════════════════════════

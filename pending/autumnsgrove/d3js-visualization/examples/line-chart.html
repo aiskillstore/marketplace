@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>D3.js Interactive Line Chart Example</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      padding: 30px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    #chart {
+      margin: 20px 0;
+    }
+
+    .axis path,
+    .axis line {
+      stroke: #ccc;
+    }
+
+    .axis text {
+      font-size: 12px;
+      fill: #666;
+    }
+
+    .grid line {
+      stroke: #e0e0e0;
+      stroke-dasharray: 2,2;
+    }
+
+    .grid path {
+      stroke-width: 0;
+    }
+
+    .line {
+      fill: none;
+      stroke-width: 2.5;
+    }
+
+    .dot {
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .dot:hover {
+      r: 8 !important;
+    }
+
+    .tooltip {
+      position: absolute;
+      display: none;
+      padding: 12px 16px;
+      background: rgba(0, 0, 0, 0.9);
+      color: white;
+      border-radius: 6px;
+      pointer-events: none;
+      font-size: 13px;
+      line-height: 1.6;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+    }
+
+    .tooltip strong {
+      color: #ffd700;
+      display: block;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    .controls {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin: 20px 0;
+      flex-wrap: wrap;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .control-group label {
+      font-size: 12px;
+      color: #666;
+      font-weight: 500;
+    }
+
+    select, button {
+      padding: 8px 16px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      font-weight: 500;
+    }
+
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+
+    select {
+      background: white;
+    }
+
+    select:hover, select:focus {
+      border-color: #667eea;
+      outline: none;
+    }
+
+    .legend {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      margin: 20px 0;
+      flex-wrap: wrap;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      padding: 6px 12px;
+      border-radius: 4px;
+      transition: background 0.2s ease;
+    }
+
+    .legend-item:hover {
+      background: #f5f5f5;
+    }
+
+    .legend-swatch {
+      width: 20px;
+      height: 3px;
+      border-radius: 2px;
+    }
+
+    .legend-label {
+      font-size: 13px;
+      color: #333;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+
+    .stat-card {
+      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+      padding: 15px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 5px;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    .zoom-info {
+      text-align: center;
+      font-size: 12px;
+      color: #666;
+      margin-top: 10px;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Interactive Multi-Series Line Chart</h1>
+    <p class="subtitle">Explore product sales trends with zoom, hover, and interactive features</p>
+
+    <div class="controls">
+      <div class="control-group">
+        <label for="curve-select">Curve Style</label>
+        <select id="curve-select">
+          <option value="curveLinear">Linear</option>
+          <option value="curveMonotoneX" selected>Smooth</option>
+          <option value="curveStep">Step</option>
+          <option value="curveBasis">Basis</option>
+          <option value="curveCatmullRom">Catmull-Rom</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label for="points-toggle">Show Points</label>
+        <select id="points-toggle">
+          <option value="true" selected>Yes</option>
+          <option value="false">No</option>
+        </select>
+      </div>
+
+      <button id="reset-zoom">Reset Zoom</button>
+      <button id="regenerate-data">New Random Data</button>
+    </div>
+
+    <div class="legend" id="legend"></div>
+
+    <div class="stats" id="stats"></div>
+
+    <div id="chart"></div>
+
+    <p class="zoom-info">Scroll to zoom, drag to pan. Click legend items to toggle series visibility.</p>
+  </div>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script>
+    // Generate sample data
+    function generateData(seriesCount = 3, pointsCount = 50) {
+      const series = [];
+      const names = ['Product A', 'Product B', 'Product C', 'Product D', 'Product E'];
+      const colors = ['#667eea', '#f093fb', '#4facfe', '#43e97b', '#fa709a'];
+
+      for (let s = 0; s < seriesCount; s++) {
+        const values = [];
+        let value = 100 + Math.random() * 50;
+
+        for (let i = 0; i < pointsCount; i++) {
+          const date = new Date(2024, 0, 1);
+          date.setDate(date.getDate() + i);
+
+          // Add trend and randomness
+          value += (Math.random() - 0.45) * 10;
+          value = Math.max(20, value); // Keep positive
+
+          values.push({
+            date: date,
+            value: value
+          });
+        }
+
+        series.push({
+          name: names[s],
+          color: colors[s],
+          values: values,
+          visible: true
+        });
+      }
+
+      return series;
+    }
+
+    // Initial data
+    let data = generateData(3, 50);
+
+    // Chart dimensions
+    const margin = { top: 20, right: 30, bottom: 40, left: 60 };
+    const width = 1000 - margin.left - margin.right;
+    const height = 500 - margin.top - margin.bottom;
+
+    // Create SVG
+    const svg = d3.select('#chart')
+      .append('svg')
+      .attr('width', width + margin.left + margin.right)
+      .attr('height', height + margin.top + margin.bottom);
+
+    const g = svg.append('g')
+      .attr('transform', `translate(${margin.left}, ${margin.top})`);
+
+    // Scales
+    const xScale = d3.scaleTime().range([0, width]);
+    const yScale = d3.scaleLinear().range([height, 0]);
+
+    // Line generator
+    let curveType = d3.curveMonotoneX;
+    const lineGenerator = d3.line()
+      .x(d => xScale(d.date))
+      .y(d => yScale(d.value))
+      .curve(curveType);
+
+    // Axes
+    const xAxisG = g.append('g')
+      .attr('class', 'x-axis')
+      .attr('transform', `translate(0, ${height})`);
+
+    const yAxisG = g.append('g')
+      .attr('class', 'y-axis');
+
+    // Grid
+    const gridG = g.append('g')
+      .attr('class', 'grid');
+
+    // Clip path for zooming
+    g.append('defs')
+      .append('clipPath')
+      .attr('id', 'clip')
+      .append('rect')
+      .attr('width', width)
+      .attr('height', height);
+
+    // Chart group (clipped)
+    const chartG = g.append('g')
+      .attr('clip-path', 'url(#clip)');
+
+    // Tooltip
+    const tooltip = d3.select('#tooltip');
+
+    // Zoom behavior
+    const zoom = d3.zoom()
+      .scaleExtent([1, 10])
+      .translateExtent([[0, 0], [width, height]])
+      .extent([[0, 0], [width, height]])
+      .on('zoom', zoomed);
+
+    svg.call(zoom);
+
+    function zoomed(event) {
+      const newXScale = event.transform.rescaleX(xScale);
+
+      // Update axes
+      xAxisG.call(d3.axisBottom(newXScale).tickFormat(d3.timeFormat('%b %d')));
+
+      // Update lines
+      const zoomedLine = d3.line()
+        .x(d => newXScale(d.date))
+        .y(d => yScale(d.value))
+        .curve(curveType);
+
+      chartG.selectAll('.line')
+        .attr('d', d => zoomedLine(d.values));
+
+      // Update points
+      chartG.selectAll('.series-group')
+        .selectAll('.dot')
+        .attr('cx', d => newXScale(d.date));
+    }
+
+    function drawChart() {
+      // Calculate domains
+      const allValues = data.filter(s => s.visible).flatMap(s => s.values);
+
+      xScale.domain(d3.extent(allValues, d => d.date));
+      yScale.domain([0, d3.max(allValues, d => d.value)]).nice();
+
+      // Update axes
+      xAxisG.call(d3.axisBottom(xScale).tickFormat(d3.timeFormat('%b %d')));
+      yAxisG.call(d3.axisLeft(yScale).ticks(5));
+
+      // Update grid
+      gridG.call(d3.axisLeft(yScale)
+        .ticks(5)
+        .tickSize(-width)
+        .tickFormat(''));
+
+      // Bind data
+      const seriesGroups = chartG.selectAll('.series-group')
+        .data(data.filter(s => s.visible), d => d.name);
+
+      // Remove exited series
+      seriesGroups.exit().remove();
+
+      // Add new series
+      const seriesEnter = seriesGroups.enter()
+        .append('g')
+        .attr('class', 'series-group');
+
+      // Merge enter and update
+      const seriesMerge = seriesEnter.merge(seriesGroups);
+
+      // Draw lines
+      let paths = seriesMerge.selectAll('.line').data(d => [d]);
+
+      paths.enter()
+        .append('path')
+        .attr('class', 'line')
+        .merge(paths)
+        .attr('d', d => lineGenerator(d.values))
+        .attr('stroke', d => d.color)
+        .style('opacity', 0)
+        .transition()
+        .duration(800)
+        .style('opacity', 1);
+
+      paths.exit().remove();
+
+      // Draw points (if enabled)
+      const showPoints = document.getElementById('points-toggle').value === 'true';
+
+      if (showPoints) {
+        const dots = seriesMerge.selectAll('.dot')
+          .data(d => d.values.map(v => ({ ...v, color: d.color, name: d.name })));
+
+        dots.enter()
+          .append('circle')
+          .attr('class', 'dot')
+          .attr('r', 0)
+          .merge(dots)
+          .attr('cx', d => xScale(d.date))
+          .attr('cy', d => yScale(d.value))
+          .attr('fill', d => d.color)
+          .on('mouseover', showTooltip)
+          .on('mouseout', hideTooltip)
+          .transition()
+          .duration(300)
+          .delay((d, i) => i * 5)
+          .attr('r', 4);
+
+        dots.exit().remove();
+      } else {
+        seriesMerge.selectAll('.dot').remove();
+      }
+
+      // Update legend
+      updateLegend();
+
+      // Update stats
+      updateStats();
+    }
+
+    function showTooltip(event, d) {
+      tooltip
+        .style('display', 'block')
+        .html(`
+          <strong>${d.name}</strong>
+          Date: ${d3.timeFormat('%B %d, %Y')(d.date)}<br/>
+          Value: ${d.value.toFixed(2)}
+        `)
+        .style('left', (event.pageX + 10) + 'px')
+        .style('top', (event.pageY - 28) + 'px');
+    }
+
+    function hideTooltip() {
+      tooltip.style('display', 'none');
+    }
+
+    function updateLegend() {
+      const legend = d3.select('#legend');
+
+      const items = legend.selectAll('.legend-item')
+        .data(data);
+
+      const itemsEnter = items.enter()
+        .append('div')
+        .attr('class', 'legend-item');
+
+      itemsEnter.append('div')
+        .attr('class', 'legend-swatch');
+
+      itemsEnter.append('span')
+        .attr('class', 'legend-label');
+
+      const itemsMerge = itemsEnter.merge(items);
+
+      itemsMerge
+        .style('opacity', d => d.visible ? 1 : 0.3)
+        .on('click', (event, d) => {
+          d.visible = !d.visible;
+          drawChart();
+        });
+
+      itemsMerge.select('.legend-swatch')
+        .style('background', d => d.color);
+
+      itemsMerge.select('.legend-label')
+        .text(d => d.name);
+
+      items.exit().remove();
+    }
+
+    function updateStats() {
+      const visibleData = data.filter(s => s.visible);
+      const allValues = visibleData.flatMap(s => s.values.map(v => v.value));
+
+      const stats = [
+        { label: 'Average Value', value: d3.mean(allValues).toFixed(2) },
+        { label: 'Max Value', value: d3.max(allValues).toFixed(2) },
+        { label: 'Min Value', value: d3.min(allValues).toFixed(2) },
+        { label: 'Data Points', value: allValues.length }
+      ];
+
+      const statsContainer = d3.select('#stats');
+
+      const cards = statsContainer.selectAll('.stat-card')
+        .data(stats);
+
+      const cardsEnter = cards.enter()
+        .append('div')
+        .attr('class', 'stat-card');
+
+      cardsEnter.append('div')
+        .attr('class', 'stat-label');
+
+      cardsEnter.append('div')
+        .attr('class', 'stat-value');
+
+      const cardsMerge = cardsEnter.merge(cards);
+
+      cardsMerge.select('.stat-label')
+        .text(d => d.label);
+
+      cardsMerge.select('.stat-value')
+        .text(d => d.value);
+    }
+
+    // Event listeners
+    document.getElementById('curve-select').addEventListener('change', function(e) {
+      const curves = {
+        'curveLinear': d3.curveLinear,
+        'curveMonotoneX': d3.curveMonotoneX,
+        'curveStep': d3.curveStep,
+        'curveBasis': d3.curveBasis,
+        'curveCatmullRom': d3.curveCatmullRom
+      };
+
+      curveType = curves[e.target.value];
+      lineGenerator.curve(curveType);
+      drawChart();
+    });
+
+    document.getElementById('points-toggle').addEventListener('change', function() {
+      drawChart();
+    });
+
+    document.getElementById('reset-zoom').addEventListener('click', function() {
+      svg.transition()
+        .duration(750)
+        .call(zoom.transform, d3.zoomIdentity);
+    });
+
+    document.getElementById('regenerate-data').addEventListener('click', function() {
+      data = generateData(3, 50);
+      drawChart();
+    });
+
+    // Initial draw
+    drawChart();
+  </script>
+</body>
+</html>
