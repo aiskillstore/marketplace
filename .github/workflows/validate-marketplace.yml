@@ -393,63 +393,81 @@ jobs:
           echo "::error::Marketplace consistency check failed"
           exit 1
 
-      - name: Detect binary/corrupt data in skill-report.json
-        id: detect-binary
+      - name: Validate SKILL.md files have proper YAML frontmatter
+        id: validate-skill-md
         run: |
           node -e "
             const fs = require('fs');
             const path = require('path');
 
-            // Detect binary/corrupt data (ZIP headers, control characters)
-            function hasBinaryData(text) {
-              if (!text) return false;
-              // ZIP header (PK\x03\x04) or excessive control characters
-              return /^PK\x03\x04|[\x00-\x08\x0E-\x1F]/.test(text);
+            /**
+             * Validate that content has valid SKILL.md structure (YAML frontmatter)
+             * Returns error message if invalid, null if valid
+             */
+            function validateSkillMdContent(rawContent) {
+              // Check for YAML frontmatter delimiters
+              if (!rawContent.startsWith('---')) {
+                return 'Missing YAML frontmatter (must start with ---)';
+              }
+
+              // Check for closing delimiter
+              const endIndex = rawContent.indexOf('---', 3);
+              if (endIndex === -1) {
+                return 'Missing closing YAML frontmatter delimiter (---)';
+              }
+
+              // Check if frontmatter section has content
+              const frontmatterContent = rawContent.slice(3, endIndex).trim();
+              if (!frontmatterContent) {
+                return 'Empty YAML frontmatter (no metadata found)';
+              }
+
+              return null; // Valid
             }
 
-            const findReportFiles = (dir) => {
+            const findSkillMdFiles = (dir) => {
               const files = [];
               if (!fs.existsSync(dir)) return files;
               const entries = fs.readdirSync(dir, { withFileTypes: true });
               for (const entry of entries) {
                 const fullPath = path.join(dir, entry.name);
                 if (entry.isDirectory()) {
-                  files.push(...findReportFiles(fullPath));
-                } else if (entry.name === 'skill-report.json') {
+                  files.push(...findSkillMdFiles(fullPath));
+                } else if (entry.name === 'SKILL.md') {
                   files.push(fullPath);
                 }
               }
               return files;
             };
 
-            const reportFiles = [...findReportFiles('plugins'), ...findReportFiles('pending')];
-            let hasCorruptData = false;
+            const skillMdFiles = [...findSkillMdFiles('plugins'), ...findSkillMdFiles('pending')];
+            let hasInvalidFiles = false;
 
-            for (const file of reportFiles) {
+            for (const file of skillMdFiles) {
               try {
-                const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-                const description = data?.skill?.description || '';
-                const summary = data?.skill?.summary || '';
+                const content = fs.readFileSync(file, 'utf8');
+                const validationError = validateSkillMdContent(content);
 
-                if (hasBinaryData(description) || hasBinaryData(summary)) {
-                  console.error(\`::error file=\${file}::Contains binary/corrupt data (likely ZIP or binary file content)\`);
+                if (validationError) {
+                  console.error(\`::error file=\${file}::\${validationError}\`);
                   console.error(\`  Plugin: \${file}\`);
-                  console.error(\`  This usually means the source SKILL.md file is corrupt or is a binary file.\`);
-                  console.error(\`  Please check the source repository and regenerate the skill-report.json.\`);
-                  hasCorruptData = true;
+                  console.error(\`  This SKILL.md file is invalid and will be rejected.\`);
+                  console.error(\`  Please ensure the file starts with valid YAML frontmatter.\`);
+                  hasInvalidFiles = true;
                 }
               } catch (e) {
-                // JSON parse errors will be caught by the next validation step
+                console.error(\`::error file=\${file}::Failed to read file: \${e.message}\`);
+                hasInvalidFiles = true;
               }
             }
 
-            if (hasCorruptData) {
-              console.error('\\n❌ Binary/corrupt data detected in skill-report.json files');
-              console.error('These plugins must be removed or regenerated from valid source files.');
+            if (hasInvalidFiles) {
+              console.error('\\n❌ Invalid SKILL.md files detected');
+              console.error('These plugins must have proper YAML frontmatter to be accepted.');
               process.exit(1);
             }
 
-            console.log('✅ No binary/corrupt data detected in skill-report.json files');
+            console.log(\`✅ All \${skillMdFiles.length} SKILL.md files have valid YAML frontmatter\`);
           "
 
       - name: Validate skill-report.json files

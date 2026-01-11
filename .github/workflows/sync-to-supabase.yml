@@ -150,11 +150,27 @@ jobs:
             return match ? match[1] : null;
           }
 
-          // Detect binary/corrupt data (ZIP headers, control characters)
-          function hasBinaryData(text) {
-            if (!text) return false;
-            // ZIP header or excessive control characters
-            return /^PK\x03\x04|[\x00-\x08\x0E-\x1F]/.test(text);
+          /**
+           * Validate that SKILL.md content has valid structure (YAML frontmatter)
+           * Returns error message if invalid, null if valid
+           */
+          function validateSkillMdContent(rawContent) {
+            if (!rawContent) return 'Empty content';
+            // Check for YAML frontmatter delimiters
+            if (!rawContent.startsWith('---')) {
+              return 'Missing YAML frontmatter (must start with ---)';
+            }
+            // Check for closing delimiter
+            const endIndex = rawContent.indexOf('---', 3);
+            if (endIndex === -1) {
+              return 'Missing closing YAML frontmatter delimiter (---)';
+            }
+            // Check if frontmatter section has content
+            const frontmatterContent = rawContent.slice(3, endIndex).trim();
+            if (!frontmatterContent) {
+              return 'Empty YAML frontmatter (no metadata found)';
+            }
+            return null; // Valid
           }
 
           // Sanitize and truncate text field
@@ -205,15 +221,20 @@ jobs:
                 continue;
               }
 
-              // Check for binary/corrupt data in critical fields
-              const description = skillReport?.skill?.description || entry?.description || '';
-              const summary = skillReport?.skill?.summary || '';
-              if (hasBinaryData(description) || hasBinaryData(summary)) {
-                console.error(`Skipping ${dirPath}: contains binary/corrupt data`);
-                errors++;
-                continue;
+              // Validate SKILL.md has proper YAML frontmatter
+              const skillMdPath = path.join(pluginPath, 'SKILL.md');
+              if (fs.existsSync(skillMdPath)) {
+                const skillMdContent = fs.readFileSync(skillMdPath, 'utf8');
+                const validationError = validateSkillMdContent(skillMdContent);
+                if (validationError) {
+                  console.error(`Skipping ${dirPath}: invalid SKILL.md - ${validationError}`);
+                  errors++;
+                  continue;
+                }
               }
 
+              const description = skillReport?.skill?.description || entry?.description || '';
+              const summary = skillReport?.skill?.summary || '';
               const slug = entry?.name || manifest?.name || dirPath.replace(/\//g, '-');
 
               // ============================================================
