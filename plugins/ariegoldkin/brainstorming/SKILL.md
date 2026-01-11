@@ -11,9 +11,18 @@ Transform rough ideas into fully-formed designs through structured questioning a
 
 **Core principle:** Ask questions to understand, explore alternatives, present design incrementally for validation.
 
-**Announce at start:** "I'm using the brainstorming skill to refine your idea into a design."
+**Announce skill usage at start of session.**
 
-## Quick Reference
+## When to Use This Skill
+
+Activate this skill when:
+- Request contains "I have an idea for..." or "I want to build..."
+- User asks "help me design..." or "what's the best approach for..."
+- Requirements are vague or high-level
+- Multiple approaches might work
+- Before writing any code or implementation plans
+
+## The Three-Phase Process
 
 | Phase | Key Activities | Tool Usage | Output |
 |-------|----------------|------------|--------|
@@ -21,128 +30,100 @@ Transform rough ideas into fully-formed designs through structured questioning a
 | **2. Exploration** | Propose 2-3 approaches | AskUserQuestion for approach selection | Architecture options with trade-offs |
 | **3. Design Presentation** | Present in 200-300 word sections | Open-ended questions | Complete design with validation |
 
-## The Process
-
-Copy this checklist to track progress:
-
-```
-Brainstorming Progress:
-- [ ] Phase 1: Understanding (purpose, constraints, criteria gathered)
-- [ ] Phase 2: Exploration (2-3 approaches proposed and evaluated)
-- [ ] Phase 3: Design Presentation (design validated in sections)
-```
-
 ### Phase 1: Understanding
 
+**Goal:** Gather purpose, constraints, and success criteria.
+
+**Process:**
 - Check current project state in working directory
 - Ask ONE question at a time to refine the idea
-- **Use AskUserQuestion tool** when you have multiple choice options
+- Use AskUserQuestion tool when presenting multiple choice options
 - Gather: Purpose, constraints, success criteria
 
-**Example using AskUserQuestion:**
+**Tool Usage:**
+Use AskUserQuestion for clarifying questions with 2-4 clear options.
 
-```
-Question: "Where should the authentication data be stored?"
-Options:
-  - "Session storage" (clears on tab close, more secure)
-  - "Local storage" (persists across sessions, more convenient)
-  - "Cookies" (works with SSR, compatible with older approach)
-```
+Example: "Where should the authentication data be stored?" with options for Session storage, Local storage, Cookies, each with trade-off descriptions.
+
+See `references/example-session-auth.md` for complete Phase 1 example.
 
 ### Phase 2: Exploration
 
+**Goal:** Propose 2-3 different architectural approaches with explicit trade-offs.
+
+**Process:**
 - Propose 2-3 different approaches
 - For each: Core architecture, trade-offs, complexity assessment
-- **Use AskUserQuestion tool** to present approaches as structured choices
-- Ask your human partner which approach resonates
+- Use AskUserQuestion tool to present approaches as structured choices
+- Include trade-off comparison table when helpful
 
-**Example using AskUserQuestion:**
+**Trade-off Format:**
 
-```
-Question: "Which architectural approach should we use?"
-Options:
-  - "Event-driven with message queue" (scalable, complex setup, eventual consistency)
-  - "Direct API calls with retry logic" (simple, synchronous, easier to debug)
-  - "Hybrid with background jobs" (balanced, moderate complexity, best of both)
-```
+| Approach | Pros | Cons | Complexity |
+|----------|------|------|------------|
+| Option 1 | Benefits | Drawbacks | Low/Med/High |
+| Option 2 | Benefits | Drawbacks | Low/Med/High |
+| Option 3 | Benefits | Drawbacks | Low/Med/High |
+
+See `references/example-session-dashboard.md` for complete Phase 2 example with SSE vs WebSockets vs Polling comparison.
 
 ### Phase 3: Design Presentation
 
+**Goal:** Present complete design incrementally, validating each section.
+
+**Process:**
 - Present in 200-300 word sections
 - Cover: Architecture, components, data flow, error handling, testing
-- Ask after each section: "Does this look right so far?" (open-ended)
-- Use open-ended questions here to allow freeform feedback
+- Ask after each section: "Does this look right so far?"
+- Use open-ended questions to allow freeform feedback
 
-### Next Steps
+**Typical Sections:**
+1. Architecture overview
+2. Component details
+3. Data flow
+4. Error handling
+5. Security considerations
+6. Implementation priorities
 
-After brainstorming completes, consider:
+**Validation Pattern:**
+After each section, pause for feedback before proceeding to next section.
 
-- **Document the design:** Write to `Docs/plans/YYYY-MM-DD-<topic>-design.md` for permanent reference
-- **Plan implementation:** Break down the design into actionable tasks
-- **Set up workspace:** Create a git branch or worktree for isolated development
+## Tool Usage Guidelines
 
-These steps are optional and can be done as separate activities when ready.
-
-## Question Patterns
-
-### When to Use AskUserQuestion Tool
-
-**Use AskUserQuestion for:**
-
+### Use AskUserQuestion Tool For:
 - Phase 1: Clarifying questions with 2-4 clear options
 - Phase 2: Architectural approach selection (2-3 alternatives)
 - Any decision with distinct, mutually exclusive choices
 - When options have clear trade-offs to explain
 
 **Benefits:**
-
 - Structured presentation of options with descriptions
-- Clear trade-off visibility for partner
+- Clear trade-off visibility
 - Forces explicit choice (prevents vague "maybe both" responses)
 
-### When to Use Open-Ended Questions
-
-**Use open-ended questions for:**
-
-- Phase 3: Design validation ("Does this look right so far?")
-- When you need detailed feedback or explanation
-- When partner should describe their own requirements
+### Use Open-Ended Questions For:
+- Phase 3: Design validation
+- When detailed feedback or explanation is needed
+- When the user should describe their own requirements
 - When structured options would limit creative input
 
-**Example decision flow:**
+## Non-Linear Progression
 
-- "What authentication method?" → Use AskUserQuestion (2-4 options)
-- "Does this design handle your use case?" → Open-ended (validation)
+**Flexibility is key.** Go backward when needed - don't force linear progression.
 
-## When to Revisit Earlier Phases
+**Return to Phase 1 when:**
+- User reveals new constraint during Phase 2 or 3
+- Validation shows fundamental gap in requirements
+- Something doesn't make sense
 
-```dot
-digraph revisit_phases {
-    rankdir=LR;
-    "New constraint revealed?" [shape=diamond];
-    "Partner questions approach?" [shape=diamond];
-    "Requirements unclear?" [shape=diamond];
-    "Return to Phase 1" [shape=box, style=filled, fillcolor="#ffcccc"];
-    "Return to Phase 2" [shape=box, style=filled, fillcolor="#ffffcc"];
-    "Continue forward" [shape=box, style=filled, fillcolor="#ccffcc"];
+**Return to Phase 2 when:**
+- User questions the chosen approach during Phase 3
+- New information suggests a different approach would be better
 
-    "New constraint revealed?" -> "Return to Phase 1" [label="yes"];
-    "New constraint revealed?" -> "Partner questions approach?" [label="no"];
-    "Partner questions approach?" -> "Return to Phase 2" [label="yes"];
-    "Partner questions approach?" -> "Requirements unclear?" [label="no"];
-    "Requirements unclear?" -> "Return to Phase 1" [label="yes"];
-    "Requirements unclear?" -> "Continue forward" [label="no"];
-}
-```
-
-**You can and should go backward when:**
-
-- Partner reveals new constraint during Phase 2 or 3 → Return to Phase 1
-- Validation shows fundamental gap in requirements → Return to Phase 1
-- Partner questions approach during Phase 3 → Return to Phase 2
-- Something doesn't make sense → Go back and clarify
-
-**Don't force forward linearly** when going backward would give better results.
+**Continue forward when:**
+- All requirements are clear
+- Chosen approach is validated
+- No new constraints emerge
 
 ## Key Principles
 
@@ -154,4 +135,22 @@ digraph revisit_phases {
 | **Explore alternatives** | Always propose 2-3 approaches before settling |
 | **Incremental validation** | Present design in sections, validate each |
 | **Flexible progression** | Go backward when needed - flexibility > rigidity |
-| **Announce usage** | State skill usage at start of session |
+
+## After Brainstorming Completes
+
+Consider these optional next steps:
+- Document the design in project's design documentation
+- Break down the design into actionable implementation tasks
+- Create a git branch or workspace for isolated development
+
+Use templates in `assets/design-doc-template.md` and `assets/decision-matrix-template.md` for structured documentation.
+
+## Examples
+
+**Complete brainstorming sessions:**
+- `references/example-session-auth.md` - Authentication storage design (JWT vs Session vs Cookies)
+- `references/example-session-dashboard.md` - Real-time dashboard design (SSE vs WebSockets vs Polling)
+
+**Output templates:**
+- `assets/design-doc-template.md` - Structured design document format
+- `assets/decision-matrix-template.md` - Weighted decision comparison format
