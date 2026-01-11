@@ -10,7 +10,6 @@ Automatically prepare pull request descriptions following project standards.
 ## Activation
 
 This skill activates on keywords:
-
 - "prepare PR", "prepare the PR", "prepare a PR"
 - "create PR", "create pull request"
 - "PR description", "pull request description"
@@ -42,7 +41,6 @@ git diff $(git merge-base HEAD main)..HEAD
 ### 2. Analyze Changes
 
 Identify:
-
 - **Components modified**: Which files/modules changed
 - **Purpose**: Why these changes were made
 - **Impact**: Benefits, risks, breaking changes
@@ -97,7 +95,6 @@ Follow conventional commits format:
 Present the complete PR description ready to copy-paste into GitHub.
 
 Remind the user:
-
 - CodeRabbit will auto-fill `@coderabbitai summary` placeholder
 - They can push and create PR with `gh pr create`
 
@@ -106,7 +103,6 @@ Remind the user:
 **User**: "Can you prepare the PR for this branch?"
 
 **Claude**:
-
 1. Runs git commands to gather context
 2. Analyzes the changes
 3. Outputs:
@@ -147,7 +143,6 @@ Follow-up: Add Microsoft provider support
 ---
 
 Ready to copy! Push with:
-
 ```bash
 git push -u origin HEAD
 gh pr create --fill

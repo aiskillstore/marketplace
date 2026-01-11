@@ -100,7 +100,6 @@
 ## Common Initial ADRs
 
 For new projects, typically create:
-
 1. `adr-001-database-choice.md` - Storage strategy
 2. `adr-002-auth-strategy.md` - Authentication approach (if applicable)
 3. `adr-003-api-design.md` - API patterns (if applicable)
