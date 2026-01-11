@@ -31,7 +31,7 @@ Auto-activates on keywords: test, coverage, pytest, unittest, integration test, 
 uv run pytest
 
 # Run with coverage
-uv run pytest --cov=src/audio_processor --cov-report=html --cov-report=term-missing
+uv run pytest --cov=src/rag_processor --cov-report=html --cov-report=term-missing
 
 # Run specific test categories
 uv run pytest -m "not slow"

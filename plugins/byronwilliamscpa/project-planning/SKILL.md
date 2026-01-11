@@ -154,9 +154,8 @@ When generating, incorporate known information:
 ```python
 # From pyproject.toml / cookiecutter context
 python_version = "3.12"
-project_name = "Audio Processor"
-project_slug = "audio_processor"
-cli_framework = "Click"
+project_name = "RAG Processor"
+project_slug = "rag_processor"
 containerization = "Docker"
 ```
 
@@ -232,7 +231,7 @@ When user says: "I want to build a CLI tool for managing personal finances..."
 ```
 mcp__zen__consensus with gemini-3-pro-preview:
 
-Review this Project Vision & Scope document for Audio Processor.
+Review this Project Vision & Scope document for RAG Processor.
 
 EVALUATION CRITERIA:
 1. SPECIFICITY - Can a developer implement from these requirements?
