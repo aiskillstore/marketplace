@@ -1,3 +1,8 @@
+---
+name: email-assistant
+description: User asks to read, check, or manage emails - User asks to reply to or send an email - User asks to draft an email response
+---
+
 # Email Assistant
 
 Guidelines for reading and writing emails via Gmail MCP tools.

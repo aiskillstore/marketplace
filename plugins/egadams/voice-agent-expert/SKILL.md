@@ -1,3 +1,8 @@
+---
+name: voice-agent-expert
+description: This skill is a practical, 'use-it-while-debugging' reference for getting a LiveKit + Letta voice agent working reliably.
+---
+
 # Voice Agent Expert – Debugging Cheat Sheet (Skill)
 
 This skill is a practical, "use-it-while-debugging" reference for getting a LiveKit + Letta voice agent working reliably.

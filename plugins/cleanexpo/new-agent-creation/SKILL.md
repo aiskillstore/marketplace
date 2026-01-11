@@ -1,3 +1,8 @@
+---
+name: new-agent-creation
+description: ```typescript
+---
+
 # New Agent Creation Skill
 ## Step-by-Step Agent Implementation
 

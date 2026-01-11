@@ -1,3 +1,8 @@
+---
+name: security
+description: Security validation, vulnerability scanning, and compliance checking.
+---
+
 # Security Skill
 
 Security validation, vulnerability scanning, and compliance checking.

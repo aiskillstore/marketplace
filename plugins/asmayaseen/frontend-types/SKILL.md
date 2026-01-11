@@ -1,3 +1,8 @@
+---
+name: frontend-types
+description: All TypeScript types are defined in `frontend/types/index.ts`. Types match backend API response structure and provide type safety across the frontend application.
+---
+
 # Frontend TypeScript Types Skill
 
 **Purpose**: Guidance for creating TypeScript type definitions following existing patterns from `frontend/types/index.ts`.

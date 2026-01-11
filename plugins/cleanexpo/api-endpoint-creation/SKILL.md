@@ -1,3 +1,8 @@
+---
+name: api-endpoint-creation
+description: ```typescript
+---
+
 # API Endpoint Creation Skill
 ## Next.js 15+ API Route Patterns
 

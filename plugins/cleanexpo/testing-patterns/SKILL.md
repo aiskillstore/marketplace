@@ -1,3 +1,8 @@
+---
+name: testing-patterns
+description: ```typescript
+---
+
 # Testing Patterns Skill
 ## Vitest Testing Strategy
 

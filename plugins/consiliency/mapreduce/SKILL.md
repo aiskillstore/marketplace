@@ -1,3 +1,8 @@
+---
+name: mapreduce
+description: The MapReduce skill enables parallel task execution across multiple AI providers or agent instances, followed by intelligent consolidation of results. This produces higher-quality outputs by levera...
+---
+
 # MapReduce Skill
 
 > **Skill ID**: mapreduce

@@ -1,3 +1,8 @@
+---
+name: ml-training-debugger
+description: Diagnose machine learning training failures including loss divergence, mode collapse, gradient issues, architecture problems, and optimization failures. This skill spawns a specialist ML debugging ...
+---
+
 # ML Training Debugger
 
 **Version**: 1.0.0

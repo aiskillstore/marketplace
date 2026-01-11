@@ -1,3 +1,8 @@
+---
+name: solid-principles
+description: SOLID principles adapted for functional and TypeScript-first development.
+---
+
 # SOLID Principles for Node.js/TypeScript
 
 ## Overview

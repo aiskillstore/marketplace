@@ -1,3 +1,8 @@
+---
+name: zod-validation-patterns
+description: This skill provides comprehensive patterns for using Zod validation library in TypeScript applications. It ensures input validation is done correctly, securely, and consistently across the codebase.
+---
+
 # Zod Validation Patterns Skill
 
 **Use this skill when:** Working with user input validation, API request validation, form data validation, or data transformation in Quetrex.

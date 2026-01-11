@@ -1,3 +1,8 @@
+---
+name: clean-code
+description: Clean code principles adapted for TypeScript-first, functional development.
+---
+
 # Clean Code Skill for Node.js/TypeScript
 
 ## Overview

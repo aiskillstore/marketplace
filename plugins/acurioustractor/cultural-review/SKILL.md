@@ -1,3 +1,8 @@
+---
+name: cultural-review
+description: This skill provides comprehensive guidance for reviewing code, features, and content for cultural sensitivity and Indigenous data sovereignty compliance.
+---
+
 # Cultural Review Skill
 
 This skill provides comprehensive guidance for reviewing code, features, and content for cultural sensitivity and Indigenous data sovereignty compliance.

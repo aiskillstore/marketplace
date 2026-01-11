@@ -1,3 +1,8 @@
+---
+name: drizzle-orm-patterns
+description: This skill provides comprehensive Drizzle ORM patterns for PostgreSQL with Vercel Edge Runtime support. Drizzle is Quetrex's chosen ORM because it's edge-first, type-safe, and supports all deployme...
+---
+
 # Drizzle ORM Patterns - Complete PostgreSQL Reference
 
 **Use when:** Working with database operations, schema design, migrations, or queries in Quetrex.

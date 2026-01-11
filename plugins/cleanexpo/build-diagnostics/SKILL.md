@@ -1,3 +1,8 @@
+---
+name: build-diagnostics
+description: When given a blocker:
+---
+
 # Build Diagnostics Agent - Deep Problem Solver
 
 **Purpose**: When Truth Layer finds a blocker, this agent investigates root cause and implements fix.

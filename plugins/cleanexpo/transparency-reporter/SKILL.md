@@ -1,3 +1,8 @@
+---
+name: transparency-reporter
+description: When Truth Layer identifies a blocker:
+---
+
 # Transparency Reporter Agent - Truth Chronicler
 
 **Purpose**: Creates honest, traceable records of all blockers, solutions, and system state.

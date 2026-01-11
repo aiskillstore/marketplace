@@ -1,3 +1,8 @@
+---
+name: siteground-cache
+description: Bypass SiteGround caching (SG CachePress + LiteSpeed) for WordPress development. Adds cache-busting code to child themes for real-time development testing.
+---
+
 # SiteGround Cache Buster Skill
 
 Bypass SiteGround caching (SG CachePress + LiteSpeed) for WordPress development. Adds cache-busting code to child themes for real-time development testing.

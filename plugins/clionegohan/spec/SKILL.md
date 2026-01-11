@@ -1,3 +1,8 @@
+---
+name: spec
+description: 仕様駆動開発（SDD）の**上流工程**を担当するSkill。
+---
+
 # /spec Skill - 仕様策定ワークフロー
 
 仕様駆動開発（SDD）の**上流工程**を担当するSkill。

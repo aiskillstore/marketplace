@@ -1,3 +1,8 @@
+---
+name: growth-strategy
+description: Designing growth strategy or GTM plans - Planning experiments and A/B tests - Optimizing activation, retention, or referral flows
+---
+
 # Growth Strategy
 
 Modern growth hacking: loops + product-led growth + disciplined experimentation, under privacy and deliverability constraints.

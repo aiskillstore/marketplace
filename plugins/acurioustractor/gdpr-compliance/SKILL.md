@@ -1,3 +1,8 @@
+---
+name: gdpr-compliance
+description: This skill provides comprehensive guidance for implementing and reviewing GDPR-compliant features in Empathy Ledger.
+---
+
 # GDPR Compliance Skill
 
 This skill provides comprehensive guidance for implementing and reviewing GDPR-compliant features in Empathy Ledger.

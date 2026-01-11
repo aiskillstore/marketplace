@@ -1,3 +1,8 @@
+---
+name: tdd-workflow
+description: Test-Driven Development methodology for Node.js/TypeScript projects.
+---
+
 # TDD Workflow Skill
 
 ## Overview
