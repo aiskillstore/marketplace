@@ -145,15 +145,17 @@ jobs:
           # Transform space-separated relative paths to comma-separated full paths
           # Input:  "author1/skill1 author2/skill2"
           # Output: "plugins/author1/skill1,plugins/author2/skill2"
-          PLUGIN_PATHS=$(echo "$CHANGED_PLUGINS" | tr ' ' '\n' | sed 's|^|plugins/|' | tr '\n' ',' | sed 's/,$//')
+          # Filter empty lines to prevent trailing "plugins/" from spaces
+          PLUGIN_PATHS=$(echo "$CHANGED_PLUGINS" | tr ' ' '\n' | grep -v '^$' | sed 's|^|plugins/|' | tr '\n' ',' | sed 's/,$//')
 
           echo "Plugin paths: $PLUGIN_PATHS"
 
           # Run skillstore-cli sync command with parallel processing
           # --concurrency 10: Process 10 plugins in parallel for faster sync
-          # Output: comma-separated synced slugs on last line of stdout
-          # Note: Do NOT use --verbose as it adds extra lines that break tail -1 parsing
-          SYNCED_SLUGS=$(./skillstore-cli skill sync --slugs "$PLUGIN_PATHS" --concurrency 10 2>&1 | tee /dev/stderr | tail -1)
+          # Save full output to file, display to console, then extract result from last line
+          # This preserves detailed logs for debugging while capturing the synced slugs
+          ./skillstore-cli skill sync --slugs "$PLUGIN_PATHS" --concurrency 10 2>&1 | tee sync-output.log
+          SYNCED_SLUGS=$(tail -1 sync-output.log)
 
           echo "synced_slugs=$SYNCED_SLUGS" >> $GITHUB_OUTPUT
           echo "::notice::Synced skills: $SYNCED_SLUGS"
