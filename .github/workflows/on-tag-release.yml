@@ -68,43 +68,13 @@ jobs:
             echo "No previous tags found (first release)"
           fi
 
-      - name: Sync marketplace.json from skills directory
-        id: sync_marketplace
+      - name: Count skills
+        id: count_skills
         run: |
-          echo "Syncing marketplace.json from skills/ directory..."
-
-          # High-performance O(1) approach: single jq invocation for ALL files
-          # Uses jq's 'inputs' to stream-process files and 'input_filename' for paths
-          # Scales to 100k+ skills without shell argument limits or O(n) overhead
-          cat > /tmp/sync_skills.jq << 'JQSCRIPT'
-          [inputs |
-            select(.name != null) |
-            {
-              name: .name,
-              description: (.description // ""),
-              version: (.version // "1.0.0"),
-              source: ("./\(input_filename | split("/")[:-1] | join("/"))")
-            }
-          ] | sort_by(.name)
-          JQSCRIPT
-
-          # xargs may split into multiple jq calls when file count exceeds ARG_MAX
-          # Each call outputs a separate array, so we merge them with jq -s 'add'
-          find skills -name "marketplace-entry.json" -print0 2>/dev/null | \
-            sort -z | \
-            xargs -0 jq -n -f /tmp/sync_skills.jq | \
-            jq -s 'add | sort_by(.name)' > /tmp/skills_sorted.json
-
-          SKILL_COUNT=$(jq 'length' /tmp/skills_sorted.json)
-
-          # Update marketplace.json with synced skills
-          jq --slurpfile skills /tmp/skills_sorted.json '.skills = $skills[0]' \
-            .claude-plugin/marketplace.json > /tmp/marketplace_synced.json
-          mv /tmp/marketplace_synced.json .claude-plugin/marketplace.json
-
-          rm -f /tmp/skills_sorted.json /tmp/sync_skills.jq
-          echo "Synced $SKILL_COUNT skills to marketplace.json"
+          # Count skills by finding plugin.json files
+          SKILL_COUNT=$(find skills -name "SKILL.md" 2>/dev/null | wc -l | tr -d ' ')
           echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
+          echo "Found $SKILL_COUNT skills"
 
       - name: Analyze changes since last release
         id: changelog
@@ -122,16 +92,21 @@ jobs:
 
           echo "Analyzing commits in range: $RANGE"
 
-          # High-performance O(1) approach for skill comparison
-          # Uses jq set operations instead of O(n²) shell loops
+          # Get current skill count from count_skills step
+          SKILL_COUNT="${{ steps.count_skills.outputs.skill_count }}"
 
-          # Get current skill count and list (single jq call)
-          SKILL_COUNT=$(jq '.plugins | length' .claude-plugin/marketplace.json)
-          jq -r '.skills[].name' .claude-plugin/marketplace.json | sort > /tmp/current_skills.txt
-
-          # Build current skill name-to-path map (single jq call)
-          jq -r '.skills[] | "\(.name)|\(.source | sub("^\\./"; ""))"' \
-            .claude-plugin/marketplace.json > /tmp/current_skill_paths.txt
+          # Build current skill name-to-path map from plugin.json files
+          > /tmp/current_skills.txt
+          > /tmp/current_skill_paths.txt
+          for plugin_file in $(find skills -name "SKILL.md" 2>/dev/null | sort); do
+            name=$(jq -r '.name // empty' "$plugin_file" 2>/dev/null)
+            if [ -n "$name" ]; then
+              skill_dir=$(dirname "$(dirname "$plugin_file")")
+              echo "$name" >> /tmp/current_skills.txt
+              echo "${name}|${skill_dir}" >> /tmp/current_skill_paths.txt
+            fi
+          done
+          sort -o /tmp/current_skills.txt /tmp/current_skills.txt
 
           # Get previous skills using efficient git + jq pipeline
           PREV_COUNT=0
@@ -141,16 +116,17 @@ jobs:
           if [ -n "$PREV_TAG" ]; then
             echo "Scanning skills at ${PREV_TAG}..."
 
-            # Get all marketplace-entry.json files at PREV_TAG in one git call
-            git ls-tree -r "${PREV_TAG}" --name-only 2>/dev/null | grep "marketplace-entry.json" > /tmp/prev_entry_files.txt || true
+            # Get all plugin.json files at PREV_TAG in one git call
+            git ls-tree -r "${PREV_TAG}" --name-only 2>/dev/null | grep "SKILL\.md$" > /tmp/prev_entry_files.txt || true
 
             # Extract names efficiently using a single pass
             while IFS= read -r file; do
               [ -z "$file" ] && continue
               name=$(git show "${PREV_TAG}:${file}" 2>/dev/null | jq -r '.name // empty' 2>/dev/null)
               if [ -n "$name" ]; then
+                skill_dir=$(dirname "$(dirname "$file")")
                 echo "$name" >> /tmp/prev_skills.txt
-                echo "${name}|$(dirname "$file")" >> /tmp/prev_skill_paths.txt
+                echo "${name}|${skill_dir}" >> /tmp/prev_skill_paths.txt
               fi
             done < /tmp/prev_entry_files.txt
 
@@ -268,17 +244,6 @@ jobs:
           echo "summary=$ESCAPED" >> $GITHUB_OUTPUT
           echo "AI Summary: $ESCAPED"
 
-      - name: Update marketplace.json version
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          
-          jq --arg version "$VERSION" \
-            '.metadata.version = $version' \
-            .claude-plugin/marketplace.json > /tmp/marketplace.json
-          mv /tmp/marketplace.json .claude-plugin/marketplace.json
-          
-          echo "Updated marketplace.json to version $VERSION"
-
       - name: Update CHANGELOG.md
         run: |
           VERSION="${{ steps.version.outputs.version }}"
@@ -368,15 +333,14 @@ jobs:
           git clone --depth 1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "$WORK_DIR"
           
           # Copy updated files from checkout to fresh clone
-          cp .claude-plugin/marketplace.json "$WORK_DIR/.claude-plugin/marketplace.json"
           cp CHANGELOG.md "$WORK_DIR/CHANGELOG.md"
-          
+
           cd "$WORK_DIR"
-          
+
           git config user.name "ai-skill-store[bot]"
           git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
-          
-          git add .claude-plugin/marketplace.json CHANGELOG.md
+
+          git add CHANGELOG.md
           
           if git diff --staged --quiet; then
             echo "No changes to commit"
