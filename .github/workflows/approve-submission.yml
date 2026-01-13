@@ -566,15 +566,25 @@ jobs:
           *Processed via manual approval workflow by skillstore-cli*
           EOF
           
-          PR_URL=$(gh pr create \
+          # Create PR with full error visibility
+          echo "Creating PR..."
+          if PR_OUTPUT=$(gh pr create \
             --title "$PR_TITLE" \
             --body-file pr-body.md \
             --label "pending-review,manually-approved" \
             --base main \
-            --head "$BRANCH_NAME" 2>&1 | tail -1)
-          
-          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
-          echo "Created PR: $PR_URL"
+            --head "$BRANCH_NAME" 2>&1); then
+
+            # Extract PR URL (last line of successful output)
+            PR_URL=$(echo "$PR_OUTPUT" | tail -1)
+            echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+            echo "✅ Created PR: $PR_URL"
+          else
+            # Show full error output for debugging
+            echo "::error::Failed to create PR:"
+            echo "$PR_OUTPUT"
+            exit 1
+          fi
 
       - name: Notify skillstore - PR created
         if: steps.create_pr.outputs.pr_url
