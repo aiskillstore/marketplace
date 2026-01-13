@@ -1,32 +1,47 @@
-# AI Skillstore - Claude Code Plugin Marketplace
+# AI Skillstore - Agent Skills Marketplace
 
-The official AI Skills marketplace for Claude Code. Discover, install, and manage AI agent skills to enhance your Claude Code experience.
+The official AI Skills marketplace for Claude Code and Codex. Discover, install, and manage AI agent skills following the [Agent Skills specification](https://agentskills.io/specification).
 
 ## Quick Start
 
-### Add this marketplace to Claude Code
+### Claude Code Installation
+
+#### Method 1: Quick Install (Recommended)
+
+Copy this prompt and paste it into Claude Code:
 
 ```
-/plugin marketplace add aiskillstore/marketplace
+Download all files from https://github.com/aiskillstore/marketplace/tree/main/skills/<skill-name> and save to ~/.claude/skills/
 ```
 
-### Browse available plugins
+Claude Code will automatically fetch and install the skill files.
+
+#### Method 2: Manual Install
+
+1. Download the skill ZIP from [skillstore.io](https://skillstore.io)
+2. Extract to your preferred scope directory:
+   - **Project scope**: `.claude/skills/<skill-name>/` (current project only)
+   - **User scope**: `~/.claude/skills/<skill-name>/` (all projects)
+3. Each skill folder must contain a `SKILL.md` file
+
+### Codex Installation
+
+#### Method 1: Use $skill-installer (Recommended)
+
+Run this command inside Codex:
 
 ```
-/plugin
-```
-Then select the "Discover" tab.
-
-### Install a plugin
-
-```
-/plugin install <plugin-name>@aiskillstore
+$skill-installer install https://github.com/aiskillstore/marketplace/tree/main/skills/<skill-name>
 ```
 
-For example:
-```
-/plugin install xlsx@aiskillstore
-```
+#### Method 2: Manual Install
+
+1. Download the skill ZIP from [skillstore.io](https://skillstore.io)
+2. Extract to your preferred scope directory:
+   - **Repo scope**: `.codex/skills/<skill-name>/` (current project)
+   - **User scope**: `~/.codex/skills/<skill-name>/` (your account)
+   - **System scope**: `/etc/codex/skills/<skill-name>/` (all users)
+3. Restart Codex to load new skills
 
 ## For Skill Developers
 
@@ -62,35 +77,32 @@ Skills that fail security checks will not be published.
 
 ```
 .
-├── .claude-plugin/
-│   └── marketplace.json      # Plugin catalog (Claude Code reads this)
-├── plugins/                   # Approved plugins
-│   └── <plugin-name>/
-│       ├── .claude-plugin/
-│       │   └── plugin.json   # Plugin manifest
-│       ├── skills/
-│       │   └── <skill-name>/
-│       │       └── SKILL.md  # Skill definition
-│       └── skill-report.json # Security audit + AI-generated content
-├── pending/                   # Plugins awaiting review
+├── skills/                    # Approved skills
+│   └── <skill-name>/
+│       ├── SKILL.md           # Skill definition (required)
+│       ├── scripts/           # Optional executable scripts
+│       ├── references/        # Optional additional docs
+│       └── assets/            # Optional static resources
+├── pending/                   # Skills awaiting review
 ├── schemas/                   # JSON validation schemas
 └── .github/workflows/         # Automation workflows
 ```
 
-## Available Plugins
+## Available Skills
 
-Browse all available plugins at [skillstore.io](https://skillstore.io) or use the `/plugin` command in Claude Code to discover and install plugins directly.
+Browse all available skills at [skillstore.io](https://skillstore.io).
 
 ## Links
 
 - **Website**: [skillstore.io](https://skillstore.io)
 - **Submit Skills**: [skillstore.io/submit](https://skillstore.io/submit)
 - **Documentation**: [skillstore.io/docs](https://skillstore.io/docs)
+- **Agent Skills Spec**: [agentskills.io/specification](https://agentskills.io/specification)
 - **GitHub**: [github.com/aiskillstore](https://github.com/aiskillstore)
 
 ## License
 
-This marketplace catalog is licensed under MIT. Individual plugins may have their own licenses - check each plugin's LICENSE file.
+This marketplace catalog is licensed under MIT. Individual skills may have their own licenses - check each skill's LICENSE file.
 
 ---
 
