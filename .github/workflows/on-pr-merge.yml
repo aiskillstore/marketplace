@@ -6,11 +6,11 @@ on:
     branches: [main]
 
 jobs:
-  approve-plugin:
+  approve-skill:
     if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'pending-review')
     runs-on: self-hosted
     steps:
-      - name: Checkout repository (for pending plugins detection)
+      - name: Checkout repository (for pending skills detection)
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
@@ -27,27 +27,27 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Find pending plugins to approve
+      - name: Find pending skills to approve
         id: find_pending
         run: |
-          PLUGIN_PATHS=""
-          PLUGIN_NAMES=""
+          SKILL_PATHS=""
+          SKILL_NAMES=""
           
           for entry_file in $(find pending -name "marketplace-entry.json" 2>/dev/null); do
-            PLUGIN_DIR=$(dirname "$entry_file")
-            PLUGIN_PATHS="$PLUGIN_PATHS $PLUGIN_DIR"
+            SKILL_DIR=$(dirname "$entry_file")
+            SKILL_PATHS="$SKILL_PATHS $SKILL_DIR"
             
-            # Extract plugin name for commit message
-            NAME=$(jq -r '.name' "$entry_file" 2>/dev/null || basename "$PLUGIN_DIR")
-            PLUGIN_NAMES="$PLUGIN_NAMES /$NAME"
+            # Extract skill name for commit message
+            NAME=$(jq -r '.name' "$entry_file" 2>/dev/null || basename "$SKILL_DIR")
+            SKILL_NAMES="$SKILL_NAMES /$NAME"
           done
           
-          echo "plugin_paths=$PLUGIN_PATHS" >> $GITHUB_OUTPUT
-          echo "plugin_names=$PLUGIN_NAMES" >> $GITHUB_OUTPUT
-          echo "Found pending plugins:$PLUGIN_PATHS"
+          echo "skill_paths=$SKILL_PATHS" >> $GITHUB_OUTPUT
+          echo "skill_names=$SKILL_NAMES" >> $GITHUB_OUTPUT
+          echo "Found pending skills:$SKILL_PATHS"
 
-      - name: Process plugins and commit (isolated temp directory)
-        if: steps.find_pending.outputs.plugin_paths != ''
+      - name: Process skills and commit (isolated temp directory)
+        if: steps.find_pending.outputs.skill_paths != ''
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -70,13 +70,13 @@ jobs:
           git config user.name "ai-skill-store[bot]"
           git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
           
-          echo "=== Moving plugins from pending to plugins ==="
-          for PENDING_DIR in ${{ steps.find_pending.outputs.plugin_paths }}; do
+          echo "=== Moving skills from pending to skills ==="
+          for PENDING_DIR in ${{ steps.find_pending.outputs.skill_paths }}; do
             if [ -d "$PENDING_DIR" ] && [ -f "$PENDING_DIR/marketplace-entry.json" ]; then
-              # Use 'source' field for directory path (e.g., "./plugins/payloadcms/payload")
+              # Use 'source' field for directory path (e.g., "./skills/payloadcms/payload")
               # 'name' field must stay hyphenated for plugin.json schema compliance
               SOURCE_PATH=$(jq -r '.source' "$PENDING_DIR/marketplace-entry.json")
-              # Strip "./" prefix: "./plugins/payloadcms/payload" -> "plugins/payloadcms/payload"
+              # Strip "./" prefix: "./skills/payloadcms/payload" -> "skills/payloadcms/payload"
               TARGET_DIR="${SOURCE_PATH#./}"
               
               echo "Moving $PENDING_DIR to $TARGET_DIR (source: $SOURCE_PATH)"
@@ -92,32 +92,32 @@ jobs:
           done
           
           echo "=== Updating marketplace.json ==="
-          # High-performance O(1) approach: single jq call to merge all new/updated plugins
-          # Instead of O(n) file read/writes per plugin
+          # High-performance O(1) approach: single jq call to merge all new/updated skills
+          # Instead of O(n) file read/writes per skill
 
           # Collect all new marketplace entries into NDJSON
-          find plugins -name "marketplace-entry.json" -newer .claude-plugin/marketplace.json 2>/dev/null \
+          find skills -name "marketplace-entry.json" -newer .claude-plugin/marketplace.json 2>/dev/null \
             | xargs -r cat > /tmp/new_entries.ndjson || true
 
           # If no newer files found, check if any entries exist at all (first run)
           if [ ! -s /tmp/new_entries.ndjson ]; then
-            find plugins -name "marketplace-entry.json" 2>/dev/null \
+            find skills -name "marketplace-entry.json" 2>/dev/null \
               | xargs -r cat > /tmp/new_entries.ndjson || true
           fi
 
           if [ -s /tmp/new_entries.ndjson ]; then
             # Count entries for logging
             ENTRY_COUNT=$(wc -l < /tmp/new_entries.ndjson | tr -d ' ')
-            echo "Processing $ENTRY_COUNT plugin entries..."
+            echo "Processing $ENTRY_COUNT skill entries..."
 
             # Single jq call: merge new entries with existing, handling both add and update
             # Uses reduce to upsert each new entry by name
             jq -s --slurpfile new /tmp/new_entries.ndjson '
               .[0] as $base |
               ($new | flatten) as $entries |
-              $base | .plugins = (
+              $base | .skills = (
                 reduce $entries[] as $entry (
-                  .plugins;
+                  .skills;
                   if any(.[]; .name == $entry.name)
                   then map(if .name == $entry.name then $entry else . end)
                   else . + [$entry]
@@ -143,11 +143,11 @@ jobs:
             git add -A
           fi
           
-          PLUGINS="${{ steps.find_pending.outputs.plugin_names }}"
+          SKILLS="${{ steps.find_pending.outputs.skill_names }}"
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Approve plugins:$PLUGINS"
+            git commit -m "Approve skills:$PLUGINS"
             
             # Push with retry for race conditions
             for i in 1 2 3; do

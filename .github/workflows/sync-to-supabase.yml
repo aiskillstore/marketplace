@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'plugins/**'
+      - 'skills/**'
   workflow_run:
     workflows: ["On PR Merge - Approve Plugin"]
     types: [completed]
@@ -69,59 +69,59 @@ jobs:
             echo "base_sha=HEAD~1" >> $GITHUB_OUTPUT
           fi
 
-      - name: Detect changed plugins
+      - name: Detect changed skills
         id: changes
         run: |
           BASE_SHA="${{ steps.last_sync.outputs.base_sha }}"
           echo "Comparing HEAD against: $BASE_SHA"
           
-          # Find all plugin slugs by locating marketplace-entry.json files
-          find_all_plugins() {
-            for entry in $(find plugins -name "marketplace-entry.json" 2>/dev/null); do
-              # Extract directory path relative to plugins/
+          # Find all skill slugs by locating marketplace-entry.json files
+          find_all_skills() {
+            for entry in $(find skills -name "marketplace-entry.json" 2>/dev/null); do
+              # Extract directory path relative to skills/
               dir=$(dirname "$entry")
-              echo "${dir#plugins/}"
+              echo "${dir#skills/}"
             done | sort -u
           }
           
-          # Get plugin slug from a changed file path
-          # Supports both flat (plugins/name/) and namespaced (plugins/owner/name/)
-          get_plugin_slug() {
+          # Get skill slug from a changed file path
+          # Supports both flat (skills/name/) and namespaced (skills/owner/name/)
+          get_skill_slug() {
             local path="$1"
             local first=$(echo "$path" | cut -d'/' -f1)
             local first_two=$(echo "$path" | cut -d'/' -f1,2)
             
-            # Check if first segment is a plugin (flat structure)
-            if [ -f "plugins/$first/marketplace-entry.json" ] || [ -d "plugins/$first/.claude-plugin" ]; then
+            # Check if first segment is a skill (flat structure)
+            if [ -f "skills/$first/marketplace-entry.json" ] || [ -d "skills/$first/.claude-plugin" ]; then
               echo "$first"
-            # Check if first two segments are a plugin (namespaced: owner/name)
-            elif [ -f "plugins/$first_two/marketplace-entry.json" ] || [ -d "plugins/$first_two/.claude-plugin" ]; then
+            # Check if first two segments are a skill (namespaced: owner/name)
+            elif [ -f "skills/$first_two/marketplace-entry.json" ] || [ -d "skills/$first_two/.claude-plugin" ]; then
               echo "$first_two"
             fi
           }
           
           if [ "${{ inputs.full_sync }}" = "true" ]; then
             echo "Full sync requested"
-            CHANGED=$(find_all_plugins | tr '\n' ' ')
+            CHANGED=$(find_all_skills | tr '\n' ' ')
             echo "mode=full" >> $GITHUB_OUTPUT
           else
-            # Get changed paths since last successful sync and extract plugin slugs
+            # Get changed paths since last successful sync and extract skill slugs
             # IMPORTANT: Use explicit HEAD to compare commits, not working directory
             # On self-hosted runners, working directory may have stale files
             CHANGED=$(git diff "$BASE_SHA" HEAD --name-only 2>/dev/null | \
-              grep '^plugins/' | \
-              sed 's|^plugins/||' | \
+              grep '^skills/' | \
+              sed 's|^skills/||' | \
               while read -r path; do
-                get_plugin_slug "$path"
+                get_skill_slug "$path"
               done | sort -u | tr '\n' ' ')
             echo "mode=incremental" >> $GITHUB_OUTPUT
             echo "Diff range: $BASE_SHA..HEAD"
           fi
           
-          echo "changed_plugins=$CHANGED" >> $GITHUB_OUTPUT
+          echo "changed_skills=$CHANGED" >> $GITHUB_OUTPUT
           
           if [ -z "$CHANGED" ]; then
-            echo "No plugins to sync"
+            echo "No skills to sync"
             echo "skip_sync=true" >> $GITHUB_OUTPUT
           else
             echo "Plugins to sync: $CHANGED"
@@ -134,31 +134,31 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Sync plugins to Supabase
+      - name: Sync skills to Supabase
         id: sync
         if: steps.changes.outputs.skip_sync != 'true'
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          CHANGED_PLUGINS: ${{ steps.changes.outputs.changed_plugins }}
+          CHANGED_PLUGINS: ${{ steps.changes.outputs.changed_skills }}
           SYNC_MODE: ${{ steps.changes.outputs.mode }}
         run: |
           echo "Sync mode: $SYNC_MODE"
-          echo "Syncing plugins: $CHANGED_PLUGINS"
+          echo "Syncing skills: $CHANGED_PLUGINS"
 
           # Transform space-separated relative paths to comma-separated full paths
           # Input:  "author1/skill1 author2/skill2"
-          # Output: "plugins/author1/skill1,plugins/author2/skill2"
-          # Filter empty lines to prevent trailing "plugins/" from spaces
-          PLUGIN_PATHS=$(echo "$CHANGED_PLUGINS" | tr ' ' '\n' | grep -v '^$' | sed 's|^|plugins/|' | tr '\n' ',' | sed 's/,$//')
+          # Output: "skills/author1/skill1,skills/author2/skill2"
+          # Filter empty lines to prevent trailing "skills/" from spaces
+          SKILL_PATHS=$(echo "$CHANGED_PLUGINS" | tr ' ' '\n' | grep -v '^$' | sed 's|^|skills/|' | tr '\n' ',' | sed 's/,$//')
 
-          echo "Plugin paths: $PLUGIN_PATHS"
+          echo "Plugin paths: $SKILL_PATHS"
 
           # Run skillstore-cli sync command with parallel processing
-          # --concurrency 10: Process 10 plugins in parallel for faster sync
+          # --concurrency 10: Process 10 skills in parallel for faster sync
           # Save full output to file, display to console, then extract result from last line
           # This preserves detailed logs for debugging while capturing the synced slugs
-          ./skillstore-cli skill sync --slugs "$PLUGIN_PATHS" --concurrency 10 2>&1 | tee sync-output.log
+          ./skillstore-cli skill sync --slugs "$SKILL_PATHS" --concurrency 10 2>&1 | tee sync-output.log
           SYNCED_SLUGS=$(tail -1 sync-output.log)
 
           echo "synced_slugs=$SYNCED_SLUGS" >> $GITHUB_OUTPUT
@@ -166,7 +166,7 @@ jobs:
 
       - name: Report sync status
         run: |
-          echo "::notice::Sync completed - Mode: ${{ steps.changes.outputs.mode }}, Plugins: ${{ steps.changes.outputs.changed_plugins }}"
+          echo "::notice::Sync completed - Mode: ${{ steps.changes.outputs.mode }}, Plugins: ${{ steps.changes.outputs.changed_skills }}"
 
       - name: Cleanup CLI
         if: always()
@@ -362,7 +362,7 @@ jobs:
           gh api repos/${{ github.repository }}/dispatches \
             --method POST \
             -f event_type=translate-skills \
-            -f "client_payload[plugin_slugs]=$SLUGS" \
+            -f "client_payload[skill_slugs]=$SLUGS" \
             -f "client_payload[triggered_by]=sync-to-supabase" \
             -f "client_payload[run_id]=${{ github.run_id }}"
           

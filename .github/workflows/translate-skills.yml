@@ -5,8 +5,8 @@
 # This ensures translation reads fresh data from the database, avoiding race conditions.
 #
 # Concurrency Strategy:
-# - Full translation (no plugin_slugs): Only ONE allowed at a time, queued via 'translate-skills-full'
-# - Partial translation (with plugin_slugs): Unlimited concurrency, each run gets unique group
+# - Full translation (no skill_slugs): Only ONE allowed at a time, queued via 'translate-skills-full'
+# - Partial translation (with skill_slugs): Unlimited concurrency, each run gets unique group
 # This allows partial translations to run alongside a long-running full translation without conflicts.
 
 name: Auto-Translate Skill Content
@@ -18,8 +18,8 @@ on:
   # Manual trigger for ad-hoc translations
   workflow_dispatch:
     inputs:
-      plugin_slugs:
-        description: "Specific plugins to translate, comma-separated (e.g., owner-repo1,owner-repo2)"
+      skill_slugs:
+        description: "Specific skills to translate, comma-separated (e.g., owner-repo1,owner-repo2)"
         required: false
       model:
         description: "Model to use (e.g., gpt-5.2-codex:high, claude-sonnet-4.5). Auto-detects agent."
@@ -55,7 +55,7 @@ env:
 # - Full translation: 'translate-skills-full' (only 1 allowed, others queue)
 # - Partial translation: 'translate-skills-partial-{run_id}' (unlimited, no blocking)
 concurrency:
-  group: ${{ (github.event.inputs.plugin_slugs == '' && github.event_name == 'workflow_dispatch') && 'translate-skills-full' || format('translate-skills-partial-{0}', github.run_id) }}
+  group: ${{ (github.event.inputs.skill_slugs == '' && github.event_name == 'workflow_dispatch') && 'translate-skills-full' || format('translate-skills-partial-{0}', github.run_id) }}
   cancel-in-progress: false
 
 jobs:
@@ -85,16 +85,16 @@ jobs:
           fetch-depth: 2
           sparse-checkout: .github/actions
 
-      - name: Detect plugins to translate
+      - name: Detect skills to translate
         id: detect
         run: |
           # Handle repository_dispatch from sync-to-supabase
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            SLUGS_CSV="${{ github.event.client_payload.plugin_slugs }}"
+            SLUGS_CSV="${{ github.event.client_payload.skill_slugs }}"
             TRIGGERED_BY="${{ github.event.client_payload.triggered_by }}"
             echo "🔔 Triggered by: $TRIGGERED_BY"
           else
-            SLUGS_CSV="${{ inputs.plugin_slugs }}"
+            SLUGS_CSV="${{ inputs.skill_slugs }}"
           fi
           
           if [ -n "$SLUGS_CSV" ]; then

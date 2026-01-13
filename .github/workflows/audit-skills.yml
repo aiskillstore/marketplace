@@ -92,7 +92,7 @@ jobs:
           fi
           
           # Count all skills
-          TOTAL=$(find plugins -name "skill-report.json" -type f | wc -l | tr -d ' ')
+          TOTAL=$(find skills -name "skill-report.json" -type f | wc -l | tr -d ' ')
           echo "Found $TOTAL skills in repository"
           
           # Apply limit if specified
@@ -203,7 +203,7 @@ jobs:
           fi
           
           # CLI internally retries 3 times per skill on AI failures
-          ./skillstore-cli skill audit ./plugins \
+          ./skillstore-cli skill audit ./skills \
             $MODEL_FLAG \
             $SLUG_FLAG \
             $DRY_RUN_FLAG \
@@ -213,7 +213,7 @@ jobs:
             2>&1 | tee audit-output-${{ matrix.shard }}.log
           
           # Check for remaining failures after CLI retries
-          STILL_FAILED=$(find plugins -name "skill-report.json" -newer audit-output-${{ matrix.shard }}.log -exec grep -l "AI analysis failed" {} \; 2>/dev/null | wc -l | tr -d ' ') || STILL_FAILED=0
+          STILL_FAILED=$(find skills -name "skill-report.json" -newer audit-output-${{ matrix.shard }}.log -exec grep -l "AI analysis failed" {} \; 2>/dev/null | wc -l | tr -d ' ') || STILL_FAILED=0
           
           # Workflow-level retry for persistent failures
           if [ "$STILL_FAILED" -gt 0 ]; then
@@ -221,7 +221,7 @@ jobs:
             echo "🔄 Workflow retry: $STILL_FAILED skills still failed after CLI retries"
             sleep 30
             
-            ./skillstore-cli skill audit ./plugins \
+            ./skillstore-cli skill audit ./skills \
               $MODEL_FLAG \
               $SLUG_FLAG \
               $DRY_RUN_FLAG \
@@ -233,7 +233,7 @@ jobs:
           
           UPDATED=$(grep -c "✅ updated" audit-output-${{ matrix.shard }}.log 2>/dev/null) || UPDATED=0
           ERRORS=$(grep -c "❌ error" audit-output-${{ matrix.shard }}.log 2>/dev/null) || ERRORS=0
-          FINAL_FAILED=$(find plugins -name "skill-report.json" -exec grep -l "AI analysis failed" {} \; 2>/dev/null | wc -l | tr -d ' ') || FINAL_FAILED=0
+          FINAL_FAILED=$(find skills -name "skill-report.json" -exec grep -l "AI analysis failed" {} \; 2>/dev/null | wc -l | tr -d ' ') || FINAL_FAILED=0
           
           echo ""
           echo "Shard ${{ matrix.shard }} Summary:"
@@ -248,10 +248,10 @@ jobs:
       - name: Collect modified files
         id: collect
         run: |
-          mkdir -p shard-output-${{ matrix.shard }}/plugins
+          mkdir -p shard-output-${{ matrix.shard }./skills
           
           # Find files modified by this shard
-          MODIFIED_FILES=$(git diff --name-only -- 'plugins/*/skill-report.json' 'plugins/*/*/skill-report.json' 2>/dev/null || true)
+          MODIFIED_FILES=$(git diff --name-only -- 'skills/*/skill-report.json' 'skills/*/*/skill-report.json' 2>/dev/null || true)
           
           if [ -z "$MODIFIED_FILES" ]; then
             echo "No files modified by shard ${{ matrix.shard }}"
@@ -336,12 +336,12 @@ jobs:
           git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
           
           echo "=== Applying results from all shards ==="
-          if [ -d "$ARTIFACTS_DIR/plugins" ]; then
-            MERGED_COUNT=$(find "$ARTIFACTS_DIR/plugins" -name "skill-report.json" | wc -l | tr -d ' ')
+          if [ -d "$ARTIFACTS_DI./skills" ]; then
+            MERGED_COUNT=$(find "$ARTIFACTS_DI./skills" -name "skill-report.json" | wc -l | tr -d ' ')
             echo "Files to apply: $MERGED_COUNT"
-            cp -r "$ARTIFACTS_DIR/plugins/"* ./plugins/ 2>/dev/null || true
+            cp -r "$ARTIFACTS_DIR/skills/"* ./skills/ 2>/dev/null || true
           else
-            echo "Warning: No plugins directory found in merged results"
+            echo "Warning: No skills directory found in merged results"
           fi
           
           TOTAL_UPDATED=0
@@ -360,14 +360,14 @@ jobs:
           echo "updated_count=$TOTAL_UPDATED" >> $GITHUB_OUTPUT
           echo "error_count=$TOTAL_ERRORS" >> $GITHUB_OUTPUT
           
-          if git diff --quiet plugins/; then
+          if git diff --quiet skills/; then
             echo "has_changes=false" >> $GITHUB_OUTPUT
             echo "No changes detected"
             exit 0
           fi
           
           echo "has_changes=true" >> $GITHUB_OUTPUT
-          CHANGED_FILES=$(git diff --name-only plugins/ | wc -l | tr -d ' ')
+          CHANGED_FILES=$(git diff --name-only skills/ | wc -l | tr -d ' ')
           echo "Changed files: $CHANGED_FILES"
           
           BRANCH_NAME="audit/$(date +%Y%m%d-%H%M%S)"
@@ -377,8 +377,8 @@ jobs:
           MODEL="${{ inputs.model || 'auto' }}"
           
           git checkout -b "$BRANCH_NAME"
-          git add plugins/*/skill-report.json
-          git add plugins/*/*/skill-report.json 2>/dev/null || true
+          git add skills/*/skill-report.json
+          git add skills/*/*/skill-report.json 2>/dev/null || true
           
           if [ "$IS_SHARDED" = "true" ]; then
             COMMIT_MSG="chore(audit): audit ${TOTAL_UPDATED} skills (${SHARD_COUNT} shards)"

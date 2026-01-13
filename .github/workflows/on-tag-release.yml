@@ -18,10 +18,10 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
       release_date: ${{ steps.changelog.outputs.release_date }}
-      plugin_count: ${{ steps.changelog.outputs.plugin_count }}
-      added_plugins: ${{ steps.changelog.outputs.added_plugins }}
+      skill_count: ${{ steps.changelog.outputs.skill_count }}
+      added_skills: ${{ steps.changelog.outputs.added_skills }}
       added_count: ${{ steps.changelog.outputs.added_count }}
-      updated_plugins: ${{ steps.changelog.outputs.updated_plugins }}
+      updated_skills: ${{ steps.changelog.outputs.updated_skills }}
       updated_count: ${{ steps.changelog.outputs.updated_count }}
       removed_count: ${{ steps.changelog.outputs.removed_count }}
       infra_changes: ${{ steps.changelog.outputs.infra_changes }}
@@ -68,15 +68,15 @@ jobs:
             echo "No previous tags found (first release)"
           fi
 
-      - name: Sync marketplace.json from plugins directory
+      - name: Sync marketplace.json from skills directory
         id: sync_marketplace
         run: |
-          echo "Syncing marketplace.json from plugins/ directory..."
+          echo "Syncing marketplace.json from skills/ directory..."
 
           # High-performance O(1) approach: single jq invocation for ALL files
           # Uses jq's 'inputs' to stream-process files and 'input_filename' for paths
-          # Scales to 100k+ plugins without shell argument limits or O(n) overhead
-          cat > /tmp/sync_plugins.jq << 'JQSCRIPT'
+          # Scales to 100k+ skills without shell argument limits or O(n) overhead
+          cat > /tmp/sync_skills.jq << 'JQSCRIPT'
           [inputs |
             select(.name != null) |
             {
@@ -90,21 +90,21 @@ jobs:
 
           # xargs may split into multiple jq calls when file count exceeds ARG_MAX
           # Each call outputs a separate array, so we merge them with jq -s 'add'
-          find plugins -name "marketplace-entry.json" -print0 2>/dev/null | \
+          find skills -name "marketplace-entry.json" -print0 2>/dev/null | \
             sort -z | \
-            xargs -0 jq -n -f /tmp/sync_plugins.jq | \
-            jq -s 'add | sort_by(.name)' > /tmp/plugins_sorted.json
+            xargs -0 jq -n -f /tmp/sync_skills.jq | \
+            jq -s 'add | sort_by(.name)' > /tmp/skills_sorted.json
 
-          PLUGIN_COUNT=$(jq 'length' /tmp/plugins_sorted.json)
+          SKILL_COUNT=$(jq 'length' /tmp/skills_sorted.json)
 
-          # Update marketplace.json with synced plugins
-          jq --slurpfile plugins /tmp/plugins_sorted.json '.plugins = $plugins[0]' \
+          # Update marketplace.json with synced skills
+          jq --slurpfile skills /tmp/skills_sorted.json '.skills = $skills[0]' \
             .claude-plugin/marketplace.json > /tmp/marketplace_synced.json
           mv /tmp/marketplace_synced.json .claude-plugin/marketplace.json
 
-          rm -f /tmp/plugins_sorted.json /tmp/sync_plugins.jq
-          echo "Synced $PLUGIN_COUNT plugins to marketplace.json"
-          echo "plugin_count=$PLUGIN_COUNT" >> $GITHUB_OUTPUT
+          rm -f /tmp/skills_sorted.json /tmp/sync_skills.jq
+          echo "Synced $SKILL_COUNT skills to marketplace.json"
+          echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
 
       - name: Analyze changes since last release
         id: changelog
@@ -122,24 +122,24 @@ jobs:
 
           echo "Analyzing commits in range: $RANGE"
 
-          # High-performance O(1) approach for plugin comparison
+          # High-performance O(1) approach for skill comparison
           # Uses jq set operations instead of O(n²) shell loops
 
-          # Get current plugin count and list (single jq call)
-          PLUGIN_COUNT=$(jq '.plugins | length' .claude-plugin/marketplace.json)
-          jq -r '.plugins[].name' .claude-plugin/marketplace.json | sort > /tmp/current_plugins.txt
+          # Get current skill count and list (single jq call)
+          SKILL_COUNT=$(jq '.plugins | length' .claude-plugin/marketplace.json)
+          jq -r '.skills[].name' .claude-plugin/marketplace.json | sort > /tmp/current_skills.txt
 
-          # Build current plugin name-to-path map (single jq call)
-          jq -r '.plugins[] | "\(.name)|\(.source | sub("^\\./"; ""))"' \
-            .claude-plugin/marketplace.json > /tmp/current_plugin_paths.txt
+          # Build current skill name-to-path map (single jq call)
+          jq -r '.skills[] | "\(.name)|\(.source | sub("^\\./"; ""))"' \
+            .claude-plugin/marketplace.json > /tmp/current_skill_paths.txt
 
-          # Get previous plugins using efficient git + jq pipeline
+          # Get previous skills using efficient git + jq pipeline
           PREV_COUNT=0
-          > /tmp/prev_plugins.txt
-          > /tmp/prev_plugin_paths.txt
+          > /tmp/prev_skills.txt
+          > /tmp/prev_skill_paths.txt
 
           if [ -n "$PREV_TAG" ]; then
-            echo "Scanning plugins at ${PREV_TAG}..."
+            echo "Scanning skills at ${PREV_TAG}..."
 
             # Get all marketplace-entry.json files at PREV_TAG in one git call
             git ls-tree -r "${PREV_TAG}" --name-only 2>/dev/null | grep "marketplace-entry.json" > /tmp/prev_entry_files.txt || true
@@ -149,37 +149,37 @@ jobs:
               [ -z "$file" ] && continue
               name=$(git show "${PREV_TAG}:${file}" 2>/dev/null | jq -r '.name // empty' 2>/dev/null)
               if [ -n "$name" ]; then
-                echo "$name" >> /tmp/prev_plugins.txt
-                echo "${name}|$(dirname "$file")" >> /tmp/prev_plugin_paths.txt
+                echo "$name" >> /tmp/prev_skills.txt
+                echo "${name}|$(dirname "$file")" >> /tmp/prev_skill_paths.txt
               fi
             done < /tmp/prev_entry_files.txt
 
-            sort -o /tmp/prev_plugins.txt /tmp/prev_plugins.txt
-            PREV_COUNT=$(wc -l < /tmp/prev_plugins.txt | tr -d ' ')
+            sort -o /tmp/prev_skills.txt /tmp/prev_skills.txt
+            PREV_COUNT=$(wc -l < /tmp/prev_skills.txt | tr -d ' ')
           fi
 
-          echo "Previous tag had $PREV_COUNT plugins"
+          echo "Previous tag had $PREV_COUNT skills"
 
           # Calculate added/removed using comm (O(n) set difference)
-          ADDED_PLUGINS=$(comm -23 /tmp/current_plugins.txt /tmp/prev_plugins.txt | paste -sd ',' -)
-          ADDED_COUNT=$(comm -23 /tmp/current_plugins.txt /tmp/prev_plugins.txt | wc -l | tr -d ' ')
-          REMOVED_COUNT=$(comm -13 /tmp/current_plugins.txt /tmp/prev_plugins.txt | wc -l | tr -d ' ')
+          ADDED_SKILLS=$(comm -23 /tmp/current_skills.txt /tmp/prev_skills.txt | paste -sd ',' -)
+          ADDED_COUNT=$(comm -23 /tmp/current_skills.txt /tmp/prev_skills.txt | wc -l | tr -d ' ')
+          REMOVED_COUNT=$(comm -13 /tmp/current_skills.txt /tmp/prev_skills.txt | wc -l | tr -d ' ')
 
-          # Calculate updated plugins using git tree hash comparison
-          # Only compare plugins that exist in both versions
+          # Calculate updated skills using git tree hash comparison
+          # Only compare skills that exist in both versions
           UPDATED_PLUGINS=""
           UPDATED_COUNT=0
 
-          if [ -n "$PREV_TAG" ] && [ -s /tmp/prev_plugins.txt ]; then
-            # Get plugins in both versions
-            comm -12 /tmp/current_plugins.txt /tmp/prev_plugins.txt > /tmp/common_plugins.txt
+          if [ -n "$PREV_TAG" ] && [ -s /tmp/prev_skills.txt ]; then
+            # Get skills in both versions
+            comm -12 /tmp/current_skills.txt /tmp/prev_skills.txt > /tmp/common_skills.txt
 
             while IFS= read -r name; do
               [ -z "$name" ] && continue
 
               # Get paths from lookup tables (grep is O(1) per lookup with small result)
-              curr_path=$(grep "^${name}|" /tmp/current_plugin_paths.txt | cut -d'|' -f2 | head -1)
-              prev_path=$(grep "^${name}|" /tmp/prev_plugin_paths.txt | cut -d'|' -f2 | head -1)
+              curr_path=$(grep "^${name}|" /tmp/current_skill_paths.txt | cut -d'|' -f2 | head -1)
+              prev_path=$(grep "^${name}|" /tmp/prev_skill_paths.txt | cut -d'|' -f2 | head -1)
 
               [ -z "$curr_path" ] || [ -z "$prev_path" ] && continue
 
@@ -191,12 +191,12 @@ jobs:
                 [ -z "$UPDATED_PLUGINS" ] && UPDATED_PLUGINS="$name" || UPDATED_PLUGINS="${UPDATED_PLUGINS},$name"
                 UPDATED_COUNT=$((UPDATED_COUNT + 1))
               fi
-            done < /tmp/common_plugins.txt
+            done < /tmp/common_skills.txt
           fi
 
           # Cleanup temp files
-          rm -f /tmp/current_plugins.txt /tmp/prev_plugins.txt /tmp/current_plugin_paths.txt \
-                /tmp/prev_plugin_paths.txt /tmp/prev_entry_files.txt /tmp/common_plugins.txt
+          rm -f /tmp/current_skills.txt /tmp/prev_skills.txt /tmp/current_skill_paths.txt \
+                /tmp/prev_skill_paths.txt /tmp/prev_entry_files.txt /tmp/common_skills.txt
           
           # Collect commit messages for infrastructure changes
           INFRA_CHANGES=""
@@ -215,30 +215,30 @@ jobs:
           
           {
             echo "release_date=$TODAY"
-            echo "plugin_count=$PLUGIN_COUNT"
-            echo "added_plugins=$ADDED_PLUGINS"
+            echo "skill_count=$SKILL_COUNT"
+            echo "added_skills=$ADDED_SKILLS"
             echo "added_count=$ADDED_COUNT"
-            echo "updated_plugins=$UPDATED_PLUGINS"
+            echo "updated_skills=$UPDATED_PLUGINS"
             echo "updated_count=$UPDATED_COUNT"
             echo "removed_count=$REMOVED_COUNT"
             echo "infra_changes=$INFRA_CHANGES"
           } >> $GITHUB_OUTPUT
           
           echo "Found: $ADDED_COUNT new, $UPDATED_COUNT updated, $REMOVED_COUNT removed"
-          echo "Total plugins: $PLUGIN_COUNT"
+          echo "Total skills: $SKILL_COUNT"
 
       - name: Generate AI summary
         id: ai_summary
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          ADDED_PLUGINS="${{ steps.changelog.outputs.added_plugins }}"
+          ADDED_SKILLS="${{ steps.changelog.outputs.added_skills }}"
           ADDED_COUNT="${{ steps.changelog.outputs.added_count }}"
-          PLUGIN_COUNT="${{ steps.changelog.outputs.plugin_count }}"
+          SKILL_COUNT="${{ steps.changelog.outputs.skill_count }}"
           INFRA_CHANGES="${{ steps.changelog.outputs.infra_changes }}"
           
           CONTEXT="Version: v${VERSION}
-          Total plugins: ${PLUGIN_COUNT}
-          New plugins (${ADDED_COUNT}): ${ADDED_PLUGINS}
+          Total skills: ${SKILL_COUNT}
+          New skills (${ADDED_COUNT}): ${ADDED_SKILLS}
           Recent changes: ${INFRA_CHANGES}"
           
           PROMPT="Generate a concise 1-2 sentence release summary for AI Skillstore marketplace v${VERSION}.
@@ -257,9 +257,9 @@ jobs:
           if [ -z "$RESPONSE" ]; then
             # Fallback summary
             if [ "$ADDED_COUNT" -gt 0 ]; then
-              RESPONSE="Marketplace update with ${ADDED_COUNT} new plugins. Total ${PLUGIN_COUNT} plugins available."
+              RESPONSE="Marketplace update with ${ADDED_COUNT} new skills. Total ${SKILL_COUNT} skills available."
             else
-              RESPONSE="Marketplace v${VERSION} with ${PLUGIN_COUNT} plugins and infrastructure improvements."
+              RESPONSE="Marketplace v${VERSION} with ${SKILL_COUNT} skills and infrastructure improvements."
             fi
           fi
           
@@ -283,8 +283,8 @@ jobs:
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           TODAY="${{ steps.changelog.outputs.release_date }}"
-          PLUGIN_COUNT="${{ steps.changelog.outputs.plugin_count }}"
-          ADDED_PLUGINS="${{ steps.changelog.outputs.added_plugins }}"
+          SKILL_COUNT="${{ steps.changelog.outputs.skill_count }}"
+          ADDED_SKILLS="${{ steps.changelog.outputs.added_skills }}"
           ADDED_COUNT="${{ steps.changelog.outputs.added_count }}"
           UPDATED_COUNT="${{ steps.changelog.outputs.updated_count }}"
           INFRA_CHANGES="${{ steps.changelog.outputs.infra_changes }}"
@@ -294,13 +294,13 @@ jobs:
           ENTRY="## [${VERSION}] - ${TODAY}\n\n"
           ENTRY+="### Summary\n\n${SUMMARY}\n\n"
           ENTRY+="### Statistics\n\n"
-          ENTRY+="- Total plugins: ${PLUGIN_COUNT}\n"
-          ENTRY+="- New plugins: ${ADDED_COUNT}\n"
-          ENTRY+="- Updated plugins: ${UPDATED_COUNT}\n\n"
+          ENTRY+="- Total skills: ${SKILL_COUNT}\n"
+          ENTRY+="- New skills: ${ADDED_COUNT}\n"
+          ENTRY+="- Updated skills: ${UPDATED_COUNT}\n\n"
           
-          if [ -n "$ADDED_PLUGINS" ] && [ "$ADDED_PLUGINS" != "" ]; then
+          if [ -n "$ADDED_SKILLS" ] && [ "$ADDED_SKILLS" != "" ]; then
             ENTRY+="### New Plugins\n\n"
-            IFS=',' read -ra PLUGINS <<< "$ADDED_PLUGINS"
+            IFS=',' read -ra PLUGINS <<< "$ADDED_SKILLS"
             for p in "${PLUGINS[@]}"; do
               [ -n "$p" ] && ENTRY+="- \`${p}\`\n"
             done
@@ -405,8 +405,8 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           TAG="${{ steps.version.outputs.tag }}"
           PREV_TAG="${{ steps.prev_tag.outputs.tag }}"
-          PLUGIN_COUNT="${{ steps.changelog.outputs.plugin_count }}"
-          ADDED_PLUGINS="${{ steps.changelog.outputs.added_plugins }}"
+          SKILL_COUNT="${{ steps.changelog.outputs.skill_count }}"
+          ADDED_SKILLS="${{ steps.changelog.outputs.added_skills }}"
           ADDED_COUNT="${{ steps.changelog.outputs.added_count }}"
           UPDATED_COUNT="${{ steps.changelog.outputs.updated_count }}"
           REMOVED_COUNT="${{ steps.changelog.outputs.removed_count }}"
@@ -419,24 +419,24 @@ jobs:
           ## Quick Install
           
           \`\`\`bash
-          /plugin marketplace add aiskillstore/marketplace
+          /skill marketplace add aiskillstore/marketplace
           \`\`\`
           
           ## Statistics
           
           | Metric | Count |
           |--------|-------|
-          | Total Plugins | ${PLUGIN_COUNT} |
+          | Total Skills | ${SKILL_COUNT} |
           | New Plugins | ${ADDED_COUNT} |
           | Updated Plugins | ${UPDATED_COUNT} |
           | Removed Plugins | ${REMOVED_COUNT} |
           
           EOF
           
-          if [ -n "$ADDED_PLUGINS" ] && [ "$ADDED_PLUGINS" != "" ]; then
+          if [ -n "$ADDED_SKILLS" ] && [ "$ADDED_SKILLS" != "" ]; then
             echo "## New Plugins" >> /tmp/release_notes.md
             echo "" >> /tmp/release_notes.md
-            IFS=',' read -ra PLUGINS <<< "$ADDED_PLUGINS"
+            IFS=',' read -ra PLUGINS <<< "$ADDED_SKILLS"
             for p in "${PLUGINS[@]}"; do
               [ -n "$p" ] && echo "- \`${p}\`" >> /tmp/release_notes.md
             done
@@ -485,7 +485,7 @@ jobs:
           echo "## Release Created" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Version**: v${VERSION}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Plugins**: ${{ steps.changelog.outputs.plugin_count }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Plugins**: ${{ steps.changelog.outputs.skill_count }}" >> $GITHUB_STEP_SUMMARY
           echo "- **New**: ${{ steps.changelog.outputs.added_count }}" >> $GITHUB_STEP_SUMMARY
           echo "- **URL**: https://github.com/${{ github.repository }}/releases/tag/v${VERSION}" >> $GITHUB_STEP_SUMMARY
 
@@ -523,26 +523,26 @@ jobs:
             const version = '${{ needs.release.outputs.version }}';
             const tag = '${{ needs.release.outputs.tag }}';
             const releaseDate = '${{ needs.release.outputs.release_date }}';
-            const pluginCount = parseInt('${{ needs.release.outputs.plugin_count }}', 10) || 0;
+            const skillCount = parseInt('${{ needs.release.outputs.skill_count }}', 10) || 0;
             const addedCount = parseInt('${{ needs.release.outputs.added_count }}', 10) || 0;
             const updatedCount = parseInt('${{ needs.release.outputs.updated_count }}', 10) || 0;
             const removedCount = parseInt('${{ needs.release.outputs.removed_count }}', 10) || 0;
-            const addedPlugins = '${{ needs.release.outputs.added_plugins }}'.split(',').filter(Boolean);
-            const updatedPlugins = '${{ needs.release.outputs.updated_plugins }}'.split(',').filter(Boolean);
+            const addedPlugins = '${{ needs.release.outputs.added_skills }}'.split(',').filter(Boolean);
+            const updatedPlugins = '${{ needs.release.outputs.updated_skills }}'.split(',').filter(Boolean);
             const infraChanges = '${{ needs.release.outputs.infra_changes }}'.split('|').filter(Boolean);
             const aiSummary = `${{ needs.release.outputs.ai_summary }}`;
 
             const changelog = {
-              added_plugins: addedPlugins,
-              updated_plugins: updatedPlugins,
-              removed_plugins: [],
+              added_skills: addedPlugins,
+              updated_skills: updatedPlugins,
+              removed_skills: [],
               infrastructure_changes: infraChanges
             };
 
             console.log('Syncing release to Supabase...');
             console.log(`  Tag: ${tag}`);
             console.log(`  Version: ${version}`);
-            console.log(`  Plugins: ${pluginCount}`);
+            console.log(`  Plugins: ${skillCount}`);
             console.log(`  Added: ${addedCount}`);
             console.log(`  Updated: ${updatedCount}`);
             console.log(`  Removed: ${removedCount}`);
@@ -563,7 +563,7 @@ jobs:
               tag: tag,
               version: version,
               release_date: releaseDate,
-              skill_count: pluginCount,
+              skill_count: skillCount,
               summary: aiSummary || `Marketplace ${tag}`,
               changelog: changelog,
               added_count: addedCount,

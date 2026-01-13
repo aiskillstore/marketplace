@@ -4,18 +4,18 @@ on:
   push:
     branches: [main]
     paths:
-      # Only validate approved plugins on push to main
+      # Only validate approved skills on push to main
       # pending/** is validated via PR, no need to re-validate after merge
       - '.claude-plugin/marketplace.json'
-      - 'plugins/**/.claude-plugin/plugin.json'
-      - 'plugins/**/skill-report.json'
+      - 'skills/**/.claude-plugin/plugin.json'
+      - 'skills/**/skill-report.json'
   pull_request:
     branches: [main]
     paths:
-      # Validate both pending and plugins on PR (CI gate)
+      # Validate both pending and skills on PR (CI gate)
       - '.claude-plugin/marketplace.json'
-      - 'plugins/**/.claude-plugin/plugin.json'
-      - 'plugins/**/skill-report.json'
+      - 'skills/**/.claude-plugin/plugin.json'
+      - 'skills/**/skill-report.json'
       - 'pending/**/.claude-plugin/plugin.json'
       - 'pending/**/skill-report.json'
   workflow_dispatch:
@@ -96,24 +96,24 @@ jobs:
             let hasErrors = false;
             
             // Find all plugin.json files
-            const pluginFiles = [];
-            const findPluginJsons = (dir) => {
+            const skillFiles = [];
+            const findSkillJsons = (dir) => {
               if (!fs.existsSync(dir)) return;
               const entries = fs.readdirSync(dir, { withFileTypes: true });
               for (const entry of entries) {
                 const fullPath = path.join(dir, entry.name);
                 if (entry.isDirectory()) {
-                  findPluginJsons(fullPath);
+                  findSkillJsons(fullPath);
                 } else if (entry.name === 'plugin.json') {
-                  pluginFiles.push(fullPath);
+                  skillFiles.push(fullPath);
                 }
               }
             };
             
-            findPluginJsons('plugins');
-            findPluginJsons('pending');
+            findSkillJsons('skills');
+            findSkillJsons('pending');
             
-            for (const file of pluginFiles) {
+            for (const file of skillFiles) {
               try {
                 const data = JSON.parse(fs.readFileSync(file, 'utf8'));
                 const valid = validate(data);
@@ -148,15 +148,15 @@ jobs:
             let fixedCount = 0;
             const orphanedEntries = [];
             
-            for (const plugin of marketplace.plugins) {
-              const pluginPath = plugin.source;
-              const manifestDir = path.join(pluginPath, '.claude-plugin');
+            for (const skill of marketplace.skills) {
+              const skillPath = skill.source;
+              const manifestDir = path.join(skillPath, '.claude-plugin');
               const manifestPath = path.join(manifestDir, 'plugin.json');
               
               // Case 1: Plugin directory doesn't exist at all
-              if (!fs.existsSync(pluginPath)) {
-                console.error(\`Plugin directory not found: \${pluginPath}\`);
-                orphanedEntries.push(plugin.name);
+              if (!fs.existsSync(skillPath)) {
+                console.error(\`Skill directory not found: \${skillPath}\`);
+                orphanedEntries.push(skill.name);
                 hasErrors = true;
                 continue;
               }
@@ -164,23 +164,23 @@ jobs:
               // Case 2: Plugin directory exists but manifest is missing
               if (!fs.existsSync(manifestPath)) {
                 if (autoFixEnabled) {
-                  console.log(\`::notice::Missing manifest for '\${plugin.name}', attempting auto-fix...\`);
+                  console.log(\`::notice::Missing manifest for '\${skill.name}', attempting auto-fix...\`);
                   
                   // Try to read from marketplace-entry.json if it exists
                   let manifestData;
-                  const marketplaceEntryPath = path.join(pluginPath, 'marketplace-entry.json');
+                  const marketplaceEntryPath = path.join(skillPath, 'marketplace-entry.json');
                   
                   if (fs.existsSync(marketplaceEntryPath)) {
                     try {
                       const entry = JSON.parse(fs.readFileSync(marketplaceEntryPath, 'utf8'));
                       manifestData = {
-                        name: entry.name || plugin.name,
-                        version: entry.version || plugin.version || '1.0.0',
-                        description: entry.description || plugin.description,
-                        author: entry.author || plugin.author,
-                        repository: entry.repository || plugin.repository,
-                        license: entry.license || plugin.license || 'UNKNOWN',
-                        keywords: entry.keywords || plugin.keywords || []
+                        name: entry.name || skill.name,
+                        version: entry.version || skill.version || '1.0.0',
+                        description: entry.description || skill.description,
+                        author: entry.author || skill.author,
+                        repository: entry.repository || skill.repository,
+                        license: entry.license || skill.license || 'UNKNOWN',
+                        keywords: entry.keywords || skill.keywords || []
                       };
                     } catch (e) {
                       console.error(\`Failed to parse marketplace-entry.json: \${e.message}\`);
@@ -190,13 +190,13 @@ jobs:
                   // Fall back to marketplace.json entry data
                   if (!manifestData) {
                     manifestData = {
-                      name: plugin.name,
-                      version: plugin.version || '1.0.0',
-                      description: plugin.description,
-                      author: plugin.author,
-                      repository: plugin.repository,
-                      license: plugin.license || 'UNKNOWN',
-                      keywords: plugin.keywords || []
+                      name: skill.name,
+                      version: skill.version || '1.0.0',
+                      description: skill.description,
+                      author: skill.author,
+                      repository: skill.repository,
+                      license: skill.license || 'UNKNOWN',
+                      keywords: skill.keywords || []
                     };
                   }
                   
@@ -207,7 +207,7 @@ jobs:
                   
                   // Write the plugin.json
                   fs.writeFileSync(manifestPath, JSON.stringify(manifestData, null, 2) + '\\n');
-                  console.log(\`::notice::Created plugin.json for '\${plugin.name}'\`);
+                  console.log(\`::notice::Created plugin.json for '\${skill.name}'\`);
                   fixedCount++;
                 } else {
                   console.error(\`Plugin manifest not found: \${manifestPath}\`);
@@ -218,19 +218,19 @@ jobs:
               
               // Case 3: Manifest exists - validate name match
               const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-              if (manifest.name !== plugin.name) {
+              if (manifest.name !== skill.name) {
                 if (autoFixEnabled) {
-                  console.log(\`::notice::Fixing name mismatch for '\${plugin.name}'...\`);
-                  manifest.name = plugin.name;
+                  console.log(\`::notice::Fixing name mismatch for '\${skill.name}'...\`);
+                  manifest.name = skill.name;
                   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\\n');
                   fixedCount++;
                 } else {
-                  console.error(\`Plugin name mismatch: marketplace says '\${plugin.name}' but manifest says '\${manifest.name}'\`);
+                  console.error(\`Skill name mismatch: marketplace says '\${skill.name}' but manifest says '\${manifest.name}'\`);
                   hasErrors = true;
                 }
               }
               
-              console.log(\`Plugin '\${plugin.name}' is consistent\`);
+              console.log(\`Plugin '\${skill.name}' is consistent\`);
             }
             
             // Report summary
@@ -248,7 +248,7 @@ jobs:
             if (hasErrors || fixedCount > 0 || orphanedEntries.length > 0) {
               process.exit(1);
             }
-            console.log('Marketplace is consistent with all plugins');
+            console.log('Marketplace is consistent with all skills');
           "
 
       - name: Remove orphaned marketplace entries
@@ -261,18 +261,18 @@ jobs:
             const marketplacePath = '.claude-plugin/marketplace.json';
             const marketplace = JSON.parse(fs.readFileSync(marketplacePath, 'utf8'));
             
-            const originalCount = marketplace.plugins.length;
+            const originalCount = marketplace.skills.length;
             
-            // Filter out plugins whose directories don't exist
-            marketplace.plugins = marketplace.plugins.filter(plugin => {
-              const exists = fs.existsSync(plugin.source);
+            // Filter out skills whose directories don't exist
+            marketplace.skills = marketplace.skills.filter(skill => {
+              const exists = fs.existsSync(skill.source);
               if (!exists) {
-                console.log(\`::notice::Removing orphaned entry: \${plugin.name} (directory \${plugin.source} not found)\`);
+                console.log(\`::notice::Removing orphaned entry: \${skill.name} (directory \${skill.source} not found)\`);
               }
               return exists;
             });
             
-            const removedCount = originalCount - marketplace.plugins.length;
+            const removedCount = originalCount - marketplace.skills.length;
             
             if (removedCount > 0) {
               fs.writeFileSync(marketplacePath, JSON.stringify(marketplace, null, 2) + '\\n');
@@ -294,12 +294,12 @@ jobs:
             
             let hasErrors = false;
             
-            for (const plugin of marketplace.plugins) {
-              const pluginPath = plugin.source;
-              const manifestPath = path.join(pluginPath, '.claude-plugin', 'plugin.json');
+            for (const skill of marketplace.skills) {
+              const skillPath = skill.source;
+              const manifestPath = path.join(skillPath, '.claude-plugin', 'plugin.json');
               
-              if (!fs.existsSync(pluginPath)) {
-                console.error(\`Plugin directory not found: \${pluginPath}\`);
+              if (!fs.existsSync(skillPath)) {
+                console.error(\`Skill directory not found: \${skillPath}\`);
                 hasErrors = true;
                 continue;
               }
@@ -311,16 +311,16 @@ jobs:
               }
               
               const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-              if (manifest.name !== plugin.name) {
-                console.error(\`Plugin name mismatch: marketplace says '\${plugin.name}' but manifest says '\${manifest.name}'\`);
+              if (manifest.name !== skill.name) {
+                console.error(\`Skill name mismatch: marketplace says '\${skill.name}' but manifest says '\${manifest.name}'\`);
                 hasErrors = true;
               }
               
-              console.log(\`Plugin '\${plugin.name}' is consistent\`);
+              console.log(\`Plugin '\${skill.name}' is consistent\`);
             }
             
             if (hasErrors) process.exit(1);
-            console.log('Marketplace is consistent with all plugins after auto-fix');
+            console.log('Marketplace is consistent with all skills after auto-fix');
           "
 
       - name: Commit consistency fixes (isolated temp directory)
@@ -354,7 +354,7 @@ jobs:
           
           # Copy updated files from checkout to fresh clone
           cp .claude-plugin/marketplace.json "$WORK_DIR/.claude-plugin/marketplace.json"
-          find plugins -name "plugin.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
+          find skills -name "plugin.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
           find pending -name "plugin.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
           
           cd "$WORK_DIR"
@@ -364,7 +364,7 @@ jobs:
           
           # Stage all consistency-related changes
           git add .claude-plugin/marketplace.json
-          git add "plugins/**/.claude-plugin/plugin.json" 2>/dev/null || true
+          git add "skills/**/.claude-plugin/plugin.json" 2>/dev/null || true
           git add "pending/**/.claude-plugin/plugin.json" 2>/dev/null || true
           
           # Check if there's anything to commit
@@ -378,7 +378,7 @@ jobs:
 
           - Generated missing plugin.json manifests from marketplace entries
           - Removed orphaned marketplace entries (directories not found)
-          - Fixed plugin name mismatches"
+          - Fixed skill.name mismatches"
           
           # Push with retry for race conditions
           for i in 1 2 3; do
@@ -485,7 +485,7 @@ jobs:
               return files;
             };
 
-            const skillMdFiles = [...findSkillMdFiles('plugins'), ...findSkillMdFiles('pending')];
+            const skillMdFiles = [...findSkillMdFiles('skills'), ...findSkillMdFiles('pending')];
             let hasInvalidFiles = false;
             let skippedBinary = 0;
 
@@ -526,7 +526,7 @@ jobs:
 
             if (hasInvalidFiles) {
               console.error('\\n❌ Invalid SKILL.md files detected');
-              console.error('These plugins must have proper YAML frontmatter with name and description fields.');
+              console.error('These skills must have proper YAML frontmatter with name and description fields.');
               process.exit(1);
             }
 
@@ -540,8 +540,8 @@ jobs:
           CLI_PATH: ${{ steps.download-cli.outputs.cli-path }}
         run: |
           echo "::notice::SKILL.md validation failed. Attempting AI-powered auto-fix..."
-          echo "Running AI-powered fix-md on plugins directory..."
-          "$CLI_PATH" skill fix-md ./plugins || true
+          echo "Running AI-powered fix-md on skills directory..."
+          "$CLI_PATH" skill fix-md ./skills || true
 
           echo "Running AI-powered fix-md on pending directory..."
           "$CLI_PATH" skill fix-md ./pending || true
@@ -593,7 +593,7 @@ jobs:
               return files;
             };
 
-            const skillMdFiles = [...findSkillMdFiles('plugins'), ...findSkillMdFiles('pending')];
+            const skillMdFiles = [...findSkillMdFiles('skills'), ...findSkillMdFiles('pending')];
             let hasInvalidFiles = false;
             let fixedCount = 0;
 
@@ -664,7 +664,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          for dir in plugins pending; do
+          for dir in skills pending; do
             if [ -d "${WORKSPACE}/$dir" ]; then
               rsync -av --include='*/' --include='SKILL.md' --exclude='*' \
                 "${WORKSPACE}/$dir/" "$WORK_DIR/$dir/" 2>/dev/null || true
@@ -727,7 +727,7 @@ jobs:
               return files;
             };
             
-            const reportFiles = [...findReportFiles('plugins'), ...findReportFiles('pending')];
+            const reportFiles = [...findReportFiles('skills'), ...findReportFiles('pending')];
             
             for (const file of reportFiles) {
               try {
@@ -760,8 +760,8 @@ jobs:
           CLI_PATH: ${{ steps.download-cli.outputs.cli-path }}
         run: |
           echo "::notice::Validation failed. Attempting AI-powered auto-fix..."
-          echo "Running AI-powered fix on plugins directory..."
-          "$CLI_PATH" skill fix ./plugins --schema ./schemas/skill-report.schema.json || true
+          echo "Running AI-powered fix on skills directory..."
+          "$CLI_PATH" skill fix ./skills --schema ./schemas/skill-report.schema.json || true
           
           echo "Running AI-powered fix on pending directory..."
           "$CLI_PATH" skill fix ./pending --schema ./schemas/skill-report.schema.json || true
@@ -803,7 +803,7 @@ jobs:
               return files;
             };
             
-            const reportFiles = [...findReportFiles('plugins'), ...findReportFiles('pending')];
+            const reportFiles = [...findReportFiles('skills'), ...findReportFiles('pending')];
             totalCount = reportFiles.length;
             
             for (const file of reportFiles) {
@@ -862,7 +862,7 @@ jobs:
           git clone --depth 1 --branch "$BRANCH" "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "$WORK_DIR"
           
           # Copy updated skill-report.json files from checkout to fresh clone
-          find plugins -name "skill-report.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
+          find skills -name "skill-report.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
           find pending -name "skill-report.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
           
           cd "$WORK_DIR"
@@ -871,7 +871,7 @@ jobs:
           git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
           
           # Stage ALL skill-report.json changes
-          git add plugins/**/skill-report.json pending/**/skill-report.json 2>/dev/null || true
+          git add skills/**/skill-report.json pending/**/skill-report.json 2>/dev/null || true
           
           # Check if there's anything to commit
           if git diff --staged --quiet; then
