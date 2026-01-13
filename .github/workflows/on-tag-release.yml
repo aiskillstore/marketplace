@@ -71,8 +71,8 @@ jobs:
       - name: Count skills
         id: count_skills
         run: |
-          # Count skills by finding plugin.json files
-          SKILL_COUNT=$(find skills -name "SKILL.md" 2>/dev/null | wc -l | tr -d ' ')
+          # Count skills by finding skill-report.json files
+          SKILL_COUNT=$(find skills -name "skill-report.json" 2>/dev/null | wc -l | tr -d ' ')
           echo "skill_count=$SKILL_COUNT" >> $GITHUB_OUTPUT
           echo "Found $SKILL_COUNT skills"
 
@@ -95,13 +95,13 @@ jobs:
           # Get current skill count from count_skills step
           SKILL_COUNT="${{ steps.count_skills.outputs.skill_count }}"
 
-          # Build current skill name-to-path map from plugin.json files
+          # Build current skill name-to-path map from skill-report.json files
           > /tmp/current_skills.txt
           > /tmp/current_skill_paths.txt
-          for plugin_file in $(find skills -name "SKILL.md" 2>/dev/null | sort); do
-            name=$(jq -r '.name // empty' "$plugin_file" 2>/dev/null)
+          for report_file in $(find skills -name "skill-report.json" 2>/dev/null | sort); do
+            name=$(jq -r '.skill.name // empty' "$report_file" 2>/dev/null)
             if [ -n "$name" ]; then
-              skill_dir=$(dirname "$(dirname "$plugin_file")")
+              skill_dir=$(dirname "$report_file")
               echo "$name" >> /tmp/current_skills.txt
               echo "${name}|${skill_dir}" >> /tmp/current_skill_paths.txt
             fi
@@ -116,15 +116,15 @@ jobs:
           if [ -n "$PREV_TAG" ]; then
             echo "Scanning skills at ${PREV_TAG}..."
 
-            # Get all plugin.json files at PREV_TAG in one git call
-            git ls-tree -r "${PREV_TAG}" --name-only 2>/dev/null | grep "SKILL\.md$" > /tmp/prev_entry_files.txt || true
+            # Get all skill-report.json files at PREV_TAG in one git call
+            git ls-tree -r "${PREV_TAG}" --name-only 2>/dev/null | grep "skill-report\.json$" > /tmp/prev_entry_files.txt || true
 
             # Extract names efficiently using a single pass
             while IFS= read -r file; do
               [ -z "$file" ] && continue
-              name=$(git show "${PREV_TAG}:${file}" 2>/dev/null | jq -r '.name // empty' 2>/dev/null)
+              name=$(git show "${PREV_TAG}:${file}" 2>/dev/null | jq -r '.skill.name // empty' 2>/dev/null)
               if [ -n "$name" ]; then
-                skill_dir=$(dirname "$(dirname "$file")")
+                skill_dir=$(dirname "$file")
                 echo "$name" >> /tmp/prev_skills.txt
                 echo "${name}|${skill_dir}" >> /tmp/prev_skill_paths.txt
               fi
