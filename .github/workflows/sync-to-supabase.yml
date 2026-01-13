@@ -350,17 +350,49 @@ jobs:
       - name: Trigger translation workflow
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
         run: |
-          SLUGS="${{ needs.sync.outputs.synced_slugs }}"
-          echo "🌍 Triggering translation for: $SLUGS"
-          
-          gh api repos/${{ github.repository }}/dispatches \
-            --method POST \
-            -f event_type=translate-skills \
-            -f "client_payload[skill_slugs]=$SLUGS" \
-            -f "client_payload[triggered_by]=sync-to-supabase" \
-            -f "client_payload[run_id]=${{ github.run_id }}"
-          
-          echo "✅ Translation triggered asynchronously"
-          echo "   Skills: $SLUGS"
+          echo "🌍 Triggering translation for synced skills"
+
+          # Split slugs into batches of 50 to avoid GitHub's ~10KB payload limit
+          BATCH_SIZE=50
+
+          # Convert to array
+          IFS=',' read -ra SLUGS_ARRAY <<< "$SYNCED_SLUGS"
+          TOTAL_SLUGS=${#SLUGS_ARRAY[@]}
+
+          echo "   Total skills: $TOTAL_SLUGS"
+
+          # Calculate number of batches
+          BATCH_COUNT=$(( (TOTAL_SLUGS + BATCH_SIZE - 1) / BATCH_SIZE ))
+          echo "   Batches needed: $BATCH_COUNT"
+
+          # Process each batch
+          for ((BATCH=0; BATCH<BATCH_COUNT; BATCH++)); do
+            START=$((BATCH * BATCH_SIZE))
+            END=$((START + BATCH_SIZE))
+            [ $END -gt $TOTAL_SLUGS ] && END=$TOTAL_SLUGS
+
+            # Build batch string
+            BATCH_SLUGS=""
+            for ((i=START; i<END; i++)); do
+              [ -n "$BATCH_SLUGS" ] && BATCH_SLUGS="$BATCH_SLUGS,"
+              BATCH_SLUGS="$BATCH_SLUGS${SLUGS_ARRAY[$i]}"
+            done
+
+            BATCH_NUM=$((BATCH + 1))
+            BATCH_LEN=$((END - START))
+            echo "📤 Dispatching batch $BATCH_NUM/$BATCH_COUNT ($BATCH_LEN slugs)"
+
+            gh api repos/${{ github.repository }}/dispatches \
+              --method POST \
+              -f event_type=translate-skills \
+              -f "client_payload[skill_slugs]=$BATCH_SLUGS" \
+              -f "client_payload[triggered_by]=sync-to-supabase" \
+              -f "client_payload[run_id]=${{ github.run_id }}" \
+              -f "client_payload[batch]=$BATCH_NUM" \
+              -f "client_payload[total_batches]=$BATCH_COUNT"
+          done
+
+          echo "✅ Translation triggered in $BATCH_COUNT batches"
           echo "   Monitor at: https://github.com/${{ github.repository }}/actions/workflows/translate-skills.yml"
