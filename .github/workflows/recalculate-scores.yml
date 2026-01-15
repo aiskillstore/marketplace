@@ -1,0 +1,186 @@
+# GitHub Action Workflow for Recalculating Skill Quality Scores
+#
+# Runs daily to update community metrics (views, downloads, favorites)
+# and recalculate composite quality scores for all skills.
+#
+# This ensures the "Community" dimension reflects actual engagement data
+# after skills mature beyond the 7-day grace period.
+
+name: Recalculate Skill Scores
+
+on:
+  schedule:
+    # Run daily at 03:00 UTC (11:00 Beijing Time)
+    - cron: '0 3 * * *'
+
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: 'Score specific skill only (leave empty for all)'
+        type: string
+        default: ''
+      limit:
+        description: 'Maximum skills to process (leave empty for all)'
+        type: string
+        default: ''
+      concurrency:
+        description: 'Parallel database updates (1-10)'
+        type: string
+        default: '5'
+      dry_run:
+        description: 'Preview without updating database'
+        type: boolean
+        default: false
+      cli_version:
+        description: 'CLI version (default: latest)'
+        type: string
+        default: 'latest'
+
+concurrency:
+  group: recalculate-scores
+  cancel-in-progress: false
+
+jobs:
+  recalculate:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          sparse-checkout: .github/actions
+          fetch-depth: 1
+
+      - name: Download Skillstore CLI
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ inputs.cli_version || 'latest' }}
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Recalculate quality scores
+        id: score
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          INPUT_SLUG: ${{ inputs.slug }}
+          INPUT_LIMIT: ${{ inputs.limit }}
+          INPUT_CONCURRENCY: ${{ inputs.concurrency || '5' }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          echo "=== Skill Quality Score Recalculation ==="
+          echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo ""
+
+          # Build command flags using environment variables (safe from injection)
+          FLAGS="--recalculate"
+
+          if [ -n "$INPUT_SLUG" ]; then
+            FLAGS="$FLAGS $INPUT_SLUG"
+            echo "Mode: Single skill ($INPUT_SLUG)"
+          else
+            echo "Mode: All skills"
+          fi
+
+          if [ -n "$INPUT_LIMIT" ]; then
+            FLAGS="$FLAGS --limit $INPUT_LIMIT"
+            echo "Limit: $INPUT_LIMIT"
+          fi
+
+          FLAGS="$FLAGS --concurrency $INPUT_CONCURRENCY"
+          echo "Concurrency: $INPUT_CONCURRENCY"
+
+          if [ "$INPUT_DRY_RUN" = "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+            echo "Dry Run: Yes"
+          fi
+
+          echo ""
+          echo "Running: ./skillstore-cli skill score $FLAGS"
+          echo "----------------------------------------"
+
+          # Run score command and capture output
+          ./skillstore-cli skill score $FLAGS 2>&1 | tee score-output.log
+          EXIT_CODE=${PIPESTATUS[0]}
+
+          echo ""
+          echo "----------------------------------------"
+
+          # Parse results from log
+          PROCESSED=$(grep -oP 'Processed:\s*\K\d+' score-output.log 2>/dev/null || echo "0")
+          UPDATED=$(grep -oP 'Updated:\s*\K\d+' score-output.log 2>/dev/null || echo "0")
+          ERRORS=$(grep -oP 'Errors:\s*\K\d+' score-output.log 2>/dev/null || echo "0")
+          DURATION=$(grep -oP 'Duration:\s*\K\d+' score-output.log 2>/dev/null || echo "0")
+
+          echo "processed=$PROCESSED" >> $GITHUB_OUTPUT
+          echo "updated=$UPDATED" >> $GITHUB_OUTPUT
+          echo "errors=$ERRORS" >> $GITHUB_OUTPUT
+          echo "duration=${DURATION}s" >> $GITHUB_OUTPUT
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+          # Exit with CLI's exit code
+          exit $EXIT_CODE
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f skillstore-cli score-output.log 2>/dev/null || true
+
+      - name: Summary
+        if: always()
+        env:
+          PROCESSED: ${{ steps.score.outputs.processed }}
+          UPDATED: ${{ steps.score.outputs.updated }}
+          ERRORS: ${{ steps.score.outputs.errors }}
+          DURATION: ${{ steps.score.outputs.duration }}
+          EXIT_CODE: ${{ steps.score.outputs.exit_code }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          SLUG: ${{ inputs.slug }}
+          CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
+        run: |
+          MODE="All skills"
+          if [ -n "$SLUG" ]; then
+            MODE="Single skill ($SLUG)"
+          fi
+
+          UPDATED_DISPLAY="$UPDATED"
+          if [ "$DRY_RUN" = "true" ]; then
+            UPDATED_DISPLAY="0 (dry run)"
+          fi
+
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          ## Skill Quality Score Recalculation
+
+          | Metric | Value |
+          |--------|-------|
+          | Mode | $MODE |
+          | Processed | $PROCESSED |
+          | Updated | $UPDATED_DISPLAY |
+          | Errors | $ERRORS |
+          | Duration | $DURATION |
+          | Dry Run | $DRY_RUN |
+          | CLI Version | \`$CLI_VERSION\` |
+
+          EOF
+
+          if [ "$EXIT_CODE" = "0" ]; then
+            echo "✅ Score recalculation completed successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ Score recalculation completed with errors (exit code: $EXIT_CODE)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          cat << 'EOF' >> $GITHUB_STEP_SUMMARY
+
+          ### What Changed
+          - Community scores updated based on latest engagement metrics (views, downloads, favorites)
+          - Skills older than 7 days now use actual metrics instead of neutral 50 score
+          - Maintainability recency scores refreshed based on update timestamps
+          EOF
