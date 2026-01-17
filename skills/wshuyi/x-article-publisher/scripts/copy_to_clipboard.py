@@ -20,8 +20,9 @@ Usage:
     # Copy HTML from file
     python copy_to_clipboard.py html --file /path/to/content.html
 
-macOS Requirements:
-    pip install Pillow pyobjc-framework-Cocoa
+Requirements:
+    macOS: pip install Pillow pyobjc-framework-Cocoa
+    Windows: pip install Pillow pywin32 clip-util
 """
 
 import argparse
@@ -123,6 +124,101 @@ def copy_html_to_clipboard_macos(html: str) -> bool:
         return False
 
 
+# ============================================================================
+# Windows Implementation
+# ============================================================================
+
+def copy_image_to_clipboard_windows(image_path: str, quality: int = None) -> bool:
+    """Copy image to Windows clipboard using CF_DIB format.
+    
+    Uses pywin32's win32clipboard module to set image data in Device Independent
+    Bitmap (DIB) format, which is the standard Windows clipboard format for images.
+    """
+    try:
+        import win32clipboard
+        from PIL import Image
+
+        # Load and optionally compress image
+        if quality:
+            image_data = compress_image(image_path, quality)
+            img = Image.open(io.BytesIO(image_data))
+        else:
+            img = Image.open(image_path)
+
+        # Convert to RGB (required for BMP format)
+        if img.mode in ('RGBA', 'P', 'LA'):
+            img = img.convert('RGB')
+
+        # Save as BMP to BytesIO, skip 14-byte BITMAPFILEHEADER
+        output = io.BytesIO()
+        img.save(output, format='BMP')
+        data = output.getvalue()[14:]  # Skip BITMAPFILEHEADER
+        output.close()
+
+        # Copy to clipboard
+        win32clipboard.OpenClipboard()
+        try:
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardData(win32clipboard.CF_DIB, data)
+        finally:
+            win32clipboard.CloseClipboard()
+
+        return True
+
+    except ImportError as e:
+        print(f"Error: Missing dependency: {e}", file=sys.stderr)
+        print("Install with: pip install Pillow pywin32", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"Error copying image: {e}", file=sys.stderr)
+        return False
+
+
+def copy_html_to_clipboard_windows(html: str) -> bool:
+    """Copy HTML to Windows clipboard using clip-util library."""
+    try:
+        from clipboard import Clipboard
+
+        with Clipboard() as clipboard:
+            clipboard["html"] = html
+
+        return True
+
+    except ImportError as e:
+        print(f"Error: Missing dependency: {e}", file=sys.stderr)
+        print("Install with: pip install clip-util", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"Error copying HTML: {e}", file=sys.stderr)
+        return False
+
+
+# ============================================================================
+# Platform Detection and Function Selection
+# ============================================================================
+
+def copy_image_to_clipboard(image_path: str, quality: int = None) -> bool:
+    """Copy image to clipboard (cross-platform)."""
+    if sys.platform == 'darwin':
+        return copy_image_to_clipboard_macos(image_path, quality)
+    elif sys.platform == 'win32':
+        return copy_image_to_clipboard_windows(image_path, quality)
+    else:
+        print(f"Error: Unsupported platform: {sys.platform}", file=sys.stderr)
+        return False
+
+
+def copy_html_to_clipboard(html: str) -> bool:
+    """Copy HTML to clipboard (cross-platform)."""
+    if sys.platform == 'darwin':
+        return copy_html_to_clipboard_macos(html)
+    elif sys.platform == 'win32':
+        return copy_html_to_clipboard_windows(html)
+    else:
+        print(f"Error: Unsupported platform: {sys.platform}", file=sys.stderr)
+        return False
+
+
 def main():
     parser = argparse.ArgumentParser(description='Copy to clipboard for X Articles')
     subparsers = parser.add_subparsers(dest='type', required=True)
@@ -149,7 +245,7 @@ def main():
             print(f"Error: Image not found: {args.path}", file=sys.stderr)
             sys.exit(1)
 
-        success = copy_image_to_clipboard_macos(args.path, args.quality)
+        success = copy_image_to_clipboard(args.path, args.quality)
         if success:
             print(f"Image copied to clipboard: {args.path}")
             if args.quality:
@@ -169,7 +265,7 @@ def main():
             # Read from stdin
             html = sys.stdin.read()
 
-        success = copy_html_to_clipboard_macos(html)
+        success = copy_html_to_clipboard(html)
         if success:
             print(f"HTML copied to clipboard ({len(html)} chars)")
         sys.exit(0 if success else 1)

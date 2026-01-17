@@ -11,7 +11,9 @@ Publish Markdown content to X (Twitter) Articles editor, preserving formatting w
 
 - Playwright MCP for browser automation
 - User logged into X with Premium Plus subscription
-- Python 3.9+ with dependencies: `pip install Pillow pyobjc-framework-Cocoa`
+- Python 3.9+ with dependencies:
+  - macOS: `pip install Pillow pyobjc-framework-Cocoa`
+  - Windows: `pip install Pillow pywin32 clip-util`
 
 ## Scripts
 
