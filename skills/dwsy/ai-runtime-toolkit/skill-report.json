@@ -1,15 +1,15 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-10T14:35:57.366Z",
+    "generated_at": "2026-01-17T04:30:26.124Z",
     "slug": "dwsy-ai-runtime-toolkit",
     "source_url": "https://github.com/Dwsy/ai-runtime/tree/main/toolkit",
     "source_ref": "main",
     "model": "claude",
-    "analysis_version": "2.0.0",
+    "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "f380d908a681949f947b2545228a03cbfd25e236d770964f63a55a2e54bc8093",
-    "tree_hash": "fc8dbf4979d1815cc528b0cf2d820a3adee0f1fe20a987db69086875f60802ee"
+    "tree_hash": "de49700d95463c4a207dcd3eec43ef38010e102a78c78dc00182148cf4e6d0c4"
   },
   "skill": {
     "name": "ai-runtime-toolkit",
@@ -32,58 +32,18 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
-      "filesystem",
       "external_commands",
-      "network"
+      "filesystem",
+      "network",
+      "scripts"
     ]
   },
   "security_audit": {
     "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "The toolkit system has several input validation vulnerabilities that could allow command injection and path traversal attacks. While not inherently malicious, these issues need addressing before production use.",
+    "summary": "The toolkit provides legitimate development utilities with tool discovery and management capabilities. Several input validation issues were identified in bash scripts and Python CLI that require user awareness. No malicious behavior or credential exfiltration detected. Risk level set to medium due to command injection potential in tool execution paths.",
     "risk_factor_evidence": [
-      {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "bash/analysis/analyze-logs.sh",
-            "line_start": 84,
-            "line_end": 88
-          },
-          {
-            "file": "bash/system/check-service.sh",
-            "line_start": 35,
-            "line_end": 40
-          },
-          {
-            "file": "discover/cli.py",
-            "line_start": 177,
-            "line_end": 178
-          }
-        ]
-      },
-      {
-        "factor": "filesystem",
-        "evidence": [
-          {
-            "file": "python/analysis/code-stats.py",
-            "line_start": 95,
-            "line_end": 108
-          },
-          {
-            "file": "python/analysis/dependency-analyzer.py",
-            "line_start": 32,
-            "line_end": 40
-          },
-          {
-            "file": "discover/detectors/internal.py",
-            "line_start": 45,
-            "line_end": 65
-          }
-        ]
-      },
       {
         "factor": "external_commands",
         "evidence": [
@@ -100,17 +60,47 @@
         ]
       },
       {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "python/analysis/code-stats.py",
+            "line_start": 95,
+            "line_end": 108
+          },
+          {
+            "file": "python/analysis/dependency-analyzer.py",
+            "line_start": 32,
+            "line_end": 40
+          }
+        ]
+      },
+      {
         "factor": "network",
         "evidence": [
           {
             "file": "node/api/test-api.js",
-            "line_start": 150,
-            "line_end": 170
+            "line_start": 28,
+            "line_end": 36
           },
           {
             "file": "bash/system/check-service.sh",
-            "line_start": 50,
-            "line_end": 70
+            "line_start": 20,
+            "line_end": 21
+          }
+        ]
+      },
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "bash/analysis/analyze-logs.sh",
+            "line_start": 84,
+            "line_end": 88
+          },
+          {
+            "file": "bash/system/check-service.sh",
+            "line_start": 34,
+            "line_end": 35
           }
         ]
       }
@@ -118,8 +108,19 @@
     "critical_findings": [],
     "high_findings": [
       {
+        "title": "Command Injection in CLI Runner",
+        "description": "discover/cli.py:177-178 passes unsanitized user arguments to subprocess.run",
+        "locations": [
+          {
+            "file": "discover/cli.py",
+            "line_start": 177,
+            "line_end": 178
+          }
+        ]
+      },
+      {
         "title": "Command Injection in Log Analyzer",
-        "description": "The analyze-logs.sh script directly embeds user input in grep commands without sanitization. Lines 84 and 88 use: grep \"$PATTERN\" \"$LOG_FILE\". An attacker could inject malicious commands by providing patterns like '; rm -rf / #' in the PATTERN variable, leading to arbitrary command execution.",
+        "description": "bash/analysis/analyze-logs.sh:84,88 uses unsanitized user input in grep patterns",
         "locations": [
           {
             "file": "bash/analysis/analyze-logs.sh",
@@ -129,21 +130,21 @@
         ]
       },
       {
-        "title": "Unvalidated Subprocess Execution",
-        "description": "The CLI runner executes tools via subprocess.run() without validating the tool path or arguments. Line 177-178: cmd = [str(tool_path)] + args.args. If an attacker can manipulate the tool discovery system or file system, they could execute arbitrary commands.",
+        "title": "Unsourced Environment Loading",
+        "description": "bash/system/check-service.sh:34-35 sources .env without validation",
         "locations": [
           {
-            "file": "discover/cli.py",
-            "line_start": 177,
-            "line_end": 178
+            "file": "bash/system/check-service.sh",
+            "line_start": 34,
+            "line_end": 35
           }
         ]
       }
     ],
     "medium_findings": [
       {
-        "title": "Path Traversal in File Processing Tools",
-        "description": "Multiple Python tools perform recursive directory traversal without validating paths. The code-stats.py tool (lines 95-108) follows symbolic links and doesn't validate file paths, potentially allowing access to sensitive files outside the intended directory.",
+        "title": "Path Traversal Potential",
+        "description": "Python tools traverse directories without strict path validation",
         "locations": [
           {
             "file": "python/analysis/code-stats.py",
@@ -151,34 +152,12 @@
             "line_end": 108
           }
         ]
-      },
-      {
-        "title": "SSRF Risk in API Tester",
-        "description": "The test-api.js tool accepts a baseURL parameter without validation. Lines 150-170 use node-fetch with user-provided URLs, which could be exploited for Server-Side Request Forgery attacks to access internal services.",
-        "locations": [
-          {
-            "file": "node/api/test-api.js",
-            "line_start": 150,
-            "line_end": 170
-          }
-        ]
-      },
-      {
-        "title": "Unvalidated Environment Loading",
-        "description": "The check-service.sh script sources .env files without validation (line 35: source .env). Malicious environment variables could be loaded, potentially affecting system behavior or exposing sensitive data.",
-        "locations": [
-          {
-            "file": "bash/system/check-service.sh",
-            "line_start": 35,
-            "line_end": 35
-          }
-        ]
       }
     ],
     "low_findings": [
       {
-        "title": "File Reading Without Validation",
-        "description": "Dependency analyzer reads package.json and requirements.txt files without validating paths or checking file sizes. Could be exploited to read arbitrary files or cause DoS with large files.",
+        "title": "File Reading Without Strict Validation",
+        "description": "Dependency analyzer reads package files without path validation",
         "locations": [
           {
             "file": "python/analysis/dependency-analyzer.py",
@@ -190,29 +169,29 @@
     ],
     "dangerous_patterns": [
       {
-        "title": "Direct Shell Command Execution",
-        "description": "Multiple scripts use command substitution and shell execution with user input. Pattern found in: grep \"$PATTERN\" (analyze-logs.sh) and subprocess.run() (cli.py), both executing user-controlled data.",
+        "title": "Direct Shell Command Execution with User Input",
+        "description": "Multiple scripts use shell execution patterns with user-controlled data",
         "locations": [
-          {
-            "file": "bash/analysis/analyze-logs.sh",
-            "line_start": 84,
-            "line_end": 88
-          },
           {
             "file": "discover/cli.py",
             "line_start": 177,
             "line_end": 178
+          },
+          {
+            "file": "bash/analysis/analyze-logs.sh",
+            "line_start": 84,
+            "line_end": 88
           }
         ]
       }
     ],
-    "files_scanned": 49,
-    "total_lines": 6499,
+    "files_scanned": 59,
+    "total_lines": 7409,
     "audit_model": "claude",
-    "audited_at": "2026-01-10T14:35:57.366Z"
+    "audited_at": "2026-01-17T04:30:26.124Z"
   },
   "content": {
-    "user_title": "Integrate 18+ CLI tools with intelligent discovery",
+    "user_title": "Integrate 18 CLI tools with intelligent discovery",
     "value_statement": "Developers waste time switching between disconnected development tools. This toolkit seamlessly integrates 8 custom AI tools with 10+ popular CLI utilities like ripgrep and jq through a unified discovery system.",
     "seo_keywords": [
       "AI toolkit",
@@ -237,8 +216,8 @@
     "limitations": [
       "Requires Python 3.6+ and Node.js for full functionality",
       "Some tools need external CLI utilities installed separately",
-      "Command execution vulnerabilities need security patches",
-      "Windows support limited for bash-based tools"
+      "User-provided arguments to tools are not sanitized",
+      "Bash-based tools have limited support on Windows"
     ],
     "use_cases": [
       {
@@ -271,17 +250,17 @@
       {
         "title": "Log analysis",
         "scenario": "Debug application errors",
-        "prompt": "Analyze /var/log/app.log for ERROR patterns in the last 24 hours"
+        "prompt": "Analyze app.log for ERROR patterns and show common error types"
       },
       {
         "title": "Service monitoring",
         "scenario": "Check system health",
-        "prompt": "Check if all services are running and disk usage is below 80%"
+        "prompt": "Check if all services are running and disk usage is below 80 percent"
       }
     ],
     "output_examples": [
       {
-        "input": "Check my Python project dependencies",
+        "input": "Analyze my Python project dependencies",
         "output": [
           "Found 12 Python dependencies in requirements.txt",
           "Outdated packages:",
@@ -293,12 +272,38 @@
           "  - Update requests for performance improvements",
           "  - Upgrade django for security patches"
         ]
+      },
+      {
+        "input": "Check my service health",
+        "output": [
+          "Checking auth-service (HTTP):",
+          "  - URL: http://localhost:3000/health",
+          "  - Status: 200 OK",
+          "  - Response time: 45ms",
+          "Service is healthy and responding correctly"
+        ]
+      },
+      {
+        "input": "Show me all available tools",
+        "output": [
+          "Available tools (8 internal, 10+ external):",
+          "  INTERNAL TOOLS:",
+          "  - dependency-analyzer: Analyze project dependencies",
+          "  - code-stats: Calculate code statistics",
+          "  - service-check: Check service health",
+          "  - log-analyzer: Analyze log files",
+          "  EXTERNAL TOOLS:",
+          "  - fzf: Fuzzy file finder",
+          "  - ripgrep: Fast code search",
+          "  - jq: JSON processor",
+          "  - eza: Modern file listing"
+        ]
       }
     ],
     "best_practices": [
-      "Always validate inputs before running tools on production systems",
-      "Use tool recommendations to discover new utilities for your workflow",
-      "Combine multiple tools in scripts for complex automation tasks"
+      "Validate all user inputs before passing them to tools",
+      "Install external CLI tools (fzf, ripgrep, jq) separately for full functionality",
+      "Run tools in test environments before using on production systems"
     ],
     "anti_patterns": [
       "Running tools with root privileges without understanding their function",
@@ -308,23 +313,23 @@
     "faq": [
       {
         "question": "Is this compatible with Claude Code?",
-        "answer": "Yes, the toolkit integrates seamlessly with Claude Code and provides enhanced tool discovery capabilities."
+        "answer": "Yes, the toolkit integrates seamlessly with Claude Code and provides enhanced tool discovery."
       },
       {
-        "question": "What's the maximum file size for analysis?",
+        "question": "What is the maximum file size for analysis?",
         "answer": "Individual tools handle files up to 100MB efficiently. Larger files may require streaming approaches."
       },
       {
         "question": "Can I add my own tools?",
-        "answer": "Yes, create a .meta.yml file following the standard format to register custom tools in the system."
+        "answer": "Yes, create a .meta.yml file following the standard format to register custom tools."
       },
       {
         "question": "How is my data protected?",
-        "answer": "Tools process data locally. No information is sent to external servers except for explicit API testing tools."
+        "answer": "Tools process data locally. No information is sent to external servers except for API testing tools."
       },
       {
         "question": "Why does tool execution fail?",
-        "answer": "Check that external dependencies are installed and verify file permissions for the tools you're trying to run."
+        "answer": "Check that external dependencies are installed and verify file permissions for the tools."
       },
       {
         "question": "How does this compare to native CLI tools?",
@@ -346,12 +351,14 @@
             {
               "name": "analyze-logs.meta.yml",
               "type": "file",
-              "path": "bash/analysis/analyze-logs.meta.yml"
+              "path": "bash/analysis/analyze-logs.meta.yml",
+              "lines": 89
             },
             {
               "name": "analyze-logs.sh",
               "type": "file",
-              "path": "bash/analysis/analyze-logs.sh"
+              "path": "bash/analysis/analyze-logs.sh",
+              "lines": 172
             }
           ]
         },
@@ -363,22 +370,26 @@
             {
               "name": "check-disk.meta.yml",
               "type": "file",
-              "path": "bash/system/check-disk.meta.yml"
+              "path": "bash/system/check-disk.meta.yml",
+              "lines": 87
             },
             {
               "name": "check-disk.sh",
               "type": "file",
-              "path": "bash/system/check-disk.sh"
+              "path": "bash/system/check-disk.sh",
+              "lines": 247
             },
             {
               "name": "check-service.meta.yml",
               "type": "file",
-              "path": "bash/system/check-service.meta.yml"
+              "path": "bash/system/check-service.meta.yml",
+              "lines": 81
             },
             {
               "name": "check-service.sh",
               "type": "file",
-              "path": "bash/system/check-service.sh"
+              "path": "bash/system/check-service.sh",
+              "lines": 77
             }
           ]
         }
@@ -397,12 +408,14 @@
             {
               "name": "__init__.py",
               "type": "file",
-              "path": "discover/config/__init__.py"
+              "path": "discover/config/__init__.py",
+              "lines": 14
             },
             {
               "name": "external_tools.yaml",
               "type": "file",
-              "path": "discover/config/external_tools.yaml"
+              "path": "discover/config/external_tools.yaml",
+              "lines": 114
             }
           ]
         },
@@ -414,22 +427,26 @@
             {
               "name": "__init__.py",
               "type": "file",
-              "path": "discover/detectors/__init__.py"
+              "path": "discover/detectors/__init__.py",
+              "lines": 14
             },
             {
               "name": "base.py",
               "type": "file",
-              "path": "discover/detectors/base.py"
+              "path": "discover/detectors/base.py",
+              "lines": 52
             },
             {
               "name": "external.py",
               "type": "file",
-              "path": "discover/detectors/external.py"
+              "path": "discover/detectors/external.py",
+              "lines": 130
             },
             {
               "name": "internal.py",
               "type": "file",
-              "path": "discover/detectors/internal.py"
+              "path": "discover/detectors/internal.py",
+              "lines": 138
             }
           ]
         },
@@ -441,22 +458,26 @@
             {
               "name": "__init__.py",
               "type": "file",
-              "path": "discover/formatters/__init__.py"
+              "path": "discover/formatters/__init__.py",
+              "lines": 14
             },
             {
               "name": "base.py",
               "type": "file",
-              "path": "discover/formatters/base.py"
+              "path": "discover/formatters/base.py",
+              "lines": 38
             },
             {
               "name": "json.py",
               "type": "file",
-              "path": "discover/formatters/json.py"
+              "path": "discover/formatters/json.py",
+              "lines": 68
             },
             {
               "name": "table.py",
               "type": "file",
-              "path": "discover/formatters/table.py"
+              "path": "discover/formatters/table.py",
+              "lines": 179
             }
           ]
         },
@@ -468,34 +489,40 @@
             {
               "name": "__init__.py",
               "type": "file",
-              "path": "discover/models/__init__.py"
+              "path": "discover/models/__init__.py",
+              "lines": 14
             },
             {
               "name": "tool.py",
               "type": "file",
-              "path": "discover/models/tool.py"
+              "path": "discover/models/tool.py",
+              "lines": 108
             }
           ]
         },
         {
           "name": "__init__.py",
           "type": "file",
-          "path": "discover/__init__.py"
+          "path": "discover/__init__.py",
+          "lines": 37
         },
         {
           "name": "__main__.py",
           "type": "file",
-          "path": "discover/__main__.py"
+          "path": "discover/__main__.py",
+          "lines": 9
         },
         {
           "name": "cli.py",
           "type": "file",
-          "path": "discover/cli.py"
+          "path": "discover/cli.py",
+          "lines": 231
         },
         {
           "name": "discovery.py",
           "type": "file",
-          "path": "discover/discovery.py"
+          "path": "discover/discovery.py",
+          "lines": 223
         }
       ]
     },
@@ -512,7 +539,8 @@
             {
               "name": "toolkit-philosophy.md",
               "type": "file",
-              "path": "docs/concepts/toolkit-philosophy.md"
+              "path": "docs/concepts/toolkit-philosophy.md",
+              "lines": 79
             }
           ]
         },
@@ -524,17 +552,20 @@
             {
               "name": "creating-tools.md",
               "type": "file",
-              "path": "docs/guides/creating-tools.md"
+              "path": "docs/guides/creating-tools.md",
+              "lines": 407
             },
             {
               "name": "external-integration.md",
               "type": "file",
-              "path": "docs/guides/external-integration.md"
+              "path": "docs/guides/external-integration.md",
+              "lines": 262
             },
             {
               "name": "quickstart.md",
               "type": "file",
-              "path": "docs/guides/quickstart.md"
+              "path": "docs/guides/quickstart.md",
+              "lines": 128
             }
           ]
         },
@@ -546,12 +577,14 @@
             {
               "name": "external-tools.md",
               "type": "file",
-              "path": "docs/references/external-tools.md"
+              "path": "docs/references/external-tools.md",
+              "lines": 195
             },
             {
               "name": "internal-tools.md",
               "type": "file",
-              "path": "docs/references/internal-tools.md"
+              "path": "docs/references/internal-tools.md",
+              "lines": 299
             }
           ]
         },
@@ -568,32 +601,38 @@
                 {
                   "name": "bat.md",
                   "type": "file",
-                  "path": "docs/tools/external/bat.md"
+                  "path": "docs/tools/external/bat.md",
+                  "lines": 65
                 },
                 {
                   "name": "eza.md",
                   "type": "file",
-                  "path": "docs/tools/external/eza.md"
+                  "path": "docs/tools/external/eza.md",
+                  "lines": 61
                 },
                 {
                   "name": "fzf.md",
                   "type": "file",
-                  "path": "docs/tools/external/fzf.md"
+                  "path": "docs/tools/external/fzf.md",
+                  "lines": 82
                 },
                 {
                   "name": "jq.md",
                   "type": "file",
-                  "path": "docs/tools/external/jq.md"
+                  "path": "docs/tools/external/jq.md",
+                  "lines": 95
                 },
                 {
                   "name": "ripgrep.md",
                   "type": "file",
-                  "path": "docs/tools/external/ripgrep.md"
+                  "path": "docs/tools/external/ripgrep.md",
+                  "lines": 69
                 },
                 {
                   "name": "zoxide.md",
                   "type": "file",
-                  "path": "docs/tools/external/zoxide.md"
+                  "path": "docs/tools/external/zoxide.md",
+                  "lines": 76
                 }
               ]
             }
@@ -602,7 +641,8 @@
         {
           "name": "STRUCTURE-REFACTORING.md",
           "type": "file",
-          "path": "docs/STRUCTURE-REFACTORING.md"
+          "path": "docs/STRUCTURE-REFACTORING.md",
+          "lines": 87
         }
       ]
     },
@@ -619,7 +659,8 @@
             {
               "name": "xh.meta.yml",
               "type": "file",
-              "path": "external/api-testing/xh.meta.yml"
+              "path": "external/api-testing/xh.meta.yml",
+              "lines": 27
             }
           ]
         },
@@ -631,7 +672,8 @@
             {
               "name": "ripgrep.meta.yml",
               "type": "file",
-              "path": "external/code-search/ripgrep.meta.yml"
+              "path": "external/code-search/ripgrep.meta.yml",
+              "lines": 29
             }
           ]
         },
@@ -643,7 +685,8 @@
             {
               "name": "jq.meta.yml",
               "type": "file",
-              "path": "external/data-processing/jq.meta.yml"
+              "path": "external/data-processing/jq.meta.yml",
+              "lines": 28
             }
           ]
         },
@@ -655,7 +698,8 @@
             {
               "name": "eza.meta.yml",
               "type": "file",
-              "path": "external/file-listing/eza.meta.yml"
+              "path": "external/file-listing/eza.meta.yml",
+              "lines": 29
             }
           ]
         },
@@ -667,7 +711,8 @@
             {
               "name": "fd.meta.yml",
               "type": "file",
-              "path": "external/file-search/fd.meta.yml"
+              "path": "external/file-search/fd.meta.yml",
+              "lines": 27
             }
           ]
         },
@@ -679,7 +724,8 @@
             {
               "name": "bat.meta.yml",
               "type": "file",
-              "path": "external/file-viewer/bat.meta.yml"
+              "path": "external/file-viewer/bat.meta.yml",
+              "lines": 27
             }
           ]
         },
@@ -691,7 +737,8 @@
             {
               "name": "delta.meta.yml",
               "type": "file",
-              "path": "external/git-tools/delta.meta.yml"
+              "path": "external/git-tools/delta.meta.yml",
+              "lines": 27
             }
           ]
         },
@@ -703,7 +750,8 @@
             {
               "name": "zoxide.meta.yml",
               "type": "file",
-              "path": "external/navigation/zoxide.meta.yml"
+              "path": "external/navigation/zoxide.meta.yml",
+              "lines": 27
             }
           ]
         },
@@ -715,7 +763,8 @@
             {
               "name": "fzf.meta.yml",
               "type": "file",
-              "path": "external/search/fzf.meta.yml"
+              "path": "external/search/fzf.meta.yml",
+              "lines": 31
             }
           ]
         },
@@ -727,14 +776,16 @@
             {
               "name": "starship.meta.yml",
               "type": "file",
-              "path": "external/shell-enhancement/starship.meta.yml"
+              "path": "external/shell-enhancement/starship.meta.yml",
+              "lines": 28
             }
           ]
         },
         {
           "name": "README.md",
           "type": "file",
-          "path": "external/README.md"
+          "path": "external/README.md",
+          "lines": 140
         }
       ]
     },
@@ -751,7 +802,8 @@
             {
               "name": "test-api.js",
               "type": "file",
-              "path": "node/api/test-api.js"
+              "path": "node/api/test-api.js",
+              "lines": 313
             }
           ]
         }
@@ -770,22 +822,26 @@
             {
               "name": "code-stats.meta.yml",
               "type": "file",
-              "path": "python/analysis/code-stats.meta.yml"
+              "path": "python/analysis/code-stats.meta.yml",
+              "lines": 96
             },
             {
               "name": "code-stats.py",
               "type": "file",
-              "path": "python/analysis/code-stats.py"
+              "path": "python/analysis/code-stats.py",
+              "lines": 364
             },
             {
               "name": "dependency-analyzer.meta.yml",
               "type": "file",
-              "path": "python/analysis/dependency-analyzer.meta.yml"
+              "path": "python/analysis/dependency-analyzer.meta.yml",
+              "lines": 91
             },
             {
               "name": "dependency-analyzer.py",
               "type": "file",
-              "path": "python/analysis/dependency-analyzer.py"
+              "path": "python/analysis/dependency-analyzer.py",
+              "lines": 219
             }
           ]
         }
@@ -804,7 +860,8 @@
             {
               "name": "toolkit-philosophy.md",
               "type": "file",
-              "path": "references/core/toolkit-philosophy.md"
+              "path": "references/core/toolkit-philosophy.md",
+              "lines": 188
             }
           ]
         },
@@ -816,7 +873,8 @@
             {
               "name": "quickstart.md",
               "type": "file",
-              "path": "references/guides/quickstart.md"
+              "path": "references/guides/quickstart.md",
+              "lines": 296
             }
           ]
         }
@@ -825,27 +883,32 @@
     {
       "name": "discover-toolkit.py",
       "type": "file",
-      "path": "discover-toolkit.py"
+      "path": "discover-toolkit.py",
+      "lines": 53
     },
     {
       "name": "EXTERNAL-TOOLS-SKILL.md",
       "type": "file",
-      "path": "EXTERNAL-TOOLS-SKILL.md"
+      "path": "EXTERNAL-TOOLS-SKILL.md",
+      "lines": 175
     },
     {
       "name": "EXTERNAL-TOOLS.md",
       "type": "file",
-      "path": "EXTERNAL-TOOLS.md"
+      "path": "EXTERNAL-TOOLS.md",
+      "lines": 70
     },
     {
       "name": "registry.md",
       "type": "file",
-      "path": "registry.md"
+      "path": "registry.md",
+      "lines": 91
     },
     {
       "name": "SKILL.md",
       "type": "file",
-      "path": "SKILL.md"
+      "path": "SKILL.md",
+      "lines": 140
     }
   ]
 }
