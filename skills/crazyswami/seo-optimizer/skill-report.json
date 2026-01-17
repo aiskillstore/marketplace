@@ -1,15 +1,15 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-10T12:51:52.960Z",
+    "generated_at": "2026-01-16T23:57:36.907Z",
     "slug": "crazyswami-seo-optimizer",
     "source_url": "https://github.com/CrazySwami/wordpress-dev-skills/tree/main/skills/seo-optimizer",
     "source_ref": "main",
     "model": "claude",
-    "analysis_version": "2.0.0",
+    "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "67c38cdbf80aec7e525dff2ba7595428decfa067a612d1985dd5d13028c5366b",
-    "tree_hash": "9f1089b5470f4e178013951570806736ef97348ea6fcdeb971320414dd83ec29"
+    "tree_hash": "b2079e72177a64c3eecea761f9d9a8112cc094cafc39726549c3616a8e479640"
   },
   "skill": {
     "name": "seo-optimizer",
@@ -34,7 +34,6 @@
     "risk_factors": [
       "scripts",
       "network",
-      "filesystem",
       "external_commands"
     ]
   },
@@ -42,7 +41,7 @@
     "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate WordPress SEO audit tool with necessary external commands for Docker and network access. Contains SQL injection vulnerability in database queries that requires patching. Hardcoded credentials are present but for local dev only.",
+    "summary": "Legitimate WordPress SEO audit tool with necessary external commands for Docker and network access. Most scanner findings are false positives (SEO meta keys misinterpreted as cryptographic terms). Existing audit identified SQL injection vulnerability requiring code fix. Hardcoded database credentials present for local dev only.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
@@ -70,16 +69,6 @@
         ]
       },
       {
-        "factor": "filesystem",
-        "evidence": [
-          {
-            "file": "audit.py",
-            "line_start": 22,
-            "line_end": 22
-          }
-        ]
-      },
-      {
         "factor": "external_commands",
         "evidence": [
           {
@@ -99,7 +88,7 @@
     "high_findings": [
       {
         "title": "SQL Injection Vulnerability",
-        "description": "Database queries use f-string interpolation without sanitization, allowing SQL injection attacks if user-controlled input reaches post_id. At line 53-62, the query directly interpolates post_id: 'WHERE post_id = {post_id}'. An attacker controlling page data could inject SQL. Code: query = f\"SELECT meta_key, meta_value FROM wp_postmeta WHERE post_id = {post_id} AND meta_key IN...\"",
+        "description": "Database queries use f-string interpolation without sanitization. Lines 53-62 and 73-79 directly interpolate post_id into queries. While post_id comes from WordPress API (trusted source), this is still poor security practice.",
         "locations": [
           {
             "file": "audit.py",
@@ -117,7 +106,7 @@
     "medium_findings": [
       {
         "title": "Hardcoded Database Credentials",
-        "description": "Database credentials are hardcoded in plain text at lines 25-28: DB_PASS = \"wordpress\". While these appear to be local dev credentials, hardcoded credentials are a security anti-pattern that could be exploited if this code runs in production.",
+        "description": "Database credentials are hardcoded in plain text at lines 25-28. DB_PASS = 'wordpress' appears in command line arguments visible in process listings. Should use environment variables.",
         "locations": [
           {
             "file": "audit.py",
@@ -129,8 +118,8 @@
     ],
     "low_findings": [
       {
-        "title": "Command Injection Surface",
-        "description": "The script executes subprocess.run with shell=False (lines 34-39, 94-99), which is the safer approach. However, the docker exec command includes password on command line, exposing it in process listings. Consider using environment variables or stdin for password passing.",
+        "title": "Command Line Password Exposure",
+        "description": "Password passed on docker exec command line at line 36. Visible in process listings. Consider using stdin or environment variables.",
         "locations": [
           {
             "file": "audit.py",
@@ -141,10 +130,10 @@
       }
     ],
     "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 584,
+    "files_scanned": 3,
+    "total_lines": 856,
     "audit_model": "claude",
-    "audited_at": "2026-01-10T12:51:52.960Z"
+    "audited_at": "2026-01-16T23:57:36.907Z"
   },
   "content": {
     "user_title": "Audit and Fix WordPress SEO Issues",
@@ -163,22 +152,22 @@
     ],
     "actual_capabilities": [
       "Audit all WordPress pages and posts for SEO completeness",
-      "Check focus keyword presence and placement",
+      "Check focus keyword presence and placement in title and description",
       "Validate meta description length and keyword inclusion",
-      "Verify featured image presence and metadata",
-      "Generate actionable audit reports with scores",
-      "Identify pages missing SEO elements"
+      "Verify featured image presence and metadata quality",
+      "Generate actionable audit reports with numerical scores",
+      "Support both Yoast SEO and Rank Math plugins"
     ],
     "limitations": [
-      "Does not modify WordPress content directly",
-      "Requires WordPress REST API or database access",
-      "Does not track ranking changes over time",
+      "Does not modify WordPress content automatically",
+      "Requires WordPress REST API or database access credentials",
+      "Cannot track ranking changes over time",
       "Cannot access password-protected or private content"
     ],
     "use_cases": [
       {
         "target_user": "WordPress Developers",
-        "title": "Site SEO Audit",
+        "title": "Pre-Launch SEO Audit",
         "description": "Run comprehensive SEO audits on client WordPress sites before launch"
       },
       {
@@ -189,7 +178,7 @@
       {
         "target_user": "Marketing Teams",
         "title": "SEO Health Check",
-        "description": "Identify pages with poor SEO scores and prioritize fixes"
+        "description": "Identify pages with poor SEO scores and prioritize fixes by impact"
       }
     ],
     "prompt_templates": [
@@ -225,19 +214,29 @@
           "Portfolio page: No focus keyword set",
           "Recommendations: Add focus keyword 'Miami properties', write meta description 120-160 chars, add featured image"
         ]
+      },
+      {
+        "input": "Check our blog posts for SEO issues",
+        "output": [
+          "5 posts missing focus keywords",
+          "3 posts have meta descriptions under 120 characters",
+          "8 posts missing featured images entirely",
+          "Top priority: Update meta descriptions on 12 pages with traffic",
+          "Focus keyword 'sustainable living' appears in title but not description on 4 pages"
+        ]
       }
     ],
     "best_practices": [
       "Set one focus keyword per page that matches user search intent",
-      "Keep meta descriptions between 120-160 characters for optimal display",
-      "Include focus keyword in title, meta description, and image alt text",
-      "Add a featured image to every page with descriptive alt text"
+      "Keep meta descriptions between 120-160 characters for optimal display in search results",
+      "Include focus keyword in title tag, meta description, and image alt text for maximum impact",
+      "Add a featured image to every page with descriptive, keyword-rich alt text"
     ],
     "anti_patterns": [
       "Using multiple focus keywords per page dilutes SEO effectiveness",
-      "Keyword stuffing meta descriptions harms user experience and rankings",
+      "Keyword stuffing meta descriptions harms user experience and search rankings",
       "Leaving featured images without alt text misses accessibility and SEO opportunities",
-      "Setting focus keywords that do not match actual page content"
+      "Setting focus keywords that do not match actual page content misleads visitors"
     ],
     "faq": [
       {
@@ -246,7 +245,7 @@
       },
       {
         "question": "How many pages can be audited at once?",
-        "answer": "The skill processes pages in batches of 100 via the WordPress REST API. Large sites will take longer to complete."
+        "answer": "The skill processes pages in batches of 100 via the WordPress REST API. Large sites take longer to complete."
       },
       {
         "question": "How does this integrate with WordPress?",
@@ -270,12 +269,14 @@
     {
       "name": "audit.py",
       "type": "file",
-      "path": "audit.py"
+      "path": "audit.py",
+      "lines": 399
     },
     {
       "name": "SKILL.md",
       "type": "file",
-      "path": "SKILL.md"
+      "path": "SKILL.md",
+      "lines": 175
     }
   ]
 }
