@@ -9,6 +9,10 @@ inputs:
   token:
     description: 'GitHub token with repo access'
     required: true
+  cache-dir:
+    description: 'Local cache directory for self-hosted runners (optional)'
+    required: false
+    default: ''
 
 outputs:
   cli-path:
@@ -36,15 +40,65 @@ runs:
         fi
         echo "release-tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
 
-    - name: Cache CLI
+    - name: Check local cache (self-hosted runners)
+      id: local-cache
+      if: inputs.cache-dir != ''
+      shell: bash
+      env:
+        CACHE_DIR: ${{ inputs.cache-dir }}
+        RELEASE_TAG: ${{ steps.resolve.outputs.release-tag }}
+      run: |
+        # Auto-create cache directory if it doesn't exist
+        if [ ! -d "$CACHE_DIR" ]; then
+          echo "📁 Cache directory doesn't exist, creating: $CACHE_DIR"
+          mkdir -p "$CACHE_DIR" || {
+            echo "::warning::Failed to create cache directory $CACHE_DIR, falling back to no cache"
+            echo "cache-hit=false" >> $GITHUB_OUTPUT
+            echo "cache-disabled=true" >> $GITHUB_OUTPUT
+            exit 0
+          }
+          echo "✅ Cache directory created successfully"
+        fi
+
+        CACHE_FILE="$CACHE_DIR/skillstore-cli-$RELEASE_TAG-${{ runner.os }}-${{ runner.arch }}"
+
+        if [ -f "$CACHE_FILE" ]; then
+          echo "✅ Found local cache: $CACHE_FILE"
+          echo "📋 Cache file size: $(du -h "$CACHE_FILE" | cut -f1)"
+          cp "$CACHE_FILE" "$GITHUB_WORKSPACE/skillstore-cli"
+          chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
+          echo "cache-hit=true" >> $GITHUB_OUTPUT
+        else
+          echo "❌ No cached version found for $RELEASE_TAG"
+          echo "📂 Cache directory: $CACHE_DIR"
+
+          # List existing cached versions
+          EXISTING=$(find "$CACHE_DIR" -name "skillstore-cli-*" -type f 2>/dev/null || true)
+          if [ -n "$EXISTING" ]; then
+            echo "📦 Existing cached versions:"
+            echo "$EXISTING" | while read -r file; do
+              echo "  - $(basename "$file") ($(du -h "$file" | cut -f1))"
+            done
+          else
+            echo "📦 No cached versions found (first run)"
+          fi
+
+          echo "cache-hit=false" >> $GITHUB_OUTPUT
+          echo "cache-file=$CACHE_FILE" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Cache CLI (GitHub-hosted runners)
       id: cache-cli
+      if: inputs.cache-dir == ''
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/skillstore-cli
         key: skillstore-cli-${{ steps.resolve.outputs.release-tag }}-${{ runner.os }}-${{ runner.arch }}
 
     - name: Download CLI
-      if: steps.cache-cli.outputs.cache-hit != 'true'
+      if: |
+        (inputs.cache-dir == '' && steps.cache-cli.outputs.cache-hit != 'true') ||
+        (inputs.cache-dir != '' && steps.local-cache.outputs.cache-hit != 'true')
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
@@ -61,8 +115,26 @@ runs:
 
         chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
 
+    - name: Save to local cache (self-hosted runners)
+      if: inputs.cache-dir != '' && steps.local-cache.outputs.cache-hit != 'true' && steps.local-cache.outputs.cache-disabled != 'true'
+      shell: bash
+      env:
+        CACHE_DIR: ${{ inputs.cache-dir }}
+      run: |
+        CACHE_FILE="${{ steps.local-cache.outputs.cache-file }}"
+
+        # Ensure cache directory exists (should already exist from check step)
+        mkdir -p "$CACHE_DIR"
+
+        # Copy to cache
+        cp "$GITHUB_WORKSPACE/skillstore-cli" "$CACHE_FILE"
+
+        echo "✅ Saved to local cache: $CACHE_FILE"
+        echo "📋 File size: $(du -h "$CACHE_FILE" | cut -f1)"
+        echo "🚀 Next run will use cached version (instant!)"
+
     - name: Restore executable permissions
-      if: steps.cache-cli.outputs.cache-hit == 'true'
+      if: inputs.cache-dir == '' && steps.cache-cli.outputs.cache-hit == 'true'
       shell: bash
       run: |
         echo "✅ Using cached CLI (${{ steps.resolve.outputs.release-tag }})"
