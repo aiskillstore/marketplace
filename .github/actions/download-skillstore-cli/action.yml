@@ -36,7 +36,15 @@ runs:
         fi
         echo "release-tag=$RELEASE_TAG" >> $GITHUB_OUTPUT
 
+    - name: Cache CLI
+      id: cache-cli
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/skillstore-cli
+        key: skillstore-cli-${{ steps.resolve.outputs.release-tag }}-${{ runner.os }}-${{ runner.arch }}
+
     - name: Download CLI
+      if: steps.cache-cli.outputs.cache-hit != 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
@@ -51,6 +59,13 @@ runs:
           --output "$GITHUB_WORKSPACE/skillstore-cli" \
           --clobber
 
+        chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
+
+    - name: Restore executable permissions
+      if: steps.cache-cli.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        echo "✅ Using cached CLI (${{ steps.resolve.outputs.release-tag }})"
         chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
 
     - name: Verify CLI
