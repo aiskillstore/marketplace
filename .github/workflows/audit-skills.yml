@@ -196,40 +196,16 @@ jobs:
 
           echo "✅ Workspace setup complete"
 
+      - name: Checkout for CLI download action
+        uses: actions/checkout@v4
+        with:
+          path: marketplace-repo
+
       - name: Download Skillstore CLI
-        env:
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          set -euo pipefail
-
-          echo "📥 Downloading skillstore CLI..."
-
-          # Get latest release download URL
-          if [ "$CLI_VERSION" = "latest" ]; then
-            RELEASE_URL=$(curl -s -H "Authorization: token ${APP_TOKEN}" \
-              https://api.github.com/repos/aiskillstore/skillstore/releases/latest \
-              | grep "browser_download_url.*skillstore-cli-linux" \
-              | cut -d '"' -f 4)
-          else
-            RELEASE_URL=$(curl -s -H "Authorization: token ${APP_TOKEN}" \
-              "https://api.github.com/repos/aiskillstore/skillstore/releases/tags/${CLI_VERSION}" \
-              | grep "browser_download_url.*skillstore-cli-linux" \
-              | cut -d '"' -f 4)
-          fi
-
-          if [ -z "$RELEASE_URL" ]; then
-            echo "::error::Failed to get CLI download URL"
-            exit 1
-          fi
-
-          # Download CLI
-          curl -L -H "Authorization: token ${APP_TOKEN}" \
-            -o skillstore-cli "$RELEASE_URL"
-          chmod +x skillstore-cli
-
-          echo "✅ CLI downloaded to: $PWD/skillstore-cli"
+        uses: ./marketplace-repo/.github/actions/download-skillstore-cli
+        with:
+          version: ${{ inputs.cli_version || 'latest' }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Audit shard ${{ matrix.shard }}
         id: audit
@@ -262,7 +238,7 @@ jobs:
           fi
           
           # CLI internally retries 3 times per skill on AI failures
-          ./skillstore-cli skill audit ./skills \
+          "$GITHUB_WORKSPACE/skillstore-cli" skill audit ./skills \
             $MODEL_FLAG \
             $SLUG_FLAG \
             $DRY_RUN_FLAG \
@@ -270,17 +246,17 @@ jobs:
             --offset ${{ matrix.offset }} \
             --limit ${{ matrix.limit }} \
             2>&1 | tee audit-output-${{ matrix.shard }}.log
-          
+
           # Check for remaining failures after CLI retries
           STILL_FAILED=$(find skills -name "skill-report.json" -newer audit-output-${{ matrix.shard }}.log -exec grep -l "AI analysis failed" {} \; 2>/dev/null | wc -l | tr -d ' ') || STILL_FAILED=0
-          
+
           # Workflow-level retry for persistent failures
           if [ "$STILL_FAILED" -gt 0 ]; then
             echo ""
             echo "🔄 Workflow retry: $STILL_FAILED skills still failed after CLI retries"
             sleep 30
-            
-            ./skillstore-cli skill audit ./skills \
+
+            "$GITHUB_WORKSPACE/skillstore-cli" skill audit ./skills \
               $MODEL_FLAG \
               $SLUG_FLAG \
               $DRY_RUN_FLAG \

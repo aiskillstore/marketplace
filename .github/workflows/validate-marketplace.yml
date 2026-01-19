@@ -94,39 +94,18 @@ jobs:
         run: npm install ajv ajv-formats gray-matter
 
       # Download CLI once at start - used by both SKILL.md and skill-report.json auto-fix steps
+      - name: Checkout for CLI download action
+        if: env.AUTO_FIX_ENABLED == 'true'
+        uses: actions/checkout@v4
+        with:
+          path: marketplace-repo
+
       - name: Download skillstore CLI for auto-fix
         if: env.AUTO_FIX_ENABLED == 'true'
-        id: download-cli
-        working-directory: ${{ env.WORK_DIR }}
-        env:
-          APP_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          set -euo pipefail
-
-          echo "📥 Downloading skillstore CLI..."
-
-          # Get latest release download URL
-          RELEASE_URL=$(curl -s -H "Authorization: token ${APP_TOKEN}" \
-            https://api.github.com/repos/aiskillstore/skillstore/releases/latest \
-            | grep "browser_download_url.*skillstore-cli-linux" \
-            | cut -d '"' -f 4)
-
-          if [ -z "$RELEASE_URL" ]; then
-            echo "::error::Failed to get CLI download URL"
-            exit 1
-          fi
-
-          # Download CLI
-          curl -L -H "Authorization: token ${APP_TOKEN}" \
-            -o skillstore-cli "$RELEASE_URL"
-          chmod +x skillstore-cli
-
-          # Set CLI path for subsequent steps
-          CLI_PATH="$PWD/skillstore-cli"
-          echo "CLI_PATH=$CLI_PATH" >> $GITHUB_ENV
-          echo "cli-path=$CLI_PATH" >> $GITHUB_OUTPUT
-
-          echo "✅ CLI downloaded to: $CLI_PATH"
+        uses: ./marketplace-repo/.github/actions/download-skillstore-cli
+        with:
+          version: latest
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Validate SKILL.md files have proper YAML frontmatter
         id: validate-skill-md
@@ -269,10 +248,10 @@ jobs:
         run: |
           echo "::notice::SKILL.md validation failed. Attempting AI-powered auto-fix..."
           echo "Running AI-powered fix-md on skills directory..."
-          "$CLI_PATH" skill fix-md ./skills || true
+          "$GITHUB_WORKSPACE/skillstore-cli" skill fix-md ./skills || true
 
           echo "Running AI-powered fix-md on pending directory..."
-          "$CLI_PATH" skill fix-md ./pending || true
+          "$GITHUB_WORKSPACE/skillstore-cli" skill fix-md ./pending || true
 
           echo "::notice::SKILL.md auto-fix completed. Re-validating..."
 
@@ -430,6 +409,7 @@ jobs:
 
             const reportFiles = [...findReportFiles('skills'), ...findReportFiles('pending')];
 
+            let validCount = 0;
             for (const file of reportFiles) {
               try {
                 const data = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -438,7 +418,7 @@ jobs:
                   console.error(\`Validation errors in \${file}:\`, JSON.stringify(validate.errors, null, 2));
                   hasErrors = true;
                 } else {
-                  console.log(\`\${file} is valid\`);
+                  validCount++;
                 }
               } catch (e) {
                 console.error(\`Error reading \${file}:\`, e.message);
@@ -450,7 +430,7 @@ jobs:
             if (reportFiles.length === 0) {
               console.log('No skill-report.json files found (OK for empty marketplace)');
             } else {
-              console.log('All skill-report.json files are valid');
+              console.log(\`Validated \${reportFiles.length} skill-report.json file(s): \${validCount} valid, \${reportFiles.length - validCount} invalid\`);
             }
           "
 
@@ -472,10 +452,10 @@ jobs:
             echo "========================================="
 
             echo "Running AI-powered fix on skills directory..."
-            "$CLI_PATH" skill fix ./skills --schema ./schemas/skill-report.schema.json || true
+            "$GITHUB_WORKSPACE/skillstore-cli" skill fix ./skills --schema ./schemas/skill-report.schema.json || true
 
             echo "Running AI-powered fix on pending directory..."
-            "$CLI_PATH" skill fix ./pending --schema ./schemas/skill-report.schema.json || true
+            "$GITHUB_WORKSPACE/skillstore-cli" skill fix ./pending --schema ./schemas/skill-report.schema.json || true
 
             echo ""
             echo "Re-validating after auto-fix attempt $ATTEMPT..."
