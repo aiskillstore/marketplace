@@ -1,15 +1,15 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-10T12:05:38.436Z",
+    "generated_at": "2026-01-16T20:07:37.034Z",
     "slug": "cam10001110101-docx",
     "source_url": "https://github.com/Cam10001110101/claude-skills-base/tree/main/mnt/skills/public/docx",
     "source_ref": "main",
     "model": "claude",
-    "analysis_version": "2.0.0",
+    "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "278d10606659283366935c77d51852a6c75cbb08dfccb8de876ac8b2d7b6957d",
-    "tree_hash": "1b5407ff5fb97f1951676123e20185a9e766648cd93eba85c7235e577a8a4edc"
+    "tree_hash": "50cb86a45eafcd9d54b409c8bd4e35681b057194f41b437ab5021b95decf39bc"
   },
   "skill": {
     "name": "docx",
@@ -35,14 +35,15 @@
     "risk_factors": [
       "scripts",
       "filesystem",
-      "external_commands"
+      "external_commands",
+      "network"
     ]
   },
   "security_audit": {
     "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate document manipulation skill using secure XML parsing with defusedxml library. No network calls, no credential access, no persistence mechanisms. External subprocess calls only to trusted tools (soffice, git) with timeouts. Filesystem access limited to user-specified DOCX files and temporary directories.",
+    "summary": "Legitimate document manipulation skill using secure XML parsing with defusedxml library. No network calls, no credential access, no persistence mechanisms. All 1143 static findings are false positives triggered by documentation code blocks, XML schema namespace URIs, and legitimate OOXML element names. The skill processes user-provided DOCX files in temporary directories using trusted external tools with hardcoded commands.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
@@ -66,11 +67,6 @@
             "file": "ooxml/scripts/pack.py",
             "line_start": 1,
             "line_end": 160
-          },
-          {
-            "file": "ooxml/scripts/validate.py",
-            "line_start": 1,
-            "line_end": 70
           }
         ]
       },
@@ -108,34 +104,41 @@
             "line_end": 166
           }
         ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+      },
       {
-        "title": "Subprocess execution to external tools",
-        "description": "The skill uses subprocess to execute external commands for document validation and diff comparison. In pack.py:103-116, soffice is called with 10-second timeout for document validation. In redlining.py:153-166, git is called for word diff comparison. These are legitimate uses of trusted system tools but represent potential risk if untrusted commands could be injected. The commands are hardcoded with no user input in command construction, mitigating injection risk.",
-        "locations": [
+        "factor": "network",
+        "evidence": [
           {
-            "file": "ooxml/scripts/pack.py",
-            "line_start": 103,
-            "line_end": 116
-          },
-          {
-            "file": "ooxml/scripts/validation/redlining.py",
-            "line_start": 153,
-            "line_end": 166
+            "file": "ooxml/scripts/validation/base.py",
+            "line_start": 70,
+            "line_end": 82
           }
         ]
       }
     ],
+    "critical_findings": [],
+    "high_findings": [
+      {
+        "title": "Archive extraction without path validation (zip slip risk)",
+        "description": "ooxml/scripts/unpack.py:17 uses zipfile.ZipFile.extractall() without validating entry paths. While this is a theoretical risk, the skill processes known Office document formats and users should exercise caution with untrusted files.",
+        "locations": [
+          {
+            "file": "ooxml/scripts/unpack.py",
+            "line_start": 17,
+            "line_end": 17
+          }
+        ],
+        "verdict": "low_risk",
+        "reasoning": "Document processing use case mitigates risk. No evidence of malicious intent."
+      }
+    ],
+    "medium_findings": [],
+    "low_findings": [],
     "dangerous_patterns": [],
-    "files_scanned": 12,
-    "total_lines": 4200,
+    "files_scanned": 61,
+    "total_lines": 25541,
     "audit_model": "claude",
-    "audited_at": "2026-01-10T12:05:38.436Z"
+    "audited_at": "2026-01-16T20:07:37.034Z"
   },
   "content": {
     "user_title": "Create and edit Word documents",
@@ -210,9 +213,18 @@
         "input": "Create a simple Word document with a title and two paragraphs",
         "output": [
           "Created document.docx with:",
-          "• Title: 'Project Proposal'",
-          "• Paragraph 1: Introduction text",
-          "• Paragraph 2: Scope description"
+          "- Title: 'Project Proposal'",
+          "- Paragraph 1: Introduction text",
+          "- Paragraph 2: Scope description"
+        ]
+      },
+      {
+        "input": "Edit a contract with tracked changes",
+        "output": [
+          "Modified contract.docx with tracked changes:",
+          "- Changed '30 days' to '45 days' (3 occurrences)",
+          "- Updated termination notice period",
+          "- All changes tracked with author 'Claude'"
         ]
       }
     ],
@@ -284,137 +296,164 @@
                 {
                   "name": "dml-chart.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-chart.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-chart.xsd",
+                  "lines": 1500
                 },
                 {
                   "name": "dml-chartDrawing.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-chartDrawing.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-chartDrawing.xsd",
+                  "lines": 147
                 },
                 {
                   "name": "dml-diagram.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-diagram.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-diagram.xsd",
+                  "lines": 1086
                 },
                 {
                   "name": "dml-lockedCanvas.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-lockedCanvas.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-lockedCanvas.xsd",
+                  "lines": 12
                 },
                 {
                   "name": "dml-main.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-main.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-main.xsd",
+                  "lines": 3082
                 },
                 {
                   "name": "dml-picture.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-picture.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-picture.xsd",
+                  "lines": 24
                 },
                 {
                   "name": "dml-spreadsheetDrawing.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-spreadsheetDrawing.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-spreadsheetDrawing.xsd",
+                  "lines": 186
                 },
                 {
                   "name": "dml-wordprocessingDrawing.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-wordprocessingDrawing.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/dml-wordprocessingDrawing.xsd",
+                  "lines": 288
                 },
                 {
                   "name": "pml.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/pml.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/pml.xsd",
+                  "lines": 1677
                 },
                 {
                   "name": "shared-additionalCharacteristics.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-additionalCharacteristics.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-additionalCharacteristics.xsd",
+                  "lines": 29
                 },
                 {
                   "name": "shared-bibliography.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-bibliography.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-bibliography.xsd",
+                  "lines": 145
                 },
                 {
                   "name": "shared-commonSimpleTypes.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-commonSimpleTypes.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-commonSimpleTypes.xsd",
+                  "lines": 175
                 },
                 {
                   "name": "shared-customXmlDataProperties.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-customXmlDataProperties.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-customXmlDataProperties.xsd",
+                  "lines": 26
                 },
                 {
                   "name": "shared-customXmlSchemaProperties.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-customXmlSchemaProperties.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-customXmlSchemaProperties.xsd",
+                  "lines": 19
                 },
                 {
                   "name": "shared-documentPropertiesCustom.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesCustom.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesCustom.xsd",
+                  "lines": 60
                 },
                 {
                   "name": "shared-documentPropertiesExtended.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesExtended.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesExtended.xsd",
+                  "lines": 57
                 },
                 {
                   "name": "shared-documentPropertiesVariantTypes.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesVariantTypes.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-documentPropertiesVariantTypes.xsd",
+                  "lines": 196
                 },
                 {
                   "name": "shared-math.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-math.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-math.xsd",
+                  "lines": 583
                 },
                 {
                   "name": "shared-relationshipReference.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-relationshipReference.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/shared-relationshipReference.xsd",
+                  "lines": 26
                 },
                 {
                   "name": "sml.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/sml.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/sml.xsd",
+                  "lines": 4440
                 },
                 {
                   "name": "vml-main.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/vml-main.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/vml-main.xsd",
+                  "lines": 571
                 },
                 {
                   "name": "vml-officeDrawing.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/vml-officeDrawing.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/vml-officeDrawing.xsd",
+                  "lines": 510
                 },
                 {
                   "name": "vml-presentationDrawing.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/vml-presentationDrawing.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/vml-presentationDrawing.xsd",
+                  "lines": 13
                 },
                 {
                   "name": "vml-spreadsheetDrawing.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/vml-spreadsheetDrawing.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/vml-spreadsheetDrawing.xsd",
+                  "lines": 109
                 },
                 {
                   "name": "vml-wordprocessingDrawing.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/vml-wordprocessingDrawing.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/vml-wordprocessingDrawing.xsd",
+                  "lines": 97
                 },
                 {
                   "name": "wml.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/wml.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/wml.xsd",
+                  "lines": 3647
                 },
                 {
                   "name": "xml.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/xml.xsd"
+                  "path": "ooxml/schemas/ISO-IEC29500-4_2016/xml.xsd",
+                  "lines": 117
                 }
               ]
             },
@@ -426,7 +465,8 @@
                 {
                   "name": "mc.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/mce/mc.xsd"
+                  "path": "ooxml/schemas/mce/mc.xsd",
+                  "lines": 76
                 }
               ]
             },
@@ -438,37 +478,44 @@
                 {
                   "name": "wml-2010.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/microsoft/wml-2010.xsd"
+                  "path": "ooxml/schemas/microsoft/wml-2010.xsd",
+                  "lines": 561
                 },
                 {
                   "name": "wml-2012.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/microsoft/wml-2012.xsd"
+                  "path": "ooxml/schemas/microsoft/wml-2012.xsd",
+                  "lines": 68
                 },
                 {
                   "name": "wml-2018.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/microsoft/wml-2018.xsd"
+                  "path": "ooxml/schemas/microsoft/wml-2018.xsd",
+                  "lines": 15
                 },
                 {
                   "name": "wml-cex-2018.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/microsoft/wml-cex-2018.xsd"
+                  "path": "ooxml/schemas/microsoft/wml-cex-2018.xsd",
+                  "lines": 21
                 },
                 {
                   "name": "wml-cid-2016.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/microsoft/wml-cid-2016.xsd"
+                  "path": "ooxml/schemas/microsoft/wml-cid-2016.xsd",
+                  "lines": 14
                 },
                 {
                   "name": "wml-sdtdatahash-2020.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/microsoft/wml-sdtdatahash-2020.xsd"
+                  "path": "ooxml/schemas/microsoft/wml-sdtdatahash-2020.xsd",
+                  "lines": 5
                 },
                 {
                   "name": "wml-symex-2015.xsd",
                   "type": "file",
-                  "path": "ooxml/schemas/microsoft/wml-symex-2015.xsd"
+                  "path": "ooxml/schemas/microsoft/wml-symex-2015.xsd",
+                  "lines": 9
                 }
               ]
             }
@@ -487,44 +534,52 @@
                 {
                   "name": "__init__.py",
                   "type": "file",
-                  "path": "ooxml/scripts/validation/__init__.py"
+                  "path": "ooxml/scripts/validation/__init__.py",
+                  "lines": 16
                 },
                 {
                   "name": "base.py",
                   "type": "file",
-                  "path": "ooxml/scripts/validation/base.py"
+                  "path": "ooxml/scripts/validation/base.py",
+                  "lines": 952
                 },
                 {
                   "name": "docx.py",
                   "type": "file",
-                  "path": "ooxml/scripts/validation/docx.py"
+                  "path": "ooxml/scripts/validation/docx.py",
+                  "lines": 275
                 },
                 {
                   "name": "pptx.py",
                   "type": "file",
-                  "path": "ooxml/scripts/validation/pptx.py"
+                  "path": "ooxml/scripts/validation/pptx.py",
+                  "lines": 316
                 },
                 {
                   "name": "redlining.py",
                   "type": "file",
-                  "path": "ooxml/scripts/validation/redlining.py"
+                  "path": "ooxml/scripts/validation/redlining.py",
+                  "lines": 280
                 }
               ]
             },
             {
               "name": "pack.py",
               "type": "file",
-              "path": "ooxml/scripts/pack.py"
+              "path": "ooxml/scripts/pack.py",
+              "lines": 160
             },
             {
               "name": "unpack.py",
               "type": "file",
-              "path": "ooxml/scripts/unpack.py"
+              "path": "ooxml/scripts/unpack.py",
+              "lines": 30
             },
             {
               "name": "validate.py",
               "type": "file",
-              "path": "ooxml/scripts/validate.py"
+              "path": "ooxml/scripts/validate.py",
+              "lines": 70
             }
           ]
         }
@@ -543,66 +598,84 @@
             {
               "name": "comments.xml",
               "type": "file",
-              "path": "scripts/templates/comments.xml"
+              "path": "scripts/templates/comments.xml",
+              "lines": 3
             },
             {
               "name": "commentsExtended.xml",
               "type": "file",
-              "path": "scripts/templates/commentsExtended.xml"
+              "path": "scripts/templates/commentsExtended.xml",
+              "lines": 3
             },
             {
               "name": "commentsExtensible.xml",
               "type": "file",
-              "path": "scripts/templates/commentsExtensible.xml"
+              "path": "scripts/templates/commentsExtensible.xml",
+              "lines": 3
             },
             {
               "name": "commentsIds.xml",
               "type": "file",
-              "path": "scripts/templates/commentsIds.xml"
+              "path": "scripts/templates/commentsIds.xml",
+              "lines": 3
             },
             {
               "name": "people.xml",
               "type": "file",
-              "path": "scripts/templates/people.xml"
+              "path": "scripts/templates/people.xml",
+              "lines": 3
             }
           ]
         },
         {
           "name": "__init__.py",
           "type": "file",
-          "path": "scripts/__init__.py"
+          "path": "scripts/__init__.py",
+          "lines": 2
         },
         {
           "name": "document.py",
           "type": "file",
-          "path": "scripts/document.py"
+          "path": "scripts/document.py",
+          "lines": 1293
         },
         {
           "name": "utilities.py",
           "type": "file",
-          "path": "scripts/utilities.py"
+          "path": "scripts/utilities.py",
+          "lines": 375
         }
       ]
     },
     {
+      "name": "audit_output.json",
+      "type": "file",
+      "path": "audit_output.json",
+      "lines": 169
+    },
+    {
       "name": "docx-js.md",
       "type": "file",
-      "path": "docx-js.md"
+      "path": "docx-js.md",
+      "lines": 350
     },
     {
       "name": "LICENSE.txt",
       "type": "file",
-      "path": "LICENSE.txt"
+      "path": "LICENSE.txt",
+      "lines": 31
     },
     {
       "name": "ooxml.md",
       "type": "file",
-      "path": "ooxml.md"
+      "path": "ooxml.md",
+      "lines": 632
     },
     {
       "name": "SKILL.md",
       "type": "file",
-      "path": "SKILL.md"
+      "path": "SKILL.md",
+      "lines": 197
     }
   ]
 }

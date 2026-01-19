@@ -1,15 +1,15 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-10T11:07:10.779Z",
+    "generated_at": "2026-01-16T17:52:07.105Z",
     "slug": "bauplanlabs-wap-ingestion",
     "source_url": "https://github.com/BauplanLabs/bauplan-mcp-server/tree/main/skills/wap",
     "source_ref": "main",
     "model": "claude",
-    "analysis_version": "2.0.0",
+    "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "dfe58331cffa6a5ef4e683135f295ad2c8e8b631a1728907c663d062d0f2404c",
-    "tree_hash": "511536ec221c4bb2703b166526a923bea270859ebc92bf40adba2f3b245c1e0a"
+    "tree_hash": "d284dee45cd73064114e50cce2824dcdd860f8e952753dc2b571c00ee519b10d"
   },
   "skill": {
     "name": "wap-ingestion",
@@ -33,24 +33,39 @@
       "claude-code"
     ],
     "risk_factors": [
-      "filesystem",
-      "scripts",
-      "network"
+      "network",
+      "external_commands",
+      "scripts"
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "safe",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate data ingestion skill implementing the Write-Audit-Publish pattern. Uses the bauplan SDK for safe branch-based data loading with quality verification. No suspicious patterns, obfuscation, or credential access detected.",
+    "summary": "Legitimate data ingestion skill implementing the Write-Audit-Publish pattern. All 47 static findings are FALSE POSITIVES. The 'C2 keywords' detection was triggered by a git tree hash (hex string), 'weak crypto' by generic string patterns, and 'shell backtick' by markdown code formatting. The code uses only the bauplan SDK with hardcoded method names and no command injection vectors.",
     "risk_factor_evidence": [
       {
-        "factor": "filesystem",
+        "factor": "network",
         "evidence": [
           {
-            "file": "wap_template.py",
-            "line_start": 57,
-            "line_end": 71
+            "file": "skill-report.json",
+            "line_start": 6,
+            "line_end": 6
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 67
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 139
           }
         ]
       },
@@ -63,16 +78,6 @@
             "line_end": 123
           }
         ]
-      },
-      {
-        "factor": "network",
-        "evidence": [
-          {
-            "file": "wap_template.py",
-            "line_start": 34,
-            "line_end": 71
-          }
-        ]
       }
     ],
     "critical_findings": [],
@@ -80,10 +85,10 @@
     "medium_findings": [],
     "low_findings": [],
     "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 263,
+    "files_scanned": 3,
+    "total_lines": 477,
     "audit_model": "claude",
-    "audited_at": "2026-01-10T11:07:10.779Z"
+    "audited_at": "2026-01-16T17:52:07.105Z"
   },
   "content": {
     "user_title": "Ingest S3 data with Write-Audit-Publish pattern",
@@ -98,7 +103,7 @@
       "CSV import",
       "data quality",
       "Claude Code",
-      "Clue"
+      "Claude"
     ],
     "actual_capabilities": [
       "Create temporary branch for safe data staging",
@@ -138,14 +143,17 @@
       },
       {
         "title": "Auto-merge after import",
+        "scenario": "Merge to main automatically",
         "prompt": "Use wap-ingestion to import customer_data.csv from s3://data-bucket/exports/ into the customers table with on_success=merge."
       },
       {
         "title": "Append new data batch",
+        "scenario": "Add data to existing table",
         "prompt": "Use wap-ingestion to append new monthly data from s3://bucket/2024-12/*.parquet to the existing sales table."
       },
       {
         "title": "Manual review before merge",
+        "scenario": "Inspect before publishing",
         "prompt": "Use wap-ingestion to load data from s3://bucket/new-data/ into the products table with on_success=inspect so I can review before merging."
       }
     ],
@@ -153,11 +161,31 @@
       {
         "input": "Ingest parquet files from s3://analytics-data/user-events/ into a table called user_events",
         "output": [
-          "✓ Created branch: alice.wap_user_events_1704067200",
-          "✓ Imported 15,234 rows from S3",
-          "✓ Quality check passed: 15,234 rows imported",
+          "Created branch: alice.wap_user_events_1704067200",
+          "Imported 15,234 rows from S3",
+          "Quality check passed: 15,234 rows imported",
           "Branch ready for inspection",
           "To merge: client.merge_branch(source_ref='alice.wap_user_events_1704067200', into_branch='main')"
+        ]
+      },
+      {
+        "input": "Import CSV data and auto-merge to main",
+        "output": [
+          "Created branch: bob.wap_orders_1704153600",
+          "Imported 5,000 rows from S3",
+          "Quality check passed: 5,000 rows imported",
+          "Successfully published orders to main",
+          "Cleaned up branch: bob.wap_orders_1704153600"
+        ]
+      },
+      {
+        "input": "Load data for review before merge",
+        "output": [
+          "Created branch: carol.wap_products_1704240000",
+          "Imported 2,500 rows from S3",
+          "Quality check passed: 2,500 rows imported",
+          "WAP completed successfully. Branch 'carol.wap_products_1704240000' ready for inspection.",
+          "Run bauplan checkout main && bauplan branch merge carol.wap_products_1704240000 after review"
         ]
       }
     ],
@@ -202,12 +230,14 @@
     {
       "name": "SKILL.md",
       "type": "file",
-      "path": "SKILL.md"
+      "path": "SKILL.md",
+      "lines": 140
     },
     {
       "name": "wap_template.py",
       "type": "file",
-      "path": "wap_template.py"
+      "path": "wap_template.py",
+      "lines": 123
     }
   ]
 }

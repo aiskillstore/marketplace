@@ -1,15 +1,15 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-10T12:33:09.468Z",
+    "generated_at": "2026-01-16T23:15:36.031Z",
     "slug": "cornjebus-security-analyzer",
     "source_url": "https://github.com/Cornjebus/security-analyzer/tree/main/.claude/skills/security-analyzer",
     "source_ref": "main",
     "model": "claude",
-    "analysis_version": "2.0.0",
+    "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "54f1e90d87b0ecdb321889b767583300510434790a73121a0d06979013656619",
-    "tree_hash": "e72ad447b5b15fd5ed2183a10ced09eed73af135d34b85771b5c8e25b7e3d4bd"
+    "tree_hash": "f0adf3f98e487f12c9d282e9b83bf1ec4e96a1013290cc9d4c55d412a6a42518"
   },
   "skill": {
     "name": "security-analyzer",
@@ -33,29 +33,24 @@
       "claude-code"
     ],
     "risk_factors": [
-      "filesystem",
+      "external_commands",
       "network",
-      "external_commands"
+      "filesystem"
     ]
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a legitimate security scanning skill with expected capabilities for its purpose. Filesystem access is scoped to project files (excludes node_modules/.git), network access is limited to OSV.dev API, and test code generation uses subprocess only for version detection. The skill does NOT access credentials, ssh keys, or AWS credentials. Risk is elevated due to broad project access which is necessary for its stated security scanning purpose.",
+    "summary": "This is a legitimate defensive security tool. The static scanner flagged 103 patterns, but all are false positives. Network access is limited to the OSV.dev public API for CVE data. Filesystem access scans for dependency files and detects exposed .env files but NEVER reads their contents (SKILL.md:29 explicitly prohibits logging secrets). External commands are hardcoded version detection commands (pip show) for generating TDD tests, not arbitrary code execution. The critical heuristic flags are false positives - template documentation contains example code and 'SAM' appears in CloudFormation detection logic, not SAM database access.",
     "risk_factor_evidence": [
       {
-        "factor": "filesystem",
+        "factor": "external_commands",
         "evidence": [
           {
-            "file": "scripts/discover_env.py",
-            "line_start": 14,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/discover_env.py",
-            "line_start": 98,
-            "line_end": 122
+            "file": "scripts/generate_report.py",
+            "line_start": 50,
+            "line_end": 85
           }
         ]
       },
@@ -75,17 +70,17 @@
         ]
       },
       {
-        "factor": "external_commands",
+        "factor": "filesystem",
         "evidence": [
           {
-            "file": "scripts/generate_report.py",
-            "line_start": 50,
-            "line_end": 61
+            "file": "scripts/discover_env.py",
+            "line_start": 14,
+            "line_end": 20
           },
           {
-            "file": "scripts/generate_report.py",
-            "line_start": 73,
-            "line_end": 85
+            "file": "scripts/discover_env.py",
+            "line_start": 98,
+            "line_end": 122
           }
         ]
       }
@@ -95,8 +90,8 @@
     "medium_findings": [],
     "low_findings": [
       {
-        "title": "Test generation includes subprocess calls",
-        "description": "The report generator creates test code containing subprocess.run() calls to detect package versions. Lines 50-61 show pip subprocess usage for version detection. This is a legitimate pattern for vulnerability testing but involves code execution. An attacker could theoretically manipulate inventory files to inject malicious commands, though this would require existing write access to the project.",
+        "title": "Test code generation uses subprocess for version detection",
+        "description": "The report generator creates test code containing subprocess.run() calls to detect package versions for TDD validation. This is a legitimate security testing pattern but involves code execution. Requires existing project write access to exploit.",
         "locations": [
           {
             "file": "scripts/generate_report.py",
@@ -107,10 +102,10 @@
       }
     ],
     "dangerous_patterns": [],
-    "files_scanned": 5,
-    "total_lines": 1084,
+    "files_scanned": 6,
+    "total_lines": 1360,
     "audit_model": "claude",
-    "audited_at": "2026-01-10T12:33:09.468Z"
+    "audited_at": "2026-01-16T23:15:36.031Z"
   },
   "content": {
     "user_title": "Scan projects for security vulnerabilities",
@@ -129,7 +124,7 @@
     ],
     "actual_capabilities": [
       "Scan dependencies across npm, pip, gem, Go, and Cargo ecosystems",
-      "Detect exposed .env files and secrets exposure risks",
+      "Detect exposed .env files and secrets exposure risks without reading values",
       "Find Docker, Kubernetes, Terraform, and CloudFormation configurations",
       "Query OSV.dev API for real-time CVE vulnerability data",
       "Calculate risk scores using CVSS, exploitability, and exposure factors",
@@ -190,12 +185,21 @@
           "Secrets exposure risk: 2 .env files potentially committed",
           "Generated fix commands and validation tests for all findings"
         ]
+      },
+      {
+        "input": "Check for container security issues",
+        "output": [
+          "Found 3 Dockerfiles and 1 docker-compose.yml",
+          "Base image vulnerability: python:3.9 has known CVEs",
+          "Detected privilege escalation risk: container runs as root",
+          "Recommend: Use python:3.9-slim and add USER directive"
+        ]
       }
     ],
     "best_practices": [
       "Run security scans early in development and before each release",
       "Address critical and high severity vulnerabilities within your SLA",
-      "Review and rotate any secrets that may have been exposed",
+      "Review and rotate any secrets that may have been exposed in version control",
       "Integrate the security analyzer into CI/CD pipelines for automated scanning"
     ],
     "anti_patterns": [
@@ -240,7 +244,8 @@
         {
           "name": "report-templates.md",
           "type": "file",
-          "path": "references/report-templates.md"
+          "path": "references/report-templates.md",
+          "lines": 207
         }
       ]
     },
@@ -252,24 +257,28 @@
         {
           "name": "discover_env.py",
           "type": "file",
-          "path": "scripts/discover_env.py"
+          "path": "scripts/discover_env.py",
+          "lines": 249
         },
         {
           "name": "fetch_vulns.py",
           "type": "file",
-          "path": "scripts/fetch_vulns.py"
+          "path": "scripts/fetch_vulns.py",
+          "lines": 194
         },
         {
           "name": "generate_report.py",
           "type": "file",
-          "path": "scripts/generate_report.py"
+          "path": "scripts/generate_report.py",
+          "lines": 301
         }
       ]
     },
     {
       "name": "SKILL.md",
       "type": "file",
-      "path": "SKILL.md"
+      "path": "SKILL.md",
+      "lines": 133
     }
   ]
 }
