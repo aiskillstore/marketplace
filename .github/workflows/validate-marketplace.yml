@@ -408,84 +408,111 @@ jobs:
             }
           "
 
-      - name: Auto-fix skill-report.json validation errors
+      - name: Auto-fix skill-report.json validation errors (with retry)
         if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
+        id: revalidate
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLI_PATH: ${{ steps.download-cli.outputs.cli-path }}
         run: |
-          echo "::notice::Validation failed. Attempting AI-powered auto-fix..."
-          echo "Running AI-powered fix on skills directory..."
-          "$CLI_PATH" skill fix ./skills --schema ./schemas/skill-report.schema.json || true
-          
-          echo "Running AI-powered fix on pending directory..."
-          "$CLI_PATH" skill fix ./pending --schema ./schemas/skill-report.schema.json || true
-          
-          echo "::notice::Auto-fix completed. Re-validating..."
+          MAX_ATTEMPTS=3
+          ATTEMPT=1
+          SUCCESS=false
 
-      - name: Re-validate after auto-fix
-        if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
-        id: revalidate
-        run: |
-          node -e "
-            const Ajv = require('ajv');
-            const addFormats = require('ajv-formats');
-            const fs = require('fs');
-            const path = require('path');
-            
-            const ajv = new Ajv({ allErrors: true });
-            addFormats(ajv);
-            
-            const schema = JSON.parse(fs.readFileSync('schemas/skill-report.schema.json', 'utf8'));
-            const validate = ajv.compile(schema);
-            
-            let hasErrors = false;
-            let fixedCount = 0;
-            let totalCount = 0;
-            
-            const findReportFiles = (dir) => {
-              const files = [];
-              if (!fs.existsSync(dir)) return files;
-              const entries = fs.readdirSync(dir, { withFileTypes: true });
-              for (const entry of entries) {
-                const fullPath = path.join(dir, entry.name);
-                if (entry.isDirectory()) {
-                  files.push(...findReportFiles(fullPath));
-                } else if (entry.name === 'skill-report.json') {
-                  files.push(fullPath);
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo ""
+            echo "========================================="
+            echo "Auto-fix attempt $ATTEMPT of $MAX_ATTEMPTS"
+            echo "========================================="
+
+            echo "Running AI-powered fix on skills directory..."
+            "$CLI_PATH" skill fix ./skills --schema ./schemas/skill-report.schema.json || true
+
+            echo "Running AI-powered fix on pending directory..."
+            "$CLI_PATH" skill fix ./pending --schema ./schemas/skill-report.schema.json || true
+
+            echo ""
+            echo "Re-validating after auto-fix attempt $ATTEMPT..."
+
+            # Run validation
+            if node -e "
+              const Ajv = require('ajv');
+              const addFormats = require('ajv-formats');
+              const fs = require('fs');
+              const path = require('path');
+
+              const ajv = new Ajv({ allErrors: true });
+              addFormats(ajv);
+
+              const schema = JSON.parse(fs.readFileSync('schemas/skill-report.schema.json', 'utf8'));
+              const validate = ajv.compile(schema);
+
+              let hasErrors = false;
+              let fixedCount = 0;
+              let totalCount = 0;
+
+              const findReportFiles = (dir) => {
+                const files = [];
+                if (!fs.existsSync(dir)) return files;
+                const entries = fs.readdirSync(dir, { withFileTypes: true });
+                for (const entry of entries) {
+                  const fullPath = path.join(dir, entry.name);
+                  if (entry.isDirectory()) {
+                    files.push(...findReportFiles(fullPath));
+                  } else if (entry.name === 'skill-report.json') {
+                    files.push(fullPath);
+                  }
                 }
-              }
-              return files;
-            };
-            
-            const reportFiles = [...findReportFiles('skills'), ...findReportFiles('pending')];
-            totalCount = reportFiles.length;
-            
-            for (const file of reportFiles) {
-              try {
-                const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-                const valid = validate(data);
-                if (!valid) {
-                  console.error(\`Still invalid: \${file}\`);
+                return files;
+              };
+
+              const reportFiles = [...findReportFiles('skills'), ...findReportFiles('pending')];
+              totalCount = reportFiles.length;
+
+              for (const file of reportFiles) {
+                try {
+                  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+                  const valid = validate(data);
+                  if (!valid) {
+                    console.error(\`Still invalid: \${file}\`);
+                    hasErrors = true;
+                  } else {
+                    fixedCount++;
+                    console.log(\`Valid: \${file}\`);
+                  }
+                } catch (e) {
+                  console.error(\`Error reading \${file}:\`, e.message);
                   hasErrors = true;
-                } else {
-                  fixedCount++;
-                  console.log(\`Valid: \${file}\`);
                 }
-              } catch (e) {
-                console.error(\`Error reading \${file}:\`, e.message);
-                hasErrors = true;
               }
-            }
-            
-            console.log(\`\nValidation summary: \${fixedCount}/\${totalCount} files valid\`);
-            
-            if (hasErrors) {
-              console.error('Some files still have validation errors after auto-fix');
-              process.exit(1);
-            }
-            console.log('All skill-report.json files are now valid after auto-fix');
-          "
+
+              console.log(\`\nValidation summary: \${fixedCount}/\${totalCount} files valid\`);
+
+              if (hasErrors) {
+                console.error('Some files still have validation errors');
+                process.exit(1);
+              }
+              console.log('✅ All skill-report.json files are now valid!');
+            "; then
+              echo "::notice::Auto-fix succeeded on attempt $ATTEMPT"
+              SUCCESS=true
+              break
+            else
+              echo "::warning::Auto-fix attempt $ATTEMPT failed, validation errors remain"
+              ATTEMPT=$((ATTEMPT + 1))
+
+              if [ $ATTEMPT -le $MAX_ATTEMPTS ]; then
+                echo "Waiting 5 seconds before next attempt..."
+                sleep 5
+              fi
+            fi
+          done
+
+          if [ "$SUCCESS" = "false" ]; then
+            echo ""
+            echo "::error::Auto-fix failed after $MAX_ATTEMPTS attempts"
+            exit 1
+          fi
 
       - name: Commit auto-fixed files (isolated temp directory)
         if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate.outcome == 'success'
