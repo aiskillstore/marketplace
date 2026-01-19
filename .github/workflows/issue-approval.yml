@@ -10,7 +10,8 @@ jobs:
       github.event.issue.state == 'open' &&
       contains(github.event.issue.labels.*.name, 'pending-approval') &&
       startsWith(github.event.comment.body, '/approve')
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
+    timeout-minutes: 10
     outputs:
       should_process: ${{ steps.check.outputs.should_process }}
       submission_id: ${{ steps.parse.outputs.submission_id }}
@@ -37,14 +38,29 @@ jobs:
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
+          # Extract submission ID
           SUBMISSION_ID=$(echo "$ISSUE_BODY" | grep -oP 'Submission ID.*?\`\K[a-f0-9-]+' | head -1)
+
+          # Validate UUID format (8-4-4-4-12 pattern)
+          if [[ ! "$SUBMISSION_ID" =~ ^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$ ]]; then
+            echo "::error::Invalid submission ID format: $SUBMISSION_ID (expected UUID)"
+            exit 1
+          fi
+
+          # Extract GitHub URL
           GITHUB_URL=$(echo "$ISSUE_BODY" | grep -oP '\[.*?\]\(\Khttps://github\.com/[^)]+' | head -1)
-          
+
+          # Validate GitHub URL format
+          if [[ ! "$GITHUB_URL" =~ ^https://github\.com/[a-zA-Z0-9_-]+/[a-zA-Z0-9._-]+(/.*)?$ ]]; then
+            echo "::error::Invalid GitHub URL format: $GITHUB_URL"
+            exit 1
+          fi
+
           if [ -z "$SUBMISSION_ID" ] || [ -z "$GITHUB_URL" ]; then
             echo "::error::Could not parse submission details from issue body"
             exit 1
           fi
-          
+
           echo "submission_id=$SUBMISSION_ID" >> $GITHUB_OUTPUT
           echo "github_url=$GITHUB_URL" >> $GITHUB_OUTPUT
           echo "📦 Parsed: ID=$SUBMISSION_ID, URL=$GITHUB_URL"
@@ -60,7 +76,8 @@ jobs:
   trigger-processing:
     needs: check-approval
     if: needs.check-approval.outputs.should_process == 'true'
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
+    timeout-minutes: 15
     steps:
       - name: Generate GitHub App Token
         id: app-token
@@ -107,7 +124,8 @@ jobs:
       github.event.issue.state == 'open' &&
       contains(github.event.issue.labels.*.name, 'pending-approval') &&
       startsWith(github.event.comment.body, '/reject')
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
+    timeout-minutes: 10
     steps:
       - name: Check commenter permissions
         id: check

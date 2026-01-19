@@ -1,0 +1,125 @@
+name: Cleanup Self-Hosted Runners
+
+# Periodic cleanup of orphaned temporary directories on self-hosted runners
+# Prevents disk space exhaustion from failed workflows that didn't cleanup
+
+on:
+  schedule:
+    # Run every Sunday at 2:00 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      age_days:
+        description: 'Delete temp directories older than N days (default: 7)'
+        required: false
+        type: number
+        default: 7
+      dry_run:
+        description: 'Preview what would be deleted without actually deleting'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: cleanup-runners
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      - name: Cleanup orphaned temp directories
+        env:
+          AGE_DAYS: ${{ inputs.age_days || 7 }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: |
+          set -euo pipefail
+
+          echo "=== Self-Hosted Runner Cleanup ==="
+          echo "Age threshold: $AGE_DAYS days"
+          echo "Dry run: $DRY_RUN"
+          echo ""
+
+          # Patterns to clean up
+          PATTERNS=(
+            "/tmp/marketplace-*"
+            "/tmp/marketplace-audit-*"
+            "/tmp/marketplace-approve-*"
+            "/tmp/submission-artifacts-*"
+            "/tmp/audit-artifacts-*"
+            "/tmp/source-repo-*"
+          )
+
+          TOTAL_FOUND=0
+          TOTAL_SIZE=0
+
+          for PATTERN in "${PATTERNS[@]}"; do
+            echo "🔍 Searching for: $PATTERN (older than $AGE_DAYS days)"
+
+            # Find directories matching pattern and older than AGE_DAYS
+            while IFS= read -r dir; do
+              if [ -d "$dir" ]; then
+                SIZE=$(du -sh "$dir" 2>/dev/null | cut -f1 || echo "unknown")
+                MTIME=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$dir" 2>/dev/null || echo "unknown")
+
+                echo "  Found: $dir (size: $SIZE, modified: $MTIME)"
+                TOTAL_FOUND=$((TOTAL_FOUND + 1))
+
+                if [ "$DRY_RUN" = "false" ]; then
+                  echo "  🗑️  Deleting: $dir"
+                  rm -rf "$dir" 2>/dev/null || echo "  ⚠️  Failed to delete: $dir"
+                else
+                  echo "  [DRY RUN] Would delete: $dir"
+                fi
+              fi
+            done < <(find /tmp -maxdepth 1 -name "$(basename "$PATTERN")" -type d -mtime +$AGE_DAYS 2>/dev/null || true)
+          done
+
+          echo ""
+          echo "=== Summary ==="
+          echo "Total directories found: $TOTAL_FOUND"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "⚠️  DRY RUN MODE - No directories were deleted"
+            echo "Run without dry_run to perform actual cleanup"
+          elif [ "$TOTAL_FOUND" -eq 0 ]; then
+            echo "✅ No orphaned directories found"
+          else
+            echo "✅ Cleaned up $TOTAL_FOUND orphaned directories"
+          fi
+
+      - name: Check disk space
+        run: |
+          echo "=== Disk Space After Cleanup ==="
+          df -h / | grep -E '^Filesystem|/$' || df -h /
+          echo ""
+          echo "=== /tmp Directory Size ==="
+          du -sh /tmp 2>/dev/null || echo "Unable to calculate /tmp size"
+
+      - name: Summary
+        if: always()
+        run: |
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          ## Runner Cleanup Summary
+
+          **Schedule:** Weekly (Sundays at 2:00 AM UTC)
+          **Age Threshold:** ${{ inputs.age_days || 7 }} days
+          **Dry Run:** ${{ inputs.dry_run || false }}
+
+          ### Cleanup Patterns
+          - \`/tmp/marketplace-*\` - Main workflow temp directories
+          - \`/tmp/marketplace-audit-*\` - Audit workflow temp directories
+          - \`/tmp/marketplace-approve-*\` - Approval workflow temp directories
+          - \`/tmp/submission-artifacts-*\` - Submission artifact directories
+          - \`/tmp/audit-artifacts-*\` - Audit artifact directories
+          - \`/tmp/source-repo-*\` - Cloned source repository directories
+
+          ### Next Steps
+          - Monitor disk usage trends
+          - Adjust age threshold if needed
+          - Run manual cleanup with workflow_dispatch if disk space is critical
+
+          ---
+          *Automated cleanup prevents disk exhaustion from failed workflows*
+          EOF

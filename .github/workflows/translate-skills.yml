@@ -61,6 +61,7 @@ concurrency:
 jobs:
   detect-and-plan:
     runs-on: self-hosted
+    timeout-minutes: 30
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       slugs_csv: ${{ steps.detect.outputs.slugs_csv }}
@@ -96,8 +97,14 @@ jobs:
           else
             SLUGS_CSV="${{ inputs.skill_slugs }}"
           fi
-          
+
           if [ -n "$SLUGS_CSV" ]; then
+            # Validate slug format (lowercase alphanumeric, hyphens, slashes only)
+            if [[ ! "$SLUGS_CSV" =~ ^[a-z0-9/_-]+(,[a-z0-9/_-]+)*$ ]]; then
+              echo "::error::Invalid slug format in: $SLUGS_CSV (expected: lowercase alphanumeric with hyphens and slashes)"
+              exit 1
+            fi
+
             SKILL_COUNT=$(echo "$SLUGS_CSV" | tr ',' '\n' | grep -c . || echo 0)
             echo "slugs_csv=$SLUGS_CSV" >> $GITHUB_OUTPUT
             echo "has_changes=true" >> $GITHUB_OUTPUT
@@ -244,6 +251,7 @@ jobs:
     needs: detect-and-plan
     if: needs.detect-and-plan.outputs.has_changes == 'true' && needs.detect-and-plan.outputs.shard_count != '0'
     runs-on: self-hosted
+    timeout-minutes: 1440
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -376,6 +384,7 @@ jobs:
     needs: [detect-and-plan, translate]
     if: always() && needs.detect-and-plan.outputs.has_changes == 'true' && needs.detect-and-plan.outputs.shard_count != '0'
     runs-on: self-hosted
+    timeout-minutes: 30
     outputs:
       total_translated: ${{ steps.merge.outputs.total_translated }}
       total_skipped: ${{ steps.merge.outputs.total_skipped }}
@@ -495,6 +504,7 @@ jobs:
     needs: [detect-and-plan, translate, merge-results]
     if: always() && needs.translate.result == 'success'
     runs-on: self-hosted
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -513,6 +523,7 @@ jobs:
     needs: [detect-and-plan, translate, merge-results, invalidate-cache]
     if: always() && needs.detect-and-plan.outputs.has_changes == 'true'
     runs-on: self-hosted
+    timeout-minutes: 10
     steps:
       - name: Summary
         env:

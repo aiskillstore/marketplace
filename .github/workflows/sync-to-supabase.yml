@@ -27,6 +27,7 @@ concurrency:
 jobs:
   sync:
     runs-on: self-hosted
+    timeout-minutes: 120
     outputs:
       synced_slugs: ${{ steps.sync.outputs.synced_slugs }}
       skip_sync: ${{ steps.changes.outputs.skip_sync }}
@@ -180,6 +181,7 @@ jobs:
     needs: sync
     if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != ''
     runs-on: self-hosted
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -218,8 +220,11 @@ jobs:
     needs: [sync, calculate-scores]
     if: needs.sync.outputs.skip_sync != 'true'
     runs-on: self-hosted
+    timeout-minutes: 15
     steps:
       - name: Invalidate cache for synced skills
+        id: invalidate
+        continue-on-error: true
         env:
           SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
           SITE_URL: https://skillstore.io
@@ -229,22 +234,42 @@ jobs:
             echo "No slugs to invalidate"
             exit 0
           fi
-          
+
           SLUGS_JSON=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | jq -R . | jq -s .)
-          
+
           echo "Invalidating cache for: $SYNCED_SLUGS"
-          
+
+          set +e
           RESPONSE=$(curl -sf -X POST "$SITE_URL/api/cache/invalidate" \
             -H "Content-Type: application/json" \
             -H "Authorization: Bearer $CACHE_INVALIDATE_SECRET" \
             -d "{\"type\": \"skills\", \"slugs\": $SLUGS_JSON, \"invalidateApi\": true}" \
-            --max-time 30 2>&1) || {
-            echo "⚠️ Cache invalidation failed (non-critical)"
+            --max-time 30 2>&1)
+          EXIT_CODE=$?
+          set -e
+
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::warning::Cache invalidation failed (non-critical, continuing workflow)"
             echo "Response: $RESPONSE"
+            echo "invalidation_failed=true" >> $GITHUB_OUTPUT
             exit 0
-          }
-          
+          fi
+
           echo "✅ Cache invalidated: $RESPONSE"
+          echo "invalidation_failed=false" >> $GITHUB_OUTPUT
+
+      - name: Report cache invalidation failure
+        if: steps.invalidate.outputs.invalidation_failed == 'true'
+        run: |
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          ## ⚠️ Cache Invalidation Warning
+
+          Cache invalidation failed for synced skills. This is non-critical and the workflow continued.
+          Skills were synced successfully but may take longer to appear on the website.
+
+          **Impact**: Low - Cache will expire naturally within 24 hours
+          **Action Required**: None - Monitor next sync cycle
+          EOF
 
   # ============================================================
   # CACHE WARMING JOB
@@ -254,6 +279,7 @@ jobs:
     needs: [sync, calculate-scores, cache-invalidate]
     if: needs.sync.outputs.skip_sync != 'true' && inputs.skip_cache_warm != true
     runs-on: self-hosted
+    timeout-minutes: 60
     steps:
       - name: Warm KV cache for synced skills
         env:
@@ -339,6 +365,7 @@ jobs:
     needs: [sync, cache-warm]
     if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != ''
     runs-on: self-hosted
+    timeout-minutes: 15
     steps:
       - name: Generate GitHub App Token
         id: app-token
