@@ -10,11 +10,6 @@ jobs:
     if: github.event.pull_request.merged == true && contains(github.event.pull_request.labels.*.name, 'pending-review')
     runs-on: self-hosted
     steps:
-      - name: Checkout repository (for pending skills detection)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-
       - name: Generate GitHub App Token
         id: app-token
         uses: actions/create-github-app-token@v2
@@ -27,13 +22,32 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Find pending skills to approve
-        id: find_pending
+      - name: Find pending skills and commit to skills directory
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          set -euo pipefail
+
+          # Use temp directory for clean git operations
+          WORK_DIR="/tmp/marketplace-approve-${{ github.run_id }}"
+
+          cleanup() {
+            echo "🧹 Cleaning up temp directory..."
+            rm -rf "$WORK_DIR" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          echo "📦 Cloning fresh repository to $WORK_DIR..."
+          git clone --depth 1 "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}.git" "$WORK_DIR"
+          cd "$WORK_DIR"
+
+          git config user.name "ai-skill-store[bot]"
+          git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
+
+          # Find pending skills by looking for SKILL.md files
           SKILL_PATHS=""
           SKILL_NAMES=""
 
-          # Find pending skills by looking for SKILL.md files
           for skill_file in $(find pending -name "SKILL.md" 2>/dev/null); do
             SKILL_DIR=$(dirname "$skill_file")
             SKILL_PATHS="$SKILL_PATHS $SKILL_DIR"
@@ -43,36 +57,15 @@ jobs:
             SKILL_NAMES="$SKILL_NAMES /$NAME"
           done
 
-          echo "skill_paths=$SKILL_PATHS" >> $GITHUB_OUTPUT
-          echo "skill_names=$SKILL_NAMES" >> $GITHUB_OUTPUT
+          if [ -z "$SKILL_PATHS" ]; then
+            echo "No pending skills found to approve"
+            exit 0
+          fi
+
           echo "Found pending skills:$SKILL_PATHS"
 
-      - name: Process skills and commit (isolated temp directory)
-        if: steps.find_pending.outputs.skill_paths != ''
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          set -euo pipefail
-          
-          # Use temp directory for clean git operations
-          # This eliminates state pollution from self-hosted runners (leftover rebase-merge, index.lock, etc.)
-          WORK_DIR="/tmp/marketplace-approve-${{ github.run_id }}"
-          
-          cleanup() {
-            echo "🧹 Cleaning up temp directory..."
-            rm -rf "$WORK_DIR" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-          
-          echo "📦 Cloning fresh repository to $WORK_DIR..."
-          git clone --depth 1 "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}.git" "$WORK_DIR"
-          cd "$WORK_DIR"
-
-          git config user.name "ai-skill-store[bot]"
-          git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
-          
           echo "=== Moving skills from pending to skills ==="
-          for PENDING_DIR in ${{ steps.find_pending.outputs.skill_paths }}; do
+          for PENDING_DIR in $SKILL_PATHS; do
             if [ -d "$PENDING_DIR" ] && [ -f "$PENDING_DIR/SKILL.md" ]; then
               # Extract author (org) from pending path: pending/author/skill-name -> author
               # Target path: skills/author/skill-name
@@ -95,18 +88,17 @@ jobs:
           echo "=== Committing and pushing ==="
           # Stage all changes including deletions from pending/
           git add -A
-          
+
           # Remove empty pending directory
           if [ -d "pending" ] && [ -z "$(ls -A pending 2>/dev/null)" ]; then
             rmdir pending 2>/dev/null || true
             git add -A
           fi
-          
-          SKILLS="${{ steps.find_pending.outputs.skill_names }}"
+
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Approve skills:$SKILLS"
+            git commit -m "Approve skills:$SKILL_NAMES"
             
             # Push with retry for race conditions
             for i in 1 2 3; do

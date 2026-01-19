@@ -37,8 +37,52 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           repositories: marketplace,skillstore
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Setup isolated temporary workspace
+        id: setup-workspace
+        env:
+          RUN_ID: ${{ github.run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+          REF_NAME: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Determine branch name
+          if [ "$EVENT_NAME" == "pull_request" ]; then
+            BRANCH="$HEAD_REF"
+          else
+            BRANCH="$REF_NAME"
+          fi
+
+          # Create unique temporary directory for this workflow run
+          WORK_DIR="/tmp/marketplace-validate-$RUN_ID"
+
+          echo "WORK_DIR=$WORK_DIR" >> $GITHUB_ENV
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+          echo "work_dir=$WORK_DIR" >> $GITHUB_OUTPUT
+
+          echo "📁 Creating temporary workspace: $WORK_DIR"
+          echo "🌿 Target branch: $BRANCH"
+
+          # Cleanup any existing directory
+          rm -rf "$WORK_DIR"
+          mkdir -p "$WORK_DIR"
+
+          # Clone repository to temporary workspace
+          echo "📦 Cloning repository..."
+          git clone --depth 1 --branch "$BRANCH" \
+            "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" \
+            "$WORK_DIR"
+
+          cd "$WORK_DIR"
+
+          # Configure git for potential commits
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          echo "✅ Workspace setup complete"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -46,19 +90,48 @@ jobs:
           node-version: '24'
 
       - name: Install dependencies
+        working-directory: ${{ env.WORK_DIR }}
         run: npm install ajv ajv-formats gray-matter
 
       # Download CLI once at start - used by both SKILL.md and skill-report.json auto-fix steps
       - name: Download skillstore CLI for auto-fix
         if: env.AUTO_FIX_ENABLED == 'true'
         id: download-cli
-        uses: ./.github/actions/download-skillstore-cli
-        with:
-          token: ${{ steps.app-token.outputs.token }}
+        working-directory: ${{ env.WORK_DIR }}
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          echo "📥 Downloading skillstore CLI..."
+
+          # Get latest release download URL
+          RELEASE_URL=$(curl -s -H "Authorization: token ${APP_TOKEN}" \
+            https://api.github.com/repos/aiskillstore/skillstore/releases/latest \
+            | grep "browser_download_url.*skillstore-cli-linux" \
+            | cut -d '"' -f 4)
+
+          if [ -z "$RELEASE_URL" ]; then
+            echo "::error::Failed to get CLI download URL"
+            exit 1
+          fi
+
+          # Download CLI
+          curl -L -H "Authorization: token ${APP_TOKEN}" \
+            -o skillstore-cli "$RELEASE_URL"
+          chmod +x skillstore-cli
+
+          # Set CLI path for subsequent steps
+          CLI_PATH="$PWD/skillstore-cli"
+          echo "CLI_PATH=$CLI_PATH" >> $GITHUB_ENV
+          echo "cli-path=$CLI_PATH" >> $GITHUB_OUTPUT
+
+          echo "✅ CLI downloaded to: $CLI_PATH"
 
       - name: Validate SKILL.md files have proper YAML frontmatter
         id: validate-skill-md
         continue-on-error: true
+        working-directory: ${{ env.WORK_DIR }}
         run: |
           node -e "
             const fs = require('fs');
@@ -107,11 +180,11 @@ jobs:
                 if (!data.name) {
                   errors.push('Missing required field: name');
                 } else if (typeof data.name !== 'string') {
-                  errors.push('Field "name" must be a string');
+                  errors.push('Field \"name\" must be a string');
                 } else if (data.name.length > 64) {
-                  errors.push('Field "name" exceeds 64 characters');
+                  errors.push('Field \"name\" exceeds 64 characters');
                 } else if (!NAME_PATTERN.test(data.name)) {
-                  errors.push(\`Field "name" must be lowercase alphanumeric with hyphens (got: \${data.name})\`);
+                  errors.push(\`Field \"name\" must be lowercase alphanumeric with hyphens (got: \${data.name})\`);
                 }
 
                 // Check required field: description
@@ -190,9 +263,9 @@ jobs:
 
       - name: Auto-fix SKILL.md validation errors
         if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
+        working-directory: ${{ env.WORK_DIR }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CLI_PATH: ${{ steps.download-cli.outputs.cli-path }}
         run: |
           echo "::notice::SKILL.md validation failed. Attempting AI-powered auto-fix..."
           echo "Running AI-powered fix-md on skills directory..."
@@ -206,6 +279,7 @@ jobs:
       - name: Re-validate SKILL.md after auto-fix
         if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
         id: revalidate-skill-md
+        working-directory: ${{ env.WORK_DIR }}
         run: |
           node -e "
             const fs = require('fs');
@@ -280,58 +354,24 @@ jobs:
 
       - name: Commit auto-fixed SKILL.md files
         if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate-skill-md.outcome == 'success'
+        working-directory: ${{ env.WORK_DIR }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_REF: ${{ github.head_ref }}
-          REF_NAME: ${{ github.ref_name }}
-          EVENT_NAME: ${{ github.event_name }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
-          REPOSITORY: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
-          WORKSPACE: ${{ github.workspace }}
         run: |
           set -euo pipefail
 
-          if [ "$EVENT_NAME" == "pull_request" ]; then
-            BRANCH="$HEAD_REF"
-          else
-            BRANCH="$REF_NAME"
-          fi
+          echo "📝 Committing auto-fixed SKILL.md files..."
 
-          echo "Target branch: $BRANCH"
-
-          WORK_DIR="/tmp/marketplace-validate-skillmd-$RUN_ID"
-
-          cleanup() {
-            rm -rf "$WORK_DIR" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-
-          rm -rf "$WORK_DIR"
-          mkdir -p "$WORK_DIR"
-
-          git clone --depth 1 --branch "$BRANCH" \
-            "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" \
-            "$WORK_DIR"
-
-          cd "$WORK_DIR"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          for dir in skills pending; do
-            if [ -d "${WORKSPACE}/$dir" ]; then
-              rsync -av --include='*/' --include='SKILL.md' --exclude='*' \
-                "${WORKSPACE}/$dir/" "$WORK_DIR/$dir/" 2>/dev/null || true
-            fi
-          done
-
+          # Check if there are any changes
           if git diff --quiet && git diff --cached --quiet; then
             echo "No SKILL.md changes to commit"
             exit 0
           fi
 
+          # Stage all changes
           git add -A
+
+          # Commit changes
           git commit -m "fix(skills): auto-fix SKILL.md frontmatter validation errors
 
           AI-powered fix applied by GitHub Actions workflow.
@@ -340,8 +380,9 @@ jobs:
 
           Co-Authored-By: Claude <noreply@anthropic.com>"
 
+          # Push changes
           git push origin "$BRANCH"
-          echo "::notice::Successfully committed auto-fixed SKILL.md files"
+          echo "::notice::Successfully committed and pushed auto-fixed SKILL.md files"
 
       - name: Fail if SKILL.md errors remain
         if: steps.validate-skill-md.outcome == 'failure' && (env.AUTO_FIX_ENABLED != 'true' || steps.revalidate-skill-md.outcome == 'failure')
@@ -352,21 +393,22 @@ jobs:
       - name: Validate skill-report.json files
         id: validate-skill-reports
         continue-on-error: true
+        working-directory: ${{ env.WORK_DIR }}
         run: |
           node -e "
             const Ajv = require('ajv');
             const addFormats = require('ajv-formats');
             const fs = require('fs');
             const path = require('path');
-            
+
             const ajv = new Ajv({ allErrors: true });
             addFormats(ajv);
-            
+
             const schema = JSON.parse(fs.readFileSync('schemas/skill-report.schema.json', 'utf8'));
             const validate = ajv.compile(schema);
-            
+
             let hasErrors = false;
-            
+
             const findReportFiles = (dir) => {
               const files = [];
               if (!fs.existsSync(dir)) return files;
@@ -381,9 +423,9 @@ jobs:
               }
               return files;
             };
-            
+
             const reportFiles = [...findReportFiles('skills'), ...findReportFiles('pending')];
-            
+
             for (const file of reportFiles) {
               try {
                 const data = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -399,7 +441,7 @@ jobs:
                 hasErrors = true;
               }
             }
-            
+
             if (hasErrors) process.exit(1);
             if (reportFiles.length === 0) {
               console.log('No skill-report.json files found (OK for empty marketplace)');
@@ -411,9 +453,9 @@ jobs:
       - name: Auto-fix skill-report.json validation errors (with retry)
         if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true'
         id: revalidate
+        working-directory: ${{ env.WORK_DIR }}
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CLI_PATH: ${{ steps.download-cli.outputs.cli-path }}
         run: |
           MAX_ATTEMPTS=3
           ATTEMPT=1
@@ -514,60 +556,36 @@ jobs:
             exit 1
           fi
 
-      - name: Commit auto-fixed files (isolated temp directory)
+      - name: Commit auto-fixed skill-report.json files
         if: steps.validate-skill-reports.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate.outcome == 'success'
+        working-directory: ${{ env.WORK_DIR }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          
-          # Determine branch name based on event type
-          if [ "${{ github.event_name }}" == "pull_request" ]; then
-            BRANCH="${{ github.head_ref }}"
-          else
-            BRANCH="${{ github.ref_name }}"
-          fi
-          
-          echo "Target branch: $BRANCH"
-          
-          # Use temp directory for clean git operations
-          # This eliminates state pollution from self-hosted runners
-          WORK_DIR="/tmp/marketplace-validate-reports-${{ github.run_id }}"
-          
-          cleanup() {
-            echo "🧹 Cleaning up temp directory..."
-            rm -rf "$WORK_DIR" 2>/dev/null || true
-          }
-          trap cleanup EXIT
-          
-          echo "📦 Cloning fresh repository to $WORK_DIR..."
-          git clone --depth 1 --branch "$BRANCH" "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "$WORK_DIR"
-          
-          # Copy updated skill-report.json files from checkout to fresh clone
-          find skills -name "skill-report.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
-          find pending -name "skill-report.json" -exec sh -c 'mkdir -p "'"$WORK_DIR"'/$(dirname "{}")" && cp "{}" "'"$WORK_DIR"'/{}"' \; 2>/dev/null || true
-          
-          cd "$WORK_DIR"
-          
-          git config user.name "ai-skill-store[bot]"
-          git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
-          
-          # Stage ALL skill-report.json changes
-          git add skills/**/skill-report.json pending/**/skill-report.json 2>/dev/null || true
-          
-          # Check if there's anything to commit
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
+
+          echo "📝 Committing auto-fixed skill-report.json files..."
+
+          # Check if there are any changes
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No skill-report.json changes to commit"
             exit 0
           fi
-          
-          # Commit the staged changes
-          git commit -m "fix: auto-fix skill-report.json validation errors"
-          
+
+          # Stage all changes
+          git add -A
+
+          # Commit changes
+          git commit -m "fix: auto-fix skill-report.json validation errors
+
+          AI-powered fix applied by GitHub Actions workflow.
+
+          Co-Authored-By: Claude <noreply@anthropic.com>"
+
           # Push with retry for race conditions
           for i in 1 2 3; do
             if git push origin "$BRANCH"; then
-              echo "::notice::Auto-fixed files committed and pushed to $BRANCH"
+              echo "::notice::Successfully committed and pushed auto-fixed skill-report.json files"
               break
             fi
             echo "Push failed, pulling and retrying ($i/3)..."
@@ -584,7 +602,7 @@ jobs:
         run: |
           echo "## Validation Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
+
           if [ "${{ steps.validate-skill-reports.outcome }}" == "success" ]; then
             echo "✅ All skill-report.json files passed validation" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ steps.revalidate.outcome }}" == "success" ]; then
@@ -609,6 +627,9 @@ jobs:
           echo "::error::skill-report.json validation failed"
           exit 1
 
-      - name: Cleanup CLI
-        if: always() && env.AUTO_FIX_ENABLED == 'true'
-        run: rm -f skillstore-cli
+      - name: Cleanup temporary workspace
+        if: always()
+        run: |
+          echo "🧹 Cleaning up temporary workspace..."
+          rm -rf "${{ env.WORK_DIR }}" 2>/dev/null || true
+          echo "✅ Cleanup complete"

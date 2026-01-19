@@ -160,20 +160,78 @@ jobs:
           # Include skillstore repo for CLI download access
           repositories: marketplace,skillstore
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          fetch-depth: 1
+      - name: Setup temporary workspace
+        id: setup-workspace
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          WORK_DIR="/tmp/marketplace-audit-shard-${{ matrix.shard }}-$RUN_ID"
+
+          echo "WORK_DIR=$WORK_DIR" >> $GITHUB_ENV
+          echo "work_dir=$WORK_DIR" >> $GITHUB_OUTPUT
+
+          echo "📁 Creating temporary workspace: $WORK_DIR"
+
+          # Cleanup any existing directory
+          rm -rf "$WORK_DIR"
+          mkdir -p "$WORK_DIR"
+
+          # Clone repository to temporary workspace
+          echo "📦 Cloning repository..."
+          git clone --depth 1 \
+            "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" \
+            "$WORK_DIR"
+
+          cd "$WORK_DIR"
+
+          # Configure git for potential commits
+          git config user.name "ai-skill-store[bot]"
+          git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
+
+          echo "✅ Workspace setup complete"
 
       - name: Download Skillstore CLI
-        uses: ./.github/actions/download-skillstore-cli
-        with:
-          version: ${{ inputs.cli_version || 'latest' }}
-          token: ${{ steps.app-token.outputs.token }}
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          set -euo pipefail
+
+          echo "📥 Downloading skillstore CLI..."
+
+          # Get latest release download URL
+          if [ "$CLI_VERSION" = "latest" ]; then
+            RELEASE_URL=$(curl -s -H "Authorization: token ${APP_TOKEN}" \
+              https://api.github.com/repos/aiskillstore/skillstore/releases/latest \
+              | grep "browser_download_url.*skillstore-cli-linux" \
+              | cut -d '"' -f 4)
+          else
+            RELEASE_URL=$(curl -s -H "Authorization: token ${APP_TOKEN}" \
+              "https://api.github.com/repos/aiskillstore/skillstore/releases/tags/${CLI_VERSION}" \
+              | grep "browser_download_url.*skillstore-cli-linux" \
+              | cut -d '"' -f 4)
+          fi
+
+          if [ -z "$RELEASE_URL" ]; then
+            echo "::error::Failed to get CLI download URL"
+            exit 1
+          fi
+
+          # Download CLI
+          curl -L -H "Authorization: token ${APP_TOKEN}" \
+            -o skillstore-cli "$RELEASE_URL"
+          chmod +x skillstore-cli
+
+          echo "✅ CLI downloaded to: $PWD/skillstore-cli"
 
       - name: Audit shard ${{ matrix.shard }}
         id: audit
+        working-directory: ${{ env.WORK_DIR }}
         env:
           SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
         run: |
@@ -246,12 +304,13 @@ jobs:
 
       - name: Collect modified files
         id: collect
+        working-directory: ${{ env.WORK_DIR }}
         run: |
           mkdir -p shard-output-${{ matrix.shard }}/skills
-          
+
           # Find files modified by this shard
           MODIFIED_FILES=$(git diff --name-only -- 'skills/*/skill-report.json' 'skills/*/*/skill-report.json' 2>/dev/null || true)
-          
+
           if [ -z "$MODIFIED_FILES" ]; then
             echo "No files modified by shard ${{ matrix.shard }}"
             echo "file_count=0" >> $GITHUB_OUTPUT
@@ -263,14 +322,14 @@ jobs:
                 cp "$file" "shard-output-${{ matrix.shard }}/$file"
               fi
             done
-            
+
             FILE_COUNT=$(echo "$MODIFIED_FILES" | wc -l | tr -d ' ')
             echo "Modified files in shard ${{ matrix.shard }}: $FILE_COUNT"
             echo "$MODIFIED_FILES" | head -10
             [ "$FILE_COUNT" -gt 10 ] && echo "... and $((FILE_COUNT - 10)) more"
             echo "file_count=$FILE_COUNT" >> $GITHUB_OUTPUT
           fi
-          
+
           # Include log file
           cp audit-output-${{ matrix.shard }}.log shard-output-${{ matrix.shard }}/
 
@@ -278,13 +337,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: audit-shard-${{ matrix.shard }}
-          path: shard-output-${{ matrix.shard }}/
+          path: ${{ env.WORK_DIR }}/shard-output-${{ matrix.shard }}/
           retention-days: 1
           overwrite: true
 
       - name: Cleanup
         if: always()
-        run: rm -f skillstore-cli
+        run: |
+          rm -rf "${{ env.WORK_DIR }}" 2>/dev/null || true
 
   # Uses fresh clone to temp directory - eliminates state pollution from self-hosted runners
   merge:
