@@ -203,10 +203,65 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
         run: |
-          echo "🎯 Calculating quality scores for: $SYNCED_SLUGS"
+          echo "🎯 Calculating quality scores"
 
-          # Run batch scoring with concurrency 5 (faster than sequential)
-          "$GITHUB_WORKSPACE/skillstore-cli" skill score --slugs "$SYNCED_SLUGS" --concurrency 5
+          # Batch size: 100 skills per batch to avoid memory/timeout issues
+          BATCH_SIZE=100
+
+          # Convert comma-separated slugs to array
+          IFS=',' read -ra SLUGS_ARRAY <<< "$SYNCED_SLUGS"
+          TOTAL_SLUGS=${#SLUGS_ARRAY[@]}
+
+          echo "   Total skills to score: $TOTAL_SLUGS"
+
+          # Calculate number of batches
+          BATCH_COUNT=$(( (TOTAL_SLUGS + BATCH_SIZE - 1) / BATCH_SIZE ))
+          echo "   Batches needed: $BATCH_COUNT (batch size: $BATCH_SIZE)"
+
+          # Track failures
+          FAILED_BATCHES=0
+          SUCCESSFUL_SKILLS=0
+
+          # Process each batch
+          for ((BATCH=0; BATCH<BATCH_COUNT; BATCH++)); do
+            START=$((BATCH * BATCH_SIZE))
+            END=$((START + BATCH_SIZE))
+            [ $END -gt $TOTAL_SLUGS ] && END=$TOTAL_SLUGS
+
+            # Build batch string (comma-separated)
+            BATCH_SLUGS=""
+            for ((i=START; i<END; i++)); do
+              [ -n "$BATCH_SLUGS" ] && BATCH_SLUGS="$BATCH_SLUGS,"
+              BATCH_SLUGS="$BATCH_SLUGS${SLUGS_ARRAY[$i]}"
+            done
+
+            BATCH_NUM=$((BATCH + 1))
+            BATCH_LEN=$((END - START))
+            echo ""
+            echo "📊 Processing batch $BATCH_NUM/$BATCH_COUNT ($BATCH_LEN skills)"
+
+            # Run scoring for this batch with error handling
+            set +e
+            "$GITHUB_WORKSPACE/skillstore-cli" skill score --slugs "$BATCH_SLUGS" --concurrency 5
+            EXIT_CODE=$?
+            set -e
+
+            if [ $EXIT_CODE -ne 0 ]; then
+              echo "::warning::Batch $BATCH_NUM failed with exit code $EXIT_CODE"
+              FAILED_BATCHES=$((FAILED_BATCHES + 1))
+            else
+              echo "✅ Batch $BATCH_NUM completed successfully"
+              SUCCESSFUL_SKILLS=$((SUCCESSFUL_SKILLS + BATCH_LEN))
+            fi
+          done
+
+          echo ""
+          echo "📈 Scoring complete: $SUCCESSFUL_SKILLS/$TOTAL_SLUGS skills scored successfully"
+
+          if [ $FAILED_BATCHES -gt 0 ]; then
+            echo "::warning::$FAILED_BATCHES batch(es) failed. Check logs for details."
+            # Don't fail the workflow - partial success is acceptable
+          fi
 
           echo "✅ Quality score calculation complete"
 
