@@ -27,7 +27,7 @@ concurrency:
 jobs:
   sync:
     runs-on: self-hosted
-    timeout-minutes: 120
+    timeout-minutes: 240
     outputs:
       synced_slugs: ${{ steps.sync.outputs.synced_slugs }}
       skip_sync: ${{ steps.changes.outputs.skip_sync }}
@@ -178,7 +178,7 @@ jobs:
     needs: sync
     if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != ''
     runs-on: self-hosted
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -271,96 +271,62 @@ jobs:
 
   # ============================================================
   # CACHE WARMING JOB
-  # Warms KV cache for synced skills across all locales
+  # Triggers warm-cache.yml workflow for synced skills only
   # ============================================================
-  cache-warm:
+  trigger-cache-warm:
     needs: [sync, calculate-scores, cache-invalidate]
     if: needs.sync.outputs.skip_sync != 'true' && inputs.skip_cache_warm != true
     runs-on: self-hosted
-    timeout-minutes: 60
+    timeout-minutes: 15
     steps:
-      - name: Warm KV cache for synced skills
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Trigger warm-cache workflow for synced skills
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
-          SITE_URL: https://skillstore.io
         run: |
           if [ -z "$SYNCED_SLUGS" ]; then
             echo "No slugs to warm"
             exit 0
           fi
-          
-          LOCALES="en zh-hans zh-hant ja ko de fr es pt ru ar"
-          CONCURRENCY=5
-          
-          # Convert comma-separated to space-separated for iteration
-          SLUGS_SPACE=$(echo "$SYNCED_SLUGS" | tr ',' ' ')
-          echo "Warming cache for: $SLUGS_SPACE"
-          echo "Locales: $LOCALES"
-          echo ""
-          
-          # Generate URLs for all slugs × locales
-          generate_urls() {
-            for slug in $SLUGS_SPACE; do
-              [ -z "$slug" ] && continue
-              for locale in $LOCALES; do
-                if [ "$locale" = "en" ]; then
-                  echo "$SITE_URL/skills/$slug"
-                else
-                  echo "$SITE_URL/$locale/skills/$slug"
-                fi
-              done
-            done
-          }
-          
-          URLS=$(generate_urls)
-          URL_COUNT=$(echo "$URLS" | grep -c . || echo 0)
-          
-          echo "Total URLs to warm: $URL_COUNT"
-          echo ""
-          
-          if [ "$URL_COUNT" -gt 0 ]; then
-            SUCCESS=0
-            FAILED=0
-            
-            echo "$URLS" | xargs -P $CONCURRENCY -I {} sh -c '
-              STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 30 "{}" 2>/dev/null || echo "000")
-              if [ "$STATUS" = "200" ]; then
-                echo "✓ {}"
-              else
-                echo "✗ {} ($STATUS)" >&2
-              fi
-            '
-          fi
-          
-          echo ""
-          echo "Cache warming complete!"
 
-      - name: Summary
-        env:
-          SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
-        run: |
           SLUG_COUNT=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
-          LOCALE_COUNT=11
-          TOTAL_URLS=$((SLUG_COUNT * LOCALE_COUNT))
-          
-          echo "## Cache Warming Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Skills synced | $SLUG_COUNT |" >> $GITHUB_STEP_SUMMARY
-          echo "| Locales | $LOCALE_COUNT |" >> $GITHUB_STEP_SUMMARY
-          echo "| URLs warmed | $TOTAL_URLS |" >> $GITHUB_STEP_SUMMARY
-          echo "| Slugs | $SYNCED_SLUGS |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ KV cache warming completed." >> $GITHUB_STEP_SUMMARY
+          echo "🔥 Triggering warm-cache workflow for $SLUG_COUNT synced skills"
+          echo "   Slugs: $SYNCED_SLUGS"
+
+          gh workflow run warm-cache.yml \
+            -f mode=warm \
+            -f type=skills \
+            -f slugs="$SYNCED_SLUGS" \
+            -f warm_zip=false
+
+          echo "✅ Cache warming workflow triggered"
+          echo "   Monitor at: https://github.com/${{ github.repository }}/actions/workflows/warm-cache.yml"
+
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          ## 🔥 Cache Warming Triggered
+
+          Triggered \`warm-cache.yml\` workflow for **$SLUG_COUNT synced skills**.
+
+          **Slugs**: \`$SYNCED_SLUGS\`
+
+          [View workflow runs →](https://github.com/${{ github.repository }}/actions/workflows/warm-cache.yml)
+          EOF
 
   # ============================================================
   # TRIGGER TRANSLATION (Async - Fire and Forget)
   # Uses repository_dispatch to start translation as a separate workflow run
   # This decouples sync from slow translation, completing sync faster
+  # Translation only needs synced content, doesn't require scores
   # ============================================================
   trigger-translate:
-    needs: [sync, cache-warm]
+    needs: [sync]
     if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != ''
     runs-on: self-hosted
     timeout-minutes: 15

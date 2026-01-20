@@ -21,6 +21,11 @@ on:
           - releases
           - all
         default: skills
+      slugs:
+        description: 'Specific slugs to warm (comma-separated, optional). If empty, warm all items.'
+        required: false
+        type: string
+        default: ''
       warm_zip:
         description: 'Warm ZIP download cache for skills'
         required: false
@@ -40,7 +45,7 @@ env:
 jobs:
   warm:
     runs-on: self-hosted
-    timeout-minutes: 120
+    timeout-minutes: 1440
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -53,7 +58,40 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           CONTENT_TYPE: ${{ inputs.type }}
+          INPUT_SLUGS: ${{ inputs.slugs }}
         run: |
+          # If specific slugs provided via input, use them instead of fetching from Supabase
+          if [ -n "$INPUT_SLUGS" ]; then
+            echo "Using provided slugs: $INPUT_SLUGS"
+            SLUGS_SPACE=$(echo "$INPUT_SLUGS" | tr ',' ' ')
+
+            if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
+              echo "skills_slugs=$SLUGS_SPACE" >> $GITHUB_OUTPUT
+              SKILLS_COUNT=$(echo $SLUGS_SPACE | wc -w | tr -d ' ')
+              echo "Found $SKILLS_COUNT skills (from input)"
+            fi
+
+            # For workflows/releases, still need to fetch from Supabase if type=all
+            if [ "$CONTENT_TYPE" = "workflows" ] || ( [ "$CONTENT_TYPE" = "all" ] && [ "$INPUT_SLUGS" = "" ] ); then
+              echo "Fetching workflows from Supabase (input only supports skills)"
+              WORKFLOWS_SLUGS=$(fetch_all_from_supabase "workflows" "slug")
+              echo "workflows_slugs=$WORKFLOWS_SLUGS" >> $GITHUB_OUTPUT
+              WORKFLOWS_COUNT=$(echo $WORKFLOWS_SLUGS | wc -w | tr -d ' ')
+              echo "Found $WORKFLOWS_COUNT workflows"
+            fi
+
+            if [ "$CONTENT_TYPE" = "releases" ] || ( [ "$CONTENT_TYPE" = "all" ] && [ "$INPUT_SLUGS" = "" ] ); then
+              echo "Fetching releases from Supabase (input only supports skills)"
+              RELEASES_TAGS=$(fetch_all_from_supabase "releases" "tag")
+              echo "releases_tags=$RELEASES_TAGS" >> $GITHUB_OUTPUT
+              RELEASES_COUNT=$(echo $RELEASES_TAGS | wc -w | tr -d ' ')
+              echo "Found $RELEASES_COUNT releases"
+            fi
+
+            exit 0
+          fi
+
+          # Otherwise, fetch from Supabase as usual
           fetch_all_from_supabase() {
             local table=$1
             local column=${2:-slug}
@@ -146,7 +184,7 @@ jobs:
             echo "No skills to warm"
             exit 0
           fi
-          
+
           generate_urls() {
             for slug in $SLUGS; do
               [ -z "$slug" ] && continue
@@ -159,27 +197,49 @@ jobs:
               done
             done
           }
-          
+
           URLS=$(generate_urls)
           URL_COUNT=$(echo "$URLS" | grep -c . || echo 0)
-          
-          echo "Warming $URL_COUNT skill URLs ($(echo $SLUGS | wc -w | tr -d ' ') skills × 11 locales)..."
+          SKILL_COUNT=$(echo $SLUGS | wc -w | tr -d ' ')
+
+          echo "Warming $URL_COUNT skill URLs ($SKILL_COUNT skills × 11 locales)..."
+          echo "Progress will be reported every 500 URLs..."
           echo ""
-          
+
+          COUNTER=0
           SUCCESS=0
           FAILED=0
-          
+          START_TIME=$(date +%s)
+
           echo "$URLS" | xargs -P $CONCURRENCY -I {} sh -c '
             STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "{}" 2>/dev/null || echo "000")
             if [ "$STATUS" = "200" ]; then
-              echo "✓ {}"
+              echo "success"
             else
-              echo "✗ {} ($STATUS)" >&2
+              echo "failed:{}" >&2
             fi
-          '
-          
+          ' | while read -r result; do
+            COUNTER=$((COUNTER + 1))
+            if [ "$result" = "success" ]; then
+              SUCCESS=$((SUCCESS + 1))
+            else
+              FAILED=$((FAILED + 1))
+            fi
+
+            if [ $((COUNTER % 500)) -eq 0 ]; then
+              ELAPSED=$(($(date +%s) - START_TIME))
+              RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
+              echo "Progress: $COUNTER/$URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} URLs/s"
+            fi
+          done
+
+          END_TIME=$(date +%s)
+          TOTAL_TIME=$((END_TIME - START_TIME))
+          AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $URL_COUNT / $TOTAL_TIME}")
+
           echo ""
-          echo "Skills page cache warming complete"
+          echo "✅ Skills page cache warming complete"
+          echo "Total: $URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Time: ${TOTAL_TIME}s | Avg: ${AVG_RATE} URLs/s"
 
       - name: Warm skills ZIP download cache
         if: inputs.warm_zip && (inputs.type == 'skills' || inputs.type == 'all')
@@ -190,24 +250,43 @@ jobs:
             echo "No skills to warm ZIP cache"
             exit 0
           fi
-          
+
           SLUG_COUNT=$(echo $SLUGS | wc -w | tr -d ' ')
           echo "Warming ZIP cache for $SLUG_COUNT skills..."
+          echo "Progress will be reported every 100 skills..."
           echo ""
-          
+
+          COUNTER=0
+          SUCCESS=0
+          FAILED=0
+          START_TIME=$(date +%s)
+
           for slug in $SLUGS; do
             [ -z "$slug" ] && continue
             URL="$SITE_URL/api/skills/$slug/download"
             STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 120 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "$URL" 2>/dev/null || echo "000")
+
+            COUNTER=$((COUNTER + 1))
             if [ "$STATUS" = "200" ]; then
-              echo "✓ ZIP: $slug"
+              SUCCESS=$((SUCCESS + 1))
             else
-              echo "✗ ZIP: $slug ($STATUS)" >&2
+              FAILED=$((FAILED + 1))
+            fi
+
+            if [ $((COUNTER % 100)) -eq 0 ]; then
+              ELAPSED=$(($(date +%s) - START_TIME))
+              RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
+              echo "Progress: $COUNTER/$SLUG_COUNT ZIPs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} ZIPs/s"
             fi
           done
-          
+
+          END_TIME=$(date +%s)
+          TOTAL_TIME=$((END_TIME - START_TIME))
+          AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $SLUG_COUNT / $TOTAL_TIME}")
+
           echo ""
-          echo "Skills ZIP cache warming complete"
+          echo "✅ Skills ZIP cache warming complete"
+          echo "Total: $SLUG_COUNT ZIPs | Success: $SUCCESS | Failed: $FAILED | Time: ${TOTAL_TIME}s | Avg: ${AVG_RATE} ZIPs/s"
 
       - name: Warm workflows cache
         if: inputs.type == 'workflows' || inputs.type == 'all'
@@ -218,7 +297,7 @@ jobs:
             echo "No workflows to warm"
             exit 0
           fi
-          
+
           generate_urls() {
             for slug in $SLUGS; do
               [ -z "$slug" ] && continue
@@ -231,24 +310,49 @@ jobs:
               done
             done
           }
-          
+
           URLS=$(generate_urls)
           URL_COUNT=$(echo "$URLS" | grep -c . || echo 0)
-          
-          echo "Warming $URL_COUNT workflow URLs ($(echo $SLUGS | wc -w | tr -d ' ') workflows × 11 locales)..."
+          WORKFLOW_COUNT=$(echo $SLUGS | wc -w | tr -d ' ')
+
+          echo "Warming $URL_COUNT workflow URLs ($WORKFLOW_COUNT workflows × 11 locales)..."
+          echo "Progress will be reported every 500 URLs..."
           echo ""
-          
+
+          COUNTER=0
+          SUCCESS=0
+          FAILED=0
+          START_TIME=$(date +%s)
+
           echo "$URLS" | xargs -P $CONCURRENCY -I {} sh -c '
             STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "{}" 2>/dev/null || echo "000")
             if [ "$STATUS" = "200" ]; then
-              echo "✓ {}"
+              echo "success"
             else
-              echo "✗ {} ($STATUS)" >&2
+              echo "failed:{}" >&2
             fi
-          '
-          
+          ' | while read -r result; do
+            COUNTER=$((COUNTER + 1))
+            if [ "$result" = "success" ]; then
+              SUCCESS=$((SUCCESS + 1))
+            else
+              FAILED=$((FAILED + 1))
+            fi
+
+            if [ $((COUNTER % 500)) -eq 0 ]; then
+              ELAPSED=$(($(date +%s) - START_TIME))
+              RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
+              echo "Progress: $COUNTER/$URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} URLs/s"
+            fi
+          done
+
+          END_TIME=$(date +%s)
+          TOTAL_TIME=$((END_TIME - START_TIME))
+          AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $URL_COUNT / $TOTAL_TIME}")
+
           echo ""
-          echo "Workflows cache warming complete"
+          echo "✅ Workflows cache warming complete"
+          echo "Total: $URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Time: ${TOTAL_TIME}s | Avg: ${AVG_RATE} URLs/s"
 
       - name: Warm releases cache
         if: inputs.type == 'releases' || inputs.type == 'all'
@@ -259,7 +363,7 @@ jobs:
             echo "No releases to warm"
             exit 0
           fi
-          
+
           generate_urls() {
             for tag in $TAGS; do
               [ -z "$tag" ] && continue
@@ -272,24 +376,49 @@ jobs:
               done
             done
           }
-          
+
           URLS=$(generate_urls)
           URL_COUNT=$(echo "$URLS" | grep -c . || echo 0)
-          
-          echo "Warming $URL_COUNT release URLs ($(echo $TAGS | wc -w | tr -d ' ') releases × 11 locales)..."
+          RELEASE_COUNT=$(echo $TAGS | wc -w | tr -d ' ')
+
+          echo "Warming $URL_COUNT release URLs ($RELEASE_COUNT releases × 11 locales)..."
+          echo "Progress will be reported every 500 URLs..."
           echo ""
-          
+
+          COUNTER=0
+          SUCCESS=0
+          FAILED=0
+          START_TIME=$(date +%s)
+
           echo "$URLS" | xargs -P $CONCURRENCY -I {} sh -c '
             STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "{}" 2>/dev/null || echo "000")
             if [ "$STATUS" = "200" ]; then
-              echo "✓ {}"
+              echo "success"
             else
-              echo "✗ {} ($STATUS)" >&2
+              echo "failed:{}" >&2
             fi
-          '
-          
+          ' | while read -r result; do
+            COUNTER=$((COUNTER + 1))
+            if [ "$result" = "success" ]; then
+              SUCCESS=$((SUCCESS + 1))
+            else
+              FAILED=$((FAILED + 1))
+            fi
+
+            if [ $((COUNTER % 500)) -eq 0 ]; then
+              ELAPSED=$(($(date +%s) - START_TIME))
+              RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
+              echo "Progress: $COUNTER/$URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} URLs/s"
+            fi
+          done
+
+          END_TIME=$(date +%s)
+          TOTAL_TIME=$((END_TIME - START_TIME))
+          AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $URL_COUNT / $TOTAL_TIME}")
+
           echo ""
-          echo "Releases cache warming complete"
+          echo "✅ Releases cache warming complete"
+          echo "Total: $URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Time: ${TOTAL_TIME}s | Avg: ${AVG_RATE} URLs/s"
 
       - name: Summary
         env:
