@@ -1,18 +1,18 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-10T12:14:17.415Z",
+    "generated_at": "2026-01-16T21:02:17.483Z",
     "slug": "clementwalter-1password-credential-lookup",
     "source_url": "https://github.com/ClementWalter/rookie-marketplace/tree/main/1password-mcp/skills/credential-lookup",
     "source_ref": "main",
     "model": "claude",
-    "analysis_version": "2.0.0",
+    "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "260ce05eef82073ca04bd6ce82fa486ef9785e4dfcc984207bb1f9d5c7f5bc87",
-    "tree_hash": "8101e715f03977cb493daa98347ce211bdf9a56b6cd1526b414f76027e66f51f"
+    "content_hash": "9a352f47157c2883b3f14123b1c7e7bc940b1d089171407a1c59795e8059eefd",
+    "tree_hash": "93ae8204725b50571e4299a097ea38ba3a94459674fae66c8fa72504f4cfd345"
   },
   "skill": {
-    "name": "1Password Credential Lookup",
+    "name": "1password-credential-lookup",
     "description": "This skill should be used when agents need to log into websites, retrieve passwords, or access credentials. CRITICAL - always use find_credential with the website URL, never guess item names.",
     "summary": "This skill should be used when agents need to log into websites, retrieve passwords, or access crede...",
     "icon": "🔐",
@@ -32,7 +32,6 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
       "external_commands",
       "filesystem"
     ]
@@ -41,18 +40,8 @@
     "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate credential lookup tool that uses 1Password CLI for secure credential retrieval. No network calls, no credential exfiltration, and behavior matches stated purpose.",
+    "summary": "Legitimate credential lookup tool that uses 1Password CLI for secure retrieval. No network calls, no credential exfiltration. Subprocess calls to `op` CLI use hardcoded string arguments. Static findings are false positives triggered by expected credential access patterns.",
     "risk_factor_evidence": [
-      {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 1,
-            "line_end": 146
-          }
-        ]
-      },
       {
         "factor": "external_commands",
         "evidence": [
@@ -60,16 +49,6 @@
             "file": "scripts/find_credential.py",
             "line_start": 30,
             "line_end": 31
-          },
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 58,
-            "line_end": 58
-          },
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 81,
-            "line_end": 81
           }
         ]
       },
@@ -79,11 +58,6 @@
           {
             "file": "scripts/find_credential.py",
             "line_start": 57,
-            "line_end": 77
-          },
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 80,
             "line_end": 87
           }
         ]
@@ -95,26 +69,21 @@
     "low_findings": [
       {
         "title": "Credentials output via stdout",
-        "description": "The script outputs credentials (username/password) as JSON to stdout at lines 112-116 and 128. While this is the intended purpose for credential retrieval, credentials are exposed in process output which could be logged or captured. An attacker with access to the system could potentially read credentials from process listings or logs.",
+        "description": "Script outputs credentials as JSON to stdout. This is the designed behavior for credential retrieval. Not a security flaw but expected functionality.",
         "locations": [
           {
             "file": "scripts/find_credential.py",
             "line_start": 112,
-            "line_end": 116
-          },
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 128,
             "line_end": 128
           }
         ]
       }
     ],
     "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 252,
+    "files_scanned": 3,
+    "total_lines": 507,
     "audit_model": "claude",
-    "audited_at": "2026-01-10T12:14:17.415Z"
+    "audited_at": "2026-01-16T21:02:17.483Z"
   },
   "content": {
     "user_title": "Retrieve 1Password credentials by URL",
@@ -132,34 +101,34 @@
       "AI login automation"
     ],
     "actual_capabilities": [
-      "Find credentials by website URL (e.g., github.com)",
-      "Filter credentials by username when multiple accounts exist",
-      "Handle domain aliases (x.com ↔ twitter.com)",
+      "Find credentials by website URL such as github.com or twitter.com",
+      "Filter credentials by username when multiple accounts exist for a domain",
+      "Handle domain aliases such as x.com mapping to twitter.com",
       "Return structured JSON with username, password, and item details",
       "Provide clear error messages for missing items or multiple matches",
-      "Integrate with 1Password CLI for secure credential retrieval"
+      "Integrate with 1Password CLI for secure local credential retrieval"
     ],
     "limitations": [
-      "Requires 1Password CLI (op) installed and authenticated",
-      "User must run 'op signin' before use",
-      "No MCP server integration - uses CLI directly",
-      "Limited to Unix-like systems with 1Password CLI support"
+      "Requires 1Password CLI installed and authenticated with op signin",
+      "No MCP server integration - uses CLI directly without persistent connection",
+      "Limited to Unix-like systems with 1Password CLI support",
+      "Cannot search by arbitrary item names - must use URL field"
     ],
     "use_cases": [
       {
         "target_user": "Developers",
         "title": "CI/CD Authentication",
-        "description": "Retrieve deployment credentials for automated pipelines"
+        "description": "Retrieve deployment credentials for automated pipelines without hardcoding secrets"
       },
       {
         "target_user": "DevOps Engineers",
         "title": "Server Access",
-        "description": "Fetch SSH keys and server passwords for infrastructure management"
+        "description": "Fetch SSH keys and server passwords for infrastructure management tasks"
       },
       {
         "target_user": "Security Teams",
         "title": "Credential Audit",
-        "description": "List and verify stored credentials across different services"
+        "description": "List and verify stored credentials across different services securely"
       }
     ],
     "prompt_templates": [
@@ -193,17 +162,34 @@
           "Password: [hidden - 16 chars]",
           "Item ID: abc123xyz"
         ]
+      },
+      {
+        "input": "Find credentials for twitter.com",
+        "output": [
+          "Multiple accounts found for twitter.com:",
+          "- Username: work@company.com",
+          "- Username: personal@email.com",
+          "Specify username to filter"
+        ]
+      },
+      {
+        "input": "List all available accounts for x.com",
+        "output": [
+          "Available accounts for x.com:",
+          "- @username1 (Twitter/X account)",
+          "- @username2 (Alternative account)"
+        ]
       }
     ],
     "best_practices": [
-      "Use URL-based lookup (find_credential) instead of guessing item names",
+      "Use URL-based lookup with find_credential instead of guessing arbitrary item names",
       "Filter by username when multiple accounts exist for the same domain",
       "Ensure 1Password CLI is signed in before requesting credentials"
     ],
     "anti_patterns": [
-      "Using item_name instead of URL (item names are arbitrary and may not match domains)",
-      "Guessing item names like 'GitHub' or 'my github' (these don't work)",
-      "Using get_credential with URLs or guessed names instead of find_credential"
+      "Using item_name parameter with URLs or guessed names (item names are arbitrary and may not match domains)",
+      "Guessing item names like GitHub or my github (these do not work with the 1Password CLI)",
+      "Using get_credential with URLs instead of find_credential (violates the one rule)"
     ],
     "faq": [
       {
@@ -212,15 +198,15 @@
       },
       {
         "question": "Can I use this with multiple 1Password accounts?",
-        "answer": "Yes, but the script uses the default account. For multiple accounts, filter by username."
+        "answer": "Yes, but the script uses the default account. Filter by username to select the correct one."
       },
       {
         "question": "Are credentials cached or stored?",
-        "answer": "No caching. Each request calls the 1Password CLI directly and credentials stay in memory."
+        "answer": "No caching. Each request calls 1Password CLI directly and credentials stay in memory only."
       },
       {
         "question": "Does this send data externally?",
-        "answer": "No network calls. All communication is with the local 1Password CLI installation."
+        "answer": "No network calls. All communication is with the local 1Password CLI installation only."
       },
       {
         "question": "What if multiple accounts exist for a domain?",
@@ -241,14 +227,16 @@
         {
           "name": "find_credential.py",
           "type": "file",
-          "path": "scripts/find_credential.py"
+          "path": "scripts/find_credential.py",
+          "lines": 146
         }
       ]
     },
     {
       "name": "SKILL.md",
       "type": "file",
-      "path": "SKILL.md"
+      "path": "SKILL.md",
+      "lines": 106
     }
   ]
 }

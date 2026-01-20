@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-12T16:13:49.483Z",
+    "generated_at": "2026-01-17T07:36:43.727Z",
     "slug": "k-dense-ai-get-available-resources",
     "source_url": "https://github.com/K-Dense-AI/claude-scientific-skills/tree/main/scientific-skills/get-available-resources",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "3fb76837e44d4860feb402f8da6cadd707bcab6ca1a27df91cc0e09516e14fde",
-    "tree_hash": "e4c2b784f70bb8dec79cb51c3daa19ccc67a00e117e2221b7bd356d159d33334"
+    "tree_hash": "6cec6798d0633b527ceeba38c80c687e68bde5838864370de5b3cd24501550b9"
   },
   "skill": {
     "name": "get-available-resources",
@@ -24,7 +24,8 @@
       "scientific-computing",
       "system-monitoring",
       "resource-optimization",
-      "gpu-detection"
+      "gpu-detection",
+      "hardware-detection"
     ],
     "supported_tools": [
       "claude",
@@ -38,10 +39,10 @@
     ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All static findings are false positives. The skill performs legitimate system resource detection using subprocess calls to standard system utilities (nvidia-smi, rocm-smi, system_profiler) for GPU/CPU detection. All commands use hardcoded arguments in list format, preventing shell injection. No user input is processed. The skill outputs a JSON file with resource information for informed computational decisions.",
+    "summary": "The skill is safe to publish. All 50 static findings are false positives. The skill performs legitimate system resource detection using subprocess calls to standard system utilities (nvidia-smi, rocm-smi, sysctl, system_profiler) for GPU/CPU detection. All subprocess commands use hardcoded arguments in list format, preventing shell injection. The __import__ usage is for importing the standard datetime module. Markdown backticks triggered false positives for shell execution. 'Weak cryptographic algorithm' findings are scanner errors on non-cryptographic code.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -92,126 +93,141 @@
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [],
-    "low_findings": [],
+    "low_findings": [
+      "Skill writes a JSON file to disk (.claude_resources.json) containing system resource information. This is expected behavior but users should be aware."
+    ],
     "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 679,
+    "files_scanned": 4,
+    "total_lines": 1073,
     "audit_model": "claude",
-    "audited_at": "2026-01-12T16:13:49.483Z"
+    "audited_at": "2026-01-17T07:36:43.727Z"
   },
   "content": {
     "user_title": "Detect System Resources for Scientific Computing",
-    "value_statement": "Scientific computing tasks require knowledge of available hardware resources to choose appropriate computational strategies. This skill automatically detects CPU cores, GPU availability, memory, and disk space, then generates strategic recommendations for parallel processing, GPU acceleration, and memory-efficient approaches.",
+    "value_statement": "Scientific computing tasks need hardware information to select optimal computational strategies. This skill automatically detects CPU cores, GPU availability, memory, and disk space, then generates recommendations for parallel processing and GPU acceleration.",
     "seo_keywords": [
-      "Claude scientific skills",
-      "system resource detection",
-      "GPU detection",
-      "scientific computing",
-      "parallel processing",
       "Claude Code",
-      "resource optimization",
+      "system resource detection",
+      "GPU detection CUDA Metal ROCm",
+      "scientific computing",
+      "parallel processing optimization",
+      "Codex",
       "hardware detection",
       "memory management",
-      "Codex"
+      "Claude scientific skills",
+      "resource monitoring"
     ],
     "actual_capabilities": [
-      "Detect CPU cores, architecture, and frequency using psutil and platform modules",
-      "Identify NVIDIA GPUs via nvidia-smi, AMD GPUs via rocm-smi, and Apple Silicon via system_profiler",
-      "Monitor memory usage including RAM and swap space with percentage calculations",
-      "Check disk space availability for working directory and calculate usage percentages",
-      "Generate strategic recommendations for parallel processing, memory strategy, GPU acceleration, and large data handling"
+      "Detect CPU core count, architecture, and frequency using psutil and platform modules",
+      "Identify NVIDIA GPUs via nvidia-smi, AMD GPUs via rocm-smi, Apple Silicon via system_profiler",
+      "Report memory usage including total RAM, available RAM, and swap space",
+      "Check disk space availability for the working directory",
+      "Generate strategic recommendations for parallel processing worker counts",
+      "Recommend appropriate GPU acceleration libraries based on detected hardware"
     ],
     "limitations": [
-      "GPU detection requires nvidia-smi, rocm-smi, or system_profiler to be installed and in system PATH",
-      "Available memory is a snapshot at detection time; actual available memory changes with system load",
-      "Script must be re-run to get updated resource information; does not provide real-time monitoring"
+      "GPU detection requires nvidia-smi, rocm-smi, or system_profiler to be installed and accessible",
+      "Memory readings are snapshots and change with system load over time",
+      "Requires psutil Python package to be installed",
+      "Does not provide real-time monitoring; must re-run for updated information"
     ],
     "use_cases": [
       {
         "target_user": "Data Scientists",
-        "title": "Optimize Dataset Processing",
-        "description": "Detect available memory to determine if datasets can fit in RAM or require Dask/Zarr chunking."
+        "title": "Optimize Large Dataset Processing",
+        "description": "Detect available memory to determine if datasets fit in RAM or require chunked processing with Dask or Zarr."
       },
       {
         "target_user": "ML Engineers",
-        "title": "Choose GPU Acceleration Path",
-        "description": "Identify available GPU backends (CUDA, Metal, ROCm) to select appropriate PyTorch/TensorFlow builds."
+        "title": "Select GPU Acceleration Backend",
+        "description": "Identify available GPU backends (CUDA, Metal, ROCm) to configure PyTorch or TensorFlow correctly."
       },
       {
         "target_user": "Research Scientists",
-        "title": "Scale Parallel Workers",
-        "description": "Determine optimal worker count based on physical cores for joblib or multiprocessing workflows."
+        "title": "Configure Parallel Workers",
+        "description": "Determine optimal worker count based on CPU cores for joblib or multiprocessing workflows."
       }
     ],
     "prompt_templates": [
       {
         "title": "Basic Resource Check",
-        "scenario": "Before starting analysis",
-        "prompt": "Run the get-available-resources skill to detect what hardware is available for this computation."
+        "scenario": "Before starting any analysis",
+        "prompt": "Run get-available-resources to detect what hardware is available for this task."
       },
       {
-        "title": "Memory-Aware Processing",
-        "scenario": "Handling large datasets",
-        "prompt": "Use get-available-resources to check available memory, then suggest whether to use pandas, Dask, or Zarr for loading this 50GB dataset."
+        "title": "Memory-Aware Loading",
+        "scenario": "Loading a large dataset",
+        "prompt": "Check available memory with get-available-resources, then recommend whether to use pandas or Dask for this 20GB CSV file."
       },
       {
-        "title": "GPU-Optimized Training",
-        "scenario": "Training neural networks",
-        "prompt": "Run get-available-resources to detect GPU availability. If GPU is available, recommend the appropriate PyTorch device (cuda, mps, or cpu)."
+        "title": "GPU Backend Selection",
+        "scenario": "Training a neural network",
+        "prompt": "Run get-available-resources and tell me which PyTorch device to use based on detected GPU."
       },
       {
-        "title": "Multi-Worker Parallelization",
-        "scenario": "Scaling computation",
-        "prompt": "Use get-available-resources to get CPU core count, then configure joblib Parallel with the optimal number of workers for this grid search."
+        "title": "Parallel Processing Setup",
+        "scenario": "Running parameter search",
+        "prompt": "Use get-available-resources to determine optimal n_jobs for this joblib Parallel grid search across 1000 parameter combinations."
       }
     ],
     "output_examples": [
       {
-        "input": "Run get-available-resources to check what resources I have for training this model.",
+        "input": "Run get-available-resources to check my system for training a deep learning model.",
         "output": [
-          "CPU: 8 cores (8 physical) on arm64 architecture",
-          "Memory: 16 GB total, 8.5 GB available (46.9% used)",
-          "Disk: 500 GB total, 200 GB available",
-          "GPU: Apple M2 with Metal backend, unified memory",
-          "Recommendation: Use Metal GPU acceleration with PyTorch-MPS",
-          "Recommendation: 6 workers for parallel processing (cores - 2)"
+          "CPU: 8 logical cores (4 physical) on x86_64",
+          "Memory: 32 GB total, 24 GB available",
+          "Disk: 512 GB total, 180 GB free",
+          "GPU: NVIDIA RTX 4090 (24GB VRAM) with CUDA backend",
+          "Recommendation: Use PyTorch with CUDA for GPU acceleration",
+          "Recommendation: 6 parallel workers for data loading"
+        ]
+      },
+      {
+        "input": "Check resources before processing this genomics dataset.",
+        "output": [
+          "CPU: 16 logical cores on arm64 (Apple M2 Max)",
+          "Memory: 64 GB unified, 45 GB available",
+          "GPU: Apple Silicon with Metal backend",
+          "Recommendation: Dataset fits in memory, pandas is suitable",
+          "Recommendation: Use PyTorch MPS backend for any ML tasks",
+          "Recommendation: 14 workers for parallel file processing"
         ]
       }
     ],
     "best_practices": [
-      "Run resource detection at the start of any computationally intensive task before making architectural decisions.",
-      "Re-run detection when switching between tasks or after significant time passes, as memory usage changes.",
-      "Save the .claude_resources.json file in project directories to document resource-aware decisions for reproducibility."
+      "Run resource detection at the start of projects before making architectural decisions about data loading and parallelization.",
+      "Re-run the skill when system conditions change significantly or before major computational tasks.",
+      "Keep the generated .claude_resources.json file in project directories to document hardware-aware decisions."
     ],
     "anti_patterns": [
-      "Running the skill once and assuming resources remain constant throughout long workflows.",
-      "Ignoring the memory recommendations and attempting to load datasets larger than available RAM.",
-      "Using the suggested worker count without considering other running processes that may consume CPU resources."
+      "Assuming detected resources remain constant throughout long-running workflows without re-checking.",
+      "Ignoring memory strategy recommendations and attempting to load datasets larger than available RAM.",
+      "Using suggested worker counts without accounting for other processes consuming CPU resources."
     ],
     "faq": [
       {
-        "question": "What platforms does this skill support?",
-        "answer": "Full support for macOS (including Apple Silicon M1-M4), Linux (NVIDIA and AMD), and Windows (NVIDIA GPUs)."
+        "question": "What operating systems does this skill support?",
+        "answer": "macOS (including Apple Silicon M1-M4), Linux (NVIDIA and AMD GPUs), and Windows (NVIDIA GPUs)."
       },
       {
-        "question": "Does this skill require any dependencies?",
-        "answer": "The script requires psutil (install via uv pip install psutil). GPU utilities must be installed separately."
+        "question": "What dependencies are required?",
+        "answer": "Python psutil package is required. GPU detection needs nvidia-smi, rocm-smi, or system_profiler in PATH."
       },
       {
-        "question": "How often should I re-run the skill?",
-        "answer": "Re-run before major computational tasks or when switching contexts. Memory availability changes constantly."
+        "question": "Where is the output file saved?",
+        "answer": "By default, .claude_resources.json is created in the current working directory. Use -o flag for custom path."
       },
       {
-        "question": "Can I customize the output file location?",
-        "answer": "Yes, use the -o or --output flag to specify a custom path for the .claude_resources.json file."
+        "question": "How accurate are memory readings?",
+        "answer": "Memory readings are point-in-time snapshots. Available memory changes constantly with system activity."
       },
       {
-        "question": "What if GPU detection fails?",
-        "answer": "Check that GPU drivers are installed and in system PATH. The skill gracefully handles missing utilities."
+        "question": "What happens if GPU detection fails?",
+        "answer": "The skill handles missing GPU utilities gracefully and reports no GPU available with CPU-only recommendations."
       },
       {
-        "question": "Are the recommendations customizable?",
-        "answer": "The skill provides general recommendations based on hardware thresholds. Modify the script for custom logic."
+        "question": "Can I modify the recommendation thresholds?",
+        "answer": "Yes, edit the generate_recommendations function in detect_resources.py to customize thresholds and strategies."
       }
     ]
   },
@@ -224,14 +240,22 @@
         {
           "name": "detect_resources.py",
           "type": "file",
-          "path": "scripts/detect_resources.py"
+          "path": "scripts/detect_resources.py",
+          "lines": 402
         }
       ]
     },
     {
+      "name": "evaluation_output.json",
+      "type": "file",
+      "path": "evaluation_output.json",
+      "lines": 156
+    },
+    {
       "name": "SKILL.md",
       "type": "file",
-      "path": "SKILL.md"
+      "path": "SKILL.md",
+      "lines": 277
     }
   ]
 }
