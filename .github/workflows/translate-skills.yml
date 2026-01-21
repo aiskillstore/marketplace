@@ -86,12 +86,43 @@ jobs:
           fetch-depth: 2
           sparse-checkout: .github/actions
 
+      - name: Download slugs from source workflow
+        if: github.event_name == 'repository_dispatch' && github.event.client_payload.source_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: synced-slugs
+          run-id: ${{ github.event.client_payload.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Read slugs from artifact
+        if: github.event_name == 'repository_dispatch' && github.event.client_payload.source_run_id != ''
+        id: artifact-slugs
+        run: |
+          if [ -f synced-slugs.txt ]; then
+            # Convert newline-separated slugs to comma-separated
+            SLUGS=$(cat synced-slugs.txt | tr '\n' ',' | sed 's/,$//')
+            SLUG_COUNT=$(cat synced-slugs.txt | grep -c . || echo 0)
+            echo "📥 Loaded $SLUG_COUNT slugs from artifact (source run: ${{ github.event.client_payload.source_run_id }})"
+            echo "slugs=$SLUGS" >> $GITHUB_OUTPUT
+          else
+            echo "::error::synced-slugs.txt not found in artifact"
+            exit 1
+          fi
+
       - name: Detect skills to translate
         id: detect
+        env:
+          ARTIFACT_SLUGS: ${{ steps.artifact-slugs.outputs.slugs }}
         run: |
           # Handle repository_dispatch from sync-to-supabase
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            SLUGS_CSV="${{ github.event.client_payload.skill_slugs }}"
+            # Priority: artifact slugs > direct slugs in payload
+            if [ -n "$ARTIFACT_SLUGS" ]; then
+              SLUGS_CSV="$ARTIFACT_SLUGS"
+              echo "🔔 Using slugs from artifact"
+            else
+              SLUGS_CSV="${{ github.event.client_payload.skill_slugs }}"
+            fi
             TRIGGERED_BY="${{ github.event.client_payload.triggered_by }}"
             echo "🔔 Triggered by: $TRIGGERED_BY"
           else

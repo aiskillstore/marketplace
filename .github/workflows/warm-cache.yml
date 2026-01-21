@@ -31,6 +31,11 @@ on:
         required: false
         type: boolean
         default: false
+      source_run_id:
+        description: 'Source workflow run ID to download slugs artifact from (alternative to slugs input)'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: warm-cache
@@ -52,6 +57,29 @@ jobs:
         with:
           sparse-checkout: .github/actions
 
+      - name: Download slugs from source workflow
+        if: inputs.source_run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: synced-slugs
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Read slugs from artifact
+        if: inputs.source_run_id != ''
+        id: artifact-slugs
+        run: |
+          if [ -f synced-slugs.txt ]; then
+            # Convert newline-separated slugs to space-separated (for compatibility)
+            SLUGS=$(cat synced-slugs.txt | tr '\n' ' ' | sed 's/ $//')
+            SLUG_COUNT=$(cat synced-slugs.txt | grep -c . || echo 0)
+            echo "📥 Loaded $SLUG_COUNT slugs from artifact"
+            echo "slugs=$SLUGS" >> $GITHUB_OUTPUT
+          else
+            echo "::error::synced-slugs.txt not found in artifact"
+            exit 1
+          fi
+
       - name: Fetch all slugs from Supabase
         id: fetch
         env:
@@ -59,7 +87,21 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           CONTENT_TYPE: ${{ inputs.type }}
           INPUT_SLUGS: ${{ inputs.slugs }}
+          ARTIFACT_SLUGS: ${{ steps.artifact-slugs.outputs.slugs }}
         run: |
+          # Priority: artifact slugs > input slugs > fetch from Supabase
+          if [ -n "$ARTIFACT_SLUGS" ]; then
+            echo "Using slugs from artifact"
+            SLUGS_SPACE="$ARTIFACT_SLUGS"
+
+            if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
+              echo "skills_slugs=$SLUGS_SPACE" >> $GITHUB_OUTPUT
+              SKILLS_COUNT=$(echo $SLUGS_SPACE | wc -w | tr -d ' ')
+              echo "Found $SKILLS_COUNT skills (from artifact)"
+            fi
+            exit 0
+          fi
+
           # If specific slugs provided via input, use them instead of fetching from Supabase
           if [ -n "$INPUT_SLUGS" ]; then
             echo "Using provided slugs: $INPUT_SLUGS"

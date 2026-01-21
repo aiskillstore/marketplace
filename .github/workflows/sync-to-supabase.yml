@@ -170,6 +170,24 @@ jobs:
         run: |
           echo "::notice::Sync completed - Mode: ${{ steps.changes.outputs.mode }}, Skills: ${{ steps.changes.outputs.changed_skills }}"
 
+      - name: Save synced slugs to artifact
+        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_slugs != ''
+        env:
+          SYNCED_SLUGS: ${{ steps.sync.outputs.synced_slugs }}
+        run: |
+          # Write slugs to file (one per line for easy processing)
+          echo "$SYNCED_SLUGS" | tr ',' '\n' > synced-slugs.txt
+          SLUG_COUNT=$(wc -l < synced-slugs.txt | tr -d ' ')
+          echo "📦 Saved $SLUG_COUNT slugs to artifact"
+
+      - name: Upload synced slugs artifact
+        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_slugs != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: synced-slugs
+          path: synced-slugs.txt
+          retention-days: 1
+
   # ============================================================
   # CALCULATE QUALITY SCORES
   # Calculates quality scores for synced skills using skillstore-cli
@@ -351,61 +369,27 @@ jobs:
             exit 0
           fi
 
-          # Split slugs into batches to avoid GitHub's workflow input limits
-          # Each batch can handle ~500 slugs safely (depends on slug length)
-          BATCH_SIZE=500
+          SLUG_COUNT=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
+          echo "🔥 Triggering warm-cache workflow for $SLUG_COUNT synced skills"
 
-          # Convert to array
-          IFS=',' read -ra SLUGS_ARRAY <<< "$SYNCED_SLUGS"
-          TOTAL_SLUGS=${#SLUGS_ARRAY[@]}
+          # Pass source_run_id instead of slugs to avoid input size limits
+          # warm-cache.yml will download the synced-slugs artifact from this run
+          gh workflow run warm-cache.yml \
+            -f mode=warm \
+            -f type=skills \
+            -f source_run_id=${{ github.run_id }} \
+            -f warm_zip=false
 
-          echo "🔥 Triggering warm-cache workflow for $TOTAL_SLUGS synced skills"
-
-          # Calculate number of batches
-          BATCH_COUNT=$(( (TOTAL_SLUGS + BATCH_SIZE - 1) / BATCH_SIZE ))
-          echo "   Batches needed: $BATCH_COUNT (batch size: $BATCH_SIZE)"
-
-          # Track dispatched batches
-          DISPATCHED=0
-
-          # Process each batch
-          for ((BATCH=0; BATCH<BATCH_COUNT; BATCH++)); do
-            START=$((BATCH * BATCH_SIZE))
-            END=$((START + BATCH_SIZE))
-            [ $END -gt $TOTAL_SLUGS ] && END=$TOTAL_SLUGS
-
-            # Build batch string (comma-separated)
-            BATCH_SLUGS=""
-            for ((i=START; i<END; i++)); do
-              [ -n "$BATCH_SLUGS" ] && BATCH_SLUGS="$BATCH_SLUGS,"
-              BATCH_SLUGS="$BATCH_SLUGS${SLUGS_ARRAY[$i]}"
-            done
-
-            BATCH_NUM=$((BATCH + 1))
-            BATCH_LEN=$((END - START))
-            echo "📤 Dispatching batch $BATCH_NUM/$BATCH_COUNT ($BATCH_LEN skills)"
-
-            gh workflow run warm-cache.yml \
-              -f mode=warm \
-              -f type=skills \
-              -f slugs="$BATCH_SLUGS" \
-              -f warm_zip=false
-
-            DISPATCHED=$((DISPATCHED + 1))
-
-            # Small delay between batches to avoid rate limiting
-            if [ $BATCH -lt $((BATCH_COUNT - 1)) ]; then
-              sleep 1
-            fi
-          done
-
-          echo "✅ Cache warming triggered in $DISPATCHED batches"
+          echo "✅ Cache warming workflow triggered (single run)"
+          echo "   Source run ID: ${{ github.run_id }}"
           echo "   Monitor at: https://github.com/${{ github.repository }}/actions/workflows/warm-cache.yml"
 
           cat << EOF >> $GITHUB_STEP_SUMMARY
           ## 🔥 Cache Warming Triggered
 
-          Triggered \`warm-cache.yml\` workflow for **$TOTAL_SLUGS synced skills** in **$DISPATCHED batches**.
+          Triggered \`warm-cache.yml\` workflow for **$SLUG_COUNT synced skills**.
+
+          Source run: [\`${{ github.run_id }}\`](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
           [View workflow runs →](https://github.com/${{ github.repository }}/actions/workflows/warm-cache.yml)
           EOF
@@ -434,47 +418,17 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
         run: |
-          echo "🌍 Triggering translation for synced skills"
+          SLUG_COUNT=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
+          echo "🌍 Triggering translation for $SLUG_COUNT synced skills"
 
-          # Split slugs into batches of 50 to avoid GitHub's ~10KB payload limit
-          BATCH_SIZE=50
+          # Pass source_run_id instead of slugs to avoid payload size limits
+          # translate-skills.yml will download the synced-slugs artifact from this run
+          gh api repos/${{ github.repository }}/dispatches \
+            --method POST \
+            -f event_type=translate-skills \
+            -f "client_payload[source_run_id]=${{ github.run_id }}" \
+            -f "client_payload[triggered_by]=sync-to-supabase"
 
-          # Convert to array
-          IFS=',' read -ra SLUGS_ARRAY <<< "$SYNCED_SLUGS"
-          TOTAL_SLUGS=${#SLUGS_ARRAY[@]}
-
-          echo "   Total skills: $TOTAL_SLUGS"
-
-          # Calculate number of batches
-          BATCH_COUNT=$(( (TOTAL_SLUGS + BATCH_SIZE - 1) / BATCH_SIZE ))
-          echo "   Batches needed: $BATCH_COUNT"
-
-          # Process each batch
-          for ((BATCH=0; BATCH<BATCH_COUNT; BATCH++)); do
-            START=$((BATCH * BATCH_SIZE))
-            END=$((START + BATCH_SIZE))
-            [ $END -gt $TOTAL_SLUGS ] && END=$TOTAL_SLUGS
-
-            # Build batch string
-            BATCH_SLUGS=""
-            for ((i=START; i<END; i++)); do
-              [ -n "$BATCH_SLUGS" ] && BATCH_SLUGS="$BATCH_SLUGS,"
-              BATCH_SLUGS="$BATCH_SLUGS${SLUGS_ARRAY[$i]}"
-            done
-
-            BATCH_NUM=$((BATCH + 1))
-            BATCH_LEN=$((END - START))
-            echo "📤 Dispatching batch $BATCH_NUM/$BATCH_COUNT ($BATCH_LEN slugs)"
-
-            gh api repos/${{ github.repository }}/dispatches \
-              --method POST \
-              -f event_type=translate-skills \
-              -f "client_payload[skill_slugs]=$BATCH_SLUGS" \
-              -f "client_payload[triggered_by]=sync-to-supabase" \
-              -f "client_payload[run_id]=${{ github.run_id }}" \
-              -f "client_payload[batch]=$BATCH_NUM" \
-              -f "client_payload[total_batches]=$BATCH_COUNT"
-          done
-
-          echo "✅ Translation triggered in $BATCH_COUNT batches"
+          echo "✅ Translation workflow triggered (single run)"
+          echo "   Source run ID: ${{ github.run_id }}"
           echo "   Monitor at: https://github.com/${{ github.repository }}/actions/workflows/translate-skills.yml"
