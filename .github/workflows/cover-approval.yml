@@ -1,0 +1,135 @@
+name: Cover Image Approval
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  process:
+    name: Process Cover Approval
+    if: |
+      contains(github.event.issue.labels.*.name, 'cover-review') &&
+      (startsWith(github.event.comment.body, '/approve-cover') ||
+       startsWith(github.event.comment.body, '/reject-cover'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Process Approval Command
+        uses: actions/github-script@v7
+        env:
+          COVER_CALLBACK_SECRET: ${{ secrets.COVER_CALLBACK_SECRET }}
+          SKILLSTORE_API_URL: ${{ vars.SKILLSTORE_API_URL || 'https://skillstore.io' }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issueNumber = context.issue.number;
+            const actor = context.actor;
+            const comment = context.payload.comment.body.trim();
+            const issueBody = context.payload.issue.body || '';
+
+            // Check user has write permission
+            const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner,
+              repo,
+              username: actor
+            });
+
+            if (!['admin', 'write'].includes(permission.permission)) {
+              console.log(`User ${actor} does not have write permission (has: ${permission.permission})`);
+              await github.rest.reactions.createForIssueComment({
+                owner,
+                repo,
+                comment_id: context.payload.comment.id,
+                content: 'confused'
+              });
+              core.setFailed('Insufficient permissions to approve/reject covers');
+              return;
+            }
+
+            // Extract request ID from issue body
+            const requestIdMatch = issueBody.match(/Request ID \| `([^`]+)`/);
+            if (!requestIdMatch) {
+              core.setFailed('Could not find Request ID in issue body');
+              return;
+            }
+            const requestId = requestIdMatch[1];
+
+            // Determine action
+            const isApprove = comment.startsWith('/approve-cover');
+            const reason = isApprove ? '' : comment.replace(/^\/reject-cover\s*/, '').trim();
+
+            console.log(`Processing ${isApprove ? 'approval' : 'rejection'} for request ${requestId}`);
+            if (!isApprove && reason) {
+              console.log(`Rejection reason: ${reason}`);
+            }
+
+            // Call callback API
+            const callbackUrl = `${process.env.SKILLSTORE_API_URL}/api/plugins/cover/callback`;
+            const callbackBody = {
+              requestId,
+              event: isApprove ? 'approved' : 'rejected',
+              ...(isApprove ? { approvedBy: actor } : { rejectedBy: actor }),
+              ...(reason ? { reason } : {})
+            };
+
+            console.log(`Calling callback: ${callbackUrl}`);
+
+            const response = await fetch(callbackUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${process.env.COVER_CALLBACK_SECRET}`
+              },
+              body: JSON.stringify(callbackBody)
+            });
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error(`Callback failed: ${response.status} ${errorText}`);
+              core.setFailed(`Callback failed: ${response.status}`);
+              return;
+            }
+
+            const result = await response.json();
+            console.log('Callback result:', JSON.stringify(result));
+
+            // Add reaction to comment
+            await github.rest.reactions.createForIssueComment({
+              owner,
+              repo,
+              comment_id: context.payload.comment.id,
+              content: isApprove ? '+1' : '-1'
+            });
+
+            // Update labels
+            const newLabels = ['cover-review', isApprove ? 'approved' : 'rejected'];
+            await github.rest.issues.setLabels({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              labels: newLabels
+            });
+
+            // Add comment with result
+            const statusEmoji = isApprove ? '✅' : '❌';
+            const statusText = isApprove ? 'approved' : 'rejected';
+            let resultComment = `${statusEmoji} Cover image **${statusText}** by @${actor}`;
+            if (!isApprove && reason) {
+              resultComment += `\n\n**Reason:** ${reason}`;
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              body: resultComment
+            });
+
+            // Close issue
+            await github.rest.issues.update({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              state: 'closed'
+            });
+
+            console.log(`Issue #${issueNumber} closed with status: ${statusText}`);
