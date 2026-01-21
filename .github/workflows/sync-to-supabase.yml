@@ -370,26 +370,37 @@ jobs:
           fi
 
           SLUG_COUNT=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
+          THRESHOLD=500
+
           echo "🔥 Triggering warm-cache workflow for $SLUG_COUNT synced skills"
 
-          # Pass source_run_id instead of slugs to avoid input size limits
-          # warm-cache.yml will download the synced-slugs artifact from this run
-          gh workflow run warm-cache.yml \
-            -f mode=warm \
-            -f type=skills \
-            -f source_run_id=${{ github.run_id }} \
-            -f warm_zip=false
+          if [ "$SLUG_COUNT" -le "$THRESHOLD" ]; then
+            # Small batch: pass slugs directly via input
+            echo "   Mode: direct (≤$THRESHOLD slugs)"
+            gh workflow run warm-cache.yml \
+              -f mode=warm \
+              -f type=skills \
+              -f slugs="$SYNCED_SLUGS" \
+              -f warm_zip=false
+            MODE="direct"
+          else
+            # Large batch: use artifact to avoid input size limits
+            echo "   Mode: artifact (>$THRESHOLD slugs)"
+            gh workflow run warm-cache.yml \
+              -f mode=warm \
+              -f type=skills \
+              -f source_run_id=${{ github.run_id }} \
+              -f warm_zip=false
+            MODE="artifact (source: ${{ github.run_id }})"
+          fi
 
-          echo "✅ Cache warming workflow triggered (single run)"
-          echo "   Source run ID: ${{ github.run_id }}"
+          echo "✅ Cache warming workflow triggered"
           echo "   Monitor at: https://github.com/${{ github.repository }}/actions/workflows/warm-cache.yml"
 
           cat << EOF >> $GITHUB_STEP_SUMMARY
           ## 🔥 Cache Warming Triggered
 
-          Triggered \`warm-cache.yml\` workflow for **$SLUG_COUNT synced skills**.
-
-          Source run: [\`${{ github.run_id }}\`](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          Triggered \`warm-cache.yml\` workflow for **$SLUG_COUNT synced skills** (mode: $MODE).
 
           [View workflow runs →](https://github.com/${{ github.repository }}/actions/workflows/warm-cache.yml)
           EOF
@@ -419,16 +430,29 @@ jobs:
           SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
         run: |
           SLUG_COUNT=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
+          THRESHOLD=500
+
           echo "🌍 Triggering translation for $SLUG_COUNT synced skills"
 
-          # Pass source_run_id instead of slugs to avoid payload size limits
-          # translate-skills.yml will download the synced-slugs artifact from this run
-          gh api repos/${{ github.repository }}/dispatches \
-            --method POST \
-            -f event_type=translate-skills \
-            -f "client_payload[source_run_id]=${{ github.run_id }}" \
-            -f "client_payload[triggered_by]=sync-to-supabase"
+          if [ "$SLUG_COUNT" -le "$THRESHOLD" ]; then
+            # Small batch: pass slugs directly in payload
+            echo "   Mode: direct (≤$THRESHOLD slugs)"
+            gh api repos/${{ github.repository }}/dispatches \
+              --method POST \
+              -f event_type=translate-skills \
+              -f "client_payload[skill_slugs]=$SYNCED_SLUGS" \
+              -f "client_payload[triggered_by]=sync-to-supabase"
+            MODE="direct"
+          else
+            # Large batch: use artifact to avoid payload size limits
+            echo "   Mode: artifact (>$THRESHOLD slugs)"
+            gh api repos/${{ github.repository }}/dispatches \
+              --method POST \
+              -f event_type=translate-skills \
+              -f "client_payload[source_run_id]=${{ github.run_id }}" \
+              -f "client_payload[triggered_by]=sync-to-supabase"
+            MODE="artifact (source: ${{ github.run_id }})"
+          fi
 
-          echo "✅ Translation workflow triggered (single run)"
-          echo "   Source run ID: ${{ github.run_id }}"
+          echo "✅ Translation workflow triggered (mode: $MODE)"
           echo "   Monitor at: https://github.com/${{ github.repository }}/actions/workflows/translate-skills.yml"
