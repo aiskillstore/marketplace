@@ -351,25 +351,61 @@ jobs:
             exit 0
           fi
 
-          SLUG_COUNT=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
-          echo "🔥 Triggering warm-cache workflow for $SLUG_COUNT synced skills"
-          echo "   Slugs: $SYNCED_SLUGS"
+          # Split slugs into batches to avoid GitHub's workflow input limits
+          # Each batch can handle ~500 slugs safely (depends on slug length)
+          BATCH_SIZE=500
 
-          gh workflow run warm-cache.yml \
-            -f mode=warm \
-            -f type=skills \
-            -f slugs="$SYNCED_SLUGS" \
-            -f warm_zip=false
+          # Convert to array
+          IFS=',' read -ra SLUGS_ARRAY <<< "$SYNCED_SLUGS"
+          TOTAL_SLUGS=${#SLUGS_ARRAY[@]}
 
-          echo "✅ Cache warming workflow triggered"
+          echo "🔥 Triggering warm-cache workflow for $TOTAL_SLUGS synced skills"
+
+          # Calculate number of batches
+          BATCH_COUNT=$(( (TOTAL_SLUGS + BATCH_SIZE - 1) / BATCH_SIZE ))
+          echo "   Batches needed: $BATCH_COUNT (batch size: $BATCH_SIZE)"
+
+          # Track dispatched batches
+          DISPATCHED=0
+
+          # Process each batch
+          for ((BATCH=0; BATCH<BATCH_COUNT; BATCH++)); do
+            START=$((BATCH * BATCH_SIZE))
+            END=$((START + BATCH_SIZE))
+            [ $END -gt $TOTAL_SLUGS ] && END=$TOTAL_SLUGS
+
+            # Build batch string (comma-separated)
+            BATCH_SLUGS=""
+            for ((i=START; i<END; i++)); do
+              [ -n "$BATCH_SLUGS" ] && BATCH_SLUGS="$BATCH_SLUGS,"
+              BATCH_SLUGS="$BATCH_SLUGS${SLUGS_ARRAY[$i]}"
+            done
+
+            BATCH_NUM=$((BATCH + 1))
+            BATCH_LEN=$((END - START))
+            echo "📤 Dispatching batch $BATCH_NUM/$BATCH_COUNT ($BATCH_LEN skills)"
+
+            gh workflow run warm-cache.yml \
+              -f mode=warm \
+              -f type=skills \
+              -f slugs="$BATCH_SLUGS" \
+              -f warm_zip=false
+
+            DISPATCHED=$((DISPATCHED + 1))
+
+            # Small delay between batches to avoid rate limiting
+            if [ $BATCH -lt $((BATCH_COUNT - 1)) ]; then
+              sleep 1
+            fi
+          done
+
+          echo "✅ Cache warming triggered in $DISPATCHED batches"
           echo "   Monitor at: https://github.com/${{ github.repository }}/actions/workflows/warm-cache.yml"
 
           cat << EOF >> $GITHUB_STEP_SUMMARY
           ## 🔥 Cache Warming Triggered
 
-          Triggered \`warm-cache.yml\` workflow for **$SLUG_COUNT synced skills**.
-
-          **Slugs**: \`$SYNCED_SLUGS\`
+          Triggered \`warm-cache.yml\` workflow for **$TOTAL_SLUGS synced skills** in **$DISPATCHED batches**.
 
           [View workflow runs →](https://github.com/${{ github.repository }}/actions/workflows/warm-cache.yml)
           EOF
