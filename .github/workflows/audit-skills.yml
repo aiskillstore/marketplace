@@ -82,15 +82,41 @@ jobs:
           LIMIT: ${{ inputs.limit }}
           SHARD_SIZE: ${{ inputs.shard_size || '50' }}
         run: |
+          THRESHOLD=${{ env.SHARD_THRESHOLD }}
+          SIZE=$SHARD_SIZE
+
           # Specific slugs mode (single or multiple)
           if [ -n "$TARGET_SLUGS" ]; then
             # Count slugs (comma-separated)
             SLUG_COUNT=$(echo "$TARGET_SLUGS" | tr ',' '\n' | grep -c .)
-            echo "📌 Specific slugs mode: $TARGET_SLUGS ($SLUG_COUNT skills)"
-            echo "matrix={\"include\":[{\"shard\":0,\"offset\":0,\"limit\":$SLUG_COUNT}]}" >> $GITHUB_OUTPUT
-            echo "total_skills=$SLUG_COUNT" >> $GITHUB_OUTPUT
-            echo "shard_count=1" >> $GITHUB_OUTPUT
-            echo "is_sharded=false" >> $GITHUB_OUTPUT
+            echo "📌 Specific slugs mode: $SLUG_COUNT skills"
+
+            if [ "$SLUG_COUNT" -lt "$THRESHOLD" ]; then
+              # Small batch: single shard
+              echo "   Mode: simple (below threshold $THRESHOLD)"
+              echo "matrix={\"include\":[{\"shard\":0,\"offset\":0,\"limit\":$SLUG_COUNT}]}" >> $GITHUB_OUTPUT
+              echo "total_skills=$SLUG_COUNT" >> $GITHUB_OUTPUT
+              echo "shard_count=1" >> $GITHUB_OUTPUT
+              echo "is_sharded=false" >> $GITHUB_OUTPUT
+            else
+              # Large batch: parallel shards
+              SHARDS=$(( (SLUG_COUNT + SIZE - 1) / SIZE ))
+              echo "   Mode: sharded → $SHARDS shards (size=$SIZE)"
+
+              MATRIX='{"include":['
+              for i in $(seq 0 $((SHARDS - 1))); do
+                OFFSET=$((i * SIZE))
+                [ $i -gt 0 ] && MATRIX+=','
+                MATRIX+="{\"shard\":$i,\"offset\":$OFFSET,\"limit\":$SIZE}"
+              done
+              MATRIX+=']}'
+
+              echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+              echo "total_skills=$SLUG_COUNT" >> $GITHUB_OUTPUT
+              echo "shard_count=$SHARDS" >> $GITHUB_OUTPUT
+              echo "is_sharded=true" >> $GITHUB_OUTPUT
+              echo "Matrix: $MATRIX"
+            fi
             exit 0
           fi
           
@@ -112,10 +138,7 @@ jobs:
             echo "is_sharded=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
-          THRESHOLD=${{ env.SHARD_THRESHOLD }}
-          SIZE=$SHARD_SIZE
-          
+
           if [ "$TOTAL" -lt "$THRESHOLD" ]; then
             # Simple mode: single shard
             echo "📦 Simple mode: $TOTAL skills (below threshold $THRESHOLD)"
