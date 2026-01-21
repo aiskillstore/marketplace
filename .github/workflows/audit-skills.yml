@@ -2,7 +2,7 @@
 # Auto-sharding: switches to parallel matrix mode when skill count exceeds threshold
 #
 # Modes:
-# - Single skill: --slug specified → 1 shard
+# - Specific skills: --slugs specified (comma-separated) → 1 shard
 # - Simple mode: skill count < threshold → 1 shard (sequential)
 # - Sharded mode: skill count >= threshold → N parallel shards
 
@@ -15,8 +15,8 @@ on:
         description: 'Model to use (e.g., gpt-5.2-codex:high, claude-sonnet-4.5). Auto-detects agent.'
         type: string
         default: ''
-      slug:
-        description: 'Audit specific skill only (leave empty for all)'
+      slugs:
+        description: 'Audit specific skills (comma-separated, e.g., "slug1,slug2")'
         type: string
         default: ''
       limit:
@@ -78,15 +78,17 @@ jobs:
       - name: Discover skills and plan strategy
         id: plan
         env:
-          TARGET_SLUG: ${{ inputs.slug }}
+          TARGET_SLUGS: ${{ inputs.slugs }}
           LIMIT: ${{ inputs.limit }}
           SHARD_SIZE: ${{ inputs.shard_size || '50' }}
         run: |
-          # Single skill mode
-          if [ -n "$TARGET_SLUG" ]; then
-            echo "📌 Single skill mode: $TARGET_SLUG"
-            echo 'matrix={"include":[{"shard":0,"offset":0,"limit":1}]}' >> $GITHUB_OUTPUT
-            echo "total_skills=1" >> $GITHUB_OUTPUT
+          # Specific slugs mode (single or multiple)
+          if [ -n "$TARGET_SLUGS" ]; then
+            # Count slugs (comma-separated)
+            SLUG_COUNT=$(echo "$TARGET_SLUGS" | tr ',' '\n' | grep -c .)
+            echo "📌 Specific slugs mode: $TARGET_SLUGS ($SLUG_COUNT skills)"
+            echo "matrix={\"include\":[{\"shard\":0,\"offset\":0,\"limit\":$SLUG_COUNT}]}" >> $GITHUB_OUTPUT
+            echo "total_skills=$SLUG_COUNT" >> $GITHUB_OUTPUT
             echo "shard_count=1" >> $GITHUB_OUTPUT
             echo "is_sharded=false" >> $GITHUB_OUTPUT
             exit 0
@@ -223,9 +225,9 @@ jobs:
             MODEL_FLAG="--model ${{ inputs.model }}"
           fi
           
-          SLUG_FLAG=""
-          if [ -n "${{ inputs.slug }}" ]; then
-            SLUG_FLAG="--slug ${{ inputs.slug }}"
+          SLUGS_FLAG=""
+          if [ -n "${{ inputs.slugs }}" ]; then
+            SLUGS_FLAG="--slugs ${{ inputs.slugs }}"
           fi
           
           DRY_RUN_FLAG=""
@@ -241,7 +243,7 @@ jobs:
           # CLI internally retries 3 times per skill on AI failures
           "$GITHUB_WORKSPACE/skillstore-cli" skill audit ./skills \
             $MODEL_FLAG \
-            $SLUG_FLAG \
+            $SLUGS_FLAG \
             $DRY_RUN_FLAG \
             $FAILED_ONLY_FLAG \
             --offset ${{ matrix.offset }} \
@@ -259,7 +261,7 @@ jobs:
 
             "$GITHUB_WORKSPACE/skillstore-cli" skill audit ./skills \
               $MODEL_FLAG \
-              $SLUG_FLAG \
+              $SLUGS_FLAG \
               $DRY_RUN_FLAG \
               --failed-only \
               --offset ${{ matrix.offset }} \
