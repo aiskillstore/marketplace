@@ -1,0 +1,135 @@
+name: Plugin Review
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  process-command:
+    if: contains(github.event.issue.labels.*.name, 'plugin-review')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check permissions
+        id: check-perm
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.actor
+            });
+            if (!['admin', 'write'].includes(perm.permission)) {
+              core.setFailed('Insufficient permissions');
+              return;
+            }
+            core.setOutput('permission', perm.permission);
+
+      - name: Process command
+        if: success()
+        uses: actions/github-script@v7
+        env:
+          CALLBACK_URL: ${{ secrets.SKILLSTORE_API_URL }}/api/plugins/review/callback
+          CALLBACK_SECRET: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
+        with:
+          script: |
+            const comment = context.payload.comment.body.trim();
+            const issueBody = context.payload.issue.body;
+
+            // Extract plugin ID from issue body
+            const pluginIdMatch = issueBody.match(/Plugin ID: `([^`]+)`/);
+            if (!pluginIdMatch) {
+              console.log('Plugin ID not found in issue body');
+              return;
+            }
+            const pluginId = pluginIdMatch[1];
+            console.log(`Processing command for plugin: ${pluginId}`);
+
+            let event, payload;
+
+            if (comment.startsWith('/generate')) {
+              event = 'generate';
+              payload = { pluginId };
+            } else if (comment.startsWith('/approve')) {
+              event = 'approve';
+              // Parse optional modifications
+              const guideMatch = comment.match(/--guide\s+"([^"]+)"/);
+              payload = {
+                pluginId,
+                approvedBy: context.actor,
+                modifiedGuide: guideMatch ? guideMatch[1] : null
+              };
+            } else if (comment.startsWith('/regenerate')) {
+              event = 'regenerate';
+              payload = {
+                pluginId,
+                coverOnly: comment.includes('--cover'),
+                guideOnly: comment.includes('--guide')
+              };
+            } else if (comment.startsWith('/reject')) {
+              event = 'reject';
+              const reason = comment.replace('/reject', '').trim();
+              payload = {
+                pluginId,
+                rejectedBy: context.actor,
+                reason: reason || 'No reason provided'
+              };
+            } else {
+              console.log(`Not a recognized command: ${comment.substring(0, 50)}`);
+              return; // Not a recognized command
+            }
+
+            console.log(`Event: ${event}, Payload: ${JSON.stringify(payload)}`);
+
+            // Call skillstore callback API
+            const callbackUrl = process.env.CALLBACK_URL;
+            const callbackSecret = process.env.CALLBACK_SECRET;
+
+            if (!callbackUrl || !callbackSecret) {
+              core.setFailed('SKILLSTORE_CALLBACK_URL or SKILLSTORE_CALLBACK_SECRET not configured');
+              return;
+            }
+
+            try {
+              const response = await fetch(callbackUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${callbackSecret}`
+                },
+                body: JSON.stringify({ event, ...payload, issueNumber: context.issue.number })
+              });
+
+              const responseText = await response.text();
+              console.log(`Callback response: ${response.status} - ${responseText}`);
+
+              if (!response.ok) {
+                core.setFailed(`Callback failed: ${response.status} - ${responseText}`);
+                // Add failure reaction
+                await github.rest.reactions.createForIssueComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: context.payload.comment.id,
+                  content: '-1'
+                });
+                return;
+              }
+
+              // Add success reaction
+              await github.rest.reactions.createForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: context.payload.comment.id,
+                content: '+1'
+              });
+
+            } catch (error) {
+              core.setFailed(`Callback request failed: ${error.message}`);
+              // Add failure reaction
+              await github.rest.reactions.createForIssueComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: context.payload.comment.id,
+                content: '-1'
+              });
+            }
