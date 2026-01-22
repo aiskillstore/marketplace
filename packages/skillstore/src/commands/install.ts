@@ -2,7 +2,7 @@ import { defineCommand } from 'citty';
 import { mkdir, writeFile, access } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { getPluginConfig } from '../lib/plugin-config.js';
-import { fetchManifest, reportInstallation, PluginApiError } from '../lib/plugin-api.js';
+import { fetchManifest, reportInstallation, reportSkillInstall, PluginApiError } from '../lib/plugin-api.js';
 import { fetchSkillInfo, downloadSkillZip, SkillApiError } from '../lib/skill-api.js';
 import { verifyManifest } from '../lib/plugin-verify.js';
 import { downloadAllSkills, printDownloadSummary } from '../lib/plugin-download.js';
@@ -125,6 +125,14 @@ async function installSkill(
 		await extractZip(zipBuffer, config.installDir);
 		logger.spinnerSuccess('Extracted files');
 
+		// Step 6: Report installation (non-blocking telemetry)
+		try {
+			await reportSkillInstall(config, slug);
+			logger.debug('Installation telemetry reported');
+		} catch {
+			logger.debug('Failed to report telemetry (non-critical)');
+		}
+
 		logger.success(`Skill "${skillInfo.name}" installed successfully!`);
 		console.log('');
 		console.log(`Installed to: ${skillDir}`);
@@ -225,6 +233,19 @@ async function installPlugin(
 				}
 			} catch {
 				logger.debug('Failed to report installation (non-critical)');
+			}
+
+			// Report telemetry for each successfully installed skill
+			const successfulSkills = downloadResult.results.filter(
+				(r) => r.success && !r.skipped
+			);
+			if (successfulSkills.length > 0) {
+				// Report in parallel, non-blocking
+				Promise.all(
+					successfulSkills.map((r) => reportSkillInstall(config, r.slug))
+				).catch(() => {
+					logger.debug('Telemetry reporting failed (non-critical)');
+				});
 			}
 		}
 

@@ -4,6 +4,7 @@ import {
 	getInstallUrl,
 	getPluginInfoUrl,
 	getPluginListUrl,
+	getTelemetryUrl,
 } from './plugin-config.js';
 
 /**
@@ -264,4 +265,97 @@ export async function downloadSkill(
 	}
 
 	return await response.text();
+}
+
+/**
+ * Telemetry event types for effectiveness tracking
+ */
+export type TelemetryEventType = 'invocation' | 'completion' | 'error' | 'feedback';
+
+/**
+ * Telemetry event payload
+ */
+export interface TelemetryEvent {
+	skill_slug: string;
+	event_type: TelemetryEventType;
+	session_id?: string;
+	client_id?: string;
+	success?: boolean;
+	iteration_count?: number;
+	duration_ms?: number;
+	error_type?: string;
+	error_message?: string;
+	user_rating?: number;
+	feedback_type?: 'thumbs_up' | 'thumbs_down' | 'star_rating';
+	tool_name?: 'claude_code' | 'codex' | 'claude' | 'other';
+	tool_version?: string;
+}
+
+/**
+ * Telemetry response
+ */
+export interface TelemetryResponse {
+	success: boolean;
+	event_id?: string;
+	message?: string;
+	error?: string;
+}
+
+/**
+ * Report skill telemetry event (effectiveness tracking)
+ *
+ * Used to track skill usage for quality scoring.
+ * Non-blocking - failures don't interrupt normal operation.
+ */
+export async function reportSkillTelemetry(
+	config: PluginConfig,
+	event: TelemetryEvent
+): Promise<TelemetryResponse> {
+	const url = getTelemetryUrl(config);
+
+	try {
+		const response = await fetch(url, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Accept: 'application/json',
+			},
+			body: JSON.stringify(event),
+			signal: AbortSignal.timeout(5000), // Short timeout for non-critical telemetry
+		});
+
+		if (!response.ok) {
+			// Non-critical - return error but don't throw
+			return {
+				success: false,
+				error: `HTTP ${response.status}: ${response.statusText}`,
+			};
+		}
+
+		return (await response.json()) as TelemetryResponse;
+	} catch (err) {
+		// Non-critical - return error but don't throw
+		return {
+			success: false,
+			error: err instanceof Error ? err.message : 'Unknown error',
+		};
+	}
+}
+
+/**
+ * Report skill installation event
+ *
+ * Tracks when a skill is installed via CLI.
+ */
+export async function reportSkillInstall(
+	config: PluginConfig,
+	skillSlug: string,
+	toolName: 'claude_code' | 'codex' | 'claude' | 'other' = 'claude_code'
+): Promise<TelemetryResponse> {
+	return reportSkillTelemetry(config, {
+		skill_slug: skillSlug,
+		event_type: 'invocation',
+		tool_name: toolName,
+		tool_version: '1.0.0', // CLI version
+	});
 }

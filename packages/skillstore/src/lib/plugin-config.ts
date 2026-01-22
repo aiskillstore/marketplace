@@ -82,3 +82,10 @@ export function getPluginInfoUrl(config: PluginConfig, pluginSlug: string): stri
 export function getPluginListUrl(config: PluginConfig): string {
 	return `${config.apiBaseUrl}/plugins`;
 }
+
+/**
+ * Get the API endpoint for telemetry/effectiveness tracking
+ */
+export function getTelemetryUrl(config: PluginConfig): string {
+	return `${config.apiBaseUrl}/telemetry/effectiveness`;
+}
