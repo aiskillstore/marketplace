@@ -249,6 +249,26 @@ jobs:
         working-directory: ${{ env.WORK_DIR }}
         run: |
           echo "::notice::SKILL.md validation failed. Attempting AI-powered auto-fix..."
+
+          # First, delete empty SKILL.md files (they can't be fixed)
+          echo "🗑️ Checking for empty SKILL.md files to delete..."
+          DELETED_COUNT=0
+          for dir in skills pending; do
+            if [ -d "$dir" ]; then
+              while IFS= read -r -d '' file; do
+                if [ ! -s "$file" ] || [ -z "$(cat "$file" | tr -d '[:space:]')" ]; then
+                  PARENT_DIR=$(dirname "$file")
+                  echo "Deleting empty skill directory: $PARENT_DIR"
+                  rm -rf "$PARENT_DIR"
+                  DELETED_COUNT=$((DELETED_COUNT + 1))
+                fi
+              done < <(find "$dir" -name "SKILL.md" -print0 2>/dev/null)
+            fi
+          done
+          if [ "$DELETED_COUNT" -gt 0 ]; then
+            echo "::notice::Deleted $DELETED_COUNT empty skill directories"
+          fi
+
           echo "Running AI-powered fix-md on skills directory..."
           "$GITHUB_WORKSPACE/skillstore-cli" skill fix-md ./skills || true
 
@@ -343,9 +363,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Check if there are any SKILL.md changes
-          if git diff --quiet -- "*.md"; then
-            echo "No SKILL.md changes to commit"
+          # Check if there are any changes (modifications or deletions)
+          if git diff --quiet && git status --porcelain | grep -qE '^\s*D|^\?\?'; then
+            : # There are deletions or untracked changes
+          elif git diff --quiet; then
+            echo "No changes to commit"
             exit 0
           fi
 
@@ -357,40 +379,62 @@ jobs:
           BRANCH_NAME="fix/skill-md-validation-$(date +%Y%m%d-%H%M%S)"
           git checkout -b "$BRANCH_NAME"
 
-          # Stage all SKILL.md changes
-          git add "*/SKILL.md" "**/SKILL.md"
+          # Stage all changes (modifications and deletions)
+          git add -A
 
-          # Count changed files
-          CHANGED_COUNT=$(git diff --cached --name-only | wc -l | tr -d ' ')
+          # Count changes by type
+          MODIFIED_COUNT=$(git diff --cached --diff-filter=M --name-only | wc -l | tr -d ' ')
+          DELETED_COUNT=$(git diff --cached --diff-filter=D --name-only | wc -l | tr -d ' ')
+          TOTAL_COUNT=$((MODIFIED_COUNT + DELETED_COUNT))
 
-          # Commit changes
-          git commit -m "fix: auto-fix SKILL.md validation errors
+          if [ "$TOTAL_COUNT" -eq 0 ]; then
+            echo "No changes to commit after staging"
+            exit 0
+          fi
 
-          AI-powered fix applied by GitHub Actions workflow.
-          Fixed $CHANGED_COUNT file(s).
+          # Build commit message
+          COMMIT_MSG="fix: auto-fix SKILL.md validation errors
+
+          AI-powered fix applied by GitHub Actions workflow."
+          [ "$MODIFIED_COUNT" -gt 0 ] && COMMIT_MSG="$COMMIT_MSG
+          Fixed $MODIFIED_COUNT file(s)."
+          [ "$DELETED_COUNT" -gt 0 ] && COMMIT_MSG="$COMMIT_MSG
+          Deleted $DELETED_COUNT empty skill directory(s)."
+          COMMIT_MSG="$COMMIT_MSG
 
           Co-Authored-By: Claude <noreply@anthropic.com>"
+
+          git commit -m "$COMMIT_MSG"
 
           # Push the branch
           git push origin "$BRANCH_NAME"
 
+          # Build PR title
+          PR_TITLE="fix: Auto-fix SKILL.md validation errors"
+          [ "$MODIFIED_COUNT" -gt 0 ] && PR_TITLE="$PR_TITLE ($MODIFIED_COUNT fixed"
+          [ "$DELETED_COUNT" -gt 0 ] && [ "$MODIFIED_COUNT" -gt 0 ] && PR_TITLE="$PR_TITLE, $DELETED_COUNT deleted)"
+          [ "$DELETED_COUNT" -gt 0 ] && [ "$MODIFIED_COUNT" -eq 0 ] && PR_TITLE="$PR_TITLE ($DELETED_COUNT deleted)"
+          [ "$MODIFIED_COUNT" -gt 0 ] && [ "$DELETED_COUNT" -eq 0 ] && PR_TITLE="$PR_TITLE)"
+
           # Create PR
           PR_URL=$(gh pr create \
-            --title "fix: Auto-fix SKILL.md validation errors ($CHANGED_COUNT files)" \
+            --title "$PR_TITLE" \
             --body "## Summary
 
           AI-powered auto-fix for SKILL.md validation errors.
 
           | Metric | Value |
           |--------|-------|
-          | Files Fixed | $CHANGED_COUNT |
+          | Files Fixed | $MODIFIED_COUNT |
+          | Empty Skills Deleted | $DELETED_COUNT |
           | Triggered By | ${{ github.event_name }} |
 
-          ### Common Fixes Applied
+          ### Fixes Applied
           - Added missing YAML frontmatter
           - Fixed \`name\` field format (lowercase alphanumeric with hyphens)
           - Added missing \`description\` field
           - Truncated overly long descriptions
+          - **Deleted empty skill directories** (unfixable)
 
           ### After Merge
           The \`sync-to-supabase.yml\` workflow will automatically update the database.
