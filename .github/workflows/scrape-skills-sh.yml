@@ -75,21 +75,25 @@ jobs:
           echo "   Dry run: $DRY_RUN"
 
           # Build command
-          CMD="$GITHUB_WORKSPACE/skillstore-cli skill scrape-skills-sh --limit $LIMIT --output json"
+          # Use --summary to output only stats (no skills array) for cleaner CI output
+          CMD="$GITHUB_WORKSPACE/skillstore-cli skill scrape-skills-sh --limit $LIMIT --output json --summary"
           if [ "$DRY_RUN" = "true" ]; then
             CMD="$CMD --dry-run"
           fi
 
           # Run and capture output
           OUTPUT=$($CMD 2>&1) || true
-          echo "$OUTPUT"
+
+          # Display formatted output for logs
+          echo "📊 Results:"
+          echo "$OUTPUT" | jq '.' 2>/dev/null || echo "$OUTPUT"
 
           # Parse JSON output
-          TOTAL=$(echo "$OUTPUT" | jq -r '.total // 0')
-          EXISTING=$(echo "$OUTPUT" | jq -r '.existing // 0')
-          NEW=$(echo "$OUTPUT" | jq -r '.new // 0')
-          SUBMITTED=$(echo "$OUTPUT" | jq -r '.submitted // 0')
-          FAILED=$(echo "$OUTPUT" | jq -r '.failed // 0')
+          TOTAL=$(echo "$OUTPUT" | jq -r '.total // 0' 2>/dev/null || echo "0")
+          EXISTING=$(echo "$OUTPUT" | jq -r '.existing // 0' 2>/dev/null || echo "0")
+          NEW=$(echo "$OUTPUT" | jq -r '.new // 0' 2>/dev/null || echo "0")
+          SUBMITTED=$(echo "$OUTPUT" | jq -r '.submitted // 0' 2>/dev/null || echo "0")
+          FAILED=$(echo "$OUTPUT" | jq -r '.failed // 0' 2>/dev/null || echo "0")
 
           # Export to outputs
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
