@@ -1,4 +1,5 @@
 ---
+name: mcp-transport-guide
 description: Understand MCP transport mechanisms - stdio, SSE, HTTP streaming, and custom transports
 ---
 

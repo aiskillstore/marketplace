@@ -1,4 +1,5 @@
 ---
+name: type-driven-design-rust
 description: Type-driven design patterns in Rust - typestate, newtype, builder pattern, and compile-time guarantees
 ---
 

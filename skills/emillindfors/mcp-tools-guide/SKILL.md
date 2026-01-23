@@ -1,4 +1,5 @@
 ---
+name: mcp-tools-guide
 description: Master creating MCP tools with type-safe parameters, automatic schema generation, and best practices
 ---
 

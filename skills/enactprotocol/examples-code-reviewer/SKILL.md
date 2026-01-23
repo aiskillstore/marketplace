@@ -1,6 +1,6 @@
 ---
 enact: "2.0.0"
-name: "examples/code-reviewer"
+name: examples-code-reviewer
 version: "1.0.0"
 description: "AI-powered code review tool that analyzes code for bugs, style issues, and improvements"
 license: "MIT"
