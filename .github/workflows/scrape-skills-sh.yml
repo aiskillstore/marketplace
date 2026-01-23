@@ -74,8 +74,7 @@ jobs:
           echo "   Limit: $LIMIT"
           echo "   Dry run: $DRY_RUN"
 
-          # Build command
-          # Use --summary to output only stats (no skills array) for cleaner CI output
+          # Build command with JSON output and --summary flag
           CMD="$GITHUB_WORKSPACE/skillstore-cli skill scrape-skills-sh --limit $LIMIT --output json --summary"
           if [ "$DRY_RUN" = "true" ]; then
             CMD="$CMD --dry-run"
@@ -84,16 +83,27 @@ jobs:
           # Run and capture output
           OUTPUT=$($CMD 2>&1) || true
 
-          # Display formatted output for logs
-          echo "📊 Results:"
-          echo "$OUTPUT" | jq '.' 2>/dev/null || echo "$OUTPUT"
+          # Parse JSON using herestrings (avoids broken pipe with large output)
+          TOTAL=$(jq -r '.total // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
+          EXISTING=$(jq -r '.existing // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
+          NEW=$(jq -r '.new // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
+          SUBMITTED=$(jq -r '.submitted // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
+          FAILED=$(jq -r '.failed // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
 
-          # Parse JSON output
-          TOTAL=$(echo "$OUTPUT" | jq -r '.total // 0' 2>/dev/null || echo "0")
-          EXISTING=$(echo "$OUTPUT" | jq -r '.existing // 0' 2>/dev/null || echo "0")
-          NEW=$(echo "$OUTPUT" | jq -r '.new // 0' 2>/dev/null || echo "0")
-          SUBMITTED=$(echo "$OUTPUT" | jq -r '.submitted // 0' 2>/dev/null || echo "0")
-          FAILED=$(echo "$OUTPUT" | jq -r '.failed // 0' 2>/dev/null || echo "0")
+          # Display human-readable summary
+          echo ""
+          echo "┌─────────────────────────────────────┐"
+          echo "│         📊 Scrape Summary           │"
+          echo "├─────────────────────────────────────┤"
+          printf "│  Total discovered:  %6s        │\n" "$TOTAL"
+          printf "│  Already exists:    %6s        │\n" "$EXISTING"
+          printf "│  New available:     %6s        │\n" "$NEW"
+          if [ "$DRY_RUN" != "true" ]; then
+            echo "├─────────────────────────────────────┤"
+            printf "│  ✅ Submitted:      %6s        │\n" "$SUBMITTED"
+            printf "│  ❌ Failed:         %6s        │\n" "$FAILED"
+          fi
+          echo "└─────────────────────────────────────┘"
 
           # Export to outputs
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
@@ -103,7 +113,7 @@ jobs:
           echo "failed=$FAILED" >> $GITHUB_OUTPUT
           echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
 
-          # Check for failures
+          # Warn on failures
           if [ "$FAILED" -gt 0 ] && [ "$DRY_RUN" != "true" ]; then
             echo "::warning::$FAILED submissions failed"
           fi
