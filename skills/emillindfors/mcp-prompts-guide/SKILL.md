@@ -1,4 +1,5 @@
 ---
+name: mcp-prompts-guide
 description: Create powerful MCP prompts that guide AI interactions with templates, arguments, and context injection
 ---
 

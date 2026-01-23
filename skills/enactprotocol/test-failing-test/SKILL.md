@@ -1,5 +1,5 @@
 ---
-name: test/failing-test
+name: test-failing-test
 version: 1.0.0
 description: A test tool that fails with visible output
 from: node:20-alpine

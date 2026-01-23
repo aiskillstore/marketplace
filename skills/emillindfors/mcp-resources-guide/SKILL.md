@@ -1,4 +1,5 @@
 ---
+name: mcp-resources-guide
 description: Implement MCP resources that provide data and files to AI assistants - URIs, caching, and streaming
 ---
 

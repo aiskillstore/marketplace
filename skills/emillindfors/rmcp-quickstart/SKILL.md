@@ -1,4 +1,5 @@
 ---
+name: rmcp-quickstart-guide
 description: Quick start guide for creating MCP servers with the rmcp crate - installation, concepts, and first server
 ---
 

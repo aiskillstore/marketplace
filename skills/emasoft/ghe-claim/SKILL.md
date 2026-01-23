@@ -1,40 +1,6 @@
 ---
 name: ghe-claim
-description: |
-  CLAIM a specific GitHub issue to START working on it. Requires an issue number. Performs validation, atomic claim, posts claim comment, and sets up worktree.
-
-  USE THIS SKILL WHEN:
-  - User says "claim issue #N" or "claim #N"
-  - User says "start working on issue #N" or "take issue #N"
-  - User says "I'll work on #N" or "pick up #N"
-  - User wants to BEGIN work on a specific issue number
-  - User selected an issue from available work and wants to claim it
-
-  REQUIRED: An issue number must be specified or identifiable from context.
-
-  DO NOT USE THIS SKILL WHEN:
-  - User just wants to SEE status (use ghe-status)
-  - User is ALREADY working and wants to post update (use ghe-checkpoint)
-  - User wants to CHANGE phases (use ghe-transition)
-  - User wants reports (use ghe-report)
-  - No specific issue number is mentioned
-
-  EXAMPLES:
-  <example>
-  Context: User wants to start work on a specific issue
-  user: "Claim issue #201"
-  assistant: "I'll use ghe-claim to claim issue #201 with the full protocol"
-  </example>
-  <example>
-  Context: User picks from available work
-  user: "I'll take issue #205"
-  assistant: "I'll use ghe-claim to claim issue #205"
-  </example>
-  <example>
-  Context: User wants to start on specific feature
-  user: "Start working on #312"
-  assistant: "I'll use ghe-claim to claim and set up issue #312"
-  </example>
+description: Claim a specific GitHub issue to start working on it. Validates issue state, performs atomic claim, adds in-progress label, posts claim comment, and sets up git worktree. Use when user says "claim issue #N" or "start working on #N".
 ---
 
 ## IRON LAW: User Specifications Are Sacred

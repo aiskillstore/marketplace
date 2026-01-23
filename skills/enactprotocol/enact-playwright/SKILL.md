@@ -1,5 +1,5 @@
 ---
-name: enact/playwright
+name: enact-playwright
 version: 1.0.0
 description: Browser automation tool using Playwright - captures screenshots and extracts content from web pages
 from: mcr.microsoft.com/playwright:v1.50.0-noble

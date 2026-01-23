@@ -1,5 +1,5 @@
 ---
-name: enact/hello-brainfuck
+name: enact-hello-brainfuck
 version: 1.0.0
 description: A greeting tool written entirely in Brainfuck - the esoteric programming language
 enact: "2.0"

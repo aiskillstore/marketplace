@@ -1,4 +1,5 @@
 ---
+name: mcp-best-practices
 description: Production-ready patterns and best practices for MCP servers - architecture, security, performance, and maintenance
 ---
 
