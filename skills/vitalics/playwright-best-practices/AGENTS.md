@@ -1,8 +1,8 @@
 # Playwright TypeScript Best Practices
 
-**Version:** 1.0.0  
+**Version:** 1.0.1  
 **Organization:** vitalics <vitalicset@yandex.ru>  
-**Date:** January 2025
+**Date:** January 2026
 
 ## Abstract
 
@@ -46,6 +46,45 @@ Comprehensive best practices guide for Playwright TypeScript test automation, de
 **Impact: CRITICAL (eliminates 70-90% of flaky tests caused by timing issues)**
 
 Playwright has built-in auto-waiting for all actions and assertions. Manual waits with `setTimeout`, `waitForTimeout`, or arbitrary delays lead to flaky tests that either fail intermittently or waste time waiting longer than necessary. Auto-waiting makes tests both faster and more reliable.
+
+## When to Use
+
+- **Use auto-waiting (always)**: For all standard interactions (clicks, fills, checks), element visibility assertions, text content checks, and navigation
+- **Use explicit waits when**: Waiting for network idle state, specific API responses, custom JavaScript conditions, or third-party scripts to load
+- **Avoid manual timeouts**: Never use `setTimeout`, `waitForTimeout`, or `sleep` unless absolutely necessary for specific edge cases
+- **Required for**: All projects - auto-waiting is fundamental to Playwright's reliability
+
+## Guidelines
+
+### Do
+
+- Rely on built-in auto-waiting for clicks, fills, and other actions
+- Use web-first assertions (toBeVisible, toHaveText) which auto-retry
+- Use `waitForLoadState()` for specific load states (load, domcontentloaded, networkidle)
+- Use `waitForResponse()` or `waitForRequest()` for specific network events
+- Use `waitForFunction()` for custom JavaScript conditions
+- Trust Playwright's actionability checks (visible, enabled, stable, receives events)
+
+### Don't
+
+- Don't use `page.waitForTimeout()` or `setTimeout()` - leads to flaky tests
+- Don't manually wait for selectors before actions - auto-waiting handles it
+- Don't add arbitrary delays "just in case" - makes tests slower
+- Don't wait for `networkidle` unless specifically needed (it's slow)
+- Don't check element existence and then act on it - actions do both
+- Don't over-complicate with manual polling loops - use `waitForFunction()`
+
+### Tool Usage Patterns
+
+- **Auto-waiting actions**: `click()`, `fill()`, `check()`, `selectOption()`, `hover()`, `focus()`, `press()`, `type()`
+- **Auto-retrying assertions**: `expect().toBeVisible()`, `toHaveText()`, `toHaveValue()`, `toBeChecked()`, `toBeEnabled()`
+- **Explicit waits (when needed)**:
+  - `page.waitForLoadState('networkidle')` - Wait for no network activity for 500ms
+  - `page.waitForResponse(urlOrPredicate)` - Wait for specific API response
+  - `page.waitForRequest(urlOrPredicate)` - Wait for specific API request
+  - `page.waitForFunction(pageFunction)` - Wait for custom JavaScript condition
+  - `page.waitForSelector()` - Rarely needed, use actions or assertions instead
+- **Configuration**: Set default timeout in playwright.config.ts with `timeout` option (default: 30s)
 
 **Incorrect (using manual waits):**
 
@@ -100,6 +139,154 @@ test('when explicit waiting is needed', async ({ page }) => {
   
   // ✅ Wait for function to return truthy value
   await page.waitForFunction(() => window.dataLoaded === true);
+});
+```
+
+## Edge Cases and Constraints
+
+### Limitations
+
+- Auto-waiting has a default 30s timeout - very slow operations may need custom timeout
+- `networkidle` waits for 500ms of no network activity, but some SPAs have continuous polling
+- Auto-waiting can't detect custom application loading states (e.g., skeleton loaders)
+- Third-party scripts loading asynchronously may not be covered by standard auto-waiting
+- Canvas or WebGL rendering completion requires custom `waitForFunction()`
+
+### Edge Cases
+
+1. **Infinite loading spinners**: If spinner doesn't disappear due to bug, test times out. Solution: Add assertion that spinner is NOT visible with reasonable timeout.
+
+2. **Elements covered by overlays**: Auto-waiting checks if element receives events, but complex z-index issues may not be caught. Solution: Use `force: true` option cautiously or fix the overlay.
+
+3. **Animations delaying actionability**: Element must be stable for 500ms before action. Very long animations can cause timeouts. Solution: Use `page.emulateMedia({ reducedMotion: 'reduce' })` or disable animations in test environment.
+
+4. **Polling APIs creating "networkidle" race**: If app polls every 2 seconds, `networkidle` never triggers. Solution: Don't use `networkidle` for apps with polling, or use `waitForResponse()` for specific initial load.
+
+5. **Detached elements**: Element removed from DOM while auto-waiting. Solution: Playwright retries and throws "Element is not attached to the DOM" error - fix race condition in test or app.
+
+6. **Shadow DOM elements**: Auto-waiting works but selector must pierce shadow DOM. Solution: Use `>>>` combinator or proper role-based selectors.
+
+### What Breaks If Ignored
+
+- **Using manual waits**: 70-90% more flaky tests, tests wait too long (wasted CI time) or too short (intermittent failures)
+- **Not trusting auto-waiting**: Redundant manual checks, slower tests, more complex code
+- **Using networkidle everywhere**: Tests become 2-5x slower, may never complete for apps with polling
+- **Arbitrary timeouts**: Tests fail on slow CI runners but pass locally (or vice versa)
+
+## Common Mistakes
+
+### Mistake 1: Using waitForTimeout instead of auto-waiting
+
+```typescript
+// ❌ Bad: Arbitrary delay
+test('bad timing', async ({ page }) => {
+  await page.goto('https://example.com');
+  await page.waitForTimeout(5000); // ❌ Why 5 seconds? Too short or too long?
+  await page.click('button');
+});
+```
+
+**Why this is wrong**: If button appears in 1 second, you waste 4 seconds. If it takes 6 seconds, test fails.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Auto-waits for button to be actionable
+test('good auto-wait', async ({ page }) => {
+  await page.goto('https://example.com');
+  await page.click('button'); // Waits automatically until clickable
+});
+```
+
+### Mistake 2: Manual selector check before action
+
+```typescript
+// ❌ Bad: Redundant manual check
+test('redundant check', async ({ page }) => {
+  await page.goto('https://example.com');
+  
+  // ❌ Unnecessary - click() does this automatically
+  await page.waitForSelector('button');
+  await page.click('button');
+});
+```
+
+**Why this is wrong**: Doubles the waiting time and adds unnecessary code.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Just do the action
+test('direct action', async ({ page }) => {
+  await page.goto('https://example.com');
+  await page.click('button'); // Auto-waits for button to exist and be actionable
+});
+```
+
+### Mistake 3: Using networkidle for everything
+
+```typescript
+// ❌ Bad: Waiting for networkidle on every page
+test('slow networkidle', async ({ page }) => {
+  await page.goto('https://example.com');
+  await page.waitForLoadState('networkidle'); // ❌ Slow and often unnecessary
+  
+  await page.click('button');
+  await page.waitForLoadState('networkidle'); // ❌ Even slower
+});
+```
+
+**Why this is wrong**: Waits for 500ms of no network activity - very slow, especially for apps with analytics or polling.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Use specific waits
+test('specific waits', async ({ page }) => {
+  await page.goto('https://example.com');
+  // Default 'load' state is usually sufficient
+  
+  await page.click('button');
+  // Wait for specific response, not all network activity
+  await page.waitForResponse(resp => resp.url().includes('/api/data'));
+  
+  await expect(page.locator('.result')).toBeVisible();
+});
+```
+
+### Mistake 4: Not handling legitimate delays
+
+```typescript
+// ❌ Bad: Expecting instant response from slow operation
+test('timeout on slow API', async ({ page }) => {
+  await page.goto('https://example.com');
+  await page.click('button'); // Triggers 60-second API call
+  
+  // ❌ Default 30s timeout will fail
+  await expect(page.locator('.result')).toBeVisible();
+});
+```
+
+**Why this is wrong**: Some operations legitimately take longer than default timeout.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Increase timeout for specific operation
+test('handle slow operation', async ({ page }) => {
+  await page.goto('https://example.com');
+  await page.click('button');
+  
+  // Increase timeout for this specific assertion
+  await expect(page.locator('.result')).toBeVisible({ timeout: 90000 });
+});
+
+// Or set timeout for entire test
+test('slow test', async ({ page }) => {
+  test.setTimeout(120000); // 2 minutes
+  await page.goto('https://example.com');
+  await page.click('button');
+  await expect(page.locator('.result')).toBeVisible();
 });
 ```
 
@@ -648,6 +835,45 @@ Reference: [Playwright Locators](https://playwright.dev/docs/locators)
 
 Playwright's web-first assertions automatically wait and retry until the expected condition is met. Using generic `expect()` statements without auto-waiting leads to flaky tests that fail intermittently when elements aren't immediately ready. Web-first assertions make tests both more reliable and more concise.
 
+## When to Use
+
+- **Use web-first assertions for**: All DOM-related checks (visibility, text content, attributes, CSS, element state, counts)
+- **Use generic expect for**: API responses, non-DOM JavaScript values, test logic calculations, non-retryable conditions
+- **Always prefer web-first when**: Checking anything rendered in the browser, working with locators, verifying UI state
+- **Required for**: All projects - web-first assertions are fundamental to Playwright test stability
+
+## Guidelines
+
+### Do
+
+- Use `await expect(locator).toBeVisible()` instead of `expect(await locator.isVisible()).toBe(true)`
+- Use `await expect(locator).toHaveText()` instead of `expect(await locator.textContent()).toBe()`
+- Use `await expect(locator).toHaveCount()` for checking number of elements
+- Use `.not.` for negative assertions (e.g., `.not.toBeVisible()`)
+- Use soft assertions (`expect.soft()`) when you want to continue test execution after failures
+- Chain locator filters before assertions (e.g., `locator.filter({ hasText: 'Active' })`)
+- Set custom timeouts for slow operations (`{ timeout: 30000 }`)
+
+### Don't
+
+- Don't extract DOM values and use generic expect - use web-first assertions directly
+- Don't manually wait for selectors before assertions - web-first assertions auto-wait
+- Don't use `isVisible()`, `textContent()`, `getAttribute()` with generic expect
+- Don't forget to `await` web-first assertions - they return promises
+- Don't use web-first assertions for API responses or non-DOM values
+- Don't use overly long timeouts by default - configure reasonable defaults in playwright.config.ts
+
+### Tool Usage Patterns
+
+- **Text assertions**: `toHaveText()`, `toContainText()`, `toHaveValue()`
+- **Visibility assertions**: `toBeVisible()`, `toBeHidden()`, `toBeAttached()`
+- **State assertions**: `toBeEnabled()`, `toBeDisabled()`, `toBeChecked()`, `toBeEditable()`, `toBeFocused()`, `toBeEmpty()`
+- **Attribute assertions**: `toHaveAttribute()`, `toHaveClass()`, `toHaveId()`, `toHaveCSS()`
+- **Count assertions**: `toHaveCount()`
+- **Page assertions**: `toHaveURL()`, `toHaveTitle()`
+- **Screenshot assertions**: `toHaveScreenshot()`
+- **Configuration**: Set default assertion timeout in playwright.config.ts with `expect.timeout` (default: 5s)
+
 **Incorrect (generic expect without waiting):**
 
 ```typescript
@@ -708,6 +934,158 @@ test('good - web-first assertions', async ({ page }) => {
   await expect(page.locator('button')).toBeEnabled();
   await expect(page.locator('input')).toBeEditable();
   await expect(page.locator('input')).toBeFocused();
+});
+```
+
+## Edge Cases and Constraints
+
+### Limitations
+
+- Web-first assertions have default 5s timeout (shorter than action timeout of 30s)
+- Soft assertions collect failures but still fail the test at the end
+- Screenshot assertions may be flaky across different environments (OS, browser versions)
+- `toHaveCSS()` requires exact RGB color values, not color names
+- Regex patterns in assertions must account for whitespace and formatting differences
+
+### Edge Cases
+
+1. **Dynamic text with whitespace**: Text content may have extra spaces, newlines, or formatting. Solution: Use `toContainText()` with trimmed strings or regex patterns.
+
+2. **Multiple elements matching selector**: When locator matches multiple elements, some assertions behave differently. Solution: Use `.first()`, `.last()`, `.nth()`, or filter to narrow down.
+
+3. **Element exists but is covered by overlay**: `toBeVisible()` may pass but element can't be interacted with. Solution: Check z-index or use `toBeInViewport()` in addition to `toBeVisible()`.
+
+4. **Text updates during retry period**: If text changes frequently, assertion may never stabilize. Solution: Use longer timeout or wait for stable state first.
+
+5. **Negative assertions completing immediately**: `.not.toBeVisible()` succeeds as soon as element is hidden, not waiting full timeout. Solution: This is usually desired behavior, but be aware it's not symmetric with positive assertions.
+
+6. **CSS assertions on computed styles**: Some CSS properties are computed and may not match expected values. Solution: Use browser DevTools to verify actual computed style values.
+
+### What Breaks If Ignored
+
+- **Using generic expect for DOM**: 50-70% increase in flaky tests, immediate failures without retries
+- **Not awaiting assertions**: Assertions don't execute, tests pass incorrectly
+- **Manual waits before assertions**: Tests are slower, more complex code, still prone to race conditions
+- **Wrong assertion type**: Using `toHaveText()` when you need `toContainText()` causes failures on whitespace differences
+
+## Common Mistakes
+
+### Mistake 1: Extracting value then using generic expect
+
+```typescript
+// ❌ Bad: Extract value and use generic expect
+test('bad pattern', async ({ page }) => {
+  await page.goto('https://example.com');
+  const text = await page.locator('h1').textContent();
+  expect(text).toBe('Welcome'); // ❌ No retries if element loads slowly
+});
+```
+
+**Why this is wrong**: Extracts value at one point in time, no retries if element isn't ready.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Use web-first assertion
+test('good pattern', async ({ page }) => {
+  await page.goto('https://example.com');
+  await expect(page.locator('h1')).toHaveText('Welcome'); // ✅ Auto-retries
+});
+```
+
+### Mistake 2: Forgetting to await assertions
+
+```typescript
+// ❌ Bad: Missing await
+test('missing await', async ({ page }) => {
+  await page.goto('https://example.com');
+  expect(page.locator('h1')).toHaveText('Welcome'); // ❌ Returns promise, doesn't execute!
+});
+```
+
+**Why this is wrong**: Assertion returns a promise that's never awaited, test passes incorrectly.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Always await web-first assertions
+test('with await', async ({ page }) => {
+  await page.goto('https://example.com');
+  await expect(page.locator('h1')).toHaveText('Welcome'); // ✅ Properly awaited
+});
+```
+
+### Mistake 3: Using web-first assertions for API responses
+
+```typescript
+// ❌ Bad: Web-first assertion for non-DOM
+test('wrong assertion type', async ({ request }) => {
+  const response = await request.get('https://api.example.com/data');
+  await expect(response.status()).toBe(200); // ❌ Unnecessary await, wrong pattern
+});
+```
+
+**Why this is wrong**: Web-first assertions are for DOM elements, API responses don't need retries.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Use generic expect for API responses
+test('correct pattern', async ({ request }) => {
+  const response = await request.get('https://api.example.com/data');
+  expect(response.status()).toBe(200); // ✅ No await needed
+  
+  const data = await response.json();
+  expect(data.items).toHaveLength(10); // ✅ Generic expect for data
+});
+```
+
+### Mistake 4: Not using .not for negative assertions
+
+```typescript
+// ❌ Bad: Extract boolean and check with generic expect
+test('bad negative check', async ({ page }) => {
+  await page.goto('https://example.com');
+  const isVisible = await page.locator('.error').isVisible();
+  expect(isVisible).toBe(false); // ❌ No retries
+});
+```
+
+**Why this is wrong**: Extracts boolean at one point, doesn't retry until condition is met.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Use .not with web-first assertion
+test('good negative check', async ({ page }) => {
+  await page.goto('https://example.com');
+  await expect(page.locator('.error')).not.toBeVisible(); // ✅ Retries
+});
+```
+
+### Mistake 5: Using wrong text assertion method
+
+```typescript
+// ❌ Bad: Using toHaveText with partial text
+test('strict text check', async ({ page }) => {
+  await page.goto('https://example.com');
+  // Element has "  Welcome to our site  " (with spaces)
+  await expect(page.locator('h1')).toHaveText('Welcome'); // ❌ Fails - toHaveText is exact
+});
+```
+
+**Why this is wrong**: `toHaveText()` requires exact match (ignoring outer whitespace), fails on partial matches.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Use toContainText for partial matches
+test('partial text check', async ({ page }) => {
+  await page.goto('https://example.com');
+  await expect(page.locator('h1')).toContainText('Welcome'); // ✅ Partial match OK
+  
+  // Or use toHaveText with exact text
+  await expect(page.locator('h1')).toHaveText('Welcome to our site'); // ✅ Exact match
 });
 ```
 
@@ -1561,6 +1939,75 @@ Reference: [Playwright Test Sharding](https://playwright.dev/docs/test-sharding)
 
 Custom fixtures in Playwright allow you to encapsulate reusable setup and teardown logic, share data across tests, and compose complex test scenarios. By extending Playwright's built-in fixtures, you can create domain-specific test helpers that make tests more readable and maintainable while eliminating code duplication.
 
+## When to Use
+
+- **Use custom fixtures when**: You have setup/teardown logic repeated in 3+ tests, need to share authenticated sessions, require database setup, or manage complex test data
+- **Essential for**: Authentication flows, API client configuration, database connections, test data creation, page object initialization, mock server setup
+- **Consider alternatives when**: Setup is unique to a single test (use inline setup), or fixture would have only one consumer (may be over-engineering)
+- **Required for**: Projects with 20+ tests, multi-user role scenarios, integration tests with external dependencies
+
+## Guidelines
+
+### Do
+
+- Create focused fixtures that handle a single responsibility (auth, database, API)
+- Use worker-scoped fixtures for expensive operations (database connections, authentication state)
+- Compose fixtures by declaring dependencies on other fixtures
+- Provide TypeScript types for all custom fixtures
+- Use automatic fixtures only for truly global setup that every test needs
+- Document fixture cleanup behavior and dependencies
+- Keep fixtures in separate files organized by domain (auth.fixture.ts, db.fixture.ts)
+- Merge multiple fixture files using `.extend()` chains
+
+### Don't
+
+- Don't duplicate setup logic across fixtures - use fixture dependencies instead
+- Don't create fixtures for one-time setup - inline it in the test
+- Don't make fixtures too complex - break them into smaller, composable fixtures
+- Don't forget teardown logic - always clean up resources in fixtures
+- Don't use test-scoped fixtures for expensive operations - use worker-scoped instead
+- Don't ignore type safety - always type your fixture objects
+
+### Tool Usage Patterns
+
+- **Primary tools**: `test.extend<FixtureType>()`, `mergeTests()`, `mergeExpects()` from Playwright
+- **Configuration**: No special playwright.config.ts required, but can configure globalSetup/globalTeardown for extreme cases
+- **Fixture scopes**: 
+  - Test-scoped (default): Fresh instance per test
+  - Worker-scoped (`{ scope: 'worker' }`): Shared across tests in same worker process
+  - Automatic (`{ auto: true }`): Runs for every test even if not explicitly used
+- **Helper patterns**: Use `use()` callback to provide fixture value, setup before `use()`, teardown after `use()`
+
+## Edge Cases and Constraints
+
+### Limitations
+
+- Worker-scoped fixtures cannot depend on test-scoped fixtures
+- Automatic fixtures run even when not used, potentially slowing down tests
+- Fixture dependencies create initialization chains that can be hard to debug if broken
+- Parameterized fixtures require test.use() calls which can be forgotten
+- Storage state sharing across workers requires careful synchronization
+
+### Edge Cases
+
+1. **Circular fixture dependencies**: If fixture A depends on B and B depends on A, Playwright will error. Solution: Refactor to remove circular dependency or merge into single fixture.
+
+2. **Fixture cleanup failures**: If teardown logic throws an error, test still passes but resources leak. Solution: Wrap teardown in try-catch and log failures.
+
+3. **Parallel test isolation**: Test-scoped fixtures run in parallel, can cause race conditions with shared resources. Solution: Use worker-scoped fixtures or ensure resources are truly isolated.
+
+4. **Authentication token expiry**: Worker-scoped auth tokens may expire during long test runs. Solution: Refresh tokens before use or make token fixture test-scoped.
+
+5. **Database transaction rollback**: If database fixture uses transactions, nested fixtures may commit/rollback at wrong times. Solution: Use single transaction per test or careful transaction boundary management.
+
+### What Breaks If Ignored
+
+- **Without fixtures**: 60-80% code duplication across tests, setup logic scattered everywhere
+- **Without proper cleanup**: Resource leaks (database connections, API sessions, file handles)
+- **Without worker scoping**: Slow test execution (re-authenticating 100 times vs once per worker)
+- **Without type safety**: Runtime errors from incorrect fixture usage, no autocomplete
+- **Without composition**: Deeply nested setup code, hard to maintain, impossible to reuse
+
 **Incorrect (duplicated setup in every test):**
 
 ```typescript
@@ -2125,6 +2572,151 @@ test('complete workflow with all fixtures', async ({
 });
 ```
 
+## Common Mistakes
+
+### Mistake 1: Creating fixtures that are too broad
+
+```typescript
+// ❌ Bad: One giant fixture doing everything
+export const test = base.extend({
+  everything: async ({ page }, use) => {
+    // Login
+    await page.goto('/login');
+    await page.fill('[name="email"]', 'user@example.com');
+    // Database setup
+    const db = await connectDB();
+    // API setup
+    const api = new ApiClient();
+    // Mock setup
+    await page.route('**/api/**', route => route.fulfill({ body: '{}' }));
+    
+    await use({ page, db, api }); // ❌ Too many responsibilities
+    
+    await db.close();
+  },
+});
+```
+
+**Why this is wrong**: Violates single responsibility, makes fixture hard to reuse, forces tests to initialize everything even if they only need one part.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Separate, focused fixtures
+export const test = base
+  .extend<{ authenticatedPage: Page }>({ /* auth only */ })
+  .extend<{ database: Database }>({ /* db only */ })
+  .extend<{ apiClient: ApiClient }>({ /* api only */ });
+```
+
+### Mistake 2: Forgetting to clean up resources
+
+```typescript
+// ❌ Bad: No cleanup
+export const test = base.extend({
+  database: async ({}, use) => {
+    const db = await connectDB();
+    await use(db);
+    // ❌ Missing: await db.close();
+  },
+});
+```
+
+**Why this is wrong**: Leaks database connections, file handles, or other resources. With 100 tests, could exhaust connection pool.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Always clean up
+export const test = base.extend({
+  database: async ({}, use) => {
+    const db = await connectDB();
+    await use(db);
+    await db.close(); // ✅ Cleanup
+  },
+});
+```
+
+### Mistake 3: Using test-scoped fixtures for expensive operations
+
+```typescript
+// ❌ Bad: Authenticating for every single test
+export const test = base.extend({
+  authenticatedPage: async ({ page }, use) => {
+    // ❌ This runs for EACH test - very slow
+    await page.goto('/login');
+    await page.fill('[name="email"]', 'user@example.com');
+    await page.fill('[name="password"]', 'password123');
+    await page.click('button[type="submit"]');
+    await use(page);
+  },
+});
+```
+
+**Why this is wrong**: If you have 100 tests, this authenticates 100 times instead of once per worker.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Worker-scoped for expensive operations
+export const test = base.extend<{}, { storageState: string }>({
+  storageState: [async ({ browser }, use) => {
+    // ✅ Runs once per worker
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto('/login');
+    await page.fill('[name="email"]', 'user@example.com');
+    await page.fill('[name="password"]', 'password123');
+    await page.click('button[type="submit"]');
+    const state = await context.storageState();
+    await context.close();
+    await use(JSON.stringify(state));
+  }, { scope: 'worker' }],
+  
+  authenticatedPage: async ({ page, storageState }, use) => {
+    await page.context().addCookies(JSON.parse(storageState).cookies);
+    await use(page);
+  },
+});
+```
+
+### Mistake 4: Not typing fixtures properly
+
+```typescript
+// ❌ Bad: No types, using 'any'
+export const test = base.extend({
+  myFixture: async ({}, use) => {
+    const data: any = { foo: 'bar' }; // ❌ No type safety
+    await use(data);
+  },
+});
+```
+
+**Why this is wrong**: Loses TypeScript benefits, no autocomplete, runtime errors.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Properly typed
+type MyFixture = {
+  foo: string;
+  bar: number;
+};
+
+type MyFixtures = {
+  myFixture: MyFixture;
+};
+
+export const test = base.extend<MyFixtures>({
+  myFixture: async ({}, use) => {
+    const data: MyFixture = { foo: 'bar', bar: 123 };
+    await use(data);
+  },
+});
+```
+
+## Benefits and Best Practices
+
 Benefits of custom fixtures:
 - **Eliminate duplication**: Write setup/teardown logic once, reuse everywhere
 - **Composability**: Combine multiple fixtures for complex scenarios
@@ -2558,6 +3150,77 @@ Reference: [Playwright Test Steps](https://playwright.dev/docs/api/class-test#te
 
 API mocking allows you to intercept and mock network requests, making tests faster, more reliable, and independent of external services. This is especially valuable for testing error scenarios, edge cases, and reducing flakiness caused by network issues or third-party API dependencies.
 
+## When to Use
+
+- **Use API mocking when**: Testing UI error handling, loading states, edge cases, or when depending on third-party/paid/rate-limited APIs
+- **Essential for**: Unit/component-level UI tests, testing error scenarios, offline development, CI/CD fast feedback loops
+- **Consider real APIs when**: Running integration tests, E2E smoke tests, verifying actual API contracts, performance testing with realistic data
+- **Required for**: Projects with external dependencies, third-party APIs, or when testing error handling is critical
+
+## Guidelines
+
+### Do
+
+- Mock APIs for fast unit/component tests, use real APIs for critical integration tests
+- Keep mock data realistic and synchronized with actual API responses
+- Test both success and failure scenarios (4xx, 5xx errors, timeouts, network failures)
+- Use fixtures for reusable mock patterns shared across multiple tests
+- Document which endpoints are mocked in each test
+- Version mock responses when API versions change
+- Use `route.continue()` to let certain requests through while mocking others
+
+### Don't
+
+- Don't mock everything - some tests should verify real API integration
+- Don't use stale mock data that doesn't match current API schema
+- Don't forget to test error scenarios (500 errors, timeouts, malformed responses)
+- Don't create overly complex mocks - keep them simple and maintainable
+- Don't mock internal application APIs in E2E tests - only external dependencies
+- Don't forget to remove mocks after tests (`page.unroute()` if needed)
+
+### Tool Usage Patterns
+
+- **Primary tools**: `page.route(pattern, handler)`, `route.fulfill()`, `route.continue()`, `route.abort()`, `route.fetch()`
+- **Configuration**: Set `baseURL` in playwright.config.ts to simplify route patterns
+- **Mock patterns**:
+  - `route.fulfill({ status, body })` - Return mock response
+  - `route.continue()` - Let request proceed to real server
+  - `route.abort('failed')` - Simulate network failure
+  - `route.fetch()` - Fetch real response, then modify it
+- **Helper utilities**: Create fixture-based mocks for reusability, use helper functions to generate mock data
+
+## Edge Cases and Constraints
+
+### Limitations
+
+- Mocks don't verify actual API behavior - real API might change without tests failing
+- Mocked responses may drift from real API schema over time
+- Complex authentication flows (OAuth, tokens) can be difficult to mock accurately
+- WebSocket and Server-Sent Events (SSE) mocking is more complex than HTTP
+- Service workers can interfere with route mocking if not properly handled
+- CORS and authentication headers must be mocked correctly or requests may fail
+
+### Edge Cases
+
+1. **Concurrent requests to same endpoint**: Multiple parallel requests may need different responses. Solution: Track request count or use request body/headers to differentiate.
+
+2. **Mock timing with parallel navigation**: If page navigates before mock is set up, requests go through unmocked. Solution: Set up mocks before `page.goto()` or use `page.route()` with `{ times: 1 }`.
+
+3. **Mock cleanup between tests**: Mocks from one test may affect subsequent tests. Solution: Mocks are automatically cleared when page context is destroyed, or explicitly use `page.unroute()`.
+
+4. **Wildcard route patterns conflicting**: Multiple `page.route()` patterns may match same request. Solution: Playwright uses last-registered route first, be careful with wildcard patterns.
+
+5. **GraphQL endpoint mocking**: Single endpoint with different operations. Solution: Parse request body to determine operation and return appropriate mock.
+
+6. **File upload mocking**: Multipart form data requires special handling. Solution: Use `route.fetch()` to get real request, modify, and fulfill.
+
+### What Breaks If Ignored
+
+- **Without mocking external dependencies**: Tests become flaky (network issues), slow (real API latency), expensive (API costs), and fail when external services are down
+- **Without testing error scenarios**: Production bugs when APIs fail, poor user experience during errors
+- **Without mock maintenance**: Tests pass with stale mocks while real API has breaking changes
+- **Over-mocking everything**: Miss integration bugs between frontend and backend, false confidence
+
 **Incorrect (relying on real API calls):**
 
 ```typescript
@@ -2858,6 +3521,203 @@ test('handle connection failures', async ({ page }) => {
 });
 ```
 
+## Common Mistakes
+
+### Mistake 1: Setting up mocks after navigation
+
+```typescript
+// ❌ Bad: Mock is set up AFTER page loads
+test('bad mock timing', async ({ page }) => {
+  await page.goto('https://example.com/products'); // Requests already fired!
+  
+  await page.route('**/api/products', async route => {
+    await route.fulfill({ body: '[]' }); // Too late - request already completed
+  });
+  
+  // Test will use real API data, not mock
+});
+```
+
+**Why this is wrong**: By the time the mock is registered, the page has already loaded and API requests have completed.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Mock BEFORE navigation
+test('correct mock timing', async ({ page }) => {
+  // Set up mock first
+  await page.route('**/api/products', async route => {
+    await route.fulfill({ 
+      status: 200,
+      body: JSON.stringify({ products: [] })
+    });
+  });
+  
+  // Then navigate
+  await page.goto('https://example.com/products');
+  // Mock is active and intercepts requests
+});
+```
+
+### Mistake 2: Not testing error scenarios
+
+```typescript
+// ❌ Bad: Only test success case
+test('only happy path', async ({ page }) => {
+  await page.route('**/api/products', async route => {
+    await route.fulfill({
+      status: 200,
+      body: JSON.stringify({ products: [/* data */] })
+    });
+  });
+  
+  await page.goto('/products');
+  // What happens if API returns 500? We never test that!
+});
+```
+
+**Why this is wrong**: Production will experience API errors, but tests don't verify error handling works.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Test both success and failure
+test('success case', async ({ page }) => {
+  await page.route('**/api/products', async route => {
+    await route.fulfill({ status: 200, body: JSON.stringify({ products: [] }) });
+  });
+  await page.goto('/products');
+  await expect(page.locator('.product-list')).toBeVisible();
+});
+
+test('error case - 500', async ({ page }) => {
+  await page.route('**/api/products', async route => {
+    await route.fulfill({ 
+      status: 500, 
+      body: JSON.stringify({ error: 'Internal Server Error' })
+    });
+  });
+  await page.goto('/products');
+  await expect(page.locator('.error-message')).toContainText('Failed to load');
+});
+
+test('error case - timeout', async ({ page }) => {
+  await page.route('**/api/products', async route => {
+    await route.abort('timedout');
+  });
+  await page.goto('/products');
+  await expect(page.locator('.error-message')).toContainText('Request timed out');
+});
+```
+
+### Mistake 3: Using stale mock data
+
+```typescript
+// ❌ Bad: Mock data doesn't match current API
+test('stale mock data', async ({ page }) => {
+  await page.route('**/api/user', async route => {
+    await route.fulfill({
+      status: 200,
+      body: JSON.stringify({
+        id: 1,
+        name: 'John Doe',
+        // ❌ Real API now returns 'email', 'role', 'avatar'
+        // but mock is outdated and missing these fields
+      })
+    });
+  });
+  
+  await page.goto('/profile');
+  // May fail or show incorrect UI because mock is incomplete
+});
+```
+
+**Why this is wrong**: Mock data drifts from real API schema, tests pass but production breaks.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Keep mock data synchronized with API schema
+// api-mocks/user.mock.ts
+export const mockUserResponse = {
+  id: 1,
+  name: 'John Doe',
+  email: 'john@example.com',
+  role: 'admin',
+  avatar: 'https://example.com/avatar.jpg',
+  createdAt: '2024-01-01T00:00:00Z'
+  // Update this when API schema changes
+};
+
+// tests/profile.spec.ts
+import { mockUserResponse } from '../api-mocks/user.mock';
+
+test('current mock data', async ({ page }) => {
+  await page.route('**/api/user', async route => {
+    await route.fulfill({
+      status: 200,
+      body: JSON.stringify(mockUserResponse)
+    });
+  });
+  
+  await page.goto('/profile');
+  await expect(page.locator('.email')).toHaveText(mockUserResponse.email);
+});
+```
+
+### Mistake 4: Overly broad route patterns
+
+```typescript
+// ❌ Bad: Too broad, mocks everything
+test('broad pattern', async ({ page }) => {
+  await page.route('**/*', async route => {
+    await route.fulfill({ status: 200, body: '{}' });
+    // ❌ This mocks EVERYTHING including images, fonts, CSS, analytics
+  });
+  
+  await page.goto('/products');
+  // Nothing loads correctly - too much is mocked!
+});
+```
+
+**Why this is wrong**: Mocking too broadly breaks unrelated functionality and makes tests unrealistic.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Specific patterns for what you need
+test('specific patterns', async ({ page }) => {
+  // Only mock specific API endpoints
+  await page.route('**/api/products', async route => {
+    await route.fulfill({ status: 200, body: JSON.stringify({ products: [] }) });
+  });
+  
+  await page.route('**/api/user', async route => {
+    await route.fulfill({ status: 200, body: JSON.stringify({ id: 1, name: 'John' }) });
+  });
+  
+  // Everything else (images, fonts, CSS) loads normally
+  await page.goto('/products');
+});
+
+// Or use conditional logic
+test('conditional mocking', async ({ page }) => {
+  await page.route('**/*', async route => {
+    const url = route.request().url();
+    
+    if (url.includes('/api/')) {
+      // Mock only API calls
+      await route.fulfill({ status: 200, body: '{}' });
+    } else {
+      // Let everything else through
+      await route.continue();
+    }
+  });
+});
+```
+
+## Benefits and Best Practices
+
 Benefits of API mocking:
 - **Speed**: Tests run 10-100x faster without real network calls
 - **Reliability**: No flakiness from network issues or API downtime
@@ -2909,4 +3769,4 @@ Reference: [Playwright Network Mocking](https://playwright.dev/docs/network)
 ---
 
 *This document was automatically generated from individual rule files.*  
-*Last updated: 2026-01-16*
+*Last updated: 2026-01-23*

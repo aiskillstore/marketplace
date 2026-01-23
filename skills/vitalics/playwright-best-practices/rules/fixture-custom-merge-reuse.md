@@ -11,6 +11,75 @@ tags: fixtures, reusability, custom-fixtures, merge, test-organization
 
 Custom fixtures in Playwright allow you to encapsulate reusable setup and teardown logic, share data across tests, and compose complex test scenarios. By extending Playwright's built-in fixtures, you can create domain-specific test helpers that make tests more readable and maintainable while eliminating code duplication.
 
+## When to Use
+
+- **Use custom fixtures when**: You have setup/teardown logic repeated in 3+ tests, need to share authenticated sessions, require database setup, or manage complex test data
+- **Essential for**: Authentication flows, API client configuration, database connections, test data creation, page object initialization, mock server setup
+- **Consider alternatives when**: Setup is unique to a single test (use inline setup), or fixture would have only one consumer (may be over-engineering)
+- **Required for**: Projects with 20+ tests, multi-user role scenarios, integration tests with external dependencies
+
+## Guidelines
+
+### Do
+
+- Create focused fixtures that handle a single responsibility (auth, database, API)
+- Use worker-scoped fixtures for expensive operations (database connections, authentication state)
+- Compose fixtures by declaring dependencies on other fixtures
+- Provide TypeScript types for all custom fixtures
+- Use automatic fixtures only for truly global setup that every test needs
+- Document fixture cleanup behavior and dependencies
+- Keep fixtures in separate files organized by domain (auth.fixture.ts, db.fixture.ts)
+- Merge multiple fixture files using `.extend()` chains
+
+### Don't
+
+- Don't duplicate setup logic across fixtures - use fixture dependencies instead
+- Don't create fixtures for one-time setup - inline it in the test
+- Don't make fixtures too complex - break them into smaller, composable fixtures
+- Don't forget teardown logic - always clean up resources in fixtures
+- Don't use test-scoped fixtures for expensive operations - use worker-scoped instead
+- Don't ignore type safety - always type your fixture objects
+
+### Tool Usage Patterns
+
+- **Primary tools**: `test.extend<FixtureType>()`, `mergeTests()`, `mergeExpects()` from Playwright
+- **Configuration**: No special playwright.config.ts required, but can configure globalSetup/globalTeardown for extreme cases
+- **Fixture scopes**: 
+  - Test-scoped (default): Fresh instance per test
+  - Worker-scoped (`{ scope: 'worker' }`): Shared across tests in same worker process
+  - Automatic (`{ auto: true }`): Runs for every test even if not explicitly used
+- **Helper patterns**: Use `use()` callback to provide fixture value, setup before `use()`, teardown after `use()`
+
+## Edge Cases and Constraints
+
+### Limitations
+
+- Worker-scoped fixtures cannot depend on test-scoped fixtures
+- Automatic fixtures run even when not used, potentially slowing down tests
+- Fixture dependencies create initialization chains that can be hard to debug if broken
+- Parameterized fixtures require test.use() calls which can be forgotten
+- Storage state sharing across workers requires careful synchronization
+
+### Edge Cases
+
+1. **Circular fixture dependencies**: If fixture A depends on B and B depends on A, Playwright will error. Solution: Refactor to remove circular dependency or merge into single fixture.
+
+2. **Fixture cleanup failures**: If teardown logic throws an error, test still passes but resources leak. Solution: Wrap teardown in try-catch and log failures.
+
+3. **Parallel test isolation**: Test-scoped fixtures run in parallel, can cause race conditions with shared resources. Solution: Use worker-scoped fixtures or ensure resources are truly isolated.
+
+4. **Authentication token expiry**: Worker-scoped auth tokens may expire during long test runs. Solution: Refresh tokens before use or make token fixture test-scoped.
+
+5. **Database transaction rollback**: If database fixture uses transactions, nested fixtures may commit/rollback at wrong times. Solution: Use single transaction per test or careful transaction boundary management.
+
+### What Breaks If Ignored
+
+- **Without fixtures**: 60-80% code duplication across tests, setup logic scattered everywhere
+- **Without proper cleanup**: Resource leaks (database connections, API sessions, file handles)
+- **Without worker scoping**: Slow test execution (re-authenticating 100 times vs once per worker)
+- **Without type safety**: Runtime errors from incorrect fixture usage, no autocomplete
+- **Without composition**: Deeply nested setup code, hard to maintain, impossible to reuse
+
 **Incorrect (duplicated setup in every test):**
 
 ```typescript
@@ -574,6 +643,151 @@ test('complete workflow with all fixtures', async ({
   // All fixtures are automatically cleaned up after test
 });
 ```
+
+## Common Mistakes
+
+### Mistake 1: Creating fixtures that are too broad
+
+```typescript
+// ❌ Bad: One giant fixture doing everything
+export const test = base.extend({
+  everything: async ({ page }, use) => {
+    // Login
+    await page.goto('/login');
+    await page.fill('[name="email"]', 'user@example.com');
+    // Database setup
+    const db = await connectDB();
+    // API setup
+    const api = new ApiClient();
+    // Mock setup
+    await page.route('**/api/**', route => route.fulfill({ body: '{}' }));
+    
+    await use({ page, db, api }); // ❌ Too many responsibilities
+    
+    await db.close();
+  },
+});
+```
+
+**Why this is wrong**: Violates single responsibility, makes fixture hard to reuse, forces tests to initialize everything even if they only need one part.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Separate, focused fixtures
+export const test = base
+  .extend<{ authenticatedPage: Page }>({ /* auth only */ })
+  .extend<{ database: Database }>({ /* db only */ })
+  .extend<{ apiClient: ApiClient }>({ /* api only */ });
+```
+
+### Mistake 2: Forgetting to clean up resources
+
+```typescript
+// ❌ Bad: No cleanup
+export const test = base.extend({
+  database: async ({}, use) => {
+    const db = await connectDB();
+    await use(db);
+    // ❌ Missing: await db.close();
+  },
+});
+```
+
+**Why this is wrong**: Leaks database connections, file handles, or other resources. With 100 tests, could exhaust connection pool.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Always clean up
+export const test = base.extend({
+  database: async ({}, use) => {
+    const db = await connectDB();
+    await use(db);
+    await db.close(); // ✅ Cleanup
+  },
+});
+```
+
+### Mistake 3: Using test-scoped fixtures for expensive operations
+
+```typescript
+// ❌ Bad: Authenticating for every single test
+export const test = base.extend({
+  authenticatedPage: async ({ page }, use) => {
+    // ❌ This runs for EACH test - very slow
+    await page.goto('/login');
+    await page.fill('[name="email"]', 'user@example.com');
+    await page.fill('[name="password"]', 'password123');
+    await page.click('button[type="submit"]');
+    await use(page);
+  },
+});
+```
+
+**Why this is wrong**: If you have 100 tests, this authenticates 100 times instead of once per worker.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Worker-scoped for expensive operations
+export const test = base.extend<{}, { storageState: string }>({
+  storageState: [async ({ browser }, use) => {
+    // ✅ Runs once per worker
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto('/login');
+    await page.fill('[name="email"]', 'user@example.com');
+    await page.fill('[name="password"]', 'password123');
+    await page.click('button[type="submit"]');
+    const state = await context.storageState();
+    await context.close();
+    await use(JSON.stringify(state));
+  }, { scope: 'worker' }],
+  
+  authenticatedPage: async ({ page, storageState }, use) => {
+    await page.context().addCookies(JSON.parse(storageState).cookies);
+    await use(page);
+  },
+});
+```
+
+### Mistake 4: Not typing fixtures properly
+
+```typescript
+// ❌ Bad: No types, using 'any'
+export const test = base.extend({
+  myFixture: async ({}, use) => {
+    const data: any = { foo: 'bar' }; // ❌ No type safety
+    await use(data);
+  },
+});
+```
+
+**Why this is wrong**: Loses TypeScript benefits, no autocomplete, runtime errors.
+
+**How to fix**:
+
+```typescript
+// ✅ Good: Properly typed
+type MyFixture = {
+  foo: string;
+  bar: number;
+};
+
+type MyFixtures = {
+  myFixture: MyFixture;
+};
+
+export const test = base.extend<MyFixtures>({
+  myFixture: async ({}, use) => {
+    const data: MyFixture = { foo: 'bar', bar: 123 };
+    await use(data);
+  },
+});
+```
+
+## Benefits and Best Practices
 
 Benefits of custom fixtures:
 - **Eliminate duplication**: Write setup/teardown logic once, reuse everywhere
