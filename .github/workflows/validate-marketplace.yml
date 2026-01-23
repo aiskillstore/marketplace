@@ -333,6 +333,76 @@ jobs:
             console.log('All SKILL.md files are now valid after auto-fix');
           "
 
+      - name: Create PR for SKILL.md fixes
+        if: steps.validate-skill-md.outcome == 'failure' && env.AUTO_FIX_ENABLED == 'true' && steps.revalidate-skill-md.outcome == 'success'
+        working-directory: ${{ env.WORK_DIR }}
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          # Check if there are any SKILL.md changes
+          if git diff --quiet -- "*.md"; then
+            echo "No SKILL.md changes to commit"
+            exit 0
+          fi
+
+          # Configure git remote URL with authentication token
+          echo "🔑 Configuring git authentication..."
+          git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
+
+          # Create a new branch for the fixes
+          BRANCH_NAME="fix/skill-md-validation-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH_NAME"
+
+          # Stage all SKILL.md changes
+          git add "*/SKILL.md" "**/SKILL.md"
+
+          # Count changed files
+          CHANGED_COUNT=$(git diff --cached --name-only | wc -l | tr -d ' ')
+
+          # Commit changes
+          git commit -m "fix: auto-fix SKILL.md validation errors
+
+          AI-powered fix applied by GitHub Actions workflow.
+          Fixed $CHANGED_COUNT file(s).
+
+          Co-Authored-By: Claude <noreply@anthropic.com>"
+
+          # Push the branch
+          git push origin "$BRANCH_NAME"
+
+          # Create PR
+          PR_URL=$(gh pr create \
+            --title "fix: Auto-fix SKILL.md validation errors ($CHANGED_COUNT files)" \
+            --body "## Summary
+
+          AI-powered auto-fix for SKILL.md validation errors.
+
+          | Metric | Value |
+          |--------|-------|
+          | Files Fixed | $CHANGED_COUNT |
+          | Triggered By | ${{ github.event_name }} |
+
+          ### Common Fixes Applied
+          - Added missing YAML frontmatter
+          - Fixed \`name\` field format (lowercase alphanumeric with hyphens)
+          - Added missing \`description\` field
+          - Truncated overly long descriptions
+
+          ### After Merge
+          The \`sync-to-supabase.yml\` workflow will automatically update the database.
+
+          ---
+          *Automated fix by validate-marketplace.yml*" \
+            --base main \
+            --head "$BRANCH_NAME")
+
+          echo "::notice::Created PR for SKILL.md fixes: $PR_URL"
+          echo "🔗 PR Created: $PR_URL"
+
       - name: Fail if SKILL.md errors remain
         if: steps.validate-skill-md.outcome == 'failure' && (env.AUTO_FIX_ENABLED != 'true' || steps.revalidate-skill-md.outcome == 'failure')
         run: |
@@ -555,10 +625,29 @@ jobs:
           echo "## Validation Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
+          # SKILL.md validation results
+          echo "### SKILL.md Validation" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.validate-skill-md.outcome }}" == "success" ]; then
+            echo "✅ All SKILL.md files passed validation" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ steps.revalidate-skill-md.outcome }}" == "success" ]; then
+            echo "🔧 SKILL.md validation errors were automatically fixed by AI" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "A PR has been created with the fixes. Please review and merge." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ SKILL.md validation failed" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ env.AUTO_FIX_ENABLED }}" == "true" ]; then
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Auto-fix was attempted but some errors could not be resolved automatically." >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # skill-report.json validation results
+          echo "### skill-report.json Validation" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.validate-skill-reports.outcome }}" == "success" ]; then
             echo "✅ All skill-report.json files passed validation" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ steps.revalidate.outcome }}" == "success" ]; then
-            echo "🔧 Validation errors were automatically fixed by AI" >> $GITHUB_STEP_SUMMARY
+            echo "🔧 skill-report.json validation errors were automatically fixed by AI" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             if [ "${{ github.event_name }}" == "pull_request" ]; then
               echo "The fixes have been committed to this PR. Please review the changes." >> $GITHUB_STEP_SUMMARY
@@ -566,7 +655,7 @@ jobs:
               echo "The fixes have been committed directly to ${{ github.ref_name }}." >> $GITHUB_STEP_SUMMARY
             fi
           else
-            echo "❌ Validation failed" >> $GITHUB_STEP_SUMMARY
+            echo "❌ skill-report.json validation failed" >> $GITHUB_STEP_SUMMARY
             if [ "${{ env.AUTO_FIX_ENABLED }}" == "true" ]; then
               echo "" >> $GITHUB_STEP_SUMMARY
               echo "Auto-fix was attempted but some errors could not be resolved automatically." >> $GITHUB_STEP_SUMMARY
