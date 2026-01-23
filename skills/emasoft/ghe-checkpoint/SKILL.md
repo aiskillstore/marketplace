@@ -4,7 +4,9 @@ description: |
   POST a progress checkpoint to the CURRENTLY ACTIVE thread. Saves work state without changing phases. Requires an already-claimed in-progress thread.
 
   USE THIS SKILL WHEN:
-  - User says "post a checkpoint", "save my progress", or "save checkpoint"
+  - User says "post a checkpoint" or "save my progress"
+  - User says "update the issue" or "record current state"
+  - User says "checkpoint" or "save checkpoint"
   - User completed a milestone and wants to record it
   - User encountered a blocker and wants to document it
   - User is about to take a break and wants to save state
@@ -16,12 +18,25 @@ description: |
   - User wants to SEE status (use ghe-status)
   - User wants to START work on new issue (use ghe-claim)
   - User wants to FINISH current phase and MOVE to next (use ghe-transition)
+  - User wants reports (use ghe-report)
   - No active thread exists (must claim first)
 
   EXAMPLES:
-  - User: "Post a checkpoint" → Use ghe-checkpoint
-  - User: "Save my progress, I finished the authentication module" → Use ghe-checkpoint
-  - User: "I need to stop for now, save my work" → Use ghe-checkpoint
+  <example>
+  Context: User working on DEV wants to save progress
+  user: "Post a checkpoint"
+  assistant: "I'll use ghe-checkpoint to post your current progress to the active thread"
+  </example>
+  <example>
+  Context: User completed a milestone
+  user: "Save my progress, I finished the authentication module"
+  assistant: "I'll use ghe-checkpoint to record this milestone"
+  </example>
+  <example>
+  Context: User taking a break
+  user: "I need to stop for now, save my work"
+  assistant: "I'll use ghe-checkpoint to save your current state before you go"
+  </example>
 ---
 
 ## IRON LAW: User Specifications Are Sacred
