@@ -91,6 +91,7 @@ jobs:
       owner: ${{ steps.clone.outputs.owner }}
       repo: ${{ steps.clone.outputs.repo }}
       branch: ${{ steps.clone.outputs.branch }}
+      github_url: ${{ steps.clone.outputs.github_url }}
     steps:
       - name: Notify skillstore - Processing started
         if: inputs.is_manual_approval == false
@@ -158,6 +159,10 @@ jobs:
           git clone --depth 1 --branch "$BRANCH" "https://github.com/$OWNER/$REPO.git" "$SOURCE_DIR"
 
           echo "source_dir=$SOURCE_DIR" >> $GITHUB_OUTPUT
+
+          # Output canonical github_url (without tree path)
+          CANONICAL_URL="https://github.com/$OWNER/$REPO"
+          echo "github_url=$CANONICAL_URL" >> $GITHUB_OUTPUT
           echo "📦 Cloned $OWNER/$REPO (branch: $BRANCH)"
 
       - name: Discover skills (fast - no AI)
@@ -351,7 +356,7 @@ jobs:
 
           # First attempt
           set +e
-          "$GITHUB_WORKSPACE/skillstore-cli" skill process "${{ inputs.github_url }}" \
+          "$GITHUB_WORKSPACE/skillstore-cli" skill process "${{ needs.discover-and-plan.outputs.github_url }}" \
             --slugs "$SLUGS" \
             --output . \
             --marketplace-repo "${{ github.repository }}" \
@@ -379,7 +384,7 @@ jobs:
             echo "🔄 Retrying $RETRY_COUNT failed skill(s): $FAILED_SLUGS"
             sleep 10
 
-            "$GITHUB_WORKSPACE/skillstore-cli" skill process "${{ inputs.github_url }}" \
+            "$GITHUB_WORKSPACE/skillstore-cli" skill process "${{ needs.discover-and-plan.outputs.github_url }}" \
               --slugs "$FAILED_SLUGS" \
               --output . \
               --marketplace-repo "${{ github.repository }}" \
@@ -544,7 +549,7 @@ jobs:
           echo "highest_risk=$HIGHEST_RISK" >> $GITHUB_OUTPUT
           echo "total_errors=$TOTAL_ERRORS" >> $GITHUB_OUTPUT
 
-          REPO_NAME=$(echo "${{ inputs.github_url }}" | sed -E 's|.*/([^/]+)/?$|\1|' | sed 's/\.git$//')
+          REPO_NAME="${{ needs.discover-and-plan.outputs.repo }}"
           BRANCH_NAME="submission/${REPO_NAME}-${{ inputs.submission_id }}"
           IS_SHARDED="${{ needs.discover-and-plan.outputs.is_sharded }}"
           SHARD_COUNT="${{ needs.discover-and-plan.outputs.shard_count }}"
