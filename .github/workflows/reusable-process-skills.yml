@@ -171,6 +171,33 @@ jobs:
           if [ -n "$SKILL_PATH" ]; then
             SEARCH_DIR="$SOURCE_DIR/$SKILL_PATH"
             echo "📍 Searching within: $SKILL_PATH"
+
+            # FALLBACK: If specified path doesn't exist OR has no SKILL.md,
+            # search entire repo for matching folder name
+            if [ ! -d "$SEARCH_DIR" ] || [ -z "$(find "$SEARCH_DIR" -name "SKILL.md" -type f 2>/dev/null | head -1)" ]; then
+              FOLDER_NAME=$(basename "$SKILL_PATH")
+              echo "⚠️ No SKILL.md found at $SKILL_PATH, searching for folder '$FOLDER_NAME' in repository..."
+
+              # Find all directories matching the folder name that contain SKILL.md
+              FOUND_PATH=""
+              while IFS= read -r skill_md; do
+                SKILL_DIR=$(dirname "$skill_md")
+                DIR_NAME=$(basename "$SKILL_DIR")
+                if [ "$DIR_NAME" = "$FOLDER_NAME" ]; then
+                  FOUND_PATH="$SKILL_DIR"
+                  break
+                fi
+              done < <(find "$SOURCE_DIR" -name "SKILL.md" -type f ! -path "*/node_modules/*" ! -path "*/.git/*" 2>/dev/null)
+
+              if [ -n "$FOUND_PATH" ]; then
+                RELATIVE_PATH="${FOUND_PATH#$SOURCE_DIR/}"
+                echo "✅ Found skill at: $RELATIVE_PATH"
+                SEARCH_DIR="$FOUND_PATH"
+              else
+                echo "❌ Could not find folder '$FOLDER_NAME' with SKILL.md in repository"
+                SEARCH_DIR="$SOURCE_DIR/$SKILL_PATH"  # Keep original (will find 0)
+              fi
+            fi
           else
             SEARCH_DIR="$SOURCE_DIR"
             echo "🔍 Searching entire repository"
