@@ -1,0 +1,156 @@
+# Scrape Skills.sh - Daily Discovery Workflow
+#
+# Automatically discovers and submits new skills from skills.sh
+# Runs daily at 08:00 UTC (16:00 Beijing Time)
+#
+# Features:
+#   - Scrapes skills.sh for new skills not yet in skillstore
+#   - Submits up to 10 unique skills per run
+#   - Triggers process-submission workflow for each skill
+#   - Provides detailed summary of discovered vs submitted skills
+
+name: Scrape Skills.sh
+
+on:
+  schedule:
+    # Run daily at 08:00 UTC (16:00 Beijing Time)
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Maximum skills to submit (default: 10)'
+        required: false
+        type: number
+        default: 10
+      dry_run:
+        description: 'Preview only, do not submit'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CLI_VERSION: 'latest'
+
+jobs:
+  scrape:
+    name: Scrape & Submit Skills
+    runs-on: self-hosted
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout skillstore
+        uses: actions/checkout@v4
+        with:
+          repository: aiskillstore/skillstore
+          ref: main
+          path: skillstore
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        working-directory: skillstore
+        run: pnpm install --frozen-lockfile
+
+      - name: Run scrape-skills-sh
+        id: scrape
+        working-directory: skillstore
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          GITHUB_APP_ID: ${{ secrets.APP_ID }}
+          GITHUB_APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          GITHUB_APP_INSTALLATION_ID: ${{ secrets.APP_INSTALLATION_ID }}
+        run: |
+          LIMIT="${{ inputs.limit || 10 }}"
+          DRY_RUN="${{ inputs.dry_run || false }}"
+
+          echo "📡 Scraping skills.sh..."
+          echo "   Limit: $LIMIT"
+          echo "   Dry run: $DRY_RUN"
+
+          # Build command
+          CMD="pnpm cli skill scrape-skills-sh --limit $LIMIT --output json"
+          if [ "$DRY_RUN" = "true" ]; then
+            CMD="$CMD --dry-run"
+          fi
+
+          # Run and capture output
+          OUTPUT=$($CMD 2>&1) || true
+          echo "$OUTPUT"
+
+          # Parse JSON output
+          TOTAL=$(echo "$OUTPUT" | jq -r '.total // 0')
+          EXISTING=$(echo "$OUTPUT" | jq -r '.existing // 0')
+          NEW=$(echo "$OUTPUT" | jq -r '.new // 0')
+          SUBMITTED=$(echo "$OUTPUT" | jq -r '.submitted // 0')
+          FAILED=$(echo "$OUTPUT" | jq -r '.failed // 0')
+
+          # Export to outputs
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "existing=$EXISTING" >> $GITHUB_OUTPUT
+          echo "new=$NEW" >> $GITHUB_OUTPUT
+          echo "submitted=$SUBMITTED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
+
+          # Check for failures
+          if [ "$FAILED" -gt 0 ] && [ "$DRY_RUN" != "true" ]; then
+            echo "::warning::$FAILED submissions failed"
+          fi
+
+      - name: Summary
+        if: always()
+        env:
+          TOTAL: ${{ steps.scrape.outputs.total }}
+          EXISTING: ${{ steps.scrape.outputs.existing }}
+          NEW: ${{ steps.scrape.outputs.new }}
+          SUBMITTED: ${{ steps.scrape.outputs.submitted }}
+          FAILED: ${{ steps.scrape.outputs.failed }}
+          DRY_RUN: ${{ steps.scrape.outputs.dry_run }}
+        run: |
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          ## Skills.sh Scrape Summary
+
+          **Run Type**: ${{ github.event_name == 'schedule' && 'Scheduled (Daily)' || 'Manual' }}
+          **Dry Run**: ${DRY_RUN}
+          **Limit**: ${{ inputs.limit || 10 }}
+
+          ### Statistics
+
+          | Metric | Count |
+          |--------|-------|
+          | Total skills on skills.sh | ${TOTAL:-N/A} |
+          | Already in skillstore | ${EXISTING:-N/A} |
+          | New (not yet imported) | ${NEW:-N/A} |
+          EOF
+
+          if [ "$DRY_RUN" != "true" ]; then
+            cat << EOF >> $GITHUB_STEP_SUMMARY
+          | **Submitted this run** | ${SUBMITTED:-0} |
+          | Failed submissions | ${FAILED:-0} |
+          EOF
+          else
+            cat << EOF >> $GITHUB_STEP_SUMMARY
+
+          > ℹ️ Dry run mode - no skills were submitted
+          EOF
+          fi
+
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+
+          ---
+          *Workflow triggered at $(date -u +"%Y-%m-%d %H:%M:%S UTC")*
+          EOF
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Skills.sh scrape workflow failed"
