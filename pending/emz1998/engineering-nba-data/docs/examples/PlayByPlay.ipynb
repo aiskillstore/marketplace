@@ -1,0 +1,835 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Working With Play by Play\n",
+    "\n",
+    "Working with play by play can be interesting work in that there's a lot of unknown types of data as well as parsing of strings. In addition, there a ton of cool things that can be done with play be play like sending the feed into a pub\\sub model so other systems can interact with it, build your own UI, or a whole host of other ideas.\n",
+    "\n",
+    "The goal of this notebook is to walk through the play by play feed examining data such as \n",
+    "\n",
+    "1. `EVENTMSGTYPE` which provides the play type (e.g. FIELD_GOAL_MADE, FIELD_GOAL_MISSED, TIMEOUT, PERIOD_BEGIN, etc.)\n",
+    "2. `EVENTMSGACTIONTYPE`which provides a subcatagorization of `EVENTMSGTYPE` (e.g. REVERSE_LAYUP, 3PT_JUMP_SHOT, HOOK_SHOT, etc.)\n",
+    "\n",
+    "This notebook builds on top of the following notebooks: [Finding Games](notebook2.ipynb), [Basics Notebook](Basics.ipynb), and of course, dives into `PlayByPlay` endpoint. Note that the `PlayByPlayV2` endpoint is an extension of `PlayByPlay`.\n",
+    "\n",
+    "\n",
+    "So with that...let's get started!\n",
+    "\n",
+    "The goals are\n",
+    "1. Get the last game the Pacers played (maybe we'll get lucky and get a current game)\n",
+    "2. Examine the feed and the fields that are returned\n",
+    "3. See how Regex can be applied to the play by play\n",
+    "3. Dynamically build a unique list of NBA Player Actions Events using EVENTMSGACTIONTYPE\n",
+    "4. See what's hiding in the feed...need to get those BLOCKS from the shot blockers!"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Let's get started and jump into the game!\n",
+    "\n",
+    "First thing's first...get the Pacers team_id"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "pacers_id: 1610612754\n"
+     ]
+    }
+   ],
+   "source": [
+    "#Get the Pacers team_id\n",
+    "from nba_api.stats.static import teams\n",
+    "\n",
+    "nba_teams = teams.get_teams()\n",
+    "\n",
+    "# Select the dictionary for the Pacers, which contains their team ID\n",
+    "pacers = [team for team in nba_teams if team['abbreviation'] == 'IND'][0]\n",
+    "pacers_id = pacers['id']\n",
+    "print(f'pacers_id: {pacers_id}')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Searching through the games and get the most recent Pacers game_id"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Searching through 63 game(s) for the game_id of 0021800854 where IND vs. MIL\n"
+     ]
+    }
+   ],
+   "source": [
+    "# Query for the last regular season game where the Pacers were playing\n",
+    "from nba_api.stats.endpoints import leaguegamefinder\n",
+    "from nba_api.stats.library.parameters import Season\n",
+    "from nba_api.stats.library.parameters import SeasonType\n",
+    "\n",
+    "gamefinder = leaguegamefinder.LeagueGameFinder(team_id_nullable=pacers_id,\n",
+    "                            season_nullable=Season.default,\n",
+    "                            season_type_nullable=SeasonType.regular)  \n",
+    "\n",
+    "games_dict = gamefinder.get_normalized_dict()\n",
+    "games = games_dict['LeagueGameFinderResults']\n",
+    "game = games[0]\n",
+    "game_id = game['GAME_ID']\n",
+    "game_matchup = game['MATCHUP']\n",
+    "\n",
+    "print(f'Searching through {len(games)} game(s) for the game_id of {game_id} where {game_matchup}')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# Retrieving the play by play data\n",
+    "Now that we've got a game_id, let's pull some play by play data"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 92,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>GAME_ID</th>\n",
+       "      <th>EVENTNUM</th>\n",
+       "      <th>EVENTMSGTYPE</th>\n",
+       "      <th>EVENTMSGACTIONTYPE</th>\n",
+       "      <th>PERIOD</th>\n",
+       "      <th>WCTIMESTRING</th>\n",
+       "      <th>PCTIMESTRING</th>\n",
+       "      <th>HOMEDESCRIPTION</th>\n",
+       "      <th>NEUTRALDESCRIPTION</th>\n",
+       "      <th>VISITORDESCRIPTION</th>\n",
+       "      <th>SCORE</th>\n",
+       "      <th>SCOREMARGIN</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>0021800854</td>\n",
+       "      <td>2</td>\n",
+       "      <td>12</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>7:11 PM</td>\n",
+       "      <td>12:00</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>0021800854</td>\n",
+       "      <td>4</td>\n",
+       "      <td>10</td>\n",
+       "      <td>0</td>\n",
+       "      <td>1</td>\n",
+       "      <td>7:11 PM</td>\n",
+       "      <td>12:00</td>\n",
+       "      <td>Jump Ball Turner vs. Lopez: Tip to Antetokounmpo</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>0021800854</td>\n",
+       "      <td>7</td>\n",
+       "      <td>5</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>7:11 PM</td>\n",
+       "      <td>11:40</td>\n",
+       "      <td>Bogdanovic STEAL (1 STL)</td>\n",
+       "      <td>None</td>\n",
+       "      <td>Bledsoe Bad Pass Turnover (P1.T1)</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>0021800854</td>\n",
+       "      <td>9</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>7:11 PM</td>\n",
+       "      <td>11:25</td>\n",
+       "      <td>Turner 27' 3PT Jump Shot (3 PTS) (Collison 1 AST)</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>0 - 3</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>4</th>\n",
+       "      <td>0021800854</td>\n",
+       "      <td>13</td>\n",
+       "      <td>2</td>\n",
+       "      <td>71</td>\n",
+       "      <td>1</td>\n",
+       "      <td>7:12 PM</td>\n",
+       "      <td>10:57</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>MISS Antetokounmpo 1' Finger Roll Layup</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "      GAME_ID  EVENTNUM  EVENTMSGTYPE  EVENTMSGACTIONTYPE  PERIOD  \\\n",
+       "0  0021800854         2            12                   0       1   \n",
+       "1  0021800854         4            10                   0       1   \n",
+       "2  0021800854         7             5                   1       1   \n",
+       "3  0021800854         9             1                   1       1   \n",
+       "4  0021800854        13             2                  71       1   \n",
+       "\n",
+       "  WCTIMESTRING PCTIMESTRING  \\\n",
+       "0      7:11 PM        12:00   \n",
+       "1      7:11 PM        12:00   \n",
+       "2      7:11 PM        11:40   \n",
+       "3      7:11 PM        11:25   \n",
+       "4      7:12 PM        10:57   \n",
+       "\n",
+       "                                     HOMEDESCRIPTION NEUTRALDESCRIPTION  \\\n",
+       "0                                               None               None   \n",
+       "1   Jump Ball Turner vs. Lopez: Tip to Antetokounmpo               None   \n",
+       "2                           Bogdanovic STEAL (1 STL)               None   \n",
+       "3  Turner 27' 3PT Jump Shot (3 PTS) (Collison 1 AST)               None   \n",
+       "4                                               None               None   \n",
+       "\n",
+       "                        VISITORDESCRIPTION  SCORE SCOREMARGIN  \n",
+       "0                                     None   None        None  \n",
+       "1                                     None   None        None  \n",
+       "2        Bledsoe Bad Pass Turnover (P1.T1)   None        None  \n",
+       "3                                     None  0 - 3           3  \n",
+       "4  MISS Antetokounmpo 1' Finger Roll Layup   None        None  "
+      ]
+     },
+     "execution_count": 92,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "# Query for the play by play of that most recent regular season game\n",
+    "from nba_api.stats.endpoints import playbyplay\n",
+    "df = playbyplay.PlayByPlay(game_id).get_data_frames()[0]\n",
+    "df.head() #just looking at the head of the data"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Optional: Dataframes can become large. In pandas you can set some options to make it more visible if needed"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#Since the datset is fairly large you'll see plenty of elipses(...). \n",
+    "#If that's the case, you can set the following options to expand the data \n",
+    "#You can adjust these as you'd like\n",
+    "import pandas\n",
+    "pandas.set_option('display.max_colwidth',250)\n",
+    "pandas.set_option('display.max_rows',250)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Some of the most valuable fields of `PlayByPlay`are the following:\n",
+    "`EVENTMSGTYPE`\n",
+    "`EVENTMSGACTIONTYPE`\n",
+    "`HOMEDESCRIPTION`\n",
+    "and `VISITORDESCRIPTION`.\n",
+    "\n",
+    "`EVENTMSGTYPE` gives us the type of event that has occurred. This can vary per game. This is why finding these and placing them into an Enum or other type structure is a good idea."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "EVENTMSGTYPE: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 18]\n"
+     ]
+    }
+   ],
+   "source": [
+    "#List unique values in the df['EVENTMSGTYPE'] colum\n",
+    "print(f'EVENTMSGTYPE: {sorted(df.EVENTMSGTYPE.unique())}')"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "#For quick refernce, here's an Enum for `EVENTMSGTYPE`\n",
+    "#This list may be incomplete as a thourogh play by play scan is necessary\n",
+    "\n",
+    "from enum import Enum\n",
+    "\n",
+    "class EventMsgType(Enum):\n",
+    "    FIELD_GOAL_MADE = 1\n",
+    "    FIELD_GOAL_MISSED = 2\n",
+    "    FREE_THROWfree_throw_attempt = 3\n",
+    "    REBOUND = 4\n",
+    "    TURNOVER = 5\n",
+    "    FOUL = 6\n",
+    "    VIOLATION = 7\n",
+    "    SUBSTITUTION = 8\n",
+    "    TIMEOUT = 9\n",
+    "    JUMP_BALL = 10\n",
+    "    EJECTION = 11\n",
+    "    PERIOD_BEGIN = 12\n",
+    "    PERIOD_END = 13"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Using the `EVENTMSGTYPE` field we can begin to examine the event types to see what typical values will be in the `EVENTMSGACTIONTYPE` `HOMEDESCRIPTION` and `VISITORDESCRIPTION` fields."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 93,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>GAME_ID</th>\n",
+       "      <th>EVENTNUM</th>\n",
+       "      <th>EVENTMSGTYPE</th>\n",
+       "      <th>EVENTMSGACTIONTYPE</th>\n",
+       "      <th>PERIOD</th>\n",
+       "      <th>WCTIMESTRING</th>\n",
+       "      <th>PCTIMESTRING</th>\n",
+       "      <th>HOMEDESCRIPTION</th>\n",
+       "      <th>NEUTRALDESCRIPTION</th>\n",
+       "      <th>VISITORDESCRIPTION</th>\n",
+       "      <th>SCORE</th>\n",
+       "      <th>SCOREMARGIN</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>3</th>\n",
+       "      <td>0021800854</td>\n",
+       "      <td>9</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>7:11 PM</td>\n",
+       "      <td>11:25</td>\n",
+       "      <td>Turner 27' 3PT Jump Shot (3 PTS) (Collison 1 AST)</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>0 - 3</td>\n",
+       "      <td>3</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>6</th>\n",
+       "      <td>0021800854</td>\n",
+       "      <td>15</td>\n",
+       "      <td>1</td>\n",
+       "      <td>72</td>\n",
+       "      <td>1</td>\n",
+       "      <td>7:12 PM</td>\n",
+       "      <td>10:54</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>Antetokounmpo 1' Putback Layup (2 PTS)</td>\n",
+       "      <td>2 - 3</td>\n",
+       "      <td>1</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>17</th>\n",
+       "      <td>0021800854</td>\n",
+       "      <td>26</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>7:14 PM</td>\n",
+       "      <td>9:26</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>Lopez 26' 3PT Jump Shot (3 PTS) (Antetokounmpo 1 AST)</td>\n",
+       "      <td>5 - 3</td>\n",
+       "      <td>-2</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>18</th>\n",
+       "      <td>0021800854</td>\n",
+       "      <td>28</td>\n",
+       "      <td>1</td>\n",
+       "      <td>80</td>\n",
+       "      <td>1</td>\n",
+       "      <td>7:14 PM</td>\n",
+       "      <td>9:08</td>\n",
+       "      <td>Bogdanovic 16' Step Back Jump Shot (2 PTS)</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>5 - 5</td>\n",
+       "      <td>TIE</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>22</th>\n",
+       "      <td>0021800854</td>\n",
+       "      <td>34</td>\n",
+       "      <td>1</td>\n",
+       "      <td>76</td>\n",
+       "      <td>1</td>\n",
+       "      <td>7:15 PM</td>\n",
+       "      <td>8:29</td>\n",
+       "      <td>None</td>\n",
+       "      <td>None</td>\n",
+       "      <td>Antetokounmpo  Running Finger Roll Layup (4 PTS)</td>\n",
+       "      <td>7 - 5</td>\n",
+       "      <td>-2</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "       GAME_ID  EVENTNUM  EVENTMSGTYPE  EVENTMSGACTIONTYPE  PERIOD  \\\n",
+       "3   0021800854         9             1                   1       1   \n",
+       "6   0021800854        15             1                  72       1   \n",
+       "17  0021800854        26             1                   1       1   \n",
+       "18  0021800854        28             1                  80       1   \n",
+       "22  0021800854        34             1                  76       1   \n",
+       "\n",
+       "   WCTIMESTRING PCTIMESTRING  \\\n",
+       "3       7:11 PM        11:25   \n",
+       "6       7:12 PM        10:54   \n",
+       "17      7:14 PM         9:26   \n",
+       "18      7:14 PM         9:08   \n",
+       "22      7:15 PM         8:29   \n",
+       "\n",
+       "                                      HOMEDESCRIPTION NEUTRALDESCRIPTION  \\\n",
+       "3   Turner 27' 3PT Jump Shot (3 PTS) (Collison 1 AST)               None   \n",
+       "6                                                None               None   \n",
+       "17                                               None               None   \n",
+       "18         Bogdanovic 16' Step Back Jump Shot (2 PTS)               None   \n",
+       "22                                               None               None   \n",
+       "\n",
+       "                                       VISITORDESCRIPTION  SCORE SCOREMARGIN  \n",
+       "3                                                    None  0 - 3           3  \n",
+       "6                  Antetokounmpo 1' Putback Layup (2 PTS)  2 - 3           1  \n",
+       "17  Lopez 26' 3PT Jump Shot (3 PTS) (Antetokounmpo 1 AST)  5 - 3          -2  \n",
+       "18                                                   None  5 - 5         TIE  \n",
+       "22       Antetokounmpo  Running Finger Roll Layup (4 PTS)  7 - 5          -2  "
+      ]
+     },
+     "execution_count": 93,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "#### pull the data for a specfic EVENTMSGTYPE\n",
+    "df.loc[df['EVENTMSGTYPE'] == 1].head() #hint: use the EVENTMSGTYPE values above to see different data"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Now that we've seen what the output of `EVENTMSGTYPE` is, let's dig into `EVENTMSGACTIONTYPE`.\n",
+    "\n",
+    "For this next exercise, let's pull all unique `EVENTMSGACTIONTYPE` values for `EVENTMSGTYPE = 1`\n",
+    "\n",
+    "_Note: `EVENTMSGACTIONTYPE` ids have a very loose correlation to `EVENTMSGTYPE` ids. This means that `EVENTMSGTYPE` ids share some of the same `EVENTMSGACTIONTYPE` ids. This allows the NBA to have a 'Missed Field Goal' share the same '3PT Jump Shot' with a 'Made Field Goal'. Now, that being said, they are not always unique. We'll see this towards the end._"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 53,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "EVENTMSGACTIONTYPE: [1, 3, 5, 6, 7, 41, 44, 47, 50, 52, 58, 66, 71, 72, 73, 75, 76, 78, 79, 80, 86, 97, 98, 99, 108]\n"
+     ]
+    }
+   ],
+   "source": [
+    "#List unique values in the df['EVENTMSGTYPE'] column\n",
+    "emt_df = df.loc[df['EVENTMSGTYPE'] == 1]\n",
+    "print(f'EVENTMSGACTIONTYPE: {sorted(emt_df.EVENTMSGACTIONTYPE.unique())}')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# So how do we know what each `EVENTMSGACTIONTYPE` is?\n",
+    "\n",
+    "Let the fun begin.\n",
+    "\n",
+    "Apply some regular expressions, that are `EVENTMSGTYPE` specific, against `HOMEDECSRIPTION` and `VISITORDESCRIPTION` while keeping track of the `EVENTMSGACTIONTYPE`. \n",
+    "\n",
+    "To see the regular expressions in action, take the example listed in the comments, along with the regex, and head on over to https://regex101.com/ or your favorite regex interative tool."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# `EVENTMSGTYPE == 1`\n",
+    "The following regex expression `'(\\s{2}|\\' )([\\w+ ]*)` will look for the type of basket within the `VISITORDESCRIPTION` or `HOMEDESCRIPTION` and tie that to the `EVENTMSGACTIONTYPE`.\n",
+    "\n",
+    "Example: Given a `VISITORDESCRIPTION == 'Young Cutting Layup Shot (2 PTS) (Collison 1 AST)'` and a `EVENTMSGACTIONTYPE = 98`, the code will produce an output of `CUTTING_LAYUP_SHOT = 99`\n",
+    "\n",
+    "Let's see it in action...\n",
+    "\n",
+    "_Note: The regex may need to be adjusted over time to account for changes in the data_"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 78,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\t3PT_JUMP_SHOT = 1\n",
+      "\t3PT_PULLUP_JUMP_SHOT = 79\n",
+      "\t3PT_STEP_BACK_JUMP_SHOT = 80\n",
+      "\tALLEY_OOP_DUNK = 52\n",
+      "\tCUTTING_DUNK_SHOT = 108\n",
+      "\tCUTTING_FINGER_ROLL_LAYUP_SHOT = 99\n",
+      "\tCUTTING_LAYUP_SHOT = 98\n",
+      "\tDRIVING_FINGER_ROLL_LAYUP = 75\n",
+      "\tDRIVING_LAYUP = 6\n",
+      "\tDRIVING_REVERSE_LAYUP = 73\n",
+      "\tDUNK = 7\n",
+      "\tFINGER_ROLL_LAYUP = 71\n",
+      "\tFLOATING_JUMP_SHOT = 78\n",
+      "\tHOOK_SHOT = 3\n",
+      "\tJUMP_BANK_SHOT = 66\n",
+      "\tJUMP_SHOT = 1\n",
+      "\tLAYUP = 5\n",
+      "\tPULLUP_JUMP_SHOT = 79\n",
+      "\tPUTBACK_LAYUP = 72\n",
+      "\tREVERSE_LAYUP = 44\n",
+      "\tRUNNING_DUNK = 50\n",
+      "\tRUNNING_FINGER_ROLL_LAYUP = 76\n",
+      "\tRUNNING_LAYUP = 41\n",
+      "\tSTEP_BACK_JUMP_SHOT = 80\n",
+      "\tTIP_LAYUP_SHOT = 97\n",
+      "\tTURNAROUND_FADEAWAY = 86\n",
+      "\tTURNAROUND_HOOK_SHOT = 58\n",
+      "\tTURNAROUND_JUMP_SHOT = 47\n"
+     ]
+    }
+   ],
+   "source": [
+    "#Mapping out all of the EventMsgActionTypes for EventMsgType 1\n",
+    "import re\n",
+    "import operator\n",
+    "\n",
+    "#the following expression is specific to EventMsgType 1\n",
+    "p = re.compile('(\\s{2}|\\' )([\\w+ ]*)')\n",
+    "\n",
+    "#get the PlayByPlay data from the Pacers game_id\n",
+    "plays = playbyplay.PlayByPlay(game_id).get_normalized_dict()['PlayByPlay']\n",
+    "\n",
+    "#declare a few variables\n",
+    "description = ''\n",
+    "event_msg_action_types = {}\n",
+    "\n",
+    "#loop over the play by play data\n",
+    "for play in plays:\n",
+    "    if play['EVENTMSGTYPE'] == 1:\n",
+    "        description = play['HOMEDESCRIPTION'] if play['HOMEDESCRIPTION'] is not None else play['VISITORDESCRIPTION']\n",
+    "        if description is not None:\n",
+    "            #do a bit of searching(regex) and a little character magic: underscores and upper case\n",
+    "            event_msg_action = re.sub(' ', '_', p.search(description).groups()[1].rstrip()).upper()\n",
+    "            #Add it to our dictionary\n",
+    "            event_msg_action_types[event_msg_action] = play['EVENTMSGACTIONTYPE']\n",
+    "            \n",
+    "#sort it all\n",
+    "event_msg_action_types = sorted(event_msg_action_types.items(), key=operator.itemgetter(0))\n",
+    "\n",
+    "#output a class that we could plug into our code base\n",
+    "for action in event_msg_action_types:\n",
+    "    print(f'\\t{action[0]} = {action[1]}')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# `EVENTMSGTYPE == 2`\n",
+    "We'll reuse the regex expression `(\\s{2}|' )([\\w+ ]*)` from `EVENTMSGTYPE == 1` for `EVENTMSGTYPE == 2`. EventMsgType 2 are missed field goals. Again, it'll look for the type of basket within the `VISITORDESCRIPTION` or `HOMEDESCRIPTION` and tie that to the `EVENTMSGACTIONTYPE`.\n",
+    "\n",
+    "Example: Given a `HOMEDESCRIPTION == 'MISS Collison 24' 3PT Jump Shot'` and a `EVENTMSGACTIONTYPE = 2`, the code will produce an output of `3PT_JUMP_SHOT = 1`\n",
+    "\n",
+    "Let's see it in action..."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 95,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "\t3PT_JUMP_SHOT = 1\n",
+      "\t3PT_PULLUP_JUMP_SHOT = 79\n",
+      "\t3PT_STEP_BACK_JUMP_SHOT = 80\n",
+      "\tALLEY_OOP_DUNK = 52\n",
+      "\tALLEY_OOP_LAYUP = 43\n",
+      "\tCUTTING_LAYUP_SHOT = 98\n",
+      "\tDRIVING_FINGER_ROLL_LAYUP = 75\n",
+      "\tDRIVING_LAYUP = 6\n",
+      "\tDRIVING_REVERSE_LAYUP = 73\n",
+      "\tFADEAWAY_JUMPER = 63\n",
+      "\tFINGER_ROLL_LAYUP = 71\n",
+      "\tFLOATING_JUMP_SHOT = 78\n",
+      "\tHOOK_SHOT = 3\n",
+      "\tJUMP_BANK_SHOT = 66\n",
+      "\tJUMP_SHOT = 1\n",
+      "\tLAYUP = 5\n",
+      "\tPULLUP_JUMP_SHOT = 79\n",
+      "\tREVERSE_LAYUP = 44\n",
+      "\tRUNNING_FINGER_ROLL_LAYUP = 76\n",
+      "\tRUNNING_JUMP_SHOT = 2\n",
+      "\tRUNNING_LAYUP = 41\n",
+      "\tSTEP_BACK_JUMP_SHOT = 80\n",
+      "\tTIP_DUNK_SHOT = 107\n",
+      "\tTIP_LAYUP_SHOT = 97\n",
+      "\tTURNAROUND_FADEAWAY_BANK_JUMP_SHOT = 105\n",
+      "\tTURNAROUND_JUMP_SHOT = 47\n"
+     ]
+    }
+   ],
+   "source": [
+    "#Mapping out all of the EventMsgActionTypes for EventMsgType 2\n",
+    "import re\n",
+    "import operator\n",
+    "\n",
+    "#the following expression is specific to EventMsgType 1\n",
+    "p = re.compile('(\\s{2}|\\' )([\\w+ ]*)')\n",
+    "\n",
+    "#get the PlayByPlay data from the Pacers game_id\n",
+    "plays = playbyplay.PlayByPlay(game_id).get_normalized_dict()['PlayByPlay']\n",
+    "\n",
+    "#declare a few variables\n",
+    "description = ''\n",
+    "event_msg_action_types = {}\n",
+    "\n",
+    "#loop over the play by play data\n",
+    "#do a bit of findall(regex) and a little character magic: underscores and upper case\n",
+    "#we're using a findall here as we have to deal with the extra word MISS at the beginning of the text.\n",
+    "#that extra text means we'll have multiple matches for our regex.\n",
+    "for play in plays:\n",
+    "    if play['EVENTMSGTYPE'] == 2:\n",
+    "        match = list()\n",
+    "        if play['HOMEDESCRIPTION'] is not None: \n",
+    "            match = p.findall(play['HOMEDESCRIPTION'])\n",
+    "        \n",
+    "        if not match:\n",
+    "            match = p.findall(play['VISITORDESCRIPTION'])\n",
+    "\n",
+    "        event_msg_action = re.sub(' ', '_', match[0][1]).upper()\n",
+    "        event_msg_action_types[event_msg_action] = play['EVENTMSGACTIONTYPE']\n",
+    "        \n",
+    "       # if play['EVENTMSGACTIONTYPE']\n",
+    "        \n",
+    "event_msg_action_types = sorted(event_msg_action_types.items(), key=operator.itemgetter(0))\n",
+    "\n",
+    "for action in event_msg_action_types:\n",
+    "    print(f'\\t{action[0]} = {action[1]}')"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# What About Blocks?\n",
+    "So if you've taken a close look at the data, especially that where `EVENTMSGTYPE == 2` you may have noticed that a few of the missed field goals were due to some incredible shot blocking players. By adding a few lines of code, we can find these shot blockers. Dealing with this data is a bit beyond the scope of this notebook, but it's worth pointing out that the data is in there. One idea is to play it into it's own play by play block (just a thought)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 91,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "------------------\n",
+      "Antetokounmpo BLOCK (1 BLK)\n",
+      "Joseph BLOCK (1 BLK)\n",
+      "Turner BLOCK (1 BLK)\n",
+      "Young BLOCK (1 BLK)\n",
+      "Turner BLOCK (2 BLK)\n",
+      "Snell BLOCK (1 BLK)\n",
+      "Lopez BLOCK (1 BLK)\n",
+      "------------------\n"
+     ]
+    }
+   ],
+   "source": [
+    "#Blocks are not included in the event feed but are a part of the EVENTMSGTYPE 2\n",
+    "import re\n",
+    "import operator\n",
+    "\n",
+    "print('------------------')\n",
+    "\n",
+    "#the following expression is specific to EventMsgType 1\n",
+    "p = re.compile('(\\s{2}|\\' )([\\w+ ]*)')\n",
+    "\n",
+    "#get the PlayByPlay data from the Pacers game_id\n",
+    "plays = playbyplay.PlayByPlay(game_id).get_normalized_dict()['PlayByPlay']\n",
+    "\n",
+    "#declare a few variables\n",
+    "description = ''\n",
+    "event_msg_action_types = {}\n",
+    "\n",
+    "#loop over the play by play data\n",
+    "#do a bit of findall(regex) and a little character magic: underscores and upper case\n",
+    "#we're using a findall here as we have to deal with the extra word MISS at the beginning of the text.\n",
+    "#that extra text means we'll have multiple matches for our regex.\n",
+    "for play in plays:\n",
+    "    if play['EVENTMSGTYPE'] == 2:\n",
+    "        match = list()\n",
+    "        if play['HOMEDESCRIPTION'] is not None: \n",
+    "            match = p.findall(play['HOMEDESCRIPTION'])\n",
+    "\n",
+    "            #looking for blocks\n",
+    "            if len(match) & (play['VISITORDESCRIPTION'] is not None):\n",
+    "                print(play['VISITORDESCRIPTION'])\n",
+    "\n",
+    "        if not match:\n",
+    "            match = p.findall(play['VISITORDESCRIPTION'])\n",
+    "            \n",
+    "            #looking for blocks\n",
+    "            if len(match) & (play['HOMEDESCRIPTION'] is not None):\n",
+    "                print(play['HOMEDESCRIPTION'])\n",
+    "\n",
+    "\n",
+    "        event_msg_action = re.sub(' ', '_', match[0][1]).upper()\n",
+    "        event_msg_action_types[event_msg_action] = play['EVENTMSGACTIONTYPE']\n",
+    "            \n",
+    "event_msg_action_types = sorted(event_msg_action_types.items(), key=operator.itemgetter(0))\n",
+    "\n",
+    "print('------------------')\n"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.7.1"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}
