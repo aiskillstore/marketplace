@@ -16,72 +16,72 @@ Important Instructions:
 name: <command-name>
 description: <brief description of what the command does>
 allowed-tools: <comma-separated list of tools>
-argument-hint: <arg1-name> <arg2-name> <arg3-name>
+argument-hint: <argument-hint>
 model: <haiku|sonnet|opus>
 
 ---
 
-**Goal**: <brief description of what the command does>//
+**Goal**: <brief description of what the command does>
 
-## Tasks
+## Workflow
 
 ### Phase 1: [Phase 1 Name]
 
-- T001: [Task 1]
-- T002: [Task 2]
-- T003: [Task 3]
-- T004: [Task 4]
-- T005: [Task 5]
+- [Task 1]
+- [Task 2]
+- [Task 3]
+- [Task 4]
+- [Task 5]
 
 ### Phase 2: [Phase 2 Name]
 
-- T006: [Task 1]
-- T007: [Task 2]
-- T008: [Task 3]
-- T009: [Task 4]
-- T010: [Task 5]
+- [Task 6]
+- [Task 7]
+- [Task 8]
+- [Task 9]
+- [Task 10]
 
 ### Phase 3: [Phase 3 Name]
 
-- T013: [Task 1]
-- T014: [Task 2]
-- T015: [Task 3]
-- T016: [Task 4]
-- T017: [Task 5]
+- [Task 11]
+- [Task 12]
+- [Task 13]
+- [Task 14]
+- [Task 15]
 
 ...
 
-<!-- Add more phases and tasks as needed -->
-
-## Implementation Strategy
-
-- [Implementation Strategy 1]
-- [Implementation Strategy 2]
-- [Implementation Strategy 3]
-- [Implementation Strategy 4]
-- [Implementation Strategy 5]
-- ...
-
 <!-- Add more implementation strategies as needed -->
 
-## Prohibited Tasks
+## Rules
 
-- [Prohibited Task 1]
-- [Prohibited Task 2]
-- [Prohibited Task 3]
-- [Prohibited Task 4]
-- [Prohibited Task 5]
+<!-- Use "NEVER OR DO NOT" prefix for prohibited tasks. You can mix it -->
+
+- **NEVER** [Prohibited Task 1]
+- **NEVER** [Prohibited Task 2]
+- **NEVER** [Prohibited Task 3]
+- **NEVER** [Prohibited Task 4]
+- **NEVER** [Prohibited Task 5]
+
+<!-- OR -->
+
+- **DO NOT** [Prohibited Task 1]
+- **DO NOT** [Prohibited Task 2]
+- **DO NOT** [Prohibited Task 3]
+- **DO NOT** [Prohibited Task 4]
+- **DO NOT** [Prohibited Task 5]
+
 - ...
 
 <!-- Add more prohibited tasks as needed -->
 
-## Success Criteria
+## Acceptance Criteria
 
-- [Success Criteria 1]
-- [Success Criteria 2]
-- [Success Criteria 3]
-- [Success Criteria 4]
-- [Success Criteria 5]
+- [Acceptance Criteria 1]
+- [Acceptance Criteria 2]
+- [Acceptance Criteria 3]
+- [Acceptance Criteria 4]
+- [Acceptance Criteria 5]
 - ...
 
 <!-- Add more success criteria as needed -->
