@@ -91,7 +91,7 @@ jobs:
       owner: ${{ steps.clone.outputs.owner }}
       repo: ${{ steps.clone.outputs.repo }}
       branch: ${{ steps.clone.outputs.branch }}
-      github_url: ${{ steps.clone.outputs.github_url }}
+      github_url: ${{ steps.discover.outputs.github_url }}
     steps:
       - name: Notify skillstore - Processing started
         if: inputs.is_manual_approval == false
@@ -159,18 +159,19 @@ jobs:
           git clone --depth 1 --branch "$BRANCH" "https://github.com/$OWNER/$REPO.git" "$SOURCE_DIR"
 
           echo "source_dir=$SOURCE_DIR" >> $GITHUB_OUTPUT
-
-          # Output canonical github_url (without tree path)
-          CANONICAL_URL="https://github.com/$OWNER/$REPO"
-          echo "github_url=$CANONICAL_URL" >> $GITHUB_OUTPUT
           echo "📦 Cloned $OWNER/$REPO (branch: $BRANCH)"
 
       - name: Discover skills (fast - no AI)
         id: discover
         env:
           SKILL_PATH: ${{ steps.clone.outputs.skill_path }}
+          OWNER: ${{ steps.clone.outputs.owner }}
+          REPO: ${{ steps.clone.outputs.repo }}
+          BRANCH: ${{ steps.clone.outputs.branch }}
+          ORIGINAL_URL: ${{ inputs.github_url }}
         run: |
           SOURCE_DIR="${{ steps.clone.outputs.source_dir }}"
+          CORRECTED_URL=""  # Only set when FALLBACK occurs
 
           # If skill_path is specified, only search within that path
           if [ -n "$SKILL_PATH" ]; then
@@ -198,6 +199,9 @@ jobs:
                 RELATIVE_PATH="${FOUND_PATH#$SOURCE_DIR/}"
                 echo "✅ Found skill at: $RELATIVE_PATH"
                 SEARCH_DIR="$FOUND_PATH"
+                # FALLBACK: Correct the URL to point to the discovered path
+                CORRECTED_URL="https://github.com/$OWNER/$REPO/tree/$BRANCH/$RELATIVE_PATH"
+                echo "🔄 Corrected URL: $CORRECTED_URL"
               else
                 echo "❌ Could not find folder '$FOLDER_NAME' with SKILL.md in repository"
                 SEARCH_DIR="$SOURCE_DIR/$SKILL_PATH"  # Keep original (will find 0)
@@ -206,6 +210,13 @@ jobs:
           else
             SEARCH_DIR="$SOURCE_DIR"
             echo "🔍 Searching entire repository"
+          fi
+
+          # Output github_url: use corrected if FALLBACK occurred, otherwise original
+          if [ -n "$CORRECTED_URL" ]; then
+            echo "github_url=$CORRECTED_URL" >> $GITHUB_OUTPUT
+          else
+            echo "github_url=$ORIGINAL_URL" >> $GITHUB_OUTPUT
           fi
 
           SKILLS_JSON="["
