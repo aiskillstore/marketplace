@@ -1,53 +1,7 @@
 ---
 name: ghe-report
 description: |
-  Generate DETAILED reports with metrics, health checks, or epic-specific analysis. More comprehensive than quick status overview.
-
-  USE THIS SKILL WHEN:
-  - User asks for "metrics" or "statistics" or "performance report"
-  - User asks for "health check" or "workflow health" or "compliance check"
-  - User asks for "epic report" or "epic status for X"
-  - User asks for "detailed report" or "comprehensive report"
-  - User asks "how are we performing" or "what's our throughput"
-  - User asks about "cycle times" or "demotion rates"
-  - User wants analysis, not just current state
-
-  REPORT TYPES:
-  - metrics: Throughput, cycle times, first-pass rates, demotion rates
-  - health: Compliance status, stale threads, violation history, memory bank status
-  - epic: Single epic details with thread history, progress, decisions
-
-  DO NOT USE THIS SKILL WHEN:
-  - User just wants QUICK status overview (use ghe-status)
-  - User wants to CLAIM an issue (use ghe-claim)
-  - User wants to POST a checkpoint (use ghe-checkpoint)
-  - User wants to TRANSITION phases (use ghe-transition)
-
-  KEY DIFFERENCE FROM ghe-status:
-  - ghe-status = quick overview, current state, what's active
-  - ghe-report = detailed analysis, metrics, trends, health assessment
-
-  EXAMPLES:
-  <example>
-  Context: User wants performance metrics
-  user: "Show me the workflow metrics"
-  assistant: "I'll use ghe-report with type 'metrics' for detailed performance analysis"
-  </example>
-  <example>
-  Context: User wants to check workflow compliance
-  user: "Run a health check on the workflow"
-  assistant: "I'll use ghe-report with type 'health' to assess workflow compliance"
-  </example>
-  <example>
-  Context: User wants details on specific epic
-  user: "Give me a report on the jwt-auth epic"
-  assistant: "I'll use ghe-report with type 'epic' for jwt-auth"
-  </example>
-  <example>
-  Context: User asks about performance trends
-  user: "What's our first-pass review rate?"
-  assistant: "I'll use ghe-report with type 'metrics' to get performance statistics"
-  </example>
+  Generate detailed workflow reports with metrics, health assessments, and epic-specific analysis for GitHub Elements. Covers throughput, cycle times, compliance status, and thread history.
 ---
 
 ## IRON LAW: User Specifications Are Sacred

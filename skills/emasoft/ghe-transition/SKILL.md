@@ -1,47 +1,6 @@
 ---
 name: ghe-transition
-description: |
-  CHANGE phases in the GitHub Elements workflow. Closes current thread and opens next phase thread. This is a PHASE CHANGE operation, not just saving progress.
-
-  USE THIS SKILL WHEN:
-  - User says "transition to TEST" or "move to REVIEW"
-  - User says "I'm done with DEV, start TEST" or "DEV complete"
-  - User says "advance to next phase" or "close this phase"
-  - User says "demote to DEV" (from TEST or REVIEW)
-  - User says "tests pass, ready for review"
-  - User says "merge this" (after REVIEW PASS)
-  - User explicitly wants to END current phase and BEGIN next
-
-  DO NOT USE THIS SKILL WHEN:
-  - User just wants to SEE status (use ghe-status)
-  - User wants to START work on new issue (use ghe-claim)
-  - User wants to SAVE progress but CONTINUE working (use ghe-checkpoint)
-  - User wants reports (use ghe-report)
-  - User is not ready to END current phase
-
-  IMPORTANT: This CLOSES current thread and OPENS next thread. Use ghe-checkpoint if you just want to save progress without changing phases.
-
-  EXAMPLES:
-  <example>
-  Context: DEV work complete, ready for testing
-  user: "I'm done with DEV, transition to TEST"
-  assistant: "I'll use ghe-transition to close DEV and open TEST thread"
-  </example>
-  <example>
-  Context: All tests pass, ready for review
-  user: "Tests pass, move to REVIEW"
-  assistant: "I'll use ghe-transition to close TEST and open REVIEW thread"
-  </example>
-  <example>
-  Context: Structural issues found in TEST
-  user: "This needs structural changes, demote to DEV"
-  assistant: "I'll use ghe-transition to demote from TEST back to DEV"
-  </example>
-  <example>
-  Context: REVIEW passed, ready to merge
-  user: "REVIEW passed, merge it"
-  assistant: "I'll use ghe-transition to complete the workflow and merge"
-  </example>
+description: "Change phases in the GitHub Elements workflow by closing current thread and opening the next. Use for DEV→TEST, TEST→REVIEW, REVIEW→merge transitions, or demotions. Do not use for saving progress."
 ---
 
 ## IRON LAW: User Specifications Are Sacred
