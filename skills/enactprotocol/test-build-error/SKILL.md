@@ -1,5 +1,5 @@
 ---
-name: test/build-error
+name: test-build-error
 version: 1.0.0
 description: Tests error visibility for build step failures
 from: node:20-alpine

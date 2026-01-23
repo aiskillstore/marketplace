@@ -1,6 +1,6 @@
 ---
 enact: "2.0.0"
-name: enact/text-summarizer
+name: enact-text-summarizer
 version: 1.0.1
 description: Analyzes text and provides word count, character count, and sentence statistics
 from: "node:20-alpine"

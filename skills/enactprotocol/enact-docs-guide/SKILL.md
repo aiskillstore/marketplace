@@ -1,6 +1,6 @@
 ---
 enact: "2.0.0"
-name: "enact/docs/guide"
+name: enact-docs-guide
 version: "1.0.0"
 description: "LLM guide for creating, publishing, and running Enact tools"
 license: "MIT"

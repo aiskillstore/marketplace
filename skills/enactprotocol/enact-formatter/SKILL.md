@@ -1,6 +1,6 @@
 ---
 enact: "2.0.0"
-name: enact/formatter
+name: enact-formatter
 version: 1.0.0
 description: Formats and prettifies JSON with configurable indentation
 from: "node:20-alpine"

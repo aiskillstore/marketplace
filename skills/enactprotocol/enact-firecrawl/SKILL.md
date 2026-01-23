@@ -1,5 +1,5 @@
 ---
-name: enact/firecrawl
+name: enact-firecrawl
 version: 1.2.1
 description: Scrape, crawl, search, and extract structured data from websites using Firecrawl API - converts web pages to LLM-ready markdown
 enact: "2.0"
