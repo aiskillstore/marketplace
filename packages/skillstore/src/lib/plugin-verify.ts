@@ -14,14 +14,17 @@ export interface VerifyResult {
 }
 
 /**
- * Get the signing key from environment
- * In production, this should be a public key or verification endpoint
- * For CLI, we use a shared secret (configured by user or fetched from API)
+ * Built-in verification key for skillstore.io manifests
+ * This key is used to verify HMAC-SHA256 signatures on plugin manifests
  */
-export function getVerificationKey(): string | null {
-	// The verification key can be set via environment variable
-	// In production, this might be fetched from a public endpoint
-	return process.env.SKILLSTORE_VERIFY_KEY || null;
+const DEFAULT_VERIFICATION_KEY = '3d2b8f367783854cbdb6f81c9a39d586201c8d898ec8737bfa464162a9177943';
+
+/**
+ * Get the signing key for manifest verification
+ * Uses built-in key by default, can be overridden via environment variable
+ */
+export function getVerificationKey(): string {
+	return process.env.SKILLSTORE_VERIFY_KEY || DEFAULT_VERIFICATION_KEY;
 }
 
 /**
@@ -120,16 +123,6 @@ export async function verifyManifest(
 	// Verify signature unless skipped
 	if (!options.skipSignature) {
 		const key = getVerificationKey();
-
-		if (!key) {
-			// If no key is configured, warn but don't fail
-			// This allows installation without signature verification
-			return {
-				valid: true,
-				error: 'Warning: No verification key configured, signature not verified',
-			};
-		}
-
 		const signatureResult = verifyManifestSignature(manifest, key);
 		if (!signatureResult.valid) {
 			return signatureResult;

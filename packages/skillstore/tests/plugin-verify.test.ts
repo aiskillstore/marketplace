@@ -21,20 +21,21 @@ describe('plugin-verify', () => {
 			}
 		});
 
-		it('should return null when env variable is not set', () => {
+		it('should return built-in key when env variable is not set', () => {
 			delete process.env.SKILLSTORE_VERIFY_KEY;
-			expect(getVerificationKey()).toBeNull();
+			const key = getVerificationKey();
+			expect(key).toBe('3d2b8f367783854cbdb6f81c9a39d586201c8d898ec8737bfa464162a9177943');
 		});
 
-		it('should return key from env variable', () => {
-			process.env.SKILLSTORE_VERIFY_KEY = 'test-secret-key';
-			expect(getVerificationKey()).toBe('test-secret-key');
+		it('should return key from env variable when set', () => {
+			process.env.SKILLSTORE_VERIFY_KEY = 'custom-override-key';
+			expect(getVerificationKey()).toBe('custom-override-key');
 		});
 
-		it('should return null for empty string (falsy)', () => {
+		it('should return built-in key for empty string (falsy)', () => {
 			// The implementation uses || which treats empty string as falsy
 			process.env.SKILLSTORE_VERIFY_KEY = '';
-			expect(getVerificationKey()).toBeNull();
+			expect(getVerificationKey()).toBe('3d2b8f367783854cbdb6f81c9a39d586201c8d898ec8737bfa464162a9177943');
 		});
 	});
 
@@ -287,14 +288,15 @@ describe('plugin-verify', () => {
 			expect(result.valid).toBe(true);
 		});
 
-		it('should warn when no verification key is configured', async () => {
+		it('should use built-in key when env not set', async () => {
 			delete process.env.SKILLSTORE_VERIFY_KEY;
 
 			const manifest = createValidManifest();
 			const result = await verifyManifest(manifest);
 
-			expect(result.valid).toBe(true);
-			expect(result.error).toContain('No verification key configured');
+			// With built-in key, verification should work (but fail since test uses different key)
+			expect(result.valid).toBe(false);
+			expect(result.error).toBe('Signature verification failed');
 		});
 
 		it('should fail signature verification with wrong key', async () => {
