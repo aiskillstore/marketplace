@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { homedir } from 'node:os';
 
 /**
  * Plugin CLI Configuration
@@ -6,8 +7,8 @@ import { resolve } from 'node:path';
  * Manages default settings for plugin installation and API access.
  */
 
-/** Default installation directory for skills */
-export const DEFAULT_INSTALL_DIR = '.claude/skills';
+/** Default installation directory for skills (in user's home directory) */
+export const DEFAULT_INSTALL_DIR = resolve(homedir(), '.claude/skills');
 
 /** Skillstore API base URL */
 export const API_BASE_URL =
@@ -38,9 +39,19 @@ export interface PluginConfig {
  * Get plugin configuration from environment and CLI args
  */
 export function getPluginConfig(options: Partial<PluginConfig> = {}): PluginConfig {
+	// If custom installDir is provided and is relative, resolve against home directory
+	let installDir = options.installDir || DEFAULT_INSTALL_DIR;
+	if (options.installDir && !options.installDir.startsWith('/') && !options.installDir.startsWith('~')) {
+		// Relative path provided - resolve against home directory
+		installDir = resolve(homedir(), options.installDir);
+	} else if (options.installDir?.startsWith('~')) {
+		// Expand ~ to home directory
+		installDir = resolve(homedir(), options.installDir.slice(2));
+	}
+
 	return {
 		apiBaseUrl: options.apiBaseUrl || API_BASE_URL,
-		installDir: resolve(process.cwd(), options.installDir || DEFAULT_INSTALL_DIR),
+		installDir,
 		timeout: options.timeout || REQUEST_TIMEOUT,
 		maxConcurrent: options.maxConcurrent || MAX_CONCURRENT_DOWNLOADS,
 		skipVerify: options.skipVerify || false,

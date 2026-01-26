@@ -9,6 +9,14 @@ import { downloadAllSkills, printDownloadSummary } from '../lib/plugin-download.
 import { logger } from '../lib/plugin-logger.js';
 
 /**
+ * Normalize skill/plugin slug
+ * Converts "owner/name" format to "owner-name" format
+ */
+function normalizeSlug(slug: string): string {
+	return slug.replace(/\//g, '-');
+}
+
+/**
  * Unified install command
  *
  * - `skillstore install <slug>` → Install single skill
@@ -51,7 +59,10 @@ export default defineCommand({
 
 		// Detect if target is a plugin (@prefix) or skill
 		const isPlugin = target.startsWith('@');
-		const slug = isPlugin ? target.slice(1) : target;
+		const rawSlug = isPlugin ? target.slice(1) : target;
+
+		// Normalize slug: convert "owner/name" format to "owner-name"
+		const slug = normalizeSlug(rawSlug);
 
 		if (isPlugin) {
 			await installPlugin(slug, { dir, skipVerify, dryRun, overwrite });

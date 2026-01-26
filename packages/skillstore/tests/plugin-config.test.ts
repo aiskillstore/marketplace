@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resolve } from 'node:path';
+import { homedir } from 'node:os';
 import {
 	DEFAULT_INSTALL_DIR,
 	API_BASE_URL,
@@ -16,8 +17,8 @@ import {
 
 describe('plugin-config', () => {
 	describe('constants', () => {
-		it('should have correct default install directory', () => {
-			expect(DEFAULT_INSTALL_DIR).toBe('.claude/skills');
+		it('should have correct default install directory in home', () => {
+			expect(DEFAULT_INSTALL_DIR).toBe(resolve(homedir(), '.claude/skills'));
 		});
 
 		it('should have correct default API base URL', () => {
@@ -65,10 +66,11 @@ describe('plugin-config', () => {
 			expect(config.dryRun).toBe(true);
 		});
 
-		it('should resolve relative install directory to absolute path', () => {
+		it('should resolve relative install directory to home directory', () => {
 			const config = getPluginConfig({ installDir: 'custom/skills' });
 
-			expect(config.installDir).toBe(resolve(originalCwd, 'custom/skills'));
+			// Relative paths are resolved against home directory, not cwd
+			expect(config.installDir).toBe(resolve(homedir(), 'custom/skills'));
 		});
 
 		it('should preserve absolute install directory path', () => {
