@@ -3,8 +3,8 @@ import { mkdir, writeFile, access } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import { fetchManifest, reportInstallation, reportSkillInstall, PluginApiError } from '../lib/plugin-api.js';
-import { fetchSkillInfo, downloadSkillZip, SkillApiError } from '../lib/skill-api.js';
-import { verifyManifest } from '../lib/plugin-verify.js';
+import { fetchSkillManifest, downloadSkillZip, SkillApiError } from '../lib/skill-api.js';
+import { verifyManifest, verifySkillManifest, verifyZipHash } from '../lib/plugin-verify.js';
 import { downloadAllSkills, printDownloadSummary } from '../lib/plugin-download.js';
 import { logger } from '../lib/plugin-logger.js';
 
@@ -40,7 +40,7 @@ export default defineCommand({
 		},
 		'skip-verify': {
 			type: 'boolean',
-			description: 'Skip manifest signature verification (plugins only)',
+			description: 'Skip manifest signature verification',
 			default: false,
 		},
 		'dry-run': {
@@ -67,7 +67,7 @@ export default defineCommand({
 		if (isPlugin) {
 			await installPlugin(slug, { dir, skipVerify, dryRun, overwrite });
 		} else {
-			await installSkill(slug, { dir, dryRun, overwrite });
+			await installSkill(slug, { dir, skipVerify, dryRun, overwrite });
 		}
 	},
 });
@@ -77,12 +77,13 @@ export default defineCommand({
  */
 async function installSkill(
 	slug: string,
-	options: { dir: string; dryRun: boolean; overwrite: boolean }
+	options: { dir: string; skipVerify: boolean; dryRun: boolean; overwrite: boolean }
 ): Promise<void> {
-	const { dir, dryRun, overwrite } = options;
+	const { dir, skipVerify, dryRun, overwrite } = options;
 
 	const config = getPluginConfig({
 		installDir: dir,
+		skipVerify,
 		dryRun,
 	});
 
@@ -94,20 +95,33 @@ async function installSkill(
 	}
 
 	try {
-		// Step 1: Fetch skill info
-		logger.startSpinner('Fetching skill info...');
-		const skillInfo = await fetchSkillInfo(config, slug);
-		logger.spinnerSuccess(`Found skill: "${skillInfo.name}"`);
+		// Step 1: Fetch skill manifest
+		logger.startSpinner('Fetching skill manifest...');
+		const manifest = await fetchSkillManifest(config, slug);
+		logger.spinnerSuccess(`Found skill: "${manifest.skill.name}"`);
 
-		// Step 2: Show skill info
-		logger.box(`Skill: ${skillInfo.name}`, [
-			`Slug: ${skillInfo.slug}`,
-			`Version: ${skillInfo.version || 'N/A'}`,
-			`Author: ${skillInfo.author || 'Unknown'}`,
-			`Category: ${skillInfo.category || 'N/A'}`,
+		// Step 2: Verify manifest signature
+		if (!skipVerify) {
+			logger.startSpinner('Verifying manifest signature...');
+			const verifyResult = await verifySkillManifest(manifest);
+			if (!verifyResult.valid) {
+				logger.spinnerError('Manifest verification failed');
+				logger.error(verifyResult.error || 'Unknown verification error');
+				process.exit(1);
+			}
+			logger.spinnerSuccess('Manifest verified');
+		} else {
+			logger.warn('Skipping signature verification');
+		}
+
+		// Step 3: Show skill info
+		logger.box(`Skill: ${manifest.skill.name}`, [
+			`Slug: ${manifest.skill.slug}`,
+			`Version: ${manifest.skill.version}`,
+			`Author: ${manifest.skill.author || 'Unknown'}`,
 		]);
 
-		// Step 3: Check if already installed
+		// Step 4: Check if already installed
 		const skillDir = join(config.installDir, slug);
 		if (!overwrite) {
 			try {
@@ -126,17 +140,28 @@ async function installSkill(
 			return;
 		}
 
-		// Step 4: Download skill ZIP
+		// Step 5: Download skill ZIP
 		logger.startSpinner('Downloading skill...');
 		const zipBuffer = await downloadSkillZip(config, slug);
 		logger.spinnerSuccess('Downloaded skill package');
 
-		// Step 5: Extract ZIP
+		// Step 6: Verify ZIP hash
+		if (!skipVerify) {
+			logger.startSpinner('Verifying content integrity...');
+			if (!verifyZipHash(zipBuffer, manifest.skill.zipHash)) {
+				logger.spinnerError('Content verification failed');
+				logger.error('ZIP hash mismatch - content may be corrupted or tampered');
+				process.exit(1);
+			}
+			logger.spinnerSuccess('Content verified');
+		}
+
+		// Step 7: Extract ZIP
 		logger.startSpinner('Extracting files...');
 		await extractZip(zipBuffer, config.installDir);
 		logger.spinnerSuccess('Extracted files');
 
-		// Step 6: Report installation (non-blocking telemetry)
+		// Step 8: Report installation (non-blocking telemetry)
 		try {
 			await reportSkillInstall(config, slug);
 			logger.debug('Installation telemetry reported');
@@ -144,7 +169,7 @@ async function installSkill(
 			logger.debug('Failed to report telemetry (non-critical)');
 		}
 
-		logger.success(`Skill "${skillInfo.name}" installed successfully!`);
+		logger.success(`Skill "${manifest.skill.name}" installed successfully!`);
 		console.log('');
 		console.log(`Installed to: ${skillDir}`);
 	} catch (err) {

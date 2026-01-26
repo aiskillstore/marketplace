@@ -1,5 +1,6 @@
 import { createHmac, createHash, timingSafeEqual as cryptoTimingSafeEqual } from 'node:crypto';
 import type { PluginManifest } from './plugin-api.js';
+import type { SkillManifest } from './skill-api.js';
 
 /**
  * Plugin Manifest Verification
@@ -130,4 +131,88 @@ export async function verifyManifest(
 	}
 
 	return { valid: true };
+}
+
+/**
+ * Verify skill manifest signature using HMAC-SHA256
+ *
+ * Similar to verifyManifestSignature but for single skill manifests.
+ */
+export function verifySkillManifestSignature(
+	manifest: SkillManifest,
+	key: string
+): VerifyResult {
+	try {
+		// Extract signature and create unsigned manifest
+		const { signature, ...unsignedManifest } = manifest;
+
+		if (!signature) {
+			return { valid: false, error: 'Manifest has no signature' };
+		}
+
+		// Compute expected signature (matching server-side implementation)
+		const dataToSign = JSON.stringify(unsignedManifest, null, 0);
+		const expectedSignature = createHmac('sha256', key)
+			.update(dataToSign)
+			.digest('hex');
+
+		// Constant-time comparison to prevent timing attacks
+		const valid = timingSafeEqual(signature, expectedSignature);
+
+		if (!valid) {
+			return { valid: false, error: 'Signature verification failed' };
+		}
+
+		return { valid: true };
+	} catch (err) {
+		return {
+			valid: false,
+			error: `Verification error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+		};
+	}
+}
+
+/**
+ * Verify skill manifest (signature + structure)
+ */
+export async function verifySkillManifest(
+	manifest: SkillManifest,
+	options: { skipSignature?: boolean } = {}
+): Promise<VerifyResult> {
+	// Validate manifest structure
+	if (!manifest.version || manifest.version !== '1.0') {
+		return { valid: false, error: 'Unsupported manifest version' };
+	}
+
+	if (!manifest.skill?.slug) {
+		return { valid: false, error: 'Missing skill slug in manifest' };
+	}
+
+	if (!manifest.skill?.zipHash) {
+		return { valid: false, error: 'Missing zipHash in manifest' };
+	}
+
+	// Verify signature unless skipped
+	if (!options.skipSignature) {
+		const key = getVerificationKey();
+		const signatureResult = verifySkillManifestSignature(manifest, key);
+		if (!signatureResult.valid) {
+			return signatureResult;
+		}
+	}
+
+	return { valid: true };
+}
+
+/**
+ * Verify ZIP content hash
+ *
+ * Computes SHA-256 hash of the ZIP buffer and compares with expected hash.
+ */
+export function verifyZipHash(zipBuffer: ArrayBuffer, expectedHash: string): boolean {
+	const hash = createHash('sha256')
+		.update(Buffer.from(zipBuffer))
+		.digest('hex');
+
+	return hash === expectedHash;
 }

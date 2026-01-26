@@ -5,9 +5,13 @@ import {
 	verifyManifestSignature,
 	verifyContentHash,
 	verifyManifest,
+	verifySkillManifest,
+	verifySkillManifestSignature,
+	verifyZipHash,
 	type VerifyResult,
 } from '../src/lib/plugin-verify.js';
 import type { PluginManifest } from '../src/lib/plugin-api.js';
+import type { SkillManifest } from '../src/lib/skill-api.js';
 
 describe('plugin-verify', () => {
 	describe('getVerificationKey', () => {
@@ -307,6 +311,184 @@ describe('plugin-verify', () => {
 
 			expect(result.valid).toBe(false);
 			expect(result.error).toBe('Signature verification failed');
+		});
+	});
+
+	describe('verifySkillManifestSignature', () => {
+		const secretKey = 'test-skill-secret-key';
+
+		function createSignedSkillManifest(
+			manifest: Omit<SkillManifest, 'signature'>
+		): SkillManifest {
+			const dataToSign = JSON.stringify(manifest, null, 0);
+			const signature = createHmac('sha256', secretKey).update(dataToSign).digest('hex');
+			return { ...manifest, signature };
+		}
+
+		const validSkillManifest: Omit<SkillManifest, 'signature'> = {
+			version: '1.0',
+			skill: {
+				slug: 'test-skill',
+				name: 'Test Skill',
+				version: '1.0.0',
+				author: 'Test Author',
+				zipHash: 'abc123def456',
+			},
+			downloadUrl: '/api/skills/test-skill/download',
+			generatedAt: '2024-01-01T00:00:00Z',
+		};
+
+		it('should verify valid signature', () => {
+			const manifest = createSignedSkillManifest(validSkillManifest);
+			const result = verifySkillManifestSignature(manifest, secretKey);
+
+			expect(result.valid).toBe(true);
+			expect(result.error).toBeUndefined();
+		});
+
+		it('should reject manifest without signature', () => {
+			const manifest = { ...validSkillManifest, signature: undefined } as unknown as SkillManifest;
+			const result = verifySkillManifestSignature(manifest, secretKey);
+
+			expect(result.valid).toBe(false);
+			expect(result.error).toBe('Manifest has no signature');
+		});
+
+		it('should reject manifest with wrong signature', () => {
+			const manifest = createSignedSkillManifest(validSkillManifest);
+			manifest.signature = 'invalid-signature';
+
+			const result = verifySkillManifestSignature(manifest, secretKey);
+
+			expect(result.valid).toBe(false);
+			expect(result.error).toBe('Signature verification failed');
+		});
+
+		it('should reject manifest signed with different key', () => {
+			const manifest = createSignedSkillManifest(validSkillManifest);
+
+			const result = verifySkillManifestSignature(manifest, 'different-key');
+
+			expect(result.valid).toBe(false);
+			expect(result.error).toBe('Signature verification failed');
+		});
+	});
+
+	describe('verifySkillManifest', () => {
+		const secretKey = 'test-skill-key';
+
+		function createValidSkillManifest(overrides = {}): SkillManifest {
+			const base = {
+				version: '1.0' as const,
+				skill: {
+					slug: 'test-skill',
+					name: 'Test Skill',
+					version: '1.0.0',
+					zipHash: 'abc123',
+				},
+				downloadUrl: '/api/skills/test-skill/download',
+				generatedAt: '2024-01-01T00:00:00Z',
+				...overrides,
+			};
+
+			const dataToSign = JSON.stringify(base, null, 0);
+			const signature = createHmac('sha256', secretKey).update(dataToSign).digest('hex');
+			return { ...base, signature };
+		}
+
+		beforeEach(() => {
+			process.env.SKILLSTORE_VERIFY_KEY = secretKey;
+		});
+
+		afterEach(() => {
+			delete process.env.SKILLSTORE_VERIFY_KEY;
+		});
+
+		it('should validate a complete skill manifest', async () => {
+			const manifest = createValidSkillManifest();
+			const result = await verifySkillManifest(manifest);
+
+			expect(result.valid).toBe(true);
+		});
+
+		it('should reject unsupported manifest version', async () => {
+			const manifest = createValidSkillManifest({ version: '2.0' });
+			const result = await verifySkillManifest(manifest);
+
+			expect(result.valid).toBe(false);
+			expect(result.error).toBe('Unsupported manifest version');
+		});
+
+		it('should reject missing skill slug', async () => {
+			const manifest = createValidSkillManifest({
+				skill: { name: 'Test', version: '1.0.0', zipHash: 'abc' },
+			});
+			const result = await verifySkillManifest(manifest);
+
+			expect(result.valid).toBe(false);
+			expect(result.error).toBe('Missing skill slug in manifest');
+		});
+
+		it('should reject missing zipHash', async () => {
+			const manifest = createValidSkillManifest({
+				skill: { slug: 'test', name: 'Test', version: '1.0.0' },
+			});
+			const result = await verifySkillManifest(manifest);
+
+			expect(result.valid).toBe(false);
+			expect(result.error).toBe('Missing zipHash in manifest');
+		});
+
+		it('should skip signature verification when option is set', async () => {
+			const manifest = createValidSkillManifest();
+			manifest.signature = 'invalid';
+
+			const result = await verifySkillManifest(manifest, { skipSignature: true });
+
+			expect(result.valid).toBe(true);
+		});
+
+		it('should fail signature verification with wrong key', async () => {
+			process.env.SKILLSTORE_VERIFY_KEY = 'wrong-key';
+
+			const manifest = createValidSkillManifest();
+			const result = await verifySkillManifest(manifest);
+
+			expect(result.valid).toBe(false);
+			expect(result.error).toBe('Signature verification failed');
+		});
+	});
+
+	describe('verifyZipHash', () => {
+		it('should verify matching ZIP hash', () => {
+			const content = 'Hello, World!';
+			const buffer = new TextEncoder().encode(content).buffer;
+			const expectedHash = createHash('sha256').update(Buffer.from(buffer)).digest('hex');
+
+			expect(verifyZipHash(buffer, expectedHash)).toBe(true);
+		});
+
+		it('should reject non-matching ZIP hash', () => {
+			const content = 'Hello, World!';
+			const buffer = new TextEncoder().encode(content).buffer;
+			const wrongHash = 'deadbeef1234567890';
+
+			expect(verifyZipHash(buffer, wrongHash)).toBe(false);
+		});
+
+		it('should handle empty buffer', () => {
+			const buffer = new ArrayBuffer(0);
+			const expectedHash = createHash('sha256').update(Buffer.from(buffer)).digest('hex');
+
+			expect(verifyZipHash(buffer, expectedHash)).toBe(true);
+		});
+
+		it('should handle binary content', () => {
+			const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04]); // ZIP magic bytes
+			const buffer = bytes.buffer;
+			const expectedHash = createHash('sha256').update(Buffer.from(buffer)).digest('hex');
+
+			expect(verifyZipHash(buffer, expectedHash)).toBe(true);
 		});
 	});
 });

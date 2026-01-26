@@ -19,6 +19,21 @@ export interface SkillInfo {
 	pluginPath: string | null;
 }
 
+/** Skill manifest for verification */
+export interface SkillManifest {
+	version: '1.0';
+	skill: {
+		slug: string;
+		name: string;
+		version: string;
+		author?: string;
+		zipHash: string;
+	};
+	downloadUrl: string;
+	signature: string;
+	generatedAt: string;
+}
+
 /** API Error */
 export class SkillApiError extends Error {
 	constructor(
@@ -80,6 +95,49 @@ export async function fetchSkillInfo(
 
 	const result = (await response.json()) as { data: SkillInfo };
 	return result.data;
+}
+
+/**
+ * Get the manifest URL for a skill
+ */
+function getSkillManifestUrl(config: PluginConfig, skillSlug: string): string {
+	return `${config.apiBaseUrl}/skills/${skillSlug}/manifest`;
+}
+
+/**
+ * Fetch skill manifest for verification
+ */
+export async function fetchSkillManifest(
+	config: PluginConfig,
+	skillSlug: string
+): Promise<SkillManifest> {
+	const url = getSkillManifestUrl(config, skillSlug);
+
+	const response = await fetch(url, {
+		method: 'GET',
+		headers: {
+			Accept: 'application/json',
+		},
+		signal: AbortSignal.timeout(config.timeout),
+	});
+
+	if (!response.ok) {
+		const errorText = await response.text().catch(() => 'Unknown error');
+		let errorData: { error?: string; code?: string } = {};
+		try {
+			errorData = JSON.parse(errorText);
+		} catch {
+			// Not JSON
+		}
+
+		throw new SkillApiError(
+			errorData.error || `Failed to fetch manifest: ${response.statusText}`,
+			response.status,
+			errorData.code
+		);
+	}
+
+	return (await response.json()) as SkillManifest;
 }
 
 /**
