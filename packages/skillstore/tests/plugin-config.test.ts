@@ -79,6 +79,12 @@ describe('plugin-config', () => {
 			expect(config.installDir).toBe('/absolute/path/skills');
 		});
 
+		it('should expand tilde to home directory', () => {
+			const config = getPluginConfig({ installDir: '~/custom/skills' });
+
+			expect(config.installDir).toBe(resolve(homedir(), 'custom/skills'));
+		});
+
 		it('should handle partial options', () => {
 			const config = getPluginConfig({ skipVerify: true });
 
