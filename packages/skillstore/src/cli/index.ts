@@ -9,8 +9,6 @@ const main = defineCommand({
 		description: 'Skillstore CLI - Manage AI skills for Claude, Codex, and Claude Code',
 	},
 	subCommands: {
-		// Show version
-		version: () => import('../commands/version.js').then((m) => m.default),
 		// Primary command: add skills or plugins
 		add: () => import('../commands/add.js').then((m) => m.default),
 		// List installed skills
