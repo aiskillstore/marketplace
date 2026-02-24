@@ -1,5 +1,5 @@
 ---
-name: Internationalizing Websites
+name: internationalizing-websites
 description: Adds multi-language support to Next.js websites with proper SEO configuration including hreflang tags, localized sitemaps, and language-specific content. Use when adding new languages, setting up i18n, optimizing for international SEO, or when user mentions localization, translation, multi-language, or specific languages like Japanese, Korean, Chinese.
 ---
 
