@@ -1,14 +1,13 @@
 ---
 name: hig-project-context
 version: 1.0.0
-description: ">-"
-  Create or update a shared Apple design context document that other HIG skills
-  use to tailor guidance. Use when the user says "set up my project context,"
-  "what platforms am I targeting," "configure HIG settings," or when starting a
-  new Apple platform project. Also activates when other HIG skills need project
-  context but none exists yet. This skill creates .claude/apple-design-context.md
-  so that hig-foundations, hig-platforms, hig-components-*, hig-inputs, and
-  hig-technologies can provide targeted advice without repetitive questions.
+description: "Create or update a shared Apple design context document that other\
+  \ HIG skills use to tailor guidance. Use when the user says \"set up my project\
+  \ context,\" \"what platforms am I targeting,\" \"configure HIG settings,\" or when\
+  \ starting a new Apple platform project. Also activates when other HIG skills need\
+  \ project context but none exists yet. This skill creates .claude/apple-design-context.md\
+  \ so that hig-foundations, hig-platforms, hig-components-*, hig-inputs, and hig-technologies\
+  \ can provide targeted advice without repetitive questions."
 risk: unknown
 source: community
 ---

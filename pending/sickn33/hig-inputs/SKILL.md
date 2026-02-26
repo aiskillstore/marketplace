@@ -1,18 +1,7 @@
 ---
 name: hig-inputs
-version: 1.0.0
-description: ">"
-  Apple HIG guidance for input methods and interaction patterns: gestures, Apple Pencil,
-  keyboards, game controllers, pointers, Digital Crown, eye tracking, focus system,
-  remotes, spatial interactions, gyroscope, accelerometer, and nearby interactions.
-  Use when asked about: "gesture design", "Apple Pencil", "keyboard shortcuts",
-  "game controller", "pointer support", "mouse support", "trackpad", "Digital Crown",
-  "eye tracking", "visionOS input", "focus system", "remote control", "gyroscope",
-  "spatial interaction". Also use when the user says "what gestures should I support,"
-  "how do I add keyboard shortcuts," "how does input work on Apple TV," "should I
-  support Apple Pencil," or asks about input device handling.
-  Cross-references: hig-components-status, hig-components-system,
-  hig-technologies for VoiceOver and Siri.
+version: "1.0.0"
+description: "Apple HIG guidance for input methods and interaction patterns: gestures, Apple Pencil, keyboards, game controllers, pointers, Digital Crown, eye tracking, focus system, remotes, spatial interactions, gyroscope, accelerometer, and nearby interactions. Use when asked about gesture design, Apple Pencil, keyboard shortcuts, game controller, pointer support, mouse support, trackpad, Digital Crown, eye tracking, visionOS input, focus system, remote control, gyroscope, spatial interaction."
 risk: unknown
 source: community
 ---
