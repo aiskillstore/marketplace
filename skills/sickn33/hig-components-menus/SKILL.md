@@ -1,16 +1,7 @@
 ---
 name: hig-components-menus
 version: 1.0.0
-description: ">-"
-  Apple HIG guidance for menu and button components including menus, context menus,
-  dock menus, edit menus, the menu bar, toolbars, action buttons, pop-up buttons,
-  pull-down buttons, disclosure controls, and standard buttons. Use this skill
-  when the user says "how should my buttons look," "what goes in the menu bar,"
-  "should I use a context menu or action sheet," "how do I design a toolbar," or
-  asks about button design, menu design, context menu, toolbar, menu bar, action
-  button, pop-up button, pull-down button, disclosure control, dock menu, edit
-  menu, or any menu/button component layout and behavior. Cross-references:
-  hig-components-search, hig-components-controls, hig-components-dialogs.
+description: Apple HIG guidance for menu and button components including menus, context menus, toolbars, action buttons, pop-up buttons, and disclosure controls.
 risk: unknown
 source: community
 ---

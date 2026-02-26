@@ -1,7 +1,7 @@
 ---
 name: hig-patterns
 version: 1.0.0
-description: ">"
+description: >
   Apple Human Interface Guidelines interaction and UX patterns. Use this skill when the user asks about
   "onboarding flow", "user onboarding", "app launch", "loading state", "drag and drop", "search pattern",
   "settings design", "notifications", "modality", "multitasking", "feedback pattern", "haptics",
