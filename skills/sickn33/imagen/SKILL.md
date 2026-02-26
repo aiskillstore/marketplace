@@ -1,6 +1,6 @@
 ---
 name: imagen
-description: |
+description: "Generate images using Google Gemini's AI model. Creates visuals for frontend development, documentation, diagrams, icons, logos, and UI assets. Cross-platform Python-based skill."
 source: "https://github.com/sanjay3290/ai-skills/tree/main/skills/imagen"
 risk: safe
 ---
