@@ -1,15 +1,7 @@
 ---
 name: hig-platforms
 version: 1.0.0
-description: ">"
-  Apple Human Interface Guidelines for platform-specific design. Use this skill when the user asks about
-  "designing for iOS", "iPad app design", "macOS design", "tvOS", "visionOS", "watchOS", "Apple platform",
-  "which platform", platform differences, platform-specific conventions, or multi-platform app design.
-  Also use when the user says "should I design differently for iPad vs iPhone", "how does my app work
-  on visionOS", "what's different about macOS apps", "porting my app to another platform",
-  "universal app design", or "what input methods does this platform use".
-  Cross-references: hig-foundations for shared design foundations, hig-patterns for interaction patterns,
-  hig-components-layout for navigation structures, hig-components-content for content display.
+description: "Apple Human Interface Guidelines for platform-specific design across iOS, iPadOS, macOS, tvOS, visionOS, and watchOS. Use when designing for Apple platforms or adapting apps across platforms."
 risk: unknown
 source: community
 ---

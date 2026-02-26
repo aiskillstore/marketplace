@@ -1,7 +1,7 @@
 ---
 name: hig-project-context
 version: 1.0.0
-description: ">-"
+description: >-
   Create or update a shared Apple design context document that other HIG skills
   use to tailor guidance. Use when the user says "set up my project context,"
   "what platforms am I targeting," "configure HIG settings," or when starting a

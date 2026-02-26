@@ -1,17 +1,15 @@
 ---
 name: hig-components-system
 version: 1.0.0
-description: ">"
-  Apple HIG guidance for system experience components: widgets, live activities,
-  notifications, complications, home screen quick actions, top shelf, watch faces,
-  app clips, and app shortcuts. Use when asked about: "widget design", "live activity",
-  "notification design", "complication", "home screen quick action",
-  "top shelf", "watch face", "app clip", "app shortcut", "system experience".
-  Also use when the user says "how do I design a widget," "what should my notification
-  look like," "how do Live Activities work," "should I make an App Clip," or asks about
-  surfaces outside the main app.
-  Cross-references: hig-components-status for progress in widgets, hig-inputs for
-  interaction patterns, hig-technologies for Siri and system integration.
+description: "Apple HIG guidance for system experience components: widgets, live activities,\
+  notifications, complications, home screen quick actions, top shelf, watch faces,\
+  app clips, and app shortcuts. Use when asked about: \"widget design\", \"live activity\",\
+  \"notification design\", \"complication\", \"home screen quick action\",\
+  \"top shelf\", \"watch face\", \"app clip\", \"app shortcut\", \"system experience\".\
+  Also use when the user says \"how do I design a widget,\" \"what should my notification\
+  look like,\" \"how do Live Activities work,\" \"should I make an App Clip,\" or asks about\
+  surfaces outside the main app. Cross-references: hig-components-status for progress in\
+  widgets, hig-inputs for interaction patterns, hig-technologies for Siri and system integration."
 risk: unknown
 source: community
 ---

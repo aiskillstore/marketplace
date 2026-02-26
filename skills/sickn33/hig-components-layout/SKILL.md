@@ -1,16 +1,7 @@
 ---
 name: hig-components-layout
 version: 1.0.0
-description: ">"
-  Apple Human Interface Guidelines for layout and navigation components. Use this skill when the user
-  asks about "sidebar", "split view", "tab bar", "tab view", "scroll view", "window design", "panel",
-  "list view", "table view", "column view", "outline view", "navigation structure", "app layout",
-  "boxes", "ornaments", or organizing content hierarchically in Apple apps.
-  Also use when the user says "how should I organize my app", "what navigation pattern should I use",
-  "my layout breaks on iPad", "how do I build a sidebar", "should I use tabs or a sidebar",
-  or "my app doesn't adapt to different screen sizes".
-  Cross-references: hig-foundations for layout/spacing principles, hig-platforms for platform-specific
-  navigation, hig-patterns for multitasking and full-screen, hig-components-content for content display.
+description: "Apple Human Interface Guidelines for layout and navigation components including sidebars, split views, tab bars, scroll views, windows, panels, lists, columns, outlines, and boxes. Use when building navigation structures, organizing content hierarchically, adapting layouts to different screen sizes, or implementing iPad multitasking support."
 risk: unknown
 source: community
 ---

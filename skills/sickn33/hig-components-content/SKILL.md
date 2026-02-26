@@ -1,17 +1,7 @@
 ---
 name: hig-components-content
 version: 1.0.0
-description: ">"
-  Apple Human Interface Guidelines for content display components. Use this skill when the user asks about
-  "charts component", "collection view", "image view", "web view", "color well", "image well",
-  "activity view", "lockup", "data visualization", "content display", displaying images, rendering
-  web content, color pickers, or presenting collections of items in Apple apps.
-  Also use when the user says "how should I display charts", "what's the best way to show images",
-  "should I use a web view", "how do I build a grid of items", "what component shows media",
-  or "how do I present a share sheet".
-  Cross-references: hig-foundations for color/typography/accessibility, hig-patterns for data
-  visualization patterns, hig-components-layout for structural containers, hig-platforms for
-  platform-specific component behavior.
+description: "Apple Human Interface Guidelines for content display components including charts, collections, image views, web views, color wells, image wells, activity views, and lockups."
 risk: unknown
 source: community
 ---
