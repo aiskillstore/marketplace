@@ -1,7 +1,7 @@
 ---
 name: hig-technologies
 version: 1.0.0
-description: ">"
+description: >
   Apple HIG guidance for Apple technology integrations: Siri, Apple Pay, HealthKit,
   HomeKit, ARKit, machine learning, generative AI, iCloud, Sign in with Apple,
   SharePlay, CarPlay, Game Center, in-app purchase, NFC, Wallet, VoiceOver, Maps,

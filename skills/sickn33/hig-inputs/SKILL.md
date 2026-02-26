@@ -1,7 +1,7 @@
 ---
 name: hig-inputs
 version: 1.0.0
-description: ">"
+description: >
   Apple HIG guidance for input methods and interaction patterns: gestures, Apple Pencil,
   keyboards, game controllers, pointers, Digital Crown, eye tracking, focus system,
   remotes, spatial interactions, gyroscope, accelerometer, and nearby interactions.

@@ -1,7 +1,7 @@
 ---
 name: hig-components-status
 version: 1.0.0
-description: ">"
+description: >
   Apple HIG guidance for status and progress UI components including progress indicators,
   status bars, and activity rings. Use this skill when asked about: "progress indicator",
   "progress bar", "loading spinner", "status bar", "activity ring", "progress display",
