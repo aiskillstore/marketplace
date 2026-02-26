@@ -1,6 +1,6 @@
 ---
 name: imagen
-description: |
+description: "Generates images using Google Gemini's image generation model for Claude Code sessions. Enables seamless image creation for frontend UIs, documentation, and visual representations of concepts."
 source: "https://github.com/sanjay3290/ai-skills/tree/main/skills/imagen"
 risk: safe
 ---

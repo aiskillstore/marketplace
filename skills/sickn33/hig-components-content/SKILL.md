@@ -1,7 +1,7 @@
 ---
 name: hig-components-content
 version: 1.0.0
-description: ">"
+description: >
   Apple Human Interface Guidelines for content display components. Use this skill when the user asks about
   "charts component", "collection view", "image view", "web view", "color well", "image well",
   "activity view", "lockup", "data visualization", "content display", displaying images, rendering

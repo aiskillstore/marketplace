@@ -1,7 +1,7 @@
 ---
 name: hig-components-menus
 version: 1.0.0
-description: ">-"
+description: >-
   Apple HIG guidance for menu and button components including menus, context menus,
   dock menus, edit menus, the menu bar, toolbars, action buttons, pop-up buttons,
   pull-down buttons, disclosure controls, and standard buttons. Use this skill
