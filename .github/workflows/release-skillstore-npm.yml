@@ -1,0 +1,121 @@
+name: Release Skillstore NPM
+
+on:
+  push:
+    tags:
+      - "skillstore-v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without prefix (e.g. 0.2.1)"
+        required: true
+        type: string
+
+concurrency:
+  group: release-skillstore-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Resolve version and tag
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            TAG="skillstore-v${VERSION}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#skillstore-v}"
+          fi
+
+          if [ -z "$VERSION" ]; then
+            echo "Version resolve failed"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=$TAG version=$VERSION"
+
+      - name: Validate package version
+        shell: bash
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/skillstore/package.json').version")
+          EXPECTED="${{ steps.version.outputs.version }}"
+          echo "package.json version=$PKG_VERSION tag version=$EXPECTED"
+          if [ "$PKG_VERSION" != "$EXPECTED" ]; then
+            echo "Version mismatch: packages/skillstore/package.json=$PKG_VERSION, tag=$EXPECTED"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        working-directory: packages/skillstore
+        run: pnpm install --frozen-lockfile
+
+      - name: Build package
+        working-directory: packages/skillstore
+        run: pnpm build
+
+      - name: Run tests
+        working-directory: packages/skillstore
+        run: pnpm test
+
+      - name: Pack artifact
+        working-directory: packages/skillstore
+        run: npm pack
+
+      - name: Publish to npm (Trusted Publishing)
+        working-directory: packages/skillstore
+        run: npm publish --provenance --access public
+
+      - name: Upload npm tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: skillstore-npm-tarball
+          path: packages/skillstore/*.tgz
+          retention-days: 7
+
+  release:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download npm tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: skillstore-npm-tarball
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.publish.outputs.tag }}
+          name: skillstore v${{ needs.publish.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist/*.tgz
