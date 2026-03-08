@@ -1,0 +1,245 @@
+# GitHub Action Workflow for Marketplace Repository
+# Translates plugin content to supported languages.
+# Simplified single-job workflow (no sharding) since plugin count is small.
+# Sharding support can be added later if plugin count grows significantly.
+
+name: Auto-Translate Plugin Content
+
+on:
+  repository_dispatch:
+    types: [translate-plugins]
+  workflow_dispatch:
+    inputs:
+      plugin_slugs:
+        description: "Specific plugins to translate, comma-separated"
+        required: false
+      model:
+        description: "Model to use (e.g., gpt-5.2-codex:high, claude-sonnet-4.5). Auto-detects agent."
+        type: string
+        default: ""
+      force:
+        description: "Force re-translation of existing translations"
+        type: boolean
+        default: false
+      concurrency:
+        description: "Parallel plugins per language (1-10)"
+        type: string
+        default: "5"
+      cli_version:
+        description: "CLI version (default: latest)"
+        type: string
+        default: "latest"
+
+concurrency:
+  group: translate-plugins
+  cancel-in-progress: false
+
+jobs:
+  translate:
+    runs-on: self-hosted
+    timeout-minutes: 60
+    outputs:
+      result_json: ${{ steps.translate.outputs.result_json }}
+      translated_slugs: ${{ steps.translate.outputs.translated_slugs }}
+      has_translations: ${{ steps.translate.outputs.has_translations }}
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+
+      - name: Download Skillstore CLI
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ inputs.cli_version || 'latest' }}
+          token: ${{ steps.app-token.outputs.token }}
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Detect plugin slugs
+        id: detect
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            SLUGS_CSV="${{ github.event.client_payload.plugin_slugs }}"
+            TRIGGERED_BY="${{ github.event.client_payload.triggered_by }}"
+            echo "Triggered by: $TRIGGERED_BY"
+          else
+            SLUGS_CSV="${{ inputs.plugin_slugs }}"
+          fi
+
+          if [ -n "$SLUGS_CSV" ]; then
+            if [[ ! "$SLUGS_CSV" =~ ^[a-z0-9/_-]+(,[a-z0-9/_-]+)*$ ]]; then
+              echo "::error::Invalid slug format in: $SLUGS_CSV (expected: lowercase alphanumeric with hyphens and slashes)"
+              exit 1
+            fi
+            PLUGIN_COUNT=$(echo "$SLUGS_CSV" | tr ',' '\n' | grep -c . || echo 0)
+            echo "Translating $PLUGIN_COUNT plugin(s): $SLUGS_CSV"
+          else
+            echo "No specific slugs provided - will translate all stale/pending plugins"
+            PLUGIN_COUNT=0
+          fi
+
+          echo "slugs_csv=$SLUGS_CSV" >> $GITHUB_OUTPUT
+          echo "plugin_count=$PLUGIN_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Run translation
+        id: translate
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
+          SLUGS: ${{ steps.detect.outputs.slugs_csv }}
+          CONCURRENCY: ${{ inputs.concurrency || '5' }}
+        run: |
+          SLUG_FLAG=""
+          if [ -n "$SLUGS" ]; then
+            SLUG_FLAG="--slugs $SLUGS"
+          fi
+
+          MODEL_FLAG=""
+          if [ -n "${{ inputs.model }}" ]; then
+            MODEL_FLAG="--model ${{ inputs.model }}"
+          fi
+
+          FORCE_FLAG=""
+          if [ "${{ inputs.force }}" = "true" ]; then
+            FORCE_FLAG="--force"
+          fi
+
+          set +e
+          RESULT=$("$GITHUB_WORKSPACE/skillstore-cli" plugin translate-content \
+            $SLUG_FLAG \
+            --concurrency "$CONCURRENCY" \
+            --output json \
+            $MODEL_FLAG \
+            $FORCE_FLAG)
+          EXIT_CODE=$?
+          set -e
+
+          if echo "$RESULT" | jq -e '.totalPlugins // .totalSkills' > /dev/null 2>&1; then
+            TRANSLATED=$(echo "$RESULT" | jq -r '.translated')
+            SKIPPED=$(echo "$RESULT" | jq -r '.skipped')
+            ERRORS=$(echo "$RESULT" | jq -r '.errors')
+            DURATION=$(echo "$RESULT" | jq -r '.durationMs')
+            MODEL_USED=$(echo "$RESULT" | jq -r '.modelUsed // "auto"')
+            DURATION_SEC=$((DURATION / 1000))
+
+            echo "Results: $TRANSLATED translated, $SKIPPED skipped, $ERRORS errors (${DURATION_SEC}s)"
+
+            # Build compact result JSON for output
+            RESULT_JSON=$(jq -cn \
+              --argjson translated "$TRANSLATED" \
+              --argjson skipped "$SKIPPED" \
+              --argjson errors "$ERRORS" \
+              --argjson duration "$DURATION" \
+              --arg model "$MODEL_USED" \
+              '{
+                translated: $translated,
+                skipped: $skipped,
+                errors: $errors,
+                durationMs: $duration,
+                modelUsed: $model
+              }')
+            echo "result_json=$RESULT_JSON" >> $GITHUB_OUTPUT
+
+            # Extract slugs that were actually translated (for cache invalidation)
+            TRANSLATED_SLUGS=$(echo "$RESULT" | jq -r '[.languages[].skills[] | select(.status != "skipped") | .slug] | unique | join(",")' 2>/dev/null || echo "")
+            echo "translated_slugs=$TRANSLATED_SLUGS" >> $GITHUB_OUTPUT
+
+            if [ "$TRANSLATED" -gt 0 ]; then
+              echo "has_translations=true" >> $GITHUB_OUTPUT
+            else
+              echo "has_translations=false" >> $GITHUB_OUTPUT
+            fi
+
+            if [ "$ERRORS" -gt 0 ] && [ "$TRANSLATED" -eq 0 ]; then
+              echo "::error::All translations failed"
+              exit 1
+            elif [ "$ERRORS" -gt 0 ]; then
+              echo "::warning::Some translations failed ($ERRORS errors)"
+            fi
+          else
+            echo "::error::Translation failed with unexpected output"
+            echo "$RESULT"
+            echo "has_translations=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+  invalidate-cache:
+    needs: translate
+    if: success() && needs.translate.outputs.has_translations == 'true'
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/actions
+
+      - name: Invalidate cache for translated plugins
+        uses: ./.github/actions/invalidate-cache
+        with:
+          type: plugins
+          slugs: ${{ needs.translate.outputs.translated_slugs }}
+          secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+
+  notify:
+    needs: [translate, invalidate-cache]
+    if: always()
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: Summary
+        env:
+          RESULT_JSON: ${{ needs.translate.outputs.result_json }}
+        run: |
+          echo "# Plugin Translation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -n "$RESULT_JSON" ] && echo "$RESULT_JSON" | jq -e '.translated' > /dev/null 2>&1; then
+            TRANSLATED=$(echo "$RESULT_JSON" | jq -r '.translated')
+            SKIPPED=$(echo "$RESULT_JSON" | jq -r '.skipped')
+            ERRORS=$(echo "$RESULT_JSON" | jq -r '.errors')
+            DURATION=$(echo "$RESULT_JSON" | jq -r '.durationMs')
+            MODEL_USED=$(echo "$RESULT_JSON" | jq -r '.modelUsed // "auto"')
+            DURATION_MIN=$((DURATION / 60000))
+            DURATION_SEC=$(((DURATION % 60000) / 1000))
+
+            echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Model | $MODEL_USED |" >> $GITHUB_STEP_SUMMARY
+            echo "| Translated | $TRANSLATED |" >> $GITHUB_STEP_SUMMARY
+            echo "| Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
+            echo "| Errors | $ERRORS |" >> $GITHUB_STEP_SUMMARY
+            echo "| Duration | ${DURATION_MIN}m ${DURATION_SEC}s |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$ERRORS" -gt 0 ]; then
+              echo "### Some translations failed" >> $GITHUB_STEP_SUMMARY
+              echo "Check the translate job logs for error details." >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            if [ "${{ needs.translate.result }}" = "success" ]; then
+              echo "Translation completed" >> $GITHUB_STEP_SUMMARY
+            elif [ "${{ needs.translate.result }}" = "failure" ]; then
+              echo "Translation failed. Check job logs." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "Translation status: ${{ needs.translate.result }}" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.invalidate-cache.result }}" = "success" ]; then
+            echo "Cache invalidated successfully" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.invalidate-cache.result }}" = "skipped" ]; then
+            echo "Cache invalidation skipped (no translations)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Cache invalidation: ${{ needs.invalidate-cache.result }}" >> $GITHUB_STEP_SUMMARY
+          fi
