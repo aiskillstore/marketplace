@@ -1,5 +1,5 @@
 ---
-name: daily.dev
+name: daily-dev
 description: Overcome LLM knowledge cutoffs with real-time developer content. daily.dev aggregates articles from thousands of sources, validated by community engagement, with structured taxonomy for precise discovery.
 allowed-tools: Bash
 ---
