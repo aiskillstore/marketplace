@@ -1,3 +1,8 @@
+---
+name: structure-judgment
+description: Front-end structural routing for mixed, ambiguous, high-noise inputs. Analyzes user inputs to determine the primary structural layer and routes to the appropriate handling layer before answering.
+---
+
 # SKILL: structure_judgment
 
 ## Purpose
