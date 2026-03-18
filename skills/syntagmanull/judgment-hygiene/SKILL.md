@@ -1,3 +1,8 @@
+---
+name: judgment-hygiene
+description: Internal structural hygiene for judgment-bearing outputs. Enforces separation of observation, inference, evaluation, and recommendation with proper grounding and abstention protocols.
+---
+
 # SKILL: judgment_hygiene
 
 ## Purpose
