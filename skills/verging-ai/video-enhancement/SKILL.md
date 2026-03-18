@@ -1,7 +1,7 @@
 ---
 name: video-enhancement
 description: AI Video Enhancement - Upscale video resolution, improve quality, denoise, sharpen, enhance low-quality videos to HD/4K. Supports local video files, remote URLs (YouTube, Bilibili), auto-download, real-time progress tracking.
-version: 1.0.0
+version: 1.0.1
 author: verging.ai
 category: media
 user-invocable: true
@@ -11,7 +11,7 @@ metadata:
       env:
         - VERGING_API_KEY
       bins:
-        - yt-dlp-downloader-skill
+        - yt-dlp
         - ffmpeg
         - ffprobe
         - curl
@@ -138,7 +138,11 @@ curl -H "Authorization: ApiKey $VERGING_API_KEY" \
 ## Dependencies
 
 This skill requires:
-- **yt-dlp-downloader-skill**: For downloading remote videos (YouTube, Bilibili, etc.). Install first: `clawhub install yt-dlp-downloader-skill`
+- **Remote video download capability** (only when user provides a URL like YouTube, Bilibili, etc.):
+  - Preferred: install yt-dlp skill first: `npx skills add lwmxiaobei/yt-dlp-skill --skill yt-dlp`
+  - Alternative: `npx skills add mapleshaw/yt-dlp-downloader-skill --skill yt-dlp-downloader`
+  - Alternative: use `yt-dlp` directly if already available on the system
+  - If no download tool is available, prompt the user to download the video locally first
 - **ffmpeg/ffprobe**: For video trimming (optional, only when --start or --end specified)
 - **curl**: Usually built-in
 
@@ -148,7 +152,7 @@ When the user executes the /video-enhancement command, please follow these steps
 
 ### 0. Check Dependencies
 
-- If user provides a remote video URL, ensure yt-dlp-downloader-skill is installed
+- If user provides a remote video URL, check if `yt-dlp` is available: `which yt-dlp`
 - For local videos without trimming, no additional tools needed
 
 ### 1. Parse Arguments
@@ -158,8 +162,10 @@ When the user executes the /video-enhancement command, please follow these steps
 - Parse time range --start and --end
 
 ### 2. Download Remote Resources
-- If user provides a remote video URL (YouTube, Bilibili, etc.), use yt-dlp-downloader-skill to download
-- If yt-dlp-downloader-skill is not installed, prompt user to install it first: `clawhub install yt-dlp-downloader-skill`
+- If user provides a remote video URL (YouTube, Bilibili, etc.):
+  - Try `yt-dlp "URL" -o /tmp/verging-video-enhancement/video.mp4`
+  - If yt-dlp is not available, suggest installing the yt-dlp skill: `npx skills add lwmxiaobei/yt-dlp-skill --skill yt-dlp`
+  - If installation is not possible, ask the user to download the video locally first
 - Temp directory: /tmp/verging-video-enhancement/
 
 ### 3. Get Video Duration
@@ -243,7 +249,7 @@ User: /video-enhancement -v "https://youtube.com/watch?v=xxx" --hd --start 5 --e
 
 You:
 1. Parse arguments - remote video, HD mode, trim 5-15s
-2. Download video using yt-dlp-downloader-skill
+2. Download video using yt-dlp
 3. Trim video to 10 seconds
 4. Get trimmed video duration
 5. Check credits sufficient (10 sec × 3 credits/sec = 30 credits)
@@ -254,7 +260,7 @@ You:
 
 ## Notes
 
-- This skill uses yt-dlp-downloader-skill for remote video downloads (YouTube, Bilibili, etc.)
+- This skill uses yt-dlp for remote video downloads (YouTube, Bilibili, etc.)
 - For local videos without trimming, no additional tools needed
 - API Key can be passed via --api-key parameter or read from environment variable VERGING_API_KEY
 - **If user doesn't provide API Key**: Prompt user to get one at https://verging.ai (Login → Click user avatar → API Keys), and guide them to set the environment variable
