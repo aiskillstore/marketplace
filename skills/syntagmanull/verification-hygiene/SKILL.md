@@ -1,3 +1,8 @@
+---
+name: verification-hygiene
+description: External evidence discipline and search execution routing. Bridges structure_judgment and judgment_hygiene to govern how the model searches, what it retrieves, when to stop, and how to format evidence before internal reasoning. Prevents treating SEO-driven internet as infallible.
+---
+
 # SKILL: verification_hygiene
 
 ## Purpose

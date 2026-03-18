@@ -1,3 +1,8 @@
+---
+name: judgment-hygiene
+description: Internal structural hygiene for judgment-bearing outputs.
+---
+
 # SKILL: judgment_hygiene
 
 ## Purpose
