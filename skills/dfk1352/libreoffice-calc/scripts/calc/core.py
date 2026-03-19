@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from calc.exceptions import CalcSkillError
+from calc.exceptions import CalcSkillError, DocumentNotFoundError
 from uno_bridge import uno_context
 
 
@@ -45,6 +45,8 @@ def export_spreadsheet(path: str, output_path: str, format: str) -> None:
     if format not in EXPORT_FILTERS:
         raise CalcSkillError(f"Unsupported export format: {format}")
     file_path = Path(path)
+    if not file_path.exists():
+        raise DocumentNotFoundError(f"Document not found: {path}")
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 

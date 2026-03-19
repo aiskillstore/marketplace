@@ -2,10 +2,7 @@
 
 from pathlib import Path
 
-from impress.exceptions import (
-    DocumentNotFoundError,
-    ImpressSkillError,
-)
+from impress.exceptions import DocumentNotFoundError, ImpressSkillError
 from uno_bridge import uno_context
 
 
