@@ -1,5 +1,5 @@
 ---
-name: skywork-search
+name: Skywork Search
 description: Search the web for real-time information using the Skywork web search API. Use this skill whenever the user needs up-to-date information from the internet — for example, researching a topic, looking up recent events, finding facts or statistics, gathering material for a document or presentation, or answering questions that require current data. Also trigger when the user says things like "search for", "look up", "find information about", "what's the latest on", or any request that implies needing information beyond your training data.
 metadata:
   openclaw:
