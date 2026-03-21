@@ -1,5 +1,5 @@
 ---
-name: skywork-design
+name: Skywork Design
 description: Generate or edit images via backend Skywork Image API. Use for any image creation, poster design, logo design, visual asset generation, or image modification request. Supports text-to-image and image-to-image editing with aspect ratio and resolution control.
 metadata:
   openclaw:
