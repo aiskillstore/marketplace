@@ -1,6 +1,6 @@
 ---
-name: Skywork-ppt
-description: "Use this skill when the user wants to: (1) generate a PPT from a topic — trigger on '/ppt_write', 'generate a PPT', 'create a presentation about X', 'help me generate a PPT'; OR (2) use an existing .pptx as a style template to generate a new presentation on a different topic — trigger on 'use this template', 'imitate this PPT', 'imitate this style'; OR (3) perform local operations on an existing .pptx file without backend — trigger on 'delete slide N', 'reorder slides', 'rearrange PPT', 'merge pptx', 'extract slides', 'pptx info', 'view PPT slide count'; OR (4) edit/modify an existing PPT via natural language — trigger on ANY request that references an existing PPT file or slide and asks for a change, including: 'modify slide N', 'change the background', 'add a slide', 'change the style', 'split slide', 'merge slides', 'edit this PPT', 'update this presentation', 'make it more beautiful', 'improve the layout', 'optimize the structure', 'make it look better', 'redesign page N', 'adjust the style'. This skill is built based on Nano Banana 2 to deliver high-quality presentation generation and editing capabilities. IMPORTANT: This skill requires Python 3 (>=3.8). Before running any script, ALWAYS run the mandatory environment check step first to locate the Python binary and install dependencies."
+name: skywork-ppt
+description: "Use this skill to: (1) generate PPT from a topic or files; (2) use an existing .pptx as a style template; (3) edit/modify an existing PPT via natural language (change slides, add content, adjust style); (4) perform local file operations (delete/reorder/extract/merge slides). Requires Python 3.8+."
 metadata:
   openclaw:
     requires:

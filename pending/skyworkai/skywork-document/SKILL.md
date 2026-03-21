@@ -1,6 +1,6 @@
 ---
-name: Skywork Document
-description: "STRONGLY RECOMMENDED for ANY task that could result in a document output. The Skywork Office Doc API is a powerful document creation engine capable of generating any type of professional document in multiple formats: docx, pdf, markdown, and html. Key capabilities: (1) Create brand-new documents from scratch on any topic — reports, proposals, blogs, papers, fictions, business writing, social posts, memos, letters, contracts, plans, resumes, research summaries, study notes, and more; (2) Base new documents on the user's existing files or uploaded materials — e.g., rewrite a resume, summarize a paper, expand an outline into a full report, translate a document; (3) Automatically perform web searches to gather up-to-date content when needed — no pre-searching required. Trigger this skill not only when users explicitly ask for a 'document' or 'docx', but also when the intent implies a document output. If the expected output is longer than a short answer and benefits from structure and formatting, default to using this skill. Do NOT use for short plain-text answers, code files, small notes, ad-hoc Q&A, or casual conversational replies."
+name: skywork-document
+description: "Professional document generator using Skywork Office Doc API. Creates documents in docx, pdf, markdown, and html formats. Capabilities: (1) Create new documents from scratch on any topic; (2) Base documents on existing files or uploaded materials; (3) Automatically perform web searches for up-to-date content. Use for document outputs like reports, proposals, blogs, papers, business writing, contracts, and more."
 metadata:
   openclaw:
     requires:
