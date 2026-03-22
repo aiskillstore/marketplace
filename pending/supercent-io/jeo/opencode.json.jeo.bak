@@ -1,0 +1,19 @@
+{
+  "\\$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "@plannotator/opencode@latest",
+    "@oh-my-opencode/opencode@latest"
+  ],
+  "mcp": {
+    "agentation": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "agentation-mcp",
+        "server"
+      ]
+    }
+  },
+  "instructions": "\n## JEO Orchestration Commands\n\n/jeo-plan    \u2014 Start ralph+plannotator planning workflow\n/jeo-exec    \u2014 Execute with team or BMAD orchestration\n/jeo-annotate \u2014 Start agentation watch loop (VERIFY_UI); /jeo-agentui is a deprecated alias\n/jeo-verify  \u2014 Verify UI with agent-browser snapshot\n/jeo-cleanup \u2014 Clean up worktrees after completion\n## JEO Workflow\n1. PLAN: Use ralph for task planning + plannotator for visual review\n2. EXECUTE: Use omx team agents or BMAD structured phases\n3. VERIFY: agent-browser snapshot <url> for UI verification\n4. CLEANUP: bash .agent-skills/jeo/scripts/worktree-cleanup.sh\n\n## Available Orchestration\n- omx: /omx:team <n>:executor \"<task>\"\n- BMAD: /workflow-init then follow phases\n- plannotator: /plannotator-review (code review after implementation)\n\n## MANDATORY: plannotator Plan Review (blocking loop)\nAfter writing plan.md, you MUST run plannotator and wait for approval before EXECUTE.\nRun blocking (no &):\n  PLANNOTATOR_RUNTIME_HOME=\"/tmp/jeo-$(python3 -c \"import hashlib,os; print(f'/tmp/jeo-{hashlib.md5(os.getcwd().encode()).hexdigest()[:8]}')\")/.plannotator\"\n  mkdir -p \"$PLANNOTATOR_RUNTIME_HOME\"\n  python3 -c \"import json,sys; plan=open('plan.md').read(); sys.stdout.write(json.dumps({'tool_input':{'plan':plan,'permission_mode':'acceptEdits'}}))\" | env HOME=\"$PLANNOTATOR_RUNTIME_HOME\" PLANNOTATOR_HOME=\"$PLANNOTATOR_RUNTIME_HOME\" plannotator > /tmp/plannotator_feedback.txt 2>&1\nThen read /tmp/plannotator_feedback.txt:\n  - \"approved\":true  \u2192 proceed to EXECUTE\n  - not approved     \u2192 read annotations, revise plan.md, repeat\nNEVER skip plannotator. NEVER proceed to EXECUTE without approved=true.\n\n\n## ANNOTATE: agentation Watch Loop (/jeo-annotate)\nWhen user says 'annotate' or 'agentui' (deprecated alias) or invokes /jeo-annotate (or /jeo-agentui):\n1. Ensure agentation-mcp server running: npx agentation-mcp server (HTTP :4747)\n2. Use agentation_watch_annotations MCP tool (batchWindowSeconds:10, timeoutSeconds:120) \u2014 blocking\n3. For each annotation:\n   a. agentation_acknowledge_annotation({id})\n   b. Search code via annotation.elementPath CSS selector\n   c. Apply fix based on annotation.comment\n   d. agentation_resolve_annotation({id, summary})\n4. HTTP fallback (no MCP):\n   GET  http://localhost:4747/pending\n   PATCH http://localhost:4747/annotations/:id  {status:'acknowledged'|'resolved', resolution:'<summary>'}\n5. Repeat until count=0 or 120s timeout.\nNEVER use & background. NEVER skip annotation without resolving or dismissing.\n"
+}
