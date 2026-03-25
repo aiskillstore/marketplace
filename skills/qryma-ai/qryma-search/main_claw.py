@@ -8,11 +8,11 @@ import argparse
 import sys
 import os
 
-# Add src directory to Python path to ensure modules can be imported correctly
+# Add scripts directory to Python path to ensure modules can be imported correctly
 script_dir = os.path.dirname(os.path.abspath(__file__))
-src_dir = os.path.join(script_dir, 'src')
-if src_dir not in sys.path:
-    sys.path.insert(0, src_dir)
+scripts_dir = os.path.join(script_dir, 'scripts')
+if scripts_dir not in sys.path:
+    sys.path.insert(0, scripts_dir)
 
 try:
     from adapters.adapter import QrymaAdapter
@@ -22,7 +22,7 @@ except ImportError:
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "adapter",
-        os.path.join(src_dir, 'adapters', 'adapter.py')
+        os.path.join(scripts_dir, 'adapters', 'adapter.py')
     )
     adapter_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(adapter_module)
