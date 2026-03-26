@@ -90,14 +90,18 @@ class QrymaAdapter:
 
             if args.format == "md":
                 output = to_markdown(result)
-                sys.stdout.write(output)
+                # 直接向缓冲区写入UTF-8编码的字节，避免编码问题
+                sys.stdout.buffer.write(output.encode('utf-8'))
             elif args.format == "brave":
                 result = to_brave_like(result)
-                json.dump(result, sys.stdout, ensure_ascii=False)
-                sys.stdout.write("\n")
+                # 使用UTF-8编码写入JSON
+                json_str = json.dumps(result, ensure_ascii=False, default=str)
+                sys.stdout.buffer.write(json_str.encode('utf-8'))
+                sys.stdout.buffer.write(b'\n')
             else:
-                json.dump(result, sys.stdout, ensure_ascii=False)
-                sys.stdout.write("\n")
+                json_str = json.dumps(result, ensure_ascii=False, default=str)
+                sys.stdout.buffer.write(json_str.encode('utf-8'))
+                sys.stdout.buffer.write(b'\n')
 
         except Exception as e:
             raise SystemExit(f"Error: {e}")
