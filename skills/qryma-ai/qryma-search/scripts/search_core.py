@@ -7,11 +7,11 @@ import os
 import re
 import json
 import urllib.request
+import sys
 from typing import Optional
 
 # Backward compatibility
 QRYMA_URL = "https://search.qryma.com/api/web"
-
 
 def load_key() -> Optional[str]:
     """Load Qryma API key"""
@@ -82,24 +82,32 @@ class QrymaSearchCore:
         self,
         query: str,
         max_results: int = 5,
-        lang: str = "en",
+        lang: Optional[str] = None,
         start: int = 0,
         safe: bool = False,
-        detail: bool = False,
+        mode: str = "fulltext",
     ) -> dict:
         """Execute search"""
         if not self.api_key:
             raise ValueError("QRYMA_API_KEY not found")
 
-        # Backend API parameters: query, lang, start, safe, detail
+        # 如果没有指定语言，则自动检测
+        if lang is None:
+            lang = ""
+
+        # 处理向后兼容性：如果传入布尔值，转换为对应的字符串
+        if isinstance(mode, bool):
+            mode = "fulltext" if mode else "snippet"
+
+        # Backend API parameters: query, lang, start, safe, mode, max_results
         payload = {
             "query": query,
             "lang": lang,
             "start": start,
             "safe": safe,
-            "detail": detail,
+            "mode": mode,
+            "max_results": max_results,
         }
-
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
             self.endpoint,
@@ -112,7 +120,6 @@ class QrymaSearchCore:
             },
             method="POST",
         )
-
         with urllib.request.urlopen(req, timeout=30) as resp:
             body = resp.read().decode("utf-8", errors="replace")
 
@@ -126,15 +133,14 @@ class QrymaSearchCore:
             "query": query,
             "results": [],
         }
-
         # Process result format returned by backend
-        # max_results is applied locally by truncating results array
-        for r in (obj.get("organic") or [])[:max_results]:
+        organic_results = obj.get("organic") or []
+        for r in organic_results:
             out["results"].append(
                 {
                     "title": r.get("title"),
                     "url": r.get("link"),  # API returns link field
-                    "content": r.get("snippet"),  # API returns snippet field
+                    "content": r.get("text") or r.get("snippet"),
                 }
             )
 

@@ -1,6 +1,8 @@
 # Qryma Agent Skills
 
-Qryma Ai web search API with Markdown/JSON/Brave formats. Generous free tier covers most daily needs.
+Qryma AI Web Search SKILL, The World's Fastest and Cheapest Search API for LLM and AI Agents.
+
+Start free now. Get your free key now [qryma.com](https://qryma.com/).
 
 ## Installation
 
@@ -16,6 +18,20 @@ pip install -r requirements.txt
 ```
 
 ### Authenticate
+Get your free QRYMA_API_KEY from [qryma.com](https://qryma.com/). Chat with your AI assistant and ask it to help you complete the configuration.
+
+```test
+Please configure qryma search with the QRYMA_API_KEY set to ak-your-api-key-here.
+```
+
+从[qryma.com](https://qryma.com/) 获取免费的QRYMA_API_KEY，直接发送给你的AI助手，让他帮你自动配置。
+
+```text
+请帮我配置好qryma search，设置QRYMA_API_KEY为ak-your-api-key-here
+```
+
+Via the command line:
+
 ```bash
 # Method 1: Environment variable
 export QRYMA_API_KEY="ak-your-api-key-here"
@@ -45,7 +61,7 @@ Get an API key from your Qryma service provider.
 | `--lang` | Language code (default: en) - [See available languages](https://developers.google.com/custom-search/docs/xml_results_appendices#interfaceLanguages) |
 | `--start` | Start offset (default: 0) |
 | `--safe` | Enable safe search (default: False) |
-| `--detail` | Enable detailed results (default: False) |
+| `--mode` | Search mode: fulltext (detailed) | snippet (concise) (default: fulltext) |
 | `--format` | Output format: raw \| brave \| md (default: raw) |
 
 ## Workflow
@@ -54,4 +70,4 @@ Start simple, escalate when needed:
 
 1. **Basic Search** — `python main_claw.py --query "how to learn python" --format md`
 2. **JSON Output** — `python main_claw.py --query "latest AI trends" --format raw`
-3. **Multiple Results** — `python main_claw.py --query "ai ethics" --max-results 10`
+3. **Multiple Results** — `python main_claw.py --query "ai ethics" --max-results 5`

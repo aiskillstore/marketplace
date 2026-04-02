@@ -33,13 +33,12 @@ def to_brave_like(obj: dict) -> dict:
     """Convert to Brave search-like format (title/url/snippet)"""
     results = []
     for r in obj.get("results", []) or []:
-        results.append(
-            {
-                "title": r.get("title"),
-                "url": r.get("url"),
-                "snippet": r.get("content"),
-            }
-        )
+        result = {
+            "title": r.get("title"),
+            "url": r.get("url"),
+            "content": r.get("content"),  # Use content as snippet
+        }
+        results.append(result)
     out = {"query": obj.get("query"), "results": results}
     if "answer" in obj:
         out["answer"] = obj.get("answer")
@@ -56,13 +55,14 @@ def to_markdown(obj: dict) -> str:
     for i, r in enumerate(obj.get("results", []) or [], 1):
         title = (r.get("title") or "").strip() or r.get("url") or "(no title)"
         url = r.get("url") or ""
-        snippet = (r.get("content") or "").strip()
+        content = (r.get("content") or "").strip()
 
         lines.append(f"{i}. {title}")
         if url:
             lines.append(f" {url}")
-        if snippet:
-            lines.append(f" - {snippet}")
+        if content:
+            lines.append(f" - {content}")
+        lines.append("")
 
     return "\n".join(lines).strip() + "\n"
 
@@ -75,17 +75,16 @@ class QrymaAdapter:
             self.core = core
         else:
             self.core = QrymaSearchCore(api_key=api_key)
-
-    def run(self, args: argparse.Namespace) -> None:
+    def run(self, args: argparse.Namespace) -> None:        
         """Execute search"""
         try:
             result = self.core.search(
                 query=args.query,
                 max_results=args.max_results,
-                lang=getattr(args, "lang", "en"),
+                lang=getattr(args, "lang", None),
                 start=getattr(args, "start", 0),
                 safe=getattr(args, "safe", False),
-                detail=getattr(args, "detail", False),
+                mode=getattr(args, "mode", "fulltext"),
             )
 
             if args.format == "md":
@@ -122,8 +121,8 @@ class QrymaAdapter:
         )
         parser.add_argument(
             "--lang",
-            default="en",
-            help="Language code (default: en)",
+            default=None,
+            help="Language code (default: auto-detect)",
         )
         parser.add_argument(
             "--start",
@@ -137,9 +136,10 @@ class QrymaAdapter:
             help="Enable safe search (default: False)",
         )
         parser.add_argument(
-            "--detail",
-            action="store_true",
-            help="Enable detailed results (default: False)",
+            "--mode",
+            default="fulltext",
+            choices=["fulltext", "snippet"],
+            help="Search mode: fulltext (detailed) | snippet (concise) (default: fulltext)",
         )
         parser.add_argument(
             "--format",
