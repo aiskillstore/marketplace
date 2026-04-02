@@ -1,5 +1,5 @@
 ---
-name: SkillScan
+name: skillscan
 metadata:
   version: "1.1.5"
 description: >
