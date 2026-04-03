@@ -14,9 +14,8 @@ Description:
   the local file path.
 
 Returns:
-  Asset JSON from /api/biz/projects/:project_id/assets/:asset_id
-  plus:
-    - url: original signed download URL
+  Asset JSON plus:
+    - url: signed download URL
     - localPath: downloaded local cache path, or null when downloadUrl is absent
 
 Common errors:

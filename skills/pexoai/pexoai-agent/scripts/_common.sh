@@ -152,6 +152,63 @@ _pexo_emit_error() {
   return 1
 }
 
+_pexo_extract_sse_event_data() {
+  local response="${1:-}"
+  local target_event="${2:-error}"
+
+  awk -v target_event="$target_event" '
+    BEGIN {
+      in_event = 0
+      data = ""
+    }
+    /^event:[[:space:]]*/ {
+      current = $0
+      sub(/^event:[[:space:]]*/, "", current)
+      in_event = (current == target_event)
+      next
+    }
+    in_event && /^data:[[:space:]]*/ {
+      line = $0
+      sub(/^data:[[:space:]]*/, "", line)
+      if (data == "") {
+        data = line
+      } else {
+        data = data "\n" line
+      }
+      next
+    }
+    in_event && /^$/ {
+      print data
+      exit
+    }
+    END {
+      if (in_event && data != "") {
+        print data
+      }
+    }
+  ' <<<"$response"
+}
+
+_pexo_emit_sse_error() {
+  local payload="${1:-}"
+
+  if _pexo_is_json "$payload"; then
+    jq -c '
+      {
+        ok: false,
+        httpCode: 200,
+        message: (.error_message // .message // "request failed")
+      }
+      + (if (.error_code // "") != "" then {error: .error_code} else {} end)
+      + (if (.details // "") != "" then {details: .details} else {} end)
+      + (if (.hint // "") != "" then {hint: .hint} else {} end)
+    ' <<<"$payload" >&2
+    return 1
+  fi
+
+  _pexo_emit_error 200 "" "${payload:-SSE returned an error event}"
+}
+
 _pexo_request_json() {
   local method="$1"
   local path="$2"
@@ -213,7 +270,38 @@ _pexo_request_json() {
   rm -f "$body_file" "$header_file" "$err_file"
 }
 
-# GET -> extracts .data from BFF wrapper when present
+# _pexo_credit_hint: silently fetch the user's credit balance and emit a
+# diagnostic line + top-up URL to stderr.  Always returns 0 — never disrupts
+# the caller's exit path or overwrites PEXO_LAST_HTTP_CODE.
+_pexo_credit_hint() {
+  local _saved_code="${PEXO_LAST_HTTP_CODE:-0}"
+  local entitlements available
+  local topup_url="${PEXO_BASE_URL:-https://pexo.ai}/home"
+
+  # Run in a subshell so set -e / PEXO_LAST_HTTP_CODE side-effects stay isolated.
+  entitlements=$(
+    set +e
+    pexo_require_config 2>/dev/null || exit 0
+    _pexo_request_json GET "/api/biz/auth/entitlements" "" 2>/dev/null
+  ) || true
+
+  export PEXO_LAST_HTTP_CODE="$_saved_code"
+
+  [[ -n "$entitlements" ]] || return 0
+  available=$(printf '%s' "$entitlements" \
+    | jq -r '.credits.availableCredits // empty' 2>/dev/null) || true
+  [[ -n "$available" ]] || return 0
+
+  if [[ "$available" == "0" ]] || \
+     { [[ "$available" =~ ^[0-9]+$ ]] && [[ "$available" -le 0 ]]; }; then
+    printf 'Credits balance: 0 — your account has no available credits.\n' >&2
+  else
+    printf 'Credits balance: %s available.\n' "$available" >&2
+  fi
+  printf 'To purchase credits: visit %s → click Credits (top-right) → Buy Credits → Extra Credits\n' "$topup_url" >&2
+}
+
+# GET -> unwraps response envelope when present
 pexo_get() {
   local path="$1"
   shift || true
@@ -253,7 +341,7 @@ pexo_post_sse_ack() {
       -H "Accept: text/event-stream" \
       -D "$header_file" \
       -d "$body" \
-      "${PEXO_BASE_URL}${path}" 2>"$err_file" | tee "$body_file" | sed '/^: stream opened$/q' >/dev/null
+      "${PEXO_BASE_URL}${path}" >"$body_file" 2>"$err_file"
   else
     curl -sS -N \
       --connect-timeout "$_PEXO_CONNECT_TIMEOUT" \
@@ -263,7 +351,7 @@ pexo_post_sse_ack() {
       -H "Content-Type: application/json" \
       -H "Accept: text/event-stream" \
       -D "$header_file" \
-      "${PEXO_BASE_URL}${path}" 2>"$err_file" | tee "$body_file" | sed '/^: stream opened$/q' >/dev/null
+      "${PEXO_BASE_URL}${path}" >"$body_file" 2>"$err_file"
   fi
   set -o pipefail
 
@@ -274,6 +362,14 @@ pexo_post_sse_ack() {
 
   if [[ "${http_code:-0}" -ge 400 ]] 2>/dev/null; then
     _pexo_emit_error "$http_code" "$response" "$(cat "$err_file")"
+    rm -f "$body_file" "$header_file" "$err_file"
+    return 1
+  fi
+
+  local sse_error_payload
+  sse_error_payload=$(_pexo_extract_sse_event_data "$response" "error")
+  if [[ -n "$sse_error_payload" ]]; then
+    _pexo_emit_sse_error "$sse_error_payload"
     rm -f "$body_file" "$header_file" "$err_file"
     return 1
   fi

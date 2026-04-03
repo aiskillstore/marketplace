@@ -9,8 +9,8 @@ Usage:
 
 Description:
   Submit a message to an existing Pexo project.
-  This script does not keep the SSE stream open. It only waits until /api/chat
-  acknowledges the request by opening the stream, then it disconnects.
+  This script submits the message asynchronously. It waits until the server
+  acknowledges the request, then exits.
   If the message references uploaded assets, wrap each asset ID with one of:
     <original-image>asset_id</original-image>
     <original-video>asset_id</original-video>
@@ -37,8 +37,10 @@ Common errors:
   400  Invalid request body
   401  Invalid API key or auth failure
   404  Project not found
-  412  Project agent version incompatible
-  429  Project video limit reached
+  412  Project agent version incompatible, or account credits frozen / billing issue
+       Credit balance and a top-up link are printed to stderr automatically.
+  429  Project video limit reached, or insufficient credits to start production
+       Credit balance and a top-up link are printed to stderr automatically.
   500  Backend/internal failure
 EOF
 }
@@ -132,7 +134,12 @@ else
     '{project_id:$pid, timestamp:$ts, user_visible:true, native_inputs:{text:$msg}}')
 fi
 
-pexo_post_sse_ack "/api/chat" "$body" "$timeout"
+pexo_post_sse_ack "/api/chat" "$body" "$timeout" || {
+  if [[ "$PEXO_LAST_HTTP_CODE" == "429" || "$PEXO_LAST_HTTP_CODE" == "412" ]]; then
+    _pexo_credit_hint
+  fi
+  exit 1
+}
 
 jq -nc \
   --arg pid "$pid" \

@@ -10,7 +10,7 @@ Usage:
 Description:
   Upload a local media file to a project in three steps:
   1. Request upload credential
-  2. PUT bytes to the presigned URL
+  2. Upload the file
   3. Finalize the asset
 
 Supported file types:
@@ -79,7 +79,7 @@ storage_path=$(echo "$cred" | jq -r '.storagePath')
 [[ -n "$asset_id" && "$asset_id" != "null" ]] || { echo "Error: upload credential missing assetId" >&2; echo "$cred" >&2; exit 1; }
 [[ -n "$storage_path" && "$storage_path" != "null" ]] || { echo "Error: upload credential missing storagePath" >&2; echo "$cred" >&2; exit 1; }
 
-# Phase 2: PUT raw bytes to presigned URL
+# Phase 2: upload file
 http_code=$(curl -sS -X PUT -H "Content-Type: $mime_type" \
   --data-binary "@$filepath" -o /dev/null -w '%{http_code}' "$upload_url" 2>/dev/null || echo "000")
 

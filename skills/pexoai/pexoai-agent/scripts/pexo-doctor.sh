@@ -20,7 +20,7 @@ Description:
   - required variables
   - local dependencies
   - network reachability
-  - API key/auth check against /api/biz/projects?page_size=1
+  - API key/auth validity check
 
 Notes:
   API keys are expected to use the sk- prefix.
@@ -97,7 +97,7 @@ if [[ -n "${PEXO_API_KEY:-}" ]]; then
   echo "$PASS PEXO_API_KEY is set: $masked"
   if [[ "$PEXO_API_KEY" != sk-* ]]; then
     echo "$WARN PEXO_API_KEY does not start with sk-"
-    echo "  The current frontend API key validator recognizes keys with the sk- prefix."
+    echo "  API keys are expected to start with sk-."
   fi
 else
   echo "$FAIL PEXO_API_KEY is not set"
@@ -165,7 +165,7 @@ if [[ -n "${PEXO_BASE_URL:-}" && -n "${PEXO_API_KEY:-}" ]]; then
       errors=$((errors + 1))
     elif [[ "$auth_error" == "INTERNAL_ERROR" ]]; then
       echo "$WARN API check returned HTTP 401 with INTERNAL_ERROR"
-      echo "  This usually means the BFF/proxy failed before auth completed."
+      echo "  This is a temporary service issue, not a problem with the API key. Wait and retry."
       echo "  Message: $message"
     else
       echo "$FAIL API check returned HTTP 401"

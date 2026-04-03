@@ -16,7 +16,7 @@ Options:
   --page-size <n>  Page size (default: 20, effective max: 100)
 
 Returns:
-  Projects JSON from /api/biz/projects
+  Projects JSON
 
 Common errors:
   401  Invalid API key or auth failure

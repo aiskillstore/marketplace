@@ -10,8 +10,7 @@ Usage:
 
 Description:
   Create a new Pexo project.
-  If no project name is provided, the script uses "Untitled" because the backend
-  requires project_name.
+  If no project name is provided, the script uses "Untitled".
 
 Returns:
   project_id string on stdout
@@ -19,7 +18,8 @@ Returns:
 Common errors:
   400  Invalid project name
   401  Invalid API key or auth failure
-  429  Daily creation limit or concurrent project limit reached
+  429  Creation limit reached (concurrent-project limit or insufficient credits)
+       Credit balance and a top-up link are printed to stderr automatically.
   500  Backend/internal failure
 EOF
 }
@@ -69,7 +69,10 @@ fi
 [[ -n "$project_name" ]] || project_name="Untitled"
 
 body=$(jq -nc --arg n "$project_name" '{project_name: $n}')
-result=$(pexo_post "/api/biz/projects" "$body")
+result=$(pexo_post "/api/biz/projects" "$body") || {
+  [[ "$PEXO_LAST_HTTP_CODE" == "429" ]] && _pexo_credit_hint
+  exit 1
+}
 project_id=$(echo "$result" | jq -r '.projectId // empty')
 
 if [[ -z "$project_id" ]]; then

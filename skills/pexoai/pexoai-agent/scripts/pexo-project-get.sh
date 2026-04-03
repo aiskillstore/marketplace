@@ -34,32 +34,8 @@ EOF
 #   nextActionHint  — plain-language instruction for what to do next
 #   recentMessages  — simplified last conversation round (when nextAction is RESPOND / DELIVER / FAILED / RECONNECT)
 #
-# Raw status fields (status / executionStatus / serviceStatus) and meaningless
-# progress values (executionProgress / stepProgress) are stripped from output.
+# Internal status fields and progress values are stripped from output.
 # Callers should only use nextAction to decide what to do.
-#
-# ── All (executionStatus × serviceStatus) combinations in practice ───────────
-# executionStatus: IDLE (DB default / no progress yet), RUNNING, FAILED, INTERRUPTED.
-#                  COMPLETED is not used in production (Agent does not send "finished").
-# serviceStatus:   IDLE (default or after ProcessExecution exits), PROCESSING (during ProcessExecution).
-#
-#  | executionStatus | serviceStatus | Scenario | nextAction |
-#  |-----------------|---------------|----------|------------|
-#  | IDLE            | IDLE          | New project, or no active run; no message sent yet or previous run ended. | WAIT |
-#  | IDLE            | PROCESSING    | ProcessExecution just started, no progress event from Agent yet (brief). | WAIT |
-#  | RUNNING         | IDLE          | Run was reported RUNNING but worklet already exited (e.g. stream closed). Reconnect by sending a new message. | RECONNECT |
-#  | RUNNING         | PROCESSING    | Normal: Agent is producing, worklet is handling the stream. | WAIT |
-#  | INTERRUPTED     | IDLE          | Pexo waiting for input; no active ProcessExecution (user must send message or reconnect). | RESPOND |
-#  | INTERRUPTED     | PROCESSING    | Pexo waiting for input; ProcessExecution still open (stream waiting for reply). | RESPOND |
-#  | FAILED          | IDLE          | Run failed, worklet has exited. | FAILED |
-#  | FAILED          | PROCESSING    | Run failed, worklet defer not run yet (brief). | FAILED |
-#
-# nextAction mapping:
-#   FAILED    — executionStatus=FAILED
-#   DELIVER   — executionStatus=COMPLETED AND serviceStatus≠PROCESSING (COMPLETED not used in practice)
-#   RESPOND   — executionStatus=INTERRUPTED
-#   RECONNECT — executionStatus=RUNNING AND serviceStatus=IDLE (should re-initiate conversation via pexo-chat.sh)
-#   WAIT      — all other combinations
 #
 # recentMessages format (simplified, actionable-only):
 #   USER      → {role, text}
@@ -104,7 +80,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 # jq filter: simplify a raw messages array into actionable-only entries.
-# ASSISTANT events not listed here (planning, progress, thinking, meta, voice…) are dropped.
 _SIMPLIFY_MSGS='[.[] |
   if (.role | ascii_downcase) == "user" then
     {role: "USER", text: (.content.native_inputs.text // null)}
@@ -115,6 +90,7 @@ _SIMPLIFY_MSGS='[.[] |
     elif    $evt == "final_video"   then {role: "ASSISTANT", event: "final_video",   assetId:       ($d.final_video_id   // null)}
     elif    $evt == "preview_video" then {role: "ASSISTANT", event: "preview_video", assetIds:      ($d.preview_video_ids // [])}
     elif    $evt == "document"      then {role: "ASSISTANT", event: "document",      documentType:  ($d.type // null), documentName: ($d.name // null)}
+    elif    $evt == "attachment"    then {role: "ASSISTANT", event: "attachment",    assetIds:      ($d.attachment_ids   // [])}
     else empty
     end
   end
@@ -126,7 +102,7 @@ _raw=$(pexo_get "/api/biz/projects/${pid}")
 exec_status=$(echo "$_raw" | jq -r '.executionStatus // ""')
 svc_status=$(echo  "$_raw" | jq -r '.serviceStatus  // ""')
 
-# Strip raw status fields and meaningless progress values from the output project object
+# Strip internal status fields from the output project object
 project=$(echo "$_raw" | jq 'del(.status, .executionStatus, .serviceStatus, .executionProgress, .stepProgress)')
 
 # ── Full history mode (bypass nextAction logic) ───────────────────────────────
@@ -152,7 +128,6 @@ elif [[ "$exec_status" == "RUNNING" && "$svc_status" == "IDLE" ]]; then
   next_action="RECONNECT"
   hint="Connection may have been lost. Re-initiate the conversation by sending a new message via pexo-chat.sh."
 else
-  # IDLE+IDLE, IDLE+PROCESSING, RUNNING+PROCESSING
   next_action="WAIT"
   hint="Production is in progress. Poll again in 60 seconds."
 fi

@@ -16,9 +16,9 @@ requires:
     - curl
     - jq
     - file
+version: "0.3.9"
 metadata:
   author: pexoai
-  version: "0.3.4"
 ---
 
 # Pexo Agent
@@ -110,7 +110,12 @@ Follow these steps in order.
 ```
 Step 1. Create project.
         Run: pexo-project-create.sh "brief description"
-        Save the returned project_id.
+        If the command succeeds: save the returned project_id.
+        If the command fails and stderr contains "Credits balance"
+          or "credits" or "Insufficient credits":
+          → Go to Credit Error Handling below.
+        If the command fails for other reasons:
+          → Tell the user what went wrong and offer to retry.
 
 Step 2. Upload files (if user provided any images/videos/audio).
         Run: pexo-upload.sh <project_id> <file_path>
@@ -121,6 +126,11 @@ Step 2. Upload files (if user provided any images/videos/audio).
 Step 3. Send user's message to Pexo.
         Run: pexo-chat.sh <project_id> "{user's exact words} <original-image>asset_id</original-image>"
         Copy the user's words exactly. Only add asset tags for uploaded files.
+        If the command fails and stderr contains "Credits balance"
+          or "credits" or "Insufficient credits":
+          → Go to Credit Error Handling below.
+        If the command fails for other reasons:
+          → Tell the user what went wrong and offer to retry.
 
 Step 4. Notify the user (in the user's language).
         Your message must contain these three items:
@@ -197,11 +207,13 @@ Step 7. Deliver the final video.
 Step 8. Handle failure.
 
         8a. Read the nextActionHint field from the JSON.
-        8b. Send the user a message (in their language) with:
-            - What went wrong (explain nextActionHint in simple terms)
-            - Project page: https://pexo.ai/project/{project_id}
-            - Help guide: https://pexo.ai/connect/openclaw
-            - Offer to retry.
+        8b. Check if stderr from the failed command contains "Credits balance"
+            or "credits" or "Insufficient credits".
+            If yes → Go to Credit Error Handling below.
+            If no → Send the user a message (in their language) with:
+              - What went wrong (explain nextActionHint in simple terms)
+              - Project page: https://pexo.ai/project/{project_id}
+              - Offer to retry.
 
 Step 9. Timeout.
 
@@ -214,6 +226,24 @@ Step 9. Timeout.
         - Help guide: https://pexo.ai/connect/openclaw
         - Ask whether to keep waiting or start over.
         Stop polling. Wait for user instructions.
+```
+
+### Credit Error Handling
+
+When any command fails and stderr contains credit-related information
+(look for: "Credits balance", "credits", or "Insufficient credits"):
+
+```
+Step A. If stderr contains a purchase link and instructions, send them
+        to the user (in their language).
+
+Step B. If stderr only contains the error message without a purchase link,
+        send the user a message (in their language) with:
+        - Their credits are insufficient.
+        - To add credits: visit https://pexo.ai/home
+          → click Credits (top-right) → Buy Credits → Extra Credits.
+
+Step C. After the user confirms they have added credits, retry the failed step.
 ```
 
 ### Revising an Existing Video
@@ -274,19 +304,20 @@ Tags are mandatory. Bare asset IDs in pexo-chat.sh messages are ignored by Pexo.
 
 | Script | Usage | Returns |
 |---|---|---|
-| `pexo-project-create.sh` | `[project_name]` or `--name <n>` | `project_id` string |
+| `pexo-project-create.sh` | `[project_name]` or `--name <n>` | `project_id` string. On `429`, credit info printed to stderr. |
 | `pexo-project-list.sh` | `[page_size]` or `--page <n> --page-size <n>` | Projects JSON |
 | `pexo-project-get.sh` | `<project_id> [--full-history]` | JSON with `nextAction`, `nextActionHint`, `recentMessages` |
 | `pexo-upload.sh` | `<project_id> <file_path>` | `asset_id` string |
-| `pexo-chat.sh` | `<project_id> <message> [--choice <id>] [--timeout <s>]` | Acknowledgement JSON (async) |
+| `pexo-chat.sh` | `<project_id> <message> [--choice <id>] [--timeout <s>]` | Acknowledgement JSON (async). On `429`/`412` or credit errors, error info printed to stderr. |
 | `pexo-asset-get.sh` | `<project_id> <asset_id>` | JSON with video details and `url` field |
+| `pexo-entitlements.sh` | (no args) | JSON with `credits` and `plan` info. Called automatically by other scripts on credit errors. |
 | `pexo-doctor.sh` | (no args) | Diagnostic report |
 
 ---
 
 ## Pexo Capabilities
 
-- Output: 5–60 second videos, aspect ratios 16:9 / 9:16 / 1:1
+- Output: 5–120 second videos, aspect ratios 16:9 / 9:16 / 1:1
 - Production time: ~15–20 minutes for a 15s video, longer for complex/longer videos
 - Supported uploads: Images (jpg, png, webp, bmp, tiff, heic), Videos (mp4, mov, avi), Audio (mp3, wav, aac, m4a, ogg, flac)
 
