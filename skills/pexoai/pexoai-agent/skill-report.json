@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-04-04T08:20:08.108Z",
+    "generated_at": "2026-04-05T08:19:23.143Z",
     "slug": "pexoai-pexoai-agent",
     "source_url": "https://github.com/pexoai/pexo-skills/tree/main/skills/pexo-agent/",
     "source_ref": "main",
@@ -13,19 +13,20 @@
   },
   "skill": {
     "name": "pexoai-agent",
-    "description": "AI-powered video creation agent that transforms user requests into short videos (5-120 seconds). Handles scriptwriting, shot composition, transitions, and music automatically.",
-    "summary": "Professional AI video production agent supporting product ads, social content, brand videos, and explainers with multi-language support.",
-    "icon": "📦",
+    "description": "AI-powered short video creation agent for product ads, social content, and brand videos.",
+    "summary": "Pexo is an AI video creation agent that handles scriptwriting, shot composition, transitions, and music to produce 5-120 second videos in multiple aspect ratios.",
+    "icon": "🎬",
     "version": "0.3.9",
     "author": "pexoai",
     "license": "MIT",
-    "category": "video",
+    "category": "data",
     "tags": [
-      "video",
-      "AI video",
       "video production",
+      "AI video",
       "content creation",
-      "marketing"
+      "Claude",
+      "Codex",
+      "Claude Code"
     ],
     "supported_tools": [
       "claude",
@@ -44,25 +45,20 @@
     "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This skill is a legitimate AI video production integration tool. Static analysis flagged 534 patterns across 13 files, but most are false positives. The scripts use standard bash patterns (command substitution, config file access) for legitimate purposes: API integration with pexo.ai, file uploads, and project management. No malicious intent detected. The critical finding about 'Windows SAM database' is a false positive - the referenced line discusses language settings, not credential access. Risk factors are expected for an API client that reads configuration, makes network requests, and handles file uploads.",
+    "summary": "Static scanner flagged 534 patterns but all are false positives. The skill is a legitimate video production API client. Shell command substitution is standard bash scripting for curl/jq operations. Network calls go only to pexo.ai (the service's own API). Config file access and environment variables are expected for API authentication. No malicious intent, data exfiltration, or dangerous patterns detected.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "scripts/_common.sh",
-            "line_start": 223,
-            "line_end": 225
+            "line_start": 228,
+            "line_end": 252
           },
           {
             "file": "scripts/pexo-chat.sh",
             "line_start": 48,
             "line_end": 48
-          },
-          {
-            "file": "scripts/pexo-upload.sh",
-            "line_start": 33,
-            "line_end": 33
           }
         ]
       },
@@ -70,14 +66,14 @@
         "factor": "network",
         "evidence": [
           {
-            "file": "SKILL.md",
-            "line_start": 9,
-            "line_end": 10
-          },
-          {
             "file": "scripts/_common.sh",
             "line_start": 279,
             "line_end": 279
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 9,
+            "line_end": 10
           }
         ]
       },
@@ -86,13 +82,13 @@
         "evidence": [
           {
             "file": "scripts/_common.sh",
-            "line_start": 7,
-            "line_end": 8
+            "line_start": 3,
+            "line_end": 3
           },
           {
-            "file": "scripts/pexo-upload.sh",
-            "line_start": 50,
-            "line_end": 50
+            "file": "references/SETUP-CHECKLIST.md",
+            "line_start": 10,
+            "line_end": 11
           }
         ]
       },
@@ -101,13 +97,13 @@
         "evidence": [
           {
             "file": "scripts/_common.sh",
-            "line_start": 17,
-            "line_end": 23
+            "line_start": 21,
+            "line_end": 22
           },
           {
             "file": "SKILL.md",
             "line_start": 13,
-            "line_end": 14
+            "line_end": 13
           }
         ]
       }
@@ -117,163 +113,191 @@
     "medium_findings": [],
     "low_findings": [
       {
-        "title": "External API Configuration Required",
-        "description": "The skill requires users to configure API credentials in ~/.pexo/config file. This is standard for API clients but users must trust the skill author.",
+        "title": "Static Scanner False Positives - External Commands",
+        "description": "Static scanner flagged 349 shell command substitution patterns. All are legitimate bash scripting: curl for API calls, jq for JSON parsing, date for timestamps, mkdir/cat/printf for file operations. No user input injection vectors exist.",
+        "locations": [
+          {
+            "file": "scripts/_common.sh",
+            "line_start": 223,
+            "line_end": 252
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "Verified command substitution arguments are hardcoded strings or sanitized variables - no eval, no unsanitized user input passed to shell."
+      },
+      {
+        "title": "Static Scanner False Positives - Network URLs",
+        "description": "Static scanner flagged 27 hardcoded URLs. All point to pexo.ai domain - the service's own API endpoint. No connections to external or suspicious domains detected.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 9,
+            "line_end": 10
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "All network calls are to the documented service API (pexo.ai) - expected behavior for an API client skill."
+      },
+      {
+        "title": "Static Scanner False Positives - Cryptographic Algorithm",
+        "description": "Static scanner flagged 'weak cryptographic algorithm' in multiple files. No actual cryptographic operations exist in the codebase. The pattern matcher likely triggered on API key format validation or hash-like strings.",
+        "locations": [
+          {
+            "file": "scripts/_common.sh",
+            "line_start": 21,
+            "line_end": 22
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "Code review confirms no crypto functions (MD5, SHA1, DES, etc.) are called. API key is passed as bearer token, not hashed locally."
+      },
+      {
+        "title": "Static Scanner False Positives - Windows SAM Database",
+        "description": "Static scanner flagged 'Windows SAM database' at SKILL.md:43. Line 43 actually contains language localization instruction: 'You MUST reply to the user in the SAME language they use.' This is a complete false positive - no Windows credential access.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 43
+          }
+        ],
+        "confidence": 1,
+        "confidence_reasoning": "Direct verification of line 43 shows text about language localization, not Windows security. Scanner pattern matched 'SAM' incorrectly."
+      },
+      {
+        "title": "Static Scanner False Positives - Obfuscation Detection",
+        "description": "Static scanner flagged 'dangerous combination' heuristics for obfuscation. The code uses transparent shell patterns with clear variable names and standard scripting idioms. No base64 encoding, string concatenation obfuscation, or dynamic code generation detected.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 30,
-            "line_end": 35
+            "line_end": 80
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Standard API client pattern - credentials stored in dedicated config file, not hardcoded in scripts"
-      },
-      {
-        "title": "Network Requests to External Service",
-        "description": "Scripts make HTTPS requests to pexo.ai API. All network traffic goes to a single external domain which is the intended service provider.",
-        "locations": [
-          {
-            "file": "scripts/_common.sh",
-            "line_start": 279,
-            "line_end": 279
-          }
-        ],
-        "confidence": 0.98,
-        "confidence_reasoning": "Network calls use hardcoded PEXO_BASE_URL pointing to legitimate service endpoint, no dynamic URL construction"
-      },
-      {
-        "title": "File Upload Capability",
-        "description": "The pexo-upload.sh script uploads user files to external servers. Files are sent to pexo.ai infrastructure for video processing.",
-        "locations": [
-          {
-            "file": "scripts/pexo-upload.sh",
-            "line_start": 71,
-            "line_end": 86
-          }
-        ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Upload functionality is core to the skill's purpose - video creation requires sending media files to processing service"
+        "confidence": 0.9,
+        "confidence_reasoning": "Full code review shows standard bash scripting with descriptive variable names and explicit command sequences - opposite of obfuscation."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 13,
     "total_lines": 2110,
     "audit_model": "claude",
-    "audited_at": "2026-04-04T08:20:08.108Z"
+    "audited_at": "2026-04-05T08:19:23.143Z"
   },
   "content": {
-    "user_title": "Create AI-powered videos from text descriptions",
-    "value_statement": "Transform your video ideas into professional short-form content without manual editing. This skill connects to Pexo's AI video agent that handles scriptwriting, shot composition, transitions, and music automatically.",
+    "user_title": "Create AI-Generated Videos from Text Prompts",
+    "value_statement": "Transform your video ideas into professional short-form content without editing skills. Pexo handles scriptwriting, composition, and production while you focus on your creative vision.",
     "seo_keywords": [
-      "Claude video generation",
-      "Codex AI video creator",
-      "Claude Code video tool",
-      "AI video production",
+      "AI video generator",
+      "video creation",
+      "Claude video skill",
+      "Codex video production",
+      "Claude Code media",
+      "short video maker",
+      "product video AI",
+      "social media video",
       "automated video editing",
-      "text to video AI",
-      "marketing video generator",
-      "social media video maker",
-      "Pexo AI integration",
-      "AI content creation"
+      "text to video"
     ],
     "actual_capabilities": [
-      "Creates short videos (5-120 seconds) from text descriptions",
-      "Supports multiple video types: product ads, social content, brand videos, explainers",
-      "Handles user-uploaded images, videos, and audio as reference materials",
-      "Provides preview options for users to select preferred versions",
-      "Supports multiple aspect ratios: 16:9, 9:16, 1:1",
-      "Relays bidirectional communication between user and Pexo's AI video agent"
+      "Generate 5-120 second videos from text descriptions",
+      "Support multiple aspect ratios: 16:9, 9:16, 1:1 for different platforms",
+      "Accept image, video, and audio file uploads as references",
+      "Handle scriptwriting, shot composition, transitions, and music selection",
+      "Provide preview options for user selection before final rendering",
+      "Support iterative revisions based on user feedback"
     ],
     "limitations": [
-      "Cannot crawl web URLs - users must download files locally before uploading",
-      "Video production takes 15-20 minutes for short videos, longer for complex content",
-      "Requires valid Pexo API key and credits balance",
-      "Does not support real-time video editing - changes require new production cycles"
+      "Cannot crawl web URLs - files must be downloaded and uploaded manually",
+      "Video production takes 15-20 minutes for short videos",
+      "Requires Pexo API credits for each video generation request",
+      "Does not support live streaming or real-time video generation"
     ],
     "use_cases": [
       {
-        "title": "E-commerce Product Videos",
-        "description": "Create promotional videos for online store products by uploading product photos and describing the desired style.",
-        "target_user": "Online sellers and marketing managers"
+        "title": "Product Marketing Videos",
+        "description": "Create promotional videos for e-commerce products, SaaS features, or brand campaigns by uploading product images and describing the desired message.",
+        "target_user": "Marketing professionals and small business owners"
       },
       {
-        "title": "Social Media Content Creation",
-        "description": "Generate engaging short-form videos for TikTok, Instagram Reels, and YouTube Shorts from simple text prompts.",
-        "target_user": "Social media managers and content creators"
+        "title": "Social Media Content",
+        "description": "Generate TikTok, Instagram Reels, and YouTube Shorts content quickly by describing the concept and uploading reference materials.",
+        "target_user": "Content creators and social media managers"
       },
       {
-        "title": "Internal Training and Explainer Videos",
-        "description": "Produce training materials and process explanation videos by describing the topic and providing any relevant screenshots or documents.",
-        "target_user": "HR trainers and team leaders"
+        "title": "Explainer and Training Videos",
+        "description": "Produce educational content and training materials by providing scripts and supporting visuals for automated video creation.",
+        "target_user": "Educators and corporate training teams"
       }
     ],
     "prompt_templates": [
       {
         "title": "Basic Product Video",
-        "prompt": "Create a 30-second product video for running shoes. Show the shoes from different angles with dynamic motion shots. Background should be urban running trails.",
-        "scenario": "Quick product showcase for e-commerce listing"
-      },
-      {
-        "title": "Social Media Ad with Upload",
-        "prompt": "Make a 15-second Instagram story ad using this product photo. Add energetic music and text overlays highlighting key features.",
-        "scenario": "Social media advertising with custom imagery"
+        "prompt": "Create a 15-second product video for [product name]. The video should highlight [key features] and appeal to [target audience].",
+        "scenario": "Quick product showcase for social media"
       },
       {
         "title": "Brand Story Video",
-        "prompt": "Create a 60-second brand story video. Start with problem statement, introduce our solution, show happy customers using the product, end with call-to-action.",
-        "scenario": "Comprehensive brand narrative for website or presentations"
+        "prompt": "Create a 30-second brand story video that conveys [brand values]. Use an [emotional tone] tone with [visual style] aesthetics.",
+        "scenario": "Brand awareness campaign content"
       },
       {
-        "title": "Multi-Asset Product Launch",
-        "prompt": "Produce a 45-second product launch video using these assets: hero product shot, lifestyle photos, logo file. Style should match Apple's minimalist aesthetic with smooth transitions.",
-        "scenario": "Professional product launch with multiple reference materials"
+        "title": "Video with Reference Image",
+        "prompt": "Create a video using this reference image <original-image>asset_id</original-image>. The video should [describe desired outcome] while maintaining the visual style of the reference.",
+        "scenario": "Product video with specific visual requirements"
+      },
+      {
+        "title": "Iterative Revision Request",
+        "prompt": "Please revise the video to [specific change]. The current version is close but needs [adjustment to pacing/music/visuals/text].",
+        "scenario": "Refining a generated video based on preview feedback"
       }
     ],
     "output_examples": [
       {
-        "input": "Create a 20-second video of a cat playing with yarn balls",
-        "output": "Video delivered in 18 minutes with download URL and project page link. Preview showed 3 style options before final selection."
+        "input": "Create a 15-second video for my coffee shop promoting our new seasonal menu.",
+        "output": "Video request submitted. Estimated completion: 15-20 minutes. Project link: https://pexo.ai/project/proj_abc123. You will receive preview options to select from before final rendering."
       },
       {
-        "input": "Product video for handmade ceramic mugs with 5 product photos",
-        "output": "45-second promotional video featuring rotating product shots, lifestyle usage scenes, and pricing overlay. Delivered in 16:9 and 9:16 formats."
+        "input": "Make it more energetic with faster cuts and upbeat music",
+        "output": "Revision request submitted. The video will be regenerated with faster pacing and upbeat background music. Check progress at your project link."
       }
     ],
     "best_practices": [
-      "Copy user messages exactly when relaying to Pexo - do not add creative interpretations or details the user did not provide",
-      "Always wrap uploaded asset IDs in proper tags like <original-image>asset_id</original-image> when sending to Pexo",
-      "Poll status every 60 seconds during WAIT state and provide users with project link for tracking progress"
+      "Provide clear, specific descriptions of your desired video outcome rather than vague requests",
+      "Upload high-quality reference images for better visual results",
+      "Review preview options carefully and provide specific feedback for revisions",
+      "Allow 15-20 minutes for video generation before expecting delivery"
     ],
     "anti_patterns": [
-      "Do not call pexo-chat.sh during WAIT state - this triggers duplicate video production and wasted credits",
-      "Never truncate video URLs when delivering to users - include full URL with all query parameters",
-      "Do not add duration, aspect ratio, or style details to user requests unless explicitly specified by the user"
+      "Do not add duration, aspect ratio, or style details the user did not specify - Pexo will ask clarifying questions",
+      "Do not call pexo-chat.sh during WAIT status - this triggers duplicate production",
+      "Do not send bare asset IDs without proper XML tags - they will be ignored",
+      "Do not truncate the delivery URL - include all query parameters for proper access"
     ],
     "faq": [
       {
-        "question": "What video formats and lengths does this skill support?",
-        "answer": "The skill creates videos between 5-120 seconds in three aspect ratios: 16:9 (landscape), 9:16 (portrait), and 1:1 (square). Supported output formats include MP4 for video delivery."
+        "question": "How long does video generation take?",
+        "answer": "Short videos (5-30 seconds) typically take 15-20 minutes. Complex or longer videos may take additional time depending on the production requirements."
       },
       {
-        "question": "How long does video production take?",
-        "answer": "Typical production time is 15-20 minutes for a short video (15-30 seconds). Complex or longer videos may take additional time. The skill polls for status and provides progress updates."
+        "question": "What file formats are supported for uploads?",
+        "answer": "Images: JPG, PNG, WebP, BMP, TIFF, HEIC. Videos: MP4, MOV, AVI. Audio: MP3, WAV, AAC, M4A, OGG, FLAC."
       },
       {
-        "question": "Can I upload images or audio to include in the video?",
-        "answer": "Yes, you can upload images (jpg, png, webp, bmp, tiff, heic), videos (mp4, mov, avi), and audio files (mp3, wav, aac, m4a, ogg, flac). Use the pexo-upload.sh script to upload files before referencing them in your request."
+        "question": "Can I request changes after the video is generated?",
+        "answer": "Yes, you can request revisions by providing feedback through pexo-chat.sh using the same project ID. Revisions follow the same production timeline."
       },
       {
-        "question": "What happens if I run out of credits?",
-        "answer": "If credits are insufficient, the skill will notify you with a credit error message. You can purchase additional credits at https://pexo.ai/home by clicking Credits in the top-right corner."
+        "question": "What aspect ratios are available?",
+        "answer": "Pexo supports three aspect ratios: 16:9 (landscape for YouTube), 9:16 (vertical for TikTok/Reels), and 1:1 (square for Instagram posts)."
       },
       {
-        "question": "Can I request revisions to a completed video?",
-        "answer": "Yes, use the same project_id and send feedback via pexo-chat.sh with your revision requests. The skill will process revisions using the existing project context."
+        "question": "How do I add credits to my account?",
+        "answer": "Visit https://pexo.ai/home, click Credits in the top-right corner, select Buy Credits, and choose Extra Credits to purchase additional credits."
       },
       {
-        "question": "Does this skill work with video URLs from the web?",
-        "answer": "No, the skill cannot crawl web URLs directly. You must download web-hosted files to your local system first, then upload them using pexo-upload.sh."
+        "question": "What happens if video generation fails?",
+        "answer": "The system will provide an error explanation and project link. Common issues like insufficient credits include purchase instructions. You can retry after resolving the issue."
       }
     ]
   },
