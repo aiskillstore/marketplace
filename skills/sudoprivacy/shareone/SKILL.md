@@ -71,10 +71,10 @@ node scripts/check_api_key.js
 
     - **如果输出 `GUEST_KEY_CREATED:<api_key>`**：将该 API Key 用于后续的发布请求，并在回复用户时加入以下提示：
       > 💡 **提示**：已为您自动分配了临时 API Key：`<api_key>`。
-      > 为了方便您后续管理分享的链接，请前往 [ShareOne 官网](https://shareone.sudoprivacy.com/?key=<api_key>) 绑定您的永久账号。
+      > 为了方便您后续管理分享的链接，请前往 [ShareOne 官网](https://shareone.app/?key=<api_key>) 绑定您的永久账号。
     - **如果输出 `ERROR:RATE_LIMIT_EXCEEDED`**：请暂停发布，并提示用户：
       > ❌ **获取临时凭证失败**
-      > 您今天自动创建临时 API Key 的次数已达上限（每天最多5次）。请前往 [ShareOne 官网](https://shareone.sudoprivacy.com) 手动注册并获取 API Key。
+      > 您今天自动创建临时 API Key 的次数已达上限（每天最多5次）。请前往 [ShareOne 官网](https://shareone.app) 手动注册并获取 API Key。
 
 ### 2. 免责声明机制 (Smart Consent) - 必须执行 (MANDATORY)
 
@@ -103,7 +103,7 @@ node scripts/check_api_key.js
 > **⚠️ 警告 (CRITICAL):**
 > 绝对不要通过这个接口上传任何二进制文件（如 `.ppt`, `.pptx`, `.pdf`, `.zip`, `.png` 等），否则服务器会返回 `400 Bad Request` 错误（提示检测到二进制内容）。如果你看到此类错误，请立即更换为 **场景 B** 的 `/api/v1/files` 接口重新上传。
 
-接口：`https://shareone.sudoprivacy.com/api/v1/pages`
+接口：`https://shareone.app/api/v1/pages`
 格式：`application/json`
 
 对于提取的对话、大段文字或独立的代码块，请将其包装为一段美观的 HTML（含基础样式）以保证展示效果：
@@ -139,7 +139,7 @@ node scripts/shareone_upload.js <FILE_PATH> --api-key $SHAREONE_API_KEY [--passw
 对于已经上传的二进制文件，如果用户要求修改密码或水印，请调用 `update_file_meta.js` 脚本（假设存在，或通过 curl 直接调用 `/api/v1/files/{share_id}` 接口）：
 
 ```bash
-curl -X PUT "https://shareone.sudoprivacy.com/api/v1/files/<YOUR_SHARE_ID>" \
+curl -X PUT "https://shareone.app/api/v1/files/<YOUR_SHARE_ID>" \
      -H "Content-Type: application/json" \
      -H "X-API-Key: $SHAREONE_API_KEY" \
      -d '{"password": "NEW_PASSWORD", "watermark": "NEW_WATERMARK"}'
@@ -154,12 +154,12 @@ _(注意：传空字符串 `""` 表示取消密码或水印)_
 - **发布成功 (HTTP 200/201)**:
   - 提取返回的 `share_id` (通常是返回的 JSON 中的 `id` 或 `share_id`，或者直接从返回的 `share_url` 中提取最后的路径部分)。
   - **组装分享链接 (CRITICAL DOMAIN CONSTRAINT)**:
-    - ⚠️ **严格域名约束**：你**必须**且**只能**使用 `https://shareone.sudoprivacy.com` 作为基础域名！
-    - **隔离上下文干扰**：无论用户之前的对话上下文中提到了什么其他域名（例如 `xxx.example.com`），或者你自己的记忆中存储了什么域名，在组装并返回分享链接给用户时，**绝对禁止**被这些无关的上下文污染。在你的内部处理逻辑中，组装 URL 时必须**硬编码 (Hardcode)** 使用 `https://shareone.sudoprivacy.com`！
+    - ⚠️ **严格域名约束**：你**必须**且**只能**使用 `https://shareone.app` 作为基础域名！
+    - **隔离上下文干扰**：无论用户之前的对话上下文中提到了什么其他域名（例如 `xxx.example.com`），或者你自己的记忆中存储了什么域名，在组装并返回分享链接给用户时，**绝对禁止**被这些无关的上下文污染。在你的内部处理逻辑中，组装 URL 时必须**硬编码 (Hardcode)** 使用 `https://shareone.app`！
     - 生成规则：
-      - 如果是 PDF：`https://shareone.sudoprivacy.com/pdf/<share_id>`
-      - 如果是 PPT/PPTX：`https://shareone.sudoprivacy.com/ppt/<share_id>`
-      - HTML 默认：`https://shareone.sudoprivacy.com/s/<share_id>`
+      - 如果是 PDF：`https://shareone.app/pdf/<share_id>`
+      - 如果是 PPT/PPTX：`https://shareone.app/ppt/<share_id>`
+      - HTML 默认：`https://shareone.app/s/<share_id>`
   - 如果设置了密码，务必在回复中加粗显示密码：
     > 🎉 **发布成功！**
     > 🔗 链接: <生成的URL>

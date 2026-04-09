@@ -49,7 +49,7 @@ function request(url, options, body = null) {
     });
 }
 
-async function uploadFile(filePath, apiKey, baseUrl = "https://shareone.sudoprivacy.com") {
+async function uploadFile(filePath, apiKey, baseUrl = "https://shareone.app") {
     if (!fs.existsSync(filePath)) {
         console.error(`Error: File not found: ${filePath}`);
         process.exit(1);
@@ -139,7 +139,7 @@ async function uploadFile(filePath, apiKey, baseUrl = "https://shareone.sudopriv
 const args = process.argv.slice(2);
 let filePath = null;
 let apiKey = null;
-let baseUrl = "https://shareone.sudoprivacy.com";
+let baseUrl = "https://shareone.app";
 
 for (let i = 0; i < args.length; i++) {
     if (args[i] === '--api-key') {

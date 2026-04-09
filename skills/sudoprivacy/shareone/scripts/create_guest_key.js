@@ -1,9 +1,14 @@
+const http = require('http');
 const https = require('https');
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
 
-const req = https.request('https://shareone.sudoprivacy.com/api/v1/agent-guest-key', {
+const baseUrl = process.env.SHAREONE_BASE_URL || 'https://shareone.app';
+const client = baseUrl.startsWith('https') ? https : http;
+const url = new URL('/api/v1/agent-guest-key', baseUrl);
+
+const req = client.request(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' }
 }, (res) => {

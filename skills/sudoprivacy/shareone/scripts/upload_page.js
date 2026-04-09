@@ -1,3 +1,4 @@
+const http = require('http');
 const https = require('https');
 const fs = require('fs');
 
@@ -44,13 +45,18 @@ if (!shareId) {
 
 const data = JSON.stringify(payload);
 
-const url = shareId
-    ? `https://shareone.sudoprivacy.com/api/v1/pages/${shareId}`
-    : 'https://shareone.sudoprivacy.com/api/v1/pages';
+const baseUrl = process.env.SHAREONE_BASE_URL || 'https://shareone.app';
+const client = baseUrl.startsWith('https') ? https : http;
+
+const urlPath = shareId
+    ? `/api/v1/pages/${shareId}`
+    : '/api/v1/pages';
+
+const url = new URL(urlPath, baseUrl);
 
 const method = shareId ? 'PUT' : 'POST';
 
-const req = https.request(url, {
+const req = client.request(url, {
     method: method,
     headers: {
         'Content-Type': 'application/json',
