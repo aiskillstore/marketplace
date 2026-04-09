@@ -1,0 +1,437 @@
+{
+  "schema_version": "2.0",
+  "meta": {
+    "generated_at": "2026-04-08T09:24:42.459Z",
+    "slug": "sudoprivacy-shareone",
+    "source_url": "https://github.com/sudoprivacy/shareone-skill/tree/main/",
+    "source_ref": "main",
+    "model": "claude",
+    "analysis_version": "3.0.0",
+    "source_type": "community",
+    "content_hash": "1b3affe1a9021c593f765ad0d1b5c5cb6cbe5f870d4ae1234d3fb183917bed6f",
+    "tree_hash": "af2b3efb9bf3386570040ec91b4227cd4952b20f2cef7d87d644d5191d596001"
+  },
+  "skill": {
+    "name": "shareone",
+    "description": "发布本地生成的 HTML 网页、PDF 或 PPTX 到 ShareOne 平台，生成公网分享短链接（Capability URL）。当用户要求“发布”、“分享”、“生成链接”或“上线”某个生成的页面/文档时使用此技能。",
+    "summary": "Publish HTML, PDF, or PPTX files to ShareOne hosting platform with password and watermark protection",
+    "icon": "📦",
+    "version": "1.0.2",
+    "author": "sudoprivacy",
+    "license": "MIT",
+    "tags": [
+      "file-sharing",
+      "web-hosting",
+      "collaboration",
+      "document-sharing"
+    ],
+    "supported_tools": [
+      "claude",
+      "codex",
+      "claude-code"
+    ],
+    "risk_factors": [
+      "external_commands",
+      "filesystem",
+      "env_access",
+      "network"
+    ]
+  },
+  "security_audit": {
+    "risk_level": "high",
+    "is_blocked": false,
+    "safe_to_publish": true,
+    "summary": "Security audit reveals high-severity credential handling concerns. The skill accesses API keys via environment variables and stores them in plaintext files at ~/.shareone_credentials without encryption. API keys are passed as command-line arguments, exposing them in process lists. The skill connects exclusively to shareone.sudoprivacy.com for file hosting. While no malicious intent was found, the credential storage patterns present elevated risk that requires user awareness.",
+    "critical_findings": [],
+    "high_findings": [
+      {
+        "title": "Plaintext Credential Storage",
+        "description": "API keys are stored in plaintext at ~/.shareone_credentials without encryption. Any user with filesystem access can read stored credentials.",
+        "locations": [
+          {
+            "file": "scripts/check_api_key.js",
+            "line_start": 14,
+            "line_end": 17
+          },
+          {
+            "file": "scripts/save_api_key.js",
+            "line_start": 11,
+            "line_end": 12
+          },
+          {
+            "file": "scripts/create_guest_key.js",
+            "line_start": 16,
+            "line_end": 17
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "Direct evidence found in code: fs.writeFileSync saves plaintext JSON with api_key to homedir without encryption"
+      },
+      {
+        "title": "API Key Exposed via Command-Line Arguments",
+        "description": "API keys are passed as CLI arguments to Node.js scripts (--api-key parameter), making them visible in process listings and shell history.",
+        "locations": [
+          {
+            "file": "scripts/upload_page.js",
+            "line_start": 14,
+            "line_end": 14
+          },
+          {
+            "file": "scripts/shareone_upload.js",
+            "line_start": 145,
+            "line_end": 146
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "CLI argument parsing shows apiKey is passed via --api-key flag, visible in process.argv and process listings"
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Unvalidated Credential Acceptance",
+        "description": "The skill accepts user-provided API keys and saves them to disk without validation. Attackers could trick users into providing credential strings.",
+        "locations": [
+          {
+            "file": "scripts/save_api_key.js",
+            "line_start": 5,
+            "line_end": 12
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "Skill instructions explicitly prompt users to provide API keys which are then saved to disk without verification"
+      },
+      {
+        "title": "External Command Execution via Shell",
+        "description": "Node.js child_process is used to execute shell commands (node scripts/...) for file operations. Arguments are sourced from environment variables.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 48
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 116,
+            "line_end": 117
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 134,
+            "line_end": 134
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "Documentation shows bash commands with $SHAREONE_API_KEY being executed, though arguments are from env vars not user input"
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Hardcoded Domain in SKILL.md",
+        "description": "The shareone.sudoprivacy.com domain is hardcoded throughout documentation. While not inherently insecure, makes tracking difficult.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 74,
+            "line_end": 74
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 77,
+            "line_end": 77
+          }
+        ],
+        "confidence": 0.65,
+        "confidence_reasoning": "Domain is hardcoded but appears intentional for the service integration"
+      },
+      {
+        "title": "High Entropy Strings Detected",
+        "description": "Static analysis detected high entropy strings in SKILL.md. Upon review, these are base64-encoded URLs or example filenames, not malicious payloads.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 40
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 158,
+            "line_end": 158
+          }
+        ],
+        "confidence": 0.55,
+        "confidence_reasoning": "Entropy detection flagged example URLs and filenames, which are legitimate documentation content"
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "External Command + Network + Credential Access",
+        "description": "Heuristic detected dangerous combination: script execution (node) with network requests (HTTPS) and credential access (API keys from env/files). This pattern enables file upload to external service with stored credentials.",
+        "locations": [
+          {
+            "file": "scripts/shareone_upload.js",
+            "line_start": 1,
+            "line_end": 159
+          },
+          {
+            "file": "scripts/upload_page.js",
+            "line_start": 1,
+            "line_end": 74
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "Combination of file operations, network requests, and credential access is inherently risky, but the usage context is legitimate file hosting"
+      }
+    ],
+    "files_scanned": 6,
+    "total_lines": 486,
+    "audit_model": "claude",
+    "audited_at": "2026-04-08T09:24:42.459Z",
+    "risk_factors": [
+      "external_commands",
+      "filesystem",
+      "env_access",
+      "network"
+    ],
+    "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 48
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 116,
+            "line_end": 117
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 134,
+            "line_end": 134
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/check_api_key.js",
+            "line_start": 14,
+            "line_end": 17
+          },
+          {
+            "file": "scripts/save_api_key.js",
+            "line_start": 11,
+            "line_end": 12
+          },
+          {
+            "file": "scripts/create_guest_key.js",
+            "line_start": 16,
+            "line_end": 17
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "scripts/check_api_key.js",
+            "line_start": 7,
+            "line_end": 7
+          },
+          {
+            "file": "scripts/upload_page.js",
+            "line_start": 6,
+            "line_end": 6
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/create_guest_key.js",
+            "line_start": 6,
+            "line_end": 6
+          },
+          {
+            "file": "scripts/shareone_upload.js",
+            "line_start": 52,
+            "line_end": 52
+          },
+          {
+            "file": "scripts/upload_page.js",
+            "line_start": 47,
+            "line_end": 49
+          }
+        ]
+      }
+    ]
+  },
+  "content": {
+    "user_title": "Publish files to ShareOne with sharing links",
+    "value_statement": "Users struggle to share locally generated HTML, PDF, and PPTX files publicly. This skill automates file upload to ShareOne hosting and generates shareable links with optional password and watermark protection.",
+    "seo_keywords": [
+      "Claude Code skill",
+      "file sharing",
+      "ShareOne integration",
+      "PDF sharing",
+      "HTML hosting",
+      "document sharing",
+      "collaboration links",
+      "Claude Codex",
+      "web publishing",
+      "PPT sharing"
+    ],
+    "actual_capabilities": [
+      "Upload HTML, PDF, and PPTX files to ShareOne hosting platform",
+      "Generate shareable public links with unique share IDs",
+      "Protect shared content with optional passwords and watermarks",
+      "Update existing shares with new content, passwords, or watermarks",
+      "Create temporary guest API keys for first-time users",
+      "Check and manage stored API credentials"
+    ],
+    "limitations": [
+      "Requires ShareOne API key (free registration at shareone.sudoprivacy.com)",
+      "Content hosted for 90 days only before automatic deletion",
+      "Cannot upload binary files other than PDF and PPTX",
+      "No batch upload support; files must be uploaded one at a time"
+    ],
+    "use_cases": [
+      {
+        "title": "Share generated reports with your team",
+        "description": "After creating a data report in HTML or exporting a PDF, use ShareOne to generate a link your colleagues can access immediately without file transfers.",
+        "target_user": "Data analysts and developers"
+      },
+      {
+        "title": "Collaborate on presentations",
+        "description": "Upload a PowerPoint presentation to ShareOne, add a watermark for confidentiality, and share the protected link via email or chat.",
+        "target_user": "Business professionals and educators"
+      },
+      {
+        "title": "Share code snippets publicly",
+        "description": "Paste code or markdown content, have the skill convert it to an HTML file, and publish it with optional password protection for private code review.",
+        "target_user": "Software developers and technical writers"
+      }
+    ],
+    "prompt_templates": [
+      {
+        "title": "Share a generated HTML file",
+        "prompt": "Publish the file index.html to ShareOne and give me the shareable link",
+        "scenario": "Beginner"
+      },
+      {
+        "title": "Add password protection to a PDF share",
+        "prompt": "Upload presentation.pdf to ShareOne with password protection set to 'review123'",
+        "scenario": "Intermediate"
+      },
+      {
+        "title": "Update existing share with new content",
+        "prompt": "Update the ShareOne link for my-report.html with new content and add watermark 'CONFIDENTIAL'",
+        "scenario": "Intermediate"
+      },
+      {
+        "title": "Create guest account and share multiple files",
+        "prompt": "I do not have a ShareOne API key. Create a temporary account for me, then upload both report.pdf and slides.pptx to ShareOne",
+        "scenario": "Advanced"
+      }
+    ],
+    "output_examples": [
+      {
+        "input": "Publish the file index.html to ShareOne",
+        "output": "Published successfully! Your HTML page is live at https://shareone.sudoprivacy.com/s/AbCdEf1234567890. Share this link with anyone who needs to view it."
+      },
+      {
+        "input": "Upload report.pdf with password 'secret2024'",
+        "output": "PDF uploaded and protected! Access your document at https://shareone.sudoprivacy.com/pdf/XyZ9876543210. The extraction code is: secret2024"
+      },
+      {
+        "input": "Share my content with watermark 'INTERNAL'",
+        "output": "Content published with watermark! View your shared page at https://shareone.sudoprivacy.com/s/QrStUv5678901. All views will display 'INTERNAL' overlay."
+      }
+    ],
+    "best_practices": [
+      "Always set a password for sensitive documents shared externally",
+      "Use watermarks to identify confidential content in shared links",
+      "Verify API key is properly set in environment variables before uploading"
+    ],
+    "anti_patterns": [
+      "Do not share the API key itself or include it in the published content",
+      "Avoid uploading files containing credentials or secrets as they become publicly accessible",
+      "Do not ignore the content review warning when prompted"
+    ],
+    "faq": [
+      {
+        "question": "Is ShareOne free to use?",
+        "answer": "Yes, ShareOne offers a free tier. Content is hosted for 90 days before automatic deletion."
+      },
+      {
+        "question": "How do I get an API key for ShareOne?",
+        "answer": "You can set the SHAREONE_API_KEY environment variable, or the skill will help create a temporary guest key if you do not have one."
+      },
+      {
+        "question": "Can I update a shared link with new content?",
+        "answer": "Yes, use the --share-id parameter with the original share ID to update existing shares instead of creating new ones."
+      },
+      {
+        "question": "What file types are supported?",
+        "answer": "HTML, markdown, text, PDF, and PPTX files are supported. Binary files like images and ZIPs cannot be uploaded through the HTML page interface."
+      },
+      {
+        "question": "How long do shared files remain available?",
+        "answer": "Shared content is hosted for 90 days at no cost. After that, files are automatically deleted."
+      },
+      {
+        "question": "Are uploaded files scanned for security?",
+        "answer": "Yes, content is reviewed before publication. If content violates policies, upload will be rejected with an error message."
+      }
+    ]
+  },
+  "file_structure": [
+    {
+      "name": "scripts",
+      "type": "dir",
+      "path": "scripts",
+      "children": [
+        {
+          "name": "check_api_key.js",
+          "type": "file",
+          "path": "scripts/check_api_key.js",
+          "lines": 31
+        },
+        {
+          "name": "create_guest_key.js",
+          "type": "file",
+          "path": "scripts/create_guest_key.js",
+          "lines": 31
+        },
+        {
+          "name": "save_api_key.js",
+          "type": "file",
+          "path": "scripts/save_api_key.js",
+          "lines": 13
+        },
+        {
+          "name": "shareone_upload.js",
+          "type": "file",
+          "path": "scripts/shareone_upload.js",
+          "lines": 159
+        },
+        {
+          "name": "upload_page.js",
+          "type": "file",
+          "path": "scripts/upload_page.js",
+          "lines": 74
+        }
+      ]
+    },
+    {
+      "name": "SKILL.md",
+      "type": "file",
+      "path": "SKILL.md",
+      "lines": 178
+    }
+  ]
+}
