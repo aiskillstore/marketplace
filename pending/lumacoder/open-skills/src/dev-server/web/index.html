@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>open-skills Dev</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0d1117; color: #c9d1d9; height: 100vh; overflow: hidden; }
+  .layout { display: flex; height: 100vh; }
+  .sidebar { width: 260px; background: #161b22; border-right: 1px solid #30363d; display: flex; flex-direction: column; }
+  .sidebar h2 { padding: 16px; font-size: 14px; color: #8b949e; border-bottom: 1px solid #30363d; }
+  .cat-list { flex: 1; overflow-y: auto; }
+  .cat-item { padding: 12px 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #21262d; }
+  .cat-item:hover, .cat-item.active { background: #1f6feb33; }
+  .cat-name { font-size: 14px; }
+  .cat-count { font-size: 12px; color: #8b949e; background: #21262d; padding: 2px 6px; border-radius: 10px; }
+  .cat-actions { display: none; gap: 8px; }
+  .cat-item:hover .cat-actions { display: flex; }
+  .cat-actions button { background: transparent; border: none; color: #8b949e; cursor: pointer; font-size: 12px; }
+  .cat-actions button:hover { color: #f85149; }
+  .sidebar .btn { margin: 12px; padding: 8px 12px; background: #238636; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .toolbar { padding: 12px 16px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; gap: 10px; align-items: center; }
+  .toolbar h1 { font-size: 16px; flex: 1; }
+  .toolbar button { padding: 6px 12px; background: #21262d; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .toolbar button.primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  .toolbar button:hover { opacity: 0.9; }
+  .status { font-size: 12px; color: #8b949e; }
+  .status.dirty { color: #f85149; font-weight: 600; }
+  .content { flex: 1; overflow: auto; padding: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #30363d; }
+  th { color: #8b949e; font-weight: 500; }
+  .tag { display: inline-block; padding: 2px 6px; background: #21262d; border-radius: 4px; font-size: 11px; margin-right: 4px; }
+  .skill-actions button { padding: 4px 8px; background: transparent; border: 1px solid #30363d; color: #c9d1d9; border-radius: 4px; cursor: pointer; font-size: 12px; margin-right: 4px; }
+  .skill-actions button:hover { background: #30363d; }
+  .empty { padding: 40px; text-align: center; color: #8b949e; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 100; }
+  .modal-overlay.show { display: flex; }
+  .modal { background: #161b22; border: 1px solid #30363d; border-radius: 8px; width: 520px; max-width: 90%; max-height: 90vh; overflow-y: auto; }
+  .modal-header { padding: 16px; border-bottom: 1px solid #30363d; font-size: 15px; font-weight: 600; }
+  .modal-body { padding: 16px; }
+  .field { margin-bottom: 12px; }
+  .field label { display: block; font-size: 12px; color: #8b949e; margin-bottom: 4px; }
+  .field input, .field textarea, .field select { width: 100%; padding: 8px 10px; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; border-radius: 6px; font-size: 13px; }
+  .field input:focus, .field textarea:focus, .field select:focus { outline: none; border-color: #1f6feb; }
+  .field-row { display: flex; gap: 10px; }
+  .field-row .field { flex: 1; }
+  .modal-footer { padding: 12px 16px; border-top: 1px solid #30363d; display: flex; justify-content: flex-end; gap: 8px; }
+  .modal-footer button { padding: 6px 14px; border-radius: 6px; border: 1px solid #30363d; background: #21262d; color: #c9d1d9; cursor: pointer; }
+  .modal-footer button.primary { background: #238636; border-color: #238636; color: #fff; }
+  .resolve-bar { display: flex; gap: 8px; margin-top: 8px; }
+  .resolve-bar button { padding: 6px 10px; background: #1f6feb; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .resolve-bar input { flex: 1; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h2>分类</h2>
+    <div class="cat-list" id="catList"></div>
+    <button class="btn" onclick="app.addCategory()">+ 新增分类</button>
+  </aside>
+  <main class="main">
+    <div class="toolbar">
+      <h1 id="pageTitle">Skills</h1>
+      <span class="status" id="statusText"></span>
+      <button onclick="app.scanBundles()">扫描 Bundle</button>
+      <button onclick="app.validate()">校验</button>
+      <button class="primary" onclick="app.save()">保存 (Ctrl+S)</button>
+      <button onclick="app.addSkill()">+ 新增 Skill</button>
+    </div>
+    <div class="content" id="content">
+      <div class="empty">请选择一个分类</div>
+    </div>
+  </main>
+</div>
+
+<div class="modal-overlay" id="catModal">
+  <div class="modal">
+    <div class="modal-header" id="catModalTitle">编辑分类</div>
+    <div class="modal-body">
+      <div class="field">
+        <label>ID (唯一标识，小写字母+-数字)</label>
+        <input id="catId" />
+      </div>
+      <div class="field">
+        <label>显示名称</label>
+        <input id="catDisplayName" />
+      </div>
+      <div class="field">
+        <label>排序号</label>
+        <input id="catOrder" type="number" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="app.closeCatModal()">取消</button>
+      <button class="primary" onclick="app.saveCategory()">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="skillModal">
+  <div class="modal">
+    <div class="modal-header" id="skillModalTitle">编辑 Skill</div>
+    <div class="modal-body">
+      <div class="field">
+        <label>数据来源</label>
+        <select id="skillOriginType" onchange="app.onOriginChange()">
+          <option value="bundle">本地 Bundle</option>
+          <option value="github">GitHub</option>
+          <option value="clawhub">ClawHub</option>
+          <option value="skillstore">SkillStore</option>
+          <option value="git">Git 仓库</option>
+        </select>
+      </div>
+      <div class="field" id="resolveField" style="display:none;">
+        <label>远程引用 (如 owner/repo)</label>
+        <div class="resolve-bar">
+          <input id="skillOriginRef" placeholder="lumacoder/react-patterns" />
+          <button onclick="app.resolveRemote()">查询填充</button>
+        </div>
+      </div>
+      <div class="field" id="urlField" style="display:none;">
+        <label>Git URL</label>
+        <input id="skillOriginUrl" placeholder="https://github.com/owner/repo.git" />
+      </div>
+      <div class="field" id="pathField">
+        <label>本地路径 / 子路径</label>
+        <input id="skillOriginPath" placeholder="bundles/skills/my-skill" />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>名称 (name)</label>
+          <input id="skillName" />
+        </div>
+        <div class="field">
+          <label>显示名称</label>
+          <input id="skillDisplayName" />
+        </div>
+      </div>
+      <div class="field">
+        <label>简要描述</label>
+        <textarea id="skillDesc" rows="2"></textarea>
+      </div>
+      <div class="field">
+        <label>分类</label>
+        <select id="skillCategory"></select>
+      </div>
+      <div class="field">
+        <label>Tags (用逗号分隔)</label>
+        <input id="skillTags" placeholder="react, patterns" />
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>作者</label>
+          <input id="skillAuthor" />
+        </div>
+        <div class="field">
+          <label>版本</label>
+          <input id="skillVersion" placeholder="1.0.0" />
+        </div>
+      </div>
+      <div class="field">
+        <label>License</label>
+        <input id="skillLicense" placeholder="MIT" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button onclick="app.closeSkillModal()">取消</button>
+      <button class="primary" onclick="app.saveSkill()">确认</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const app = {
+  data: { version: '3.0.0', updatedAt: '', categories: [], skills: [] },
+  selectedCat: null,
+  editingCatIndex: -1,
+  editingSkillIndex: -1,
+  dirty: false,
+
+  async init() {
+    await this.load();
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        this.save();
+      }
+    });
+    window.addEventListener('beforeunload', (e) => {
+      if (this.dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    });
+  },
+
+  async load() {
+    try {
+      const res = await fetch('/api/registry');
+      this.data = await res.json();
+      this.dirty = false;
+      this.renderCats();
+      this.renderSkills();
+      this.clearDirty();
+      this.setStatus('已加载');
+    } catch (e) {
+      this.setStatus('加载失败: ' + e.message);
+    }
+  },
+
+  markDirty() {
+    this.dirty = true;
+    const el = document.getElementById('statusText');
+    el.classList.add('dirty');
+    el.textContent = '* 有未保存的更改，请点击保存按钮 (Ctrl+S)';
+  },
+
+  clearDirty() {
+    this.dirty = false;
+    const el = document.getElementById('statusText');
+    el.classList.remove('dirty');
+  },
+
+  setStatus(msg) {
+    const el = document.getElementById('statusText');
+    if (!this.dirty) {
+      el.textContent = msg;
+      setTimeout(() => { if (!this.dirty) el.textContent = ''; }, 3000);
+    }
+  },
+
+  renderCats() {
+    const el = document.getElementById('catList');
+    el.innerHTML = '';
+    const sorted = [...this.data.categories].sort((a, b) => a.order - b.order);
+    sorted.forEach((cat) => {
+      const count = this.data.skills.filter((s) => s.category === cat.id).length;
+      const div = document.createElement('div');
+      div.className = 'cat-item' + (this.selectedCat === cat.id ? ' active' : '');
+      div.innerHTML = `<span class="cat-name">${cat.displayName}</span><span class="cat-count">${count}</span><div class="cat-actions"><button onclick="event.stopPropagation();app.editCat('${cat.id}')">编辑</button><button onclick="event.stopPropagation();app.delCat('${cat.id}')">删除</button></div>`;
+      div.onclick = () => { this.selectedCat = cat.id; this.renderCats(); this.renderSkills(); };
+      el.appendChild(div);
+    });
+  },
+
+  renderSkills() {
+    const content = document.getElementById('content');
+    const cat = this.data.categories.find((c) => c.id === this.selectedCat);
+    document.getElementById('pageTitle').textContent = cat ? `${cat.displayName} — Skills` : 'Skills';
+    if (!cat) {
+      content.innerHTML = '<div class="empty">请选择一个分类</div>';
+      return;
+    }
+    const skills = this.data.skills.filter((s) => s.category === cat.id);
+    if (skills.length === 0) {
+      content.innerHTML = '<div class="empty">该分类暂无 Skills</div>';
+      return;
+    }
+    const rows = skills.map((s, idx) => {
+      const globalIdx = this.data.skills.indexOf(s);
+      const tags = (s.tags || []).map((t) => `<span class="tag">${t}</span>`).join('');
+      return `<tr>
+        <td><b>${s.displayName || s.name}</b><div style="font-size:11px;color:#8b949e">${s.name}</div></td>
+        <td>${s.description}</td>
+        <td><span class="tag">${s.origin?.type || 'bundle'}</span></td>
+        <td>${tags}</td>
+        <td class="skill-actions"><button onclick="app.editSkill(${globalIdx})">编辑</button><button onclick="app.delSkill(${globalIdx})">删除</button></td>
+      </tr>`;
+    }).join('');
+    content.innerHTML = `<table><thead><tr><th>名称</th><th>描述</th><th>源</th><th>Tags</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+  },
+
+  addCategory() {
+    this.editingCatIndex = -1;
+    document.getElementById('catId').value = '';
+    document.getElementById('catDisplayName').value = '';
+    document.getElementById('catOrder').value = (this.data.categories.length + 1).toString();
+    document.getElementById('catModalTitle').textContent = '新增分类';
+    document.getElementById('catModal').classList.add('show');
+  },
+
+  editCat(id) {
+    const idx = this.data.categories.findIndex((c) => c.id === id);
+    if (idx < 0) return;
+    this.editingCatIndex = idx;
+    const cat = this.data.categories[idx];
+    document.getElementById('catId').value = cat.id;
+    document.getElementById('catDisplayName').value = cat.displayName;
+    document.getElementById('catOrder').value = String(cat.order || idx + 1);
+    document.getElementById('catModalTitle').textContent = '编辑分类';
+    document.getElementById('catModal').classList.add('show');
+  },
+
+  delCat(id) {
+    if (!confirm('确定删除该分类？关联的 Skills 将转入未分类状态。')) return;
+    this.data.categories = this.data.categories.filter((c) => c.id !== id);
+    this.data.skills.forEach((s) => { if (s.category === id) s.category = '__uncategorized__'; });
+    if (this.selectedCat === id) this.selectedCat = null;
+    this.markDirty();
+    this.renderCats(); this.renderSkills(); this.setStatus('已删除分类');
+  },
+
+  closeCatModal() {
+    document.getElementById('catModal').classList.remove('show');
+  },
+
+  saveCategory() {
+    const id = document.getElementById('catId').value.trim();
+    const displayName = document.getElementById('catDisplayName').value.trim();
+    const order = parseInt(document.getElementById('catOrder').value, 10) || 0;
+    if (!id || !displayName) { alert('ID 和 显示名称 不能为空'); return; }
+    if (!/^[a-z0-9-]+$/.test(id)) { alert('ID 只能使用小写字母、数字和短横线'); return; }
+    if (this.editingCatIndex >= 0) {
+      const oldId = this.data.categories[this.editingCatIndex].id;
+      this.data.categories[this.editingCatIndex] = { id, displayName, order };
+      if (oldId !== id) {
+        this.data.skills.forEach((s) => { if (s.category === oldId) s.category = id; });
+        if (this.selectedCat === oldId) this.selectedCat = id;
+      }
+    } else {
+      if (this.data.categories.some((c) => c.id === id)) { alert('分类 ID 已存在'); return; }
+      this.data.categories.push({ id, displayName, order });
+    }
+    this.markDirty();
+    this.closeCatModal(); this.renderCats(); this.renderSkills(); this.setStatus('已更新分类，请保存');
+  },
+
+  addSkill() {
+    this.editingSkillIndex = -1;
+    this.fillSkillModal({ name: '', displayName: '', description: '', category: this.selectedCat || '', tags: [], origin: { type: 'bundle', path: '' }, version: '1.0.0', license: 'MIT' });
+    document.getElementById('skillModalTitle').textContent = '新增 Skill';
+    document.getElementById('skillModal').classList.add('show');
+  },
+
+  editSkill(idx) {
+    this.editingSkillIndex = idx;
+    this.fillSkillModal(this.data.skills[idx]);
+    document.getElementById('skillModalTitle').textContent = '编辑 Skill';
+    document.getElementById('skillModal').classList.add('show');
+  },
+
+  delSkill(idx) {
+    if (!confirm('确定删除该 Skill?')) return;
+    this.data.skills.splice(idx, 1);
+    this.markDirty();
+    this.renderCats(); this.renderSkills(); this.setStatus('已删除，请保存');
+  },
+
+  fillSkillModal(s) {
+    document.getElementById('skillName').value = s.name || '';
+    document.getElementById('skillDisplayName').value = s.displayName || '';
+    document.getElementById('skillDesc').value = s.description || '';
+    document.getElementById('skillCategory').innerHTML = this.data.categories.map((c) => `<option value="${c.id}">${c.displayName}</option>`).join('');
+    document.getElementById('skillCategory').value = s.category || this.selectedCat || '';
+    document.getElementById('skillTags').value = (s.tags || []).join(', ');
+    document.getElementById('skillAuthor').value = s.author || '';
+    document.getElementById('skillVersion').value = s.version || '';
+    document.getElementById('skillLicense').value = s.license || '';
+    const origin = s.origin || { type: 'bundle' };
+    document.getElementById('skillOriginType').value = origin.type;
+    document.getElementById('skillOriginRef').value = origin.ref || '';
+    document.getElementById('skillOriginUrl').value = origin.url || '';
+    document.getElementById('skillOriginPath').value = origin.path || '';
+    this.onOriginChange();
+  },
+
+  onOriginChange() {
+    const type = document.getElementById('skillOriginType').value;
+    const isRemote = ['github', 'clawhub', 'skillstore'].includes(type);
+    const isGit = type === 'git';
+    document.getElementById('resolveField').style.display = isRemote ? 'block' : 'none';
+    document.getElementById('urlField').style.display = isGit ? 'block' : 'none';
+    document.getElementById('pathField').style.display = (type === 'bundle' || isGit) ? 'block' : 'none';
+  },
+
+  async resolveRemote() {
+    const type = document.getElementById('skillOriginType').value;
+    const ref = document.getElementById('skillOriginRef').value.trim();
+    if (!ref) { alert('请输入远程引用'); return; }
+    try {
+      const res = await fetch('/api/resolve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: type, ref })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.displayName) document.getElementById('skillDisplayName').value = data.displayName;
+      if (data.description) document.getElementById('skillDesc').value = data.description;
+      if (data.author) document.getElementById('skillAuthor').value = data.author;
+      if (data.license) document.getElementById('skillLicense').value = data.license;
+      if (data.version) document.getElementById('skillVersion').value = data.version;
+      if (data.name && !document.getElementById('skillName').value) document.getElementById('skillName').value = data.name;
+      this.setStatus('已填充');
+    } catch (e) {
+      alert('查询失败: ' + e.message);
+    }
+  },
+
+  closeSkillModal() {
+    document.getElementById('skillModal').classList.remove('show');
+  },
+
+  saveSkill() {
+    const name = document.getElementById('skillName').value.trim();
+    const displayName = document.getElementById('skillDisplayName').value.trim();
+    const description = document.getElementById('skillDesc').value.trim();
+    const category = document.getElementById('skillCategory').value;
+    const tags = document.getElementById('skillTags').value.split(',').map((t) => t.trim()).filter(Boolean);
+    const author = document.getElementById('skillAuthor').value.trim();
+    const version = document.getElementById('skillVersion').value.trim();
+    const license = document.getElementById('skillLicense').value.trim();
+    const type = document.getElementById('skillOriginType').value;
+    const ref = document.getElementById('skillOriginRef').value.trim();
+    const url = document.getElementById('skillOriginUrl').value.trim();
+    const pathVal = document.getElementById('skillOriginPath').value.trim();
+    if (!name || !displayName || !description || !category) { alert('请填写必填字段'); return; }
+    if (!/^[a-z0-9-]+$/.test(name)) { alert('name 只能使用小写字母、数字和短横线'); return; }
+
+    const origin = { type };
+    if (ref) origin.ref = ref;
+    if (url) origin.url = url;
+    if (pathVal) origin.path = pathVal;
+    if (type === 'bundle' && !pathVal) origin.path = `bundles/skills/${name}`;
+
+    const skill = { name, displayName, description, category, tags, origin, author, version, license };
+    if (this.editingSkillIndex >= 0) {
+      this.data.skills[this.editingSkillIndex] = skill;
+    } else {
+      if (this.data.skills.some((s) => s.name === name)) { alert('Skill name 已存在'); return; }
+      this.data.skills.push(skill);
+    }
+    this.markDirty();
+    this.closeSkillModal(); this.renderCats(); this.renderSkills(); this.setStatus('已更新 Skill，请保存');
+  },
+
+  async save() {
+    try {
+      const res = await fetch('/api/registry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.data)
+      });
+      const result = await res.json();
+      if (result.error) throw new Error(result.error);
+      this.clearDirty();
+      this.setStatus('已保存到 skills.json');
+    } catch (e) {
+      alert('保存失败: ' + e.message);
+    }
+  },
+
+  async validate() {
+    try {
+      const res = await fetch('/api/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.data)
+      });
+      const result = await res.json();
+      if (result.valid) {
+        alert('✓ 校验通过');
+      } else {
+        const msg = result.errors.map((e) => `${e.path}: ${e.message}`).join('\n');
+        alert('✗ 校验失败\n\n' + msg);
+      }
+    } catch (e) {
+      alert('校验失败: ' + e.message);
+    }
+  },
+
+  async scanBundles() {
+    alert('扫描功能需在命令行执行: npm run validate-registry\n或刷新页面后重新加载。');
+  }
+};
+
+app.init();
+</script>
+</body>
+</html>
