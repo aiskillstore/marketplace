@@ -60,6 +60,8 @@ All features below are `/system/device-mode/update` properties. Every feature is
 | `activation-timeout` | `5m` | Time window for physical confirmation (10s–1d) |
 | `flagging-enabled` | `yes` | Enable suspicious-config detection |
 
-An `attempt-count` increments on each pending change (max 3 before a power cycle is required to reset). If not confirmed within the activation timeout, the change reverts on next reboot.
+An `attempt-count` increments on each canceled/timed-out change and resets to 0 only on successful power-cycle confirmation. Official docs say "only three times" but **lab testing showed 12+ attempts via REST with no visible limit** — the REST API continued to accept and block on update requests regardless of count. The "three times" limit may be CLI-only or an approximation.
 
-> **Source:** Device-mode page (rosetta page 93749258, 7.22 docs).
+If not confirmed within the activation timeout, the change is canceled and the count increments (it does not revert on next reboot — `attempt-count` survives reboots).
+
+> **Source:** Device-mode page (rosetta page 93749258, 7.22 docs) + lab verification on CHR 7.22.1 (x86_64). See `device-mode-rest.md` for full REST API behavior.

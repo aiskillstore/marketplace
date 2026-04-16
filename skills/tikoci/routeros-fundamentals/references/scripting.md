@@ -151,6 +151,163 @@ NOT Lua, NOT any standard language. It runs inside the RouterOS CLI environment.
 }
 ```
 
+## Comments
+
+```routeros
+# This is a comment (single-line only)
+:put "hello"  # Inline comment after command
+```
+
+No multi-line comment syntax exists. Each line needs its own `#`.
+
+## `:execute` vs `:do`
+
+```routeros
+# :do — runs inline, blocks until complete
+:do { /ip/address/print } on-error={ :put "failed" }
+
+# :execute — runs in BACKGROUND, returns immediately
+# Result can be captured to file or as-string
+:local jobId [:execute script="/interface/print"]
+
+# :execute with as-string — BLOCKS (not background)
+:local result [:execute script=":put hello" as-string]
+
+# :execute with file — runs in background, writes output to file
+:execute script="/export" file="backup"
+```
+
+**Key difference:** `:execute` without `as-string` runs asynchronously — the script continues immediately. With `as-string`, it blocks and returns the output. Executed scripts are limited to 64KB.
+
+## `:parse` — Dynamic Code
+
+```routeros
+# Parse a string into an executable function
+:global myFunc [:parse ":put hello!"]
+$myFunc
+
+# Useful for building commands dynamically
+:local cmd ":put (1 + 2)"
+:local fn [:parse $cmd]
+$fn   # → 3
+```
+
+`:parse` compiles a string into a callable function. This is the only way to create "functions" in RouterOS — the `do={}` syntax for globals is syntactic sugar for `:parse`.
+
+## Array Operations
+
+```routeros
+# Create array
+:local arr {1; 2; 3; "four"}
+
+# Named keys
+:local dict {name="router1"; ip=192.168.1.1}
+
+# Access by index (uses -> not [])
+:put ($arr->0)         # → 1
+
+# Access by key
+:put ($dict->"name")   # → "router1"
+
+# Set element value
+:set ($dict->"name") "router2"
+
+# Array length
+:put [:len $arr]       # → 4
+
+# Append to array (no built-in append — rebuild or use set)
+:set arr ($arr, 5)     # append 5
+
+# Loop with keys and values
+:foreach k,v in=$dict do={
+  :put "$k=$v"
+}
+
+# Loop values only
+:foreach v in=$arr do={
+  :put $v
+}
+```
+
+**⚠️ Array key sorting:** Elements with named keys are sorted alphabetically. Elements without keys preserve insertion order but are moved before keyed elements.
+
+**⚠️ Key names with uppercase or special chars** must be quoted: `($arr->"myKey")`.
+
+## `:serialize` / `:deserialize` (JSON)
+
+RouterOS 7.x supports JSON serialization:
+
+```routeros
+# Serialize array to JSON
+:local data {name="test"; value=42}
+:put [:serialize to=json value=$data]
+# → {"name":"test","value":42}
+
+# Pretty print
+:put [:serialize to=json value=$data options=json.pretty]
+
+# Prevent string→number conversion
+:put [:serialize to=json value=$data options=json.no-string-conversion]
+
+# Deserialize JSON string to array
+:local parsed [:deserialize from=json value="{\"name\":\"test\"}"]
+:put ($parsed->"name")   # → test
+
+# Deserialize from file
+:deserialize [/file/get config.json contents] from=json
+
+# Also supports DSV (delimiter-separated values)
+:put [:serialize to=dsv delimiter=";" value=$data]
+```
+
+**DSV options:** `dsv.plain` (no header), `dsv.array` (header as keys), `dsv.wrap-strings`, `dsv.remap` (merge array of dicts).
+
+## `/system/script` — Script Repository
+
+```routeros
+# Add stored script
+/system/script/add name=my-backup source={
+  /export file="daily-backup"
+  :log info "Backup complete"
+}
+
+# Run stored script
+/system/script/run my-backup
+
+# List scripts
+/system/script/print
+
+# Edit script source
+/system/script/set my-backup source={...new code...}
+
+# Remove
+/system/script/remove my-backup
+```
+
+**Properties:** `name`, `source`, `policy`, `comment`, `dont-require-permissions`, `owner` (read-only), `run-count` (read-only), `last-started` (read-only).
+
+## Script Permissions (Policies)
+
+Scripts have permission policies that control what they can access:
+
+| Policy | Allows |
+|--------|--------|
+| `read` | Retrieve configuration |
+| `write` | Change configuration |
+| `policy` | Manage users and policies |
+| `reboot` | Reboot the router |
+| `password` | Change passwords |
+| `ftp` | FTP access, send/retrieve files |
+| `sensitive` | Change "hide sensitive" parameter |
+| `sniff` | Run sniffer, torch |
+| `test` | Run ping, traceroute, bandwidth-test |
+| `romon` | RoMON access |
+
+**Rules:**
+- A script can only execute another script with **equal or higher** permissions
+- `dont-require-permissions=yes` bypasses the check (useful for Netwatch/scheduler scripts with limited permissions)
+- When run from CLI, **user permissions** apply. Use `run use-script-permissions` to use the script's own policy set.
+
 ## Important Gotchas
 
 - **No pipes, no redirection** — can't do `cmd | grep` or `cmd > file`
@@ -161,3 +318,13 @@ NOT Lua, NOT any standard language. It runs inside the RouterOS CLI environment.
 - **Semicolons in arrays** — `{1; 2; 3}` not `{1, 2, 3}`
 - **Script line continuation** — use `\` at end of line
 - **Property names with hyphens** — use quotes in find: `[find where "mac-address"="AA:BB:CC:DD:EE:FF"]`
+- **Variable names are case-sensitive** — `$myVar` ≠ `$myVAR`
+- **`:set` without value undefines** — `:global myVar; :set myVar` removes it from environment
+- **`:execute` script size limit** — 64KB max for executed scripts
+- **Global variables survive across script runs** but NOT across reboots
+
+> **Source:**
+> - Rosetta: page 47579229 (Scripting) — comprehensive language reference
+> - Reference: `rest-api-patterns.md` — REST vs scripting interface differences
+> - Note: `:serialize`/`:deserialize` are RouterOS 7.x features (from docs, not lab-verified)
+> - Note: Script permissions table from official docs, verified against page 47579229

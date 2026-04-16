@@ -7,22 +7,37 @@ RouterOS ships with a base feature set. Additional functionality is available vi
 
 ## Package Installation
 
+### Built-In Packages (CHR 7.22.1+)
+
+CHR images include 12 optional packages built in. No SCP upload or download needed:
+
 ```routeros
-# Via CLI — upload .npk files to root, then reboot
-/system/reboot
+# 1. Reveal available packages
+/system/package/update/check-for-updates
+
+# 2. Enable the desired package
+/system/package/enable container
+
+# 3. Apply changes (triggers reboot AND activates — /system/reboot does NOT work!)
+/system/package/apply-changes
 ```
 
-```typescript
-// Via REST API + SCP
-// 1. Upload .npk files via SCP (or Winbox drag-and-drop, or WebFig file upload)
-// scp container-7.22-arm64.npk admin@router:/
+⚠️ **Critical: `/system/reboot` does NOT apply pending package changes.** Always use
+`/system/package/apply-changes` which both triggers a reboot and commits enable/disable
+operations. A plain reboot discards all pending changes. (Lab-verified on CHR 7.22.1.)
 
-// 2. Reboot to activate
-await fetch(`${base}/system/reboot`, { method: "POST", ...auth });
+See `packages-rest.md` for full REST API details and response shapes.
 
-// Alternative: online install (requires internet)
-// /system/package/update check-for-updates
-// /system/package/update install
+### External Packages (SCP Upload)
+
+For packages not built into the image (e.g., third-party `.npk` files):
+
+```routeros
+# 1. Upload .npk files via SCP (or Winbox drag-and-drop, or WebFig file upload)
+# scp my-package-7.22-arm64.npk admin@router:/
+
+# 2. Apply changes (NOT /system/reboot!)
+/system/package/apply-changes
 ```
 
 ## Key Extra Packages

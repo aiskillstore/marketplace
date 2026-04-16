@@ -9,7 +9,7 @@ RouterOS 7.21 introduced the `/app` path (built-in app listing and management). 
 
 ## What /app Is
 
-The `/app` subsystem lets users define one or more containers as a single "application" in YAML. RouterOS parses the YAML, creates containers, volumes, networks, and config files, then manages the lifecycle. Think of it as MikroTik's opinionated alternative to `docker-compose`.
+The `/app` subsystem lets users define one or more containers as a single "application" in YAML. RouterOS parses the YAML, creates containers, volumes, networks, and config files, then manages the lifecycle.
 
 **Key concepts:**
 - Each `/app` is defined by a YAML document with services, configs, volumes, and networks

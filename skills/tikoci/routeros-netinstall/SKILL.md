@@ -154,13 +154,32 @@ channel_ver = $(firstword $(shell for _i in 1 2 3 4 5; do \
 
 | Host | Solution |
 |---|---|
-| ARM/ARM64 Linux | `qemu-i386-static` or `qemu-i386` (user-mode emulation) |
-| x86_64 Linux | Runs natively (kernel supports i386 binaries) |
-| macOS (any arch) | QEMU system VM with vmnet-bridged networking and 9p host sharing |
+| x86_64 Linux | Runs natively (kernel supports i386 binaries via `IA32_EMULATION`) |
+| ARM/ARM64 Linux | QEMU user-mode emulation — prefix command with `qemu-i386-static` or `qemu-i386` |
+| macOS (any arch) | Requires a full QEMU system VM with bridged networking — user-mode QEMU is Linux-only |
 
-On ARM/ARM64 Linux, QEMU user-mode emulation is transparent — prefix the command with the QEMU binary path. See the `tikoci-qemu-user-emulation` skill for details.
+### ARM/ARM64 Linux — QEMU User-Mode
 
-On macOS, system-level QEMU is needed because netinstall-cli uses raw network sockets (BOOTP/TFTP) that require actual kernel network stack access, not just process emulation.
+Auto-detect the QEMU binary and prefix transparently:
+
+```sh
+# Auto-detect: prefer local ./i386, fall back to installed static/dynamic variants
+QEMU=""
+for q in ./i386 qemu-i386-static qemu-i386; do
+  if [ -x "$q" ] || command -v "$q" >/dev/null 2>&1; then
+    QEMU="$q"; break
+  fi
+done
+# On x86_64 the loop doesn't matter — QEMU stays empty (native)
+if [ "$(uname -m)" = "x86_64" ]; then QEMU=""; fi
+
+# Usage — QEMU prefix is a no-op when empty
+${QEMU:+$QEMU} ./netinstall-cli -r -b -i eth0 routeros-7.22-arm64.npk
+```
+
+**Package notes:** Debian/Ubuntu install `qemu-user-static` → binary is `qemu-i386-static` (statically linked, safe to copy into containers). Alpine installs `qemu-i386` (dynamically linked). The `tonistiigi/binfmt` OCI image also ships `qemu-i386`.
+
+**`binfmt_misc` alternative:** If the kernel has binfmt handlers registered (e.g., via `docker run --privileged tonistiigi/binfmt --install all`), foreign ELF binaries run transparently without any prefix.
 
 ## Network Requirements
 
@@ -224,8 +243,6 @@ See the `routeros-container` skill for container setup details.
 **Related skills:**
 - For RouterOS CLI/REST basics: see the `routeros-fundamentals` skill
 - For device-mode configuration: see the `routeros-container` skill (device-mode section)
-- For running netinstall-cli on non-x86 hosts: see the `tikoci-qemu-user-emulation` skill
-- For building container images for RouterOS: see the `tikoci-oci-image-building` skill
 
 **MCP tools:**
 - For RouterOS documentation lookups: use the `rosetta` MCP server tools (`routeros_search`, `routeros_get_page`)

@@ -31,7 +31,7 @@ RouterOS runs a Linux kernel (5.6.3) but **everything above the kernel is MikroT
 - Do NOT suggest `mount`, `fdisk`, `mkfs` — use `/disk` commands instead
 - Do NOT look for config files at `/etc/` — configuration is in the RouterOS database
 - Do NOT assume `ping` works the same — it's `/tool/ping` or `/ping` in CLI
-- Do NOT suggest installing packages via `apt` or `opkg` — upload `.npk` via SCP then `/system/reboot`
+- Do NOT suggest installing packages via `apt` or `opkg` — upload `.npk` via SCP then `/system/package/apply-changes` (7.18+) or `/system/reboot` (<7.18)
 - See [Extra packages reference](./references/extra-packages.md) for the full package list and installation pattern
 
 ## RouterOS CLI Syntax
@@ -66,69 +66,36 @@ RouterOS CLI uses path-based navigation, not Unix command pipelines:
 - Variables: `:local myVar "value"` and `$myVar`
 - No pipes, no redirection, no subshell
 
-## REST API Patterns
+## REST API
 
-RouterOS REST API (v7.x+) at `http://HOST:PORT/rest/`:
+RouterOS REST API at `http://HOST:PORT/rest/`. HTTP verbs map non-standardly:
 
-```typescript
-// Base pattern — use fetch() or Bun-native HTTP
-const base = "http://192.168.1.1/rest";
-const auth = { headers: { Authorization: `Basic ${btoa("admin:")}` } };
+| HTTP | RouterOS Action | CLI Equiv |
+|---|---|---|
+| `GET` | print (list/read) | `/path/print` |
+| `PUT` | **add (create)** | `/path/add` |
+| `PATCH` | set (update) | `/path/set` |
+| `DELETE` | remove | `/path/remove` |
+| `POST` | command (execute) | `/path/command` |
 
-// GET = print (list/read)
-const interfaces = await fetch(`${base}/interface`, auth).then(r => r.json());
-
-// PUT = add (create new entry)
-await fetch(`${base}/ip/address`, {
-  method: "PUT",
-  ...auth,
-  headers: { ...auth.headers, "Content-Type": "application/json" },
-  body: JSON.stringify({ address: "192.168.1.1/24", interface: "ether1" }),
-});
-
-// PATCH = set (modify existing)
-await fetch(`${base}/ip/address/*1`, {
-  method: "PATCH",
-  ...auth,
-  body: JSON.stringify({ address: "10.0.0.1/24" }),
-});
-
-// DELETE = remove
-await fetch(`${base}/ip/address/*1`, { method: "DELETE", ...auth });
-
-// POST = command (execute an action)
-await fetch(`${base}/ip/dns/cache/flush`, { method: "POST", ...auth });
-```
-
-**REST gotchas:**
-- `PUT` creates, `PATCH` updates — opposite of many APIs
-- Empty password: `admin:` (colon required, empty string after)
-- WebFig (port 80, GET `/`) returns HTTP 200 without auth — useful for health checks
-- REST API (`/rest/`) returns HTTP 401 without auth
-- Property names may differ from CLI names (hyphens vs underscores vary by version)
+**Key gotchas:**
+- `PUT` creates (NOT updates) — opposite of many REST APIs
+- Empty password auth: `admin:` (colon required, nothing after)
+- WebFig root (`GET /`) returns HTTP 200 without auth — use as health check
+- REST API (`/rest/`) requires auth (HTTP 401 without it)
 - `.id` field is `*HEX` format (e.g., `*1`, `*A`)
-- POST to `/rest/system/reboot` — no body needed for action commands
+
+See [REST API reference](./references/rest-api-patterns.md) for full patterns, error handling, filtering, POST commands, and `/console/inspect`.
 
 ## Version Scheme
 
 Format: `MAJOR.MINOR[.PATCH][betaN|rcN]` — e.g., `7.22`, `7.22.1`, `7.23beta2`, `7.22rc1`
 
-**Channels** (from `upgrade.mikrotik.com/routeros/NEWESTa7.<channel>`):
-- `stable` — production recommended
-- `long-term` — conservative, gets backported fixes
-- `testing` — pre-release candidates
-- `development` — beta features
+**Channels:** `stable` / `long-term` / `testing` / `development`
 
-```typescript
-// Resolve current version for a channel
-const version = await fetch(
-  "https://upgrade.mikrotik.com/routeros/NEWESTa7.stable"
-).then(r => r.text());
-```
+Version endpoint (plain text): `https://upgrade.mikrotik.com/routeros/NEWESTa7.<channel>`
 
-**Download URLs:**
-- Standard: `https://download.mikrotik.com/routeros/<ver>/chr-<ver>.img.zip` (x86_64)
-- ARM64: `https://download.mikrotik.com/routeros/<ver>/chr-<ver>-arm64.img.zip`
+For version parsing, comparison, download URLs, and package naming: see [Version parsing reference](./references/version-parsing.md).
 
 ## Architecture Names
 
@@ -187,6 +154,10 @@ CHR (Cloud Hosted Router) is available only for `x86` and `arm64`.
 - For extra packages (container, iot, zerotier, etc.): see [Extra packages reference](./references/extra-packages.md)
 - For device-mode (modes, feature matrix, physical confirmation): see [Device-mode reference](./references/device-mode.md)
 - For RouterOS scripting language syntax: see [Scripting reference](./references/scripting.md)
+- For user management, SSH keys, admin account: see [Users REST reference](./references/routeros-users-rest.md)
+- For IP addressing, routing, DHCP, DNS, interfaces: see [Networking REST reference](./references/routeros-networking-rest.md)
+- For firewall filter/NAT/mangle and rule ordering: see [Firewall REST reference](./references/routeros-firewall-rest.md)
+- For Bun runtime bugs affecting HTTP (req.destroy, pool, secrets): see [Bun runtime gotchas](./references/bun-runtime-gotchas.md)
 
 **Related skills:**
 - For the /container subsystem (VETH, device-mode, lifecycle): see the `routeros-container` skill
@@ -194,8 +165,7 @@ CHR (Cloud Hosted Router) is available only for `x86` and `arm64`.
 - For the /app YAML container format (7.22+): see the `routeros-app-yaml` skill
 - For /console/inspect tree traversal and schema generation: see the `routeros-command-tree` skill
 - For running CHR in QEMU (local or CI): see the `routeros-qemu-chr` skill
-- For QEMU user-mode emulation and macOS VM bridging: see the `tikoci-qemu-user-emulation` skill
-- For building OCI images for RouterOS: see the `tikoci-oci-image-building` skill
+- For packet capture, /tool/sniffer, and TZSP streaming: see the `routeros-sniffer` skill
 
 **MCP tools:**
 - For command tree browsing and property lookups: use the `rosetta` MCP server tools (`routeros_search`, `routeros_get_page`, `routeros_command_tree`)
