@@ -4,6 +4,10 @@ The official AI Skills marketplace for Claude Code and Codex. Discover, install,
 
 ## Quick Start
 
+```
+npx skillstore add @agent-engineering-starter-kit
+```
+
 ### Claude Code Installation
 
 #### Method 1: Quick Install (Recommended)
