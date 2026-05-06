@@ -395,7 +395,15 @@ class ZentaoClient:
         if response.status_code != 200:
             raise ValueError(f"请求失败，状态码: {response.status_code}")
 
-        outer_data = response.json()
+        try:
+            outer_data = response.json()
+        except (json.JSONDecodeError, ValueError):
+            text = response.text.strip().lstrip("\ufeff")
+            try:
+                outer_data = json.loads(text)
+            except json.JSONDecodeError as exc:
+                print(f"[DEBUG] 响应内容:\n{response.text}")
+                raise
         if outer_data.get("status") != "success":
             raise ValueError(f"API返回失败: {outer_data.get('reason', '未知错误')}")
 
