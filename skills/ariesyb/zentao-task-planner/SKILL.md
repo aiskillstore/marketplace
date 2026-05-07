@@ -16,6 +16,7 @@ You need to plan, clarify, standardize, and confirm tasks so that users can inpu
 - `list_tasks.py` 查看用户当前任务列表
 - `create_tasks.py` 创建任务，只能在任务表确认后使用
 - `finish_tasks_by_date.py` 按日期范围批量完成任务
+- `repair_task_finish_date.py` 修复任务填错的完成日期
 - `close_finished_tasks.py` 关闭已完成但未关闭的任务
 
 ### 脚本执行规则
@@ -33,5 +34,6 @@ You need to plan, clarify, standardize, and confirm tasks so that users can inpu
 - [references/get-task-types.md](references/get-task-types.md)：获取任务类型枚举
 - [references/create-tasks.md](references/create-tasks.md)：批量创建任务
 - [references/finish-tasks.md](references/finish-tasks.md)：按日期完成任务
+- [references/repair-finish-date.md](references/repair-finish-date.md)：修复任务完成日期
 - [references/close-tasks.md](references/close-tasks.md)：关闭已完成任务
 - `scripts/zentao_common.py`：本技能内部实现逻辑，通常无需直接阅读

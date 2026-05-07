@@ -565,6 +565,29 @@ class ZentaoClient:
                 field_names.append(name)
         return field_names
 
+    @staticmethod
+    def _extract_uid(response_text: str, context: str) -> str:
+        uid_match = re.search(r"var kuid = '([a-f0-9]+)';", response_text)
+        if uid_match:
+            return uid_match.group(1)
+
+        soup = BeautifulSoup(response_text, "html.parser")
+        uid_input = soup.find("input", {"id": "uid", "name": "uid"})
+        if not uid_input:
+            raise ValueError(f"无法提取uid参数，{context}")
+        return str(uid_input.get("value", ""))
+
+    def _form_headers(self, referer: str) -> Dict[str, str]:
+        return {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Referer": referer,
+            "Origin": self.base_url.rstrip("/"),
+            "Connection": "keep-alive",
+        }
+
     @classmethod
     def _build_finish_consumed_updates(
         cls,
@@ -585,6 +608,124 @@ class ZentaoClient:
         if not updates:
             updates["consumed"] = consumed_value
         return updates
+
+    @classmethod
+    def _build_finish_date_updates(
+        cls,
+        form_data: Dict[str, str],
+        finish_date: Optional[str],
+    ) -> Dict[str, str]:
+        if not finish_date:
+            return {}
+
+        parsed_finish_date = cls._parse_date_value(finish_date)
+        if not parsed_finish_date:
+            raise ValueError(f"实际完成日期格式错误: {finish_date}")
+
+        date_value = parsed_finish_date.strftime("%Y-%m-%d")
+        exact_candidate_keys = (
+            "finishedDate",
+            "realDate",
+            "date",
+            "date[]",
+            "consumedDate",
+            "consumedDate[]",
+            "dates[]",
+            "workDate",
+            "workDate[]",
+        )
+        updates: Dict[str, str] = {}
+        for key in exact_candidate_keys:
+            if key in form_data:
+                updates[key] = date_value
+        return updates
+
+    @classmethod
+    def _build_effort_date_updates(
+        cls,
+        form_data: Dict[str, str],
+        effort_date: str,
+    ) -> Dict[str, str]:
+        parsed_effort_date = cls._parse_date_value(effort_date)
+        if not parsed_effort_date:
+            raise ValueError(f"工时完成日期格式错误: {effort_date}")
+
+        date_value = parsed_effort_date.strftime("%Y-%m-%d")
+        exact_candidate_keys = (
+            "date",
+            "date[]",
+            "consumedDate",
+            "consumedDate[]",
+            "dates[]",
+            "workDate",
+            "workDate[]",
+            "finishedDate",
+            "realDate",
+        )
+        updates: Dict[str, str] = {}
+        for key in exact_candidate_keys:
+            if key in form_data:
+                updates[key] = date_value
+        if not updates:
+            updates["date"] = date_value
+        return updates
+
+    @staticmethod
+    def _extract_account_value(value: Any) -> str:
+        if isinstance(value, dict):
+            for key in ("account", "id", "value"):
+                account = str(value.get(key, "")).strip()
+                if account:
+                    return account
+            return ""
+        return str(value or "").strip()
+
+    @classmethod
+    def _normalize_task_efforts(cls, task_detail: Dict[str, Any]) -> List[Dict[str, Any]]:
+        raw_efforts = task_detail.get("efforts") or task_detail.get("effort") or []
+        if isinstance(raw_efforts, dict):
+            iterable = raw_efforts.values()
+        elif isinstance(raw_efforts, list):
+            iterable = raw_efforts
+        else:
+            return []
+
+        efforts: List[Dict[str, Any]] = []
+        for item in iterable:
+            if not isinstance(item, dict):
+                continue
+            effort = dict(item)
+            effort_id = effort.get("id")
+            if effort_id is not None and str(effort_id).strip():
+                efforts.append(effort)
+        return efforts
+
+    @staticmethod
+    def _extract_record_estimates(response_text: str) -> List[Dict[str, Any]]:
+        soup = BeautifulSoup(response_text, "html.parser")
+        estimates: List[Dict[str, Any]] = []
+        seen_ids: set[str] = set()
+
+        for row in soup.find_all("tr"):
+            if row.find(["input", "textarea", "select"]):
+                continue
+            cells = [cell.get_text(strip=True) for cell in row.find_all("td")]
+            if len(cells) < 4:
+                continue
+            estimate_id = cells[0]
+            if not estimate_id.isdigit() or estimate_id in seen_ids:
+                continue
+            seen_ids.add(estimate_id)
+            estimates.append(
+                {
+                    "id": estimate_id,
+                    "date": cells[1],
+                    "consumed": cells[2],
+                    "left": cells[3],
+                    "work": cells[4] if len(cells) > 4 else "",
+                }
+            )
+        return estimates
 
     def create_task_from_story(
         self,
@@ -715,30 +856,152 @@ class ZentaoClient:
         if response.status_code != 200:
             raise RuntimeError(f"获取关闭任务页面失败，状态码: {response.status_code}")
 
-        uid_match = re.search(r"var kuid = '([a-f0-9]+)';", response.text)
-        if uid_match:
-            uid = uid_match.group(1)
-        else:
-            soup = BeautifulSoup(response.text, "html.parser")
-            uid_input = soup.find("input", {"id": "uid", "name": "uid"})
-            if not uid_input:
-                raise ValueError(f"无法提取uid参数，任务ID: {task_id}")
-            uid = uid_input.get("value")
+        uid = self._extract_uid(response.text, f"任务ID: {task_id}")
 
         submit = self.session.post(
             url,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                "Referer": url,
-                "Origin": self.base_url.rstrip("/"),
-                "Connection": "keep-alive",
-            },
+            headers=self._form_headers(url),
             data={"comment": comment, "uid": uid},
         )
         return submit.status_code == 200
+
+    def activate_task(
+        self,
+        task_id: int,
+        assigned_to: Optional[str] = None,
+        left: float = 1,
+        comment: str = "",
+    ) -> bool:
+        self.ensure_logged_in()
+        before_detail = self.get_task_detail(task_id)
+
+        resolved_assigned_to = assigned_to or self._extract_account_value(before_detail.get("assignedTo"))
+        if not resolved_assigned_to:
+            resolved_assigned_to = self.account
+
+        url = f"{self.base_url}task-activate-{task_id}.html?onlybody=yes"
+        response = self.session.get(url)
+        if response.status_code != 200:
+            raise RuntimeError(f"获取激活任务页面失败，状态码: {response.status_code}")
+
+        post_data = self._extract_form_data(response.text)
+        post_data["assignedTo"] = resolved_assigned_to
+        post_data["left"] = self._format_hour_value(left)
+        post_data["comment"] = comment
+        post_data["uid"] = self._extract_uid(response.text, f"任务ID: {task_id}")
+
+        submit = self.session.post(
+            url,
+            headers=self._form_headers(url),
+            data=post_data,
+        )
+        if submit.status_code != 200:
+            raise RuntimeError(f"激活任务请求失败，状态码: {submit.status_code}")
+
+        after_detail = self.get_task_detail(task_id)
+        after_status = str(after_detail.get("status", "")).strip().lower()
+        after_left = self._parse_float_value(after_detail.get("left"))
+        if after_status not in {"done", "closed"} and after_left == float(left):
+            return True
+
+        raise RuntimeError(self._extract_submit_error(submit.text))
+
+    def get_task_efforts(self, task_id: int) -> List[Dict[str, Any]]:
+        self.ensure_logged_in()
+        url = f"{self.base_url}task-recordEstimate-{task_id}.html?onlybody=yes"
+        response = self.session.get(
+            url,
+            headers={"Referer": f"{self.base_url}task-view-{task_id}.html"},
+        )
+        if response.status_code != 200:
+            raise RuntimeError(f"获取任务工时页面失败，状态码: {response.status_code}")
+        return self._extract_record_estimates(response.text)
+
+    def edit_effort_date(self, effort_id: int, effort_date: str) -> bool:
+        self.ensure_logged_in()
+        url = f"{self.base_url}task-editEstimate-{effort_id}.html?onlybody=yes"
+        response = self.session.get(url)
+        if response.status_code != 200:
+            raise RuntimeError(f"获取编辑工时页面失败，状态码: {response.status_code}")
+
+        post_data = self._extract_form_data(response.text)
+        if not {"date", "consumed", "left"}.issubset(post_data):
+            raise ValueError(f"无法解析编辑工时表单，工时ID: {effort_id}")
+        post_data.update(self._build_effort_date_updates(post_data, effort_date))
+        try:
+            post_data["uid"] = self._extract_uid(response.text, f"工时ID: {effort_id}")
+        except ValueError:
+            pass
+
+        submit = self.session.post(
+            url,
+            headers=self._form_headers(url),
+            data=post_data,
+        )
+        if submit.status_code != 200:
+            raise RuntimeError(f"编辑工时请求失败，状态码: {submit.status_code}")
+        return True
+
+    def repair_task_wrong_finish_date(
+        self,
+        task_id: int,
+        assigned_to: Optional[str] = None,
+        left: float = 1,
+        comment: str = "修复任务完成日期",
+        dry_run: bool = True,
+    ) -> Dict[str, Any]:
+        self.ensure_logged_in()
+        task_detail = self.get_task_detail(task_id)
+        deadline = task_detail.get("deadline")
+        parsed_deadline = self._parse_date_value(deadline)
+        if not parsed_deadline:
+            raise ValueError(f"任务 {task_id} 缺少有效截止日期，无法修复完成日期")
+
+        deadline_value = parsed_deadline.strftime("%Y-%m-%d")
+
+        result: Dict[str, Any] = {
+            "task_id": task_id,
+            "task_name": task_detail.get("name"),
+            "deadline": deadline_value,
+            "left": left,
+            "dry_run": dry_run,
+            "effort_count": 0,
+            "effort_ids": [],
+            "activate_success": False,
+            "updated_efforts": [],
+        }
+
+        if dry_run:
+            efforts = self.get_task_efforts(task_id)
+            result["effort_count"] = len(efforts)
+            result["effort_ids"] = [int(effort["id"]) for effort in efforts]
+            result["status"] = "planned"
+            return result
+
+        result["activate_success"] = self.activate_task(
+            task_id=task_id,
+            assigned_to=assigned_to,
+            left=left,
+            comment=comment,
+        )
+
+        efforts = self.get_task_efforts(task_id)
+        effort_ids = [int(effort["id"]) for effort in efforts]
+        result["effort_count"] = len(effort_ids)
+        result["effort_ids"] = effort_ids
+
+        updated_efforts: List[Dict[str, Any]] = []
+        for effort_id in effort_ids:
+            updated_efforts.append(
+                {
+                    "effort_id": effort_id,
+                    "date": deadline_value,
+                    "success": self.edit_effort_date(effort_id, deadline_value),
+                }
+            )
+        result["updated_efforts"] = updated_efforts
+        result["status"] = "success"
+        return result
 
     def finish_task(
         self,
@@ -746,6 +1009,7 @@ class ZentaoClient:
         consumed: Optional[float] = None,
         left: float = 0,
         comment: str = "",
+        finish_date: Optional[str] = None,
     ) -> bool:
         self.ensure_logged_in()
         before_detail = self.get_task_detail(task_id)
@@ -756,32 +1020,17 @@ class ZentaoClient:
             raise RuntimeError(f"获取完成任务页面失败，状态码: {response.status_code}")
 
         post_data = self._extract_form_data(response.text)
-        uid_match = re.search(r"var kuid = '([a-f0-9]+)';", response.text)
-        if uid_match:
-            uid = uid_match.group(1)
-        else:
-            soup = BeautifulSoup(response.text, "html.parser")
-            uid_input = soup.find("input", {"id": "uid", "name": "uid"})
-            if not uid_input:
-                raise ValueError(f"无法提取uid参数，任务ID: {task_id}")
-            uid = uid_input.get("value")
+        uid = self._extract_uid(response.text, f"任务ID: {task_id}")
 
         post_data["left"] = self._format_hour_value(left)
         post_data["comment"] = comment
         post_data["uid"] = uid
         post_data.update(self._build_finish_consumed_updates(post_data, consumed))
+        post_data.update(self._build_finish_date_updates(post_data, finish_date))
 
         submit = self.session.post(
             url,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                "Referer": url,
-                "Origin": self.base_url.rstrip("/"),
-                "Connection": "keep-alive",
-            },
+            headers=self._form_headers(url),
             data=post_data,
         )
         if submit.status_code != 200:
@@ -944,6 +1193,7 @@ class ZentaoClient:
                 "task_id": task_id,
                 "task_name": task.get("name"),
                 "matched_by": date_field,
+                "finish_date": task.get("deadline"),
                 "estimate": estimate,
                 "current_consumed": current_consumed,
                 "finish_consumed": finish_consumed,
@@ -961,6 +1211,7 @@ class ZentaoClient:
                     consumed=finish_consumed if finish_consumed > 0 else None,
                     left=0,
                     comment=comment,
+                    finish_date=task.get("deadline"),
                 )
                 result_item["status"] = "success" if success else "failed"
                 results.append(result_item)
