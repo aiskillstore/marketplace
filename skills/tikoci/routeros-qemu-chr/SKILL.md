@@ -133,7 +133,9 @@ qemu-system-x86_64 -M q35 -m 256 \
   -display none -serial stdio
 ```
 
-Boot time: ~5s (KVM), ~30s (TCG).
+`-M pc` (i440fx, legacy PCI) also works for CHR. CHR doesn't exercise most of what q35 adds (modern PCIe topology, ACPI-based hotplug, etc.) because the RouterOS kernel bypasses the BIOS/ACPI stack after boot — the VirtIO PCI devices are what it actually uses, and both machine types expose those identically. For the kernel-config evidence behind this, see [tikoci/mikrotik-gpl](https://github.com/tikoci/mikrotik-gpl) (v7.2 kernel config archive).
+
+Boot time: ~5s (KVM), ~30s (TCG). For TCG, `-accel tcg,tb-size=256` enlarges the translation block cache and reduces boot time noticeably on repeated runs.
 
 ### aarch64 with UEFI (EDK2)
 
@@ -248,7 +250,7 @@ fi
 
 ## Health Check and Boot Wait
 
-RouterOS WebFig responds with HTTP 200 on port 80 without authentication — ideal for health checks:
+RouterOS WebFig responds with HTTP 200 on port 80 without authentication — this works as a minimal health check:
 
 ```typescript
 async function waitForBoot(url: string, timeoutMs = 60_000): Promise<boolean> {
@@ -262,16 +264,19 @@ async function waitForBoot(url: string, timeoutMs = 60_000): Promise<boolean> {
   }
   return false;
 }
-
-// Usage
-const booted = await waitForBoot("http://127.0.0.1:9180/");
-if (booted) {
-  // RouterOS is ready — can now call REST API
-  const info = await fetch("http://127.0.0.1:9180/rest/system/resource", {
-    headers: { Authorization: `Basic ${btoa("admin:")}` },
-  }).then(r => r.json());
-}
 ```
+
+### Startup race — pitfall if you then call the REST API immediately
+
+RouterOS boot is staged from the client's perspective:
+
+1. Connection refused — QEMU still booting
+2. `ECONNRESET` — HTTP server up but REST subsystem not accepting
+3. 401 from `/rest/*` — auth middleware up; REST handler may still be initializing
+4. 200 but **wrong body** — REST initialized before routing tables settled; `/system/resource` can briefly return an array (e.g., a `/user` list) before it returns the expected singleton object
+5. 200 with correct body — fully operational
+
+A health check on the root `/` reaches stage 2 but gives no signal about 3–5. For code that will immediately call the REST API, probe `/rest/system/resource` with auth and require **two consecutive successful probes** with the expected body shape (singleton object containing `board-name`). On auth-only checks (unprovisioned admin), accept 401/403 as "REST layer responded." The `/` + HTTP 200 check is fine for "is it up?" monitoring but not for "can I start calling REST now?"
 
 ## Port Forwarding
 

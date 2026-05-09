@@ -125,7 +125,7 @@ All `.section` array responses arrive as **HTTP 200**, including errors. The `st
 
 **Critical**: code MUST check the last section's `status` for an `"ERROR:"` prefix and throw immediately. Do NOT misclassify errors as "pending" and enter a polling loop — the error IS the final status.
 
-## Recommended Pattern for quickchr
+## Recommended Pattern
 
 ```
 1. POST /rest/system/license/renew with duration="15s"
@@ -137,5 +137,3 @@ All `.section` array responses arrive as **HTTP 200**, including errors. The `st
    - Equals "done"        → poll GET /rest/system/license to verify level changed
 5. If no credentials configured → skip renewal entirely (leave as free tier)
 ```
-
-Use `restPost` from `rest.ts` (never `fetch()`) — see `bun-http.instructions.md` for the connection pool bug.
