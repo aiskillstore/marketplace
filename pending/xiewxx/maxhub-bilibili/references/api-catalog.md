@@ -71,4 +71,3 @@
 | # | 名称 | 方法 | 路径 | 必填参数 |
 |---|------|------|------|----------|
 | 1 | 提取用户ID/Extract user ID | GET | `/api/v1/bilibili/web/fetch_get_user_id` | share_link |
-

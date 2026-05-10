@@ -40,4 +40,3 @@
 | 1 | 获取Reddit APP搜索自动补全建议/Fetch Reddit APP Se | GET | `/api/v1/reddit/app/fetch_search_typeahead` | query |
 | 2 | 获取Reddit APP动态搜索结果/Fetch Reddit APP Dyna | GET | `/api/v1/reddit/app/fetch_dynamic_search` | query |
 | 3 | 获取Reddit APP今日热门搜索/Fetch Reddit APP Tren | GET | `/api/v1/reddit/app/fetch_trending_searches` | - |
-

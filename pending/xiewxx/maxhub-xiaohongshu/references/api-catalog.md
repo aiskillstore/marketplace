@@ -106,4 +106,3 @@
 |---|------|------|------|----------|
 | 1 | 提取分享链接信息/Extract share link info | GET | `/api/v1/xiaohongshu/app/extract_share_info` | share_link |
 | 2 | 从分享链接中提取用户ID和xsec_token/Extract user ID  | GET | `/api/v1/xiaohongshu/app/get_user_id_and_xsec_token` | share_link |
-

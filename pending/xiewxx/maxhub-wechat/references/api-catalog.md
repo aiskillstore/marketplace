@@ -36,4 +36,3 @@
 | 3 | 微信视频号综合搜索/WeChat Channels Comprehensive  | GET | `/api/v1/wechat_channels/fetch_search_ordinary` | keywords |
 | 4 | 微信视频号用户搜索/WeChat Channels User Search | GET | `/api/v1/wechat_channels/fetch_user_search` | keywords |
 | 5 | 微信视频号用户搜索V2/WeChat Channels User Search  | GET | `/api/v1/wechat_channels/fetch_user_search_v2` | - |
-

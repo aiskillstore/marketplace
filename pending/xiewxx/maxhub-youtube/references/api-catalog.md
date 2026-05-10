@@ -65,4 +65,3 @@
 | # | 名称 | 方法 | 路径 | 必填参数 |
 |---|------|------|------|----------|
 | 1 | 获取趋势视频/Get trending videos | GET | `/api/v1/youtube/web/get_trending_videos` | - |
-

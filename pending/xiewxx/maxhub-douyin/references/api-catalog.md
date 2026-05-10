@@ -316,4 +316,3 @@
 | 44 | 获取星图IP日历活动列表/Get IP Activity List | POST | `/api/v1/douyin/xingtu_v2/get_ip_activity_list` | - |
 | 45 | 获取星图IP活动详情/Get IP Activity Detail | GET | `/api/v1/douyin/xingtu_v2/get_ip_activity_detail` | id |
 | 46 | 获取营销活动案例/Get Resource List | GET | `/api/v1/douyin/xingtu_v2/get_resource_list` | resource_id |
-

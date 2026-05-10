@@ -27,4 +27,3 @@
 | 1 | 搜索热门内容/Search top content | GET | `/api/v1/threads/web/search_top` | query |
 | 2 | 搜索最新内容/Search recent content | GET | `/api/v1/threads/web/search_recent` | query |
 | 3 | 搜索用户档案/Search profiles | GET | `/api/v1/threads/web/search_profiles` | query |
-

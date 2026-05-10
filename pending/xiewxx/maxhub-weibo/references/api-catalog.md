@@ -85,4 +85,3 @@
 | 18 | AI智搜/AI Smart Search | GET | `/api/v1/weibo/app/fetch_ai_smart_search` | query |
 | 19 | 获取热搜榜/Get hot search | GET | `/api/v1/weibo/app/fetch_hot_search` | - |
 | 20 | 获取热搜分类列表/Get hot search categories | GET | `/api/v1/weibo/app/fetch_hot_search_categories` | - |
-

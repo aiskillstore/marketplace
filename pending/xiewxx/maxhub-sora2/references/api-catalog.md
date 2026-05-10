@@ -48,4 +48,3 @@
 |---|------|------|------|----------|
 | 1 | [已弃用/Deprecated] 文本/图片生成视频/Create video  | POST | `/api/v1/sora2/create_video` | - |
 | 2 | [已弃用/Deprecated] 获取任务生成的作品详情（无水印版本）/Get  | GET | `/api/v1/sora2/get_task_detail` | - |
-

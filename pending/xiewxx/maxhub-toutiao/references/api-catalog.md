@@ -18,4 +18,3 @@
 | # | 名称 | 方法 | 路径 | 必填参数 |
 |---|------|------|------|----------|
 | 1 | 获取指定作品的评论/Get comments of specified post | GET | `/api/v1/toutiao/app/get_comments` | group_id, offset |
-

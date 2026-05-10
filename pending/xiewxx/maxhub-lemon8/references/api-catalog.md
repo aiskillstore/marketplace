@@ -32,4 +32,3 @@
 |---|------|------|------|----------|
 | 1 | 获取热搜关键词/Get hot search keywords | GET | `/api/v1/lemon8/app/fetch_hot_search_keywords` | - |
 | 2 | 搜索接口/Search API | GET | `/api/v1/lemon8/app/fetch_search` | query |
-

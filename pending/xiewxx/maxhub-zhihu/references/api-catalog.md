@@ -50,4 +50,3 @@
 | 11 | 获取知乎搜索预设词/Get Zhihu Preset Search | GET | `/api/v1/zhihu/web/fetch_preset_search` | - |
 | 12 | 获取知乎搜索发现/Get Zhihu Search Recommend | GET | `/api/v1/zhihu/web/fetch_search_recommend` | - |
 | 13 | 知乎搜索预测词/Get Zhihu Search Suggest | GET | `/api/v1/zhihu/web/fetch_search_suggest` | keyword |
-

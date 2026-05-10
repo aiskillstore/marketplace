@@ -23,4 +23,3 @@
 | # | 名称 | 方法 | 路径 | 必填参数 |
 |---|------|------|------|----------|
 | 1 | 搜索视频/Search video | GET | `/api/v1/xigua/app/v2/search_video` | keyword |
-

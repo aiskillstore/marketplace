@@ -54,4 +54,3 @@
 | 3 | 搜索视频V2/Search video V2 | GET | `/api/v1/kuaishou/app/search_video_v2` | keyword |
 | 4 | 搜索用户V2/Search user V2 | GET | `/api/v1/kuaishou/app/search_user_v2` | keyword |
 | 5 | 快手热搜人物榜单/Kuaishou hot search person boar | GET | `/api/v1/kuaishou/app/fetch_hot_search_person` | - |
-

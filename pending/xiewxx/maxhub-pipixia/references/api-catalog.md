@@ -42,4 +42,3 @@
 | 2 | 获取热搜榜单列表/Get hot search board list | GET | `/api/v1/pipixia/app/fetch_hot_search_board_list` | - |
 | 3 | 获取热搜榜单详情/Get hot search board detail | GET | `/api/v1/pipixia/app/fetch_hot_search_board_detail` | block_type |
 | 4 | 搜索接口/Search API | GET | `/api/v1/pipixia/app/fetch_search` | keyword |
-

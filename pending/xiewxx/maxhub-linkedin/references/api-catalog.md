@@ -84,4 +84,3 @@
 | 2 | 搜索用户/Search people | GET | `/api/v1/linkedin/web/search_people` | - |
 | 3 | 搜索用户/Search users | GET | `/api/v1/linkedin/web_v2/search_users` | keywords |
 | 4 | 搜索职位/Search jobs | GET | `/api/v1/linkedin/web_v2/search_jobs` | keywords |
-
