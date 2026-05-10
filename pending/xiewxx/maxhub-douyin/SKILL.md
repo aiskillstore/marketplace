@@ -102,7 +102,7 @@ MAXHUB_BASE_URL=https://www.aconfig.cn
 x-api-key: ${MAXHUB_API_KEY}
 ```
 
-基础URL：`${MAXHUB_BASE_URL}`（默认 <https://www.aconfig.cn）>
+基础URL：`${MAXHUB_BASE_URL}`（默认 `https://www.aconfig.cn`）
 
 ## API能力全景 / API Capabilities Overview
 

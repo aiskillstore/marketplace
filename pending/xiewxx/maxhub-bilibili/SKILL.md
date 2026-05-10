@@ -9,6 +9,7 @@ metadata:
     requires:
       env:
         - MAXHUB_API_KEY
+        - MAXHUB_BASE_URL
     primaryEnv: MAXHUB_API_KEY
     security:
       dataHandling: "本Skill仅通过HTTPS调用MaxHub API获取公开数据，不存储、不转发用户凭证，不访问本地文件系统，不执行任何平台操纵操作"
@@ -44,7 +45,7 @@ metadata:
 x-api-key: ${MAXHUB_API_KEY}
 ```
 
-基础URL：`${MAXHUB_BASE_URL}`（默认 https://www.aconfig.cn）
+基础URL：`${MAXHUB_BASE_URL}`（默认 `https://www.aconfig.cn`）
 
 ## API能力全景 / API Capabilities Overview
 

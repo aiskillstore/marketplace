@@ -9,6 +9,7 @@ metadata:
     requires:
       env:
         - MAXHUB_API_KEY
+        - MAXHUB_BASE_URL
     primaryEnv: MAXHUB_API_KEY
     security:
       dataHandling: "本Skill仅通过HTTPS调用MaxHub API获取公开数据，不存储、不转发用户凭证，不访问本地文件系统，不执行任何平台操纵操作"
@@ -43,7 +44,7 @@ metadata:
 x-api-key: ${MAXHUB_API_KEY}
 ```
 
-基础URL：`${MAXHUB_BASE_URL}`（默认 https://www.aconfig.cn）
+基础URL：`${MAXHUB_BASE_URL}`（默认 `https://www.aconfig.cn`）
 
 ## API能力全景 / API Capabilities Overview
 
@@ -337,26 +338,24 @@ curl -X GET "${MAXHUB_BASE_URL}/api/v1/{platform}/web/fetch_data" \
 ### 基础调用 / Basic Call
 
 ```bash
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/douyin/web/fetch_hot_search_result" \
-  -H "x-api-key: $MAXHUB_API_KEY" \
-  -H "Content-Type: application/json"
+curl -X GET "${MAXHUB_BASE_URL}/api/v1/xiaohongshu/web_v3/fetch_homefeed" \
+  -H "x-api-key: $MAXHUB_API_KEY"
 ```
-
 
 ### 带参数调用 / Call with Parameters
 
 ```bash
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/douyin/web/fetch_one_video?aweme_id=123456" \
+curl -X GET "${MAXHUB_BASE_URL}/api/v1/xiaohongshu/web_v3/fetch_note_detail?note_id=NOTE_ID&xsec_token=XSEC_TOKEN" \
   -H "x-api-key: $MAXHUB_API_KEY"
 ```
 
 ### POST请求 / POST Request
 
 ```bash
-curl -X POST "${MAXHUB_BASE_URL}/api/v1/douyin/web/fetch_user_like_videos" \
+curl -X POST "${MAXHUB_BASE_URL}/api/v1/xiaohongshu/web/get_home_recommend" \
   -H "x-api-key: $MAXHUB_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"sec_user_id": "xxx"}'
+  -d '{}'
 ```
 
 ### 带参数调用 / Call with Parameters
