@@ -147,7 +147,7 @@ npx skills add inference-sh/skills@ai-video-generation
 npx skills add inference-sh/skills@ai-avatar-video
 ```
 
-Browse all apps: `belt app list`
+Browse all apps: `belt app store`
 
 ## Documentation
 
