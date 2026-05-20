@@ -1,12 +1,67 @@
 ---
+spec: usk/1.0
 name: agent-skill-trust-check
+version: 0.1.2
 description: Static pre-install trust review for SKILL.md, OpenClaw, Hermes, MCP, and agent-skill marketplace packages before they request local, account, payment, or external access.
+interface:
+  type: cli
+  entry_point: bin/agent-skill-trust-check-stdin.js
+  runtime: node
+  call_pattern: stdin_stdout
+input_schema:
+  type: object
+  properties:
+    text:
+      type: string
+      description: SKILL.md, marketplace description, or install instructions to review before installation.
+    target:
+      type: string
+      description: Optional source label for the reviewed text.
+  required:
+    - text
+output_schema:
+  type: object
+  properties:
+    verdict:
+      type: string
+      description: Static install-readiness verdict.
+    risk_score:
+      type: integer
+      description: Aggregate static risk score.
+    findings:
+      type: array
+      description: Matched risky behavior signals and suggested fixes.
+    missing_signals:
+      type: array
+      description: Provenance or safety signals not found in the target text.
+permissions:
+  network: false
+  filesystem: false
+  subprocess: false
+  env_vars: []
+category: security
+capabilities:
+  - skill_review
+  - agent_skill_security
+  - marketplace_vetting
+  - mcp_review
 license: MIT
 tags:
   - security
   - agent-skills
   - skill-review
   - mcp
+author: Tate Programs
+homepage: https://github.com/TateLyman/agent-skill-trust-check
+platform_compatibility:
+  - Claude Code
+  - Codex CLI
+  - Cursor
+  - Gemini CLI
+  - OpenClaw Agent
+requirements:
+  node: ">=20"
+changelog: Added a marketplace-safe stdin runner that needs no filesystem or network access.
 ---
 
 # Agent Skill Trust Check
@@ -38,6 +93,12 @@ npm run check
 node bin/agent-skill-trust-check.js ./SKILL.md
 ```
 
+Marketplace-safe stdin mode:
+
+```bash
+node bin/agent-skill-trust-check-stdin.js < ./SKILL.md
+```
+
 For JSON output:
 
 ```bash
@@ -63,7 +124,7 @@ Before installation, check:
 
 ## Boundaries
 
-This is a static pre-install check. It does not execute the target skill and does not prove the runtime is safe.
+This is a static pre-install check. The marketplace-safe runner reads only stdin and returns JSON. The local CLI can also read a local path or a public GitHub/raw/Gist URL when run from the repository checkout. Neither mode executes the target skill or proves the runtime is safe.
 
 For marketplace-grade review, use the paid Agent Skill Trust Check listing:
 
