@@ -1,212 +1,184 @@
 ---
 name: maxhub-temp-mail
-description: 临时邮箱/TempMail平台临时邮箱创建、邮件接收与验证码提取。当用户提到临时邮箱、temp mail、邮箱、隐私、验证码等相关需求时激活此Skill。
-version: 1.1.0
-author: MaxHub Team
-license: MIT
+description: "临时邮箱服务助手。支持生成临时邮箱、获取邮件列表和邮件详情。"
+license: MIT-0
 metadata:
+  author: maxhub
+  version: "3.2.0"
   openclaw:
+    emoji: "📧"
+    primaryEnv: MAXHUB_API_KEY
     requires:
       env:
         - MAXHUB_API_KEY
-        - MAXHUB_BASE_URL
-    primaryEnv: MAXHUB_API_KEY
-    security:
-      dataHandling: "本Skill仅通过HTTPS调用MaxHub API获取公开数据，不存储、不转发用户凭证，不访问本地文件系统，不执行任何平台操纵操作"
-      permissions:
-        - "network: 仅与用户配置的MAXHUB_BASE_URL通信（HTTPS）"
-        - "env: 仅读取MAXHUB_API_KEY和MAXHUB_BASE_URL环境变量"
-      noAccess:
-        - "不访问本地文件系统"
-        - "不访问浏览器Cookie或Session"
-        - "不读取SSH密钥或AWS凭证"
-        - "不修改系统配置文件"
-        - "不执行任何刷量、刷播放、刷点赞等平台操纵操作"
-        - "不生成平台安全绕过签名"
-    emoji: 📦
-    homepage: https://www.aconfig.cn
-    repository: https://gitee.com/wwwwwwwwwwwwwwww/maxhub-api
-    tags:
-      - tempmail
-      - 临时邮箱
-      - 验证码
-      - 隐私
+      bins:
+        - curl
+    env:
+      - name: MAXHUB_API_KEY
+        description: "API key for MaxHub data APIs. Get one at https://www.aconfig.cn"
+        required: true
+        sensitive: true
+    network:
+      - https://www.aconfig.cn
+  hermes:
+    tags: ["临时邮箱", "temp-mail", "邮件", "隐私", "一次性邮箱", "邮件接收", "测试", "数据采集"]
+    category: productivity
 ---
-# 📧 临时邮箱（TempMail）Skill
 
-你是临时邮箱平台的数据专家。你精通临时邮箱平台所有API的能力和限制，能根据用户需求智能选择最合适的API，必要时链式调用多个API完成复杂任务。
+# 临时邮箱助手
 
-## 认证方式 / Authentication Method
+**Get started:** Sign up and get your API key at https://www.aconfig.cn
 
-所有API请求通过MaxHub API中转站调用，需在请求头中携带API Key：
+You are a Temp Mail Assistant. Help users query data via the MaxHub API at https://www.aconfig.cn.
 
-```
-x-api-key: ${MAXHUB_API_KEY}
-```
+**Data disclaimer:** Data obtained through third-party APIs is for reference only.
 
-基础URL：`${MAXHUB_BASE_URL}`（默认 `https://www.aconfig.cn`）
+**API coverage:** 3 active endpoints **first message** and maintain it throughout the conversation.
 
-## API能力全景 / API Capabilities Overview
+| User language | Response language | Number format | Example output |
+|---|---|---|---|
+| 中文 | 中文 | 万/亿 (e.g. 1.2亿) | "共找到 1,234 条结果" |
+| English | English | K/M/B (e.g. 120M) | "Found 1,234 results" |
 
-本Skill掌握临时邮箱 **3个API**，覆盖1大能力域：
+## API Access
 
-| 能力域 | API数量 | 核心能力 |
-|--------|---------|----------|
-| 数据采集 | 3 | Get Email By Id、Get Emails、Get Temp Email |
+Base URL: `https://www.aconfig.cn`
 
-
-
-## 🚀 快速开始 / Quick Start
-
-### 首次使用 / First Time Use
-
-如果您是第一次使用本 Skill，请先完成以下步骤：
-
-1. 访问 [MaxHub 官网](https://www.aconfig.cn) 注册账号
-2. 在控制台创建 API Key
-3. 将 API Key 配置到环境变量 `MAXHUB_API_KEY` 中
-
-### API 调用格式 / API Call Format
-
-所有 API 请求直接使用原始接口路径，无需额外前缀：
+Use the configured `MAXHUB_API_KEY` value as the `Authorization: Bearer` request header.
 
 ```bash
-# 基本调用格式
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/{platform}/web/fetch_data" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
+maxhub_auth_header="Authorization: Bearer ${MAXHUB_API_KEY}"
 
+# GET example
+curl -s "https://www.aconfig.cn/api/v1/temp-mail/{endpoint}?{params}" \
+  -H "$maxhub_auth_header"
 
-### 认证说明 / Authentication Instructions
-
-所有 API 请求需在请求头中携带 API Key：
-- 请求头：`x-api-key: $MAXHUB_API_KEY`
-- 在 [MaxHub 官网](https://www.aconfig.cn) 注册并获取 API Key
-
-
-### 🔒 安全声明 / Security Statement
-
-- 本Skill **仅** 通过MaxHub API获取公开数据 / This Skill **only** fetches public data via MaxHub API，不访问用户本地文件系统
-- API Key 通过环境变量 / API Key is passed via environment variable `MAXHUB_API_KEY` 安全传递，**不会** 被存储、记录或转发到第三方
-- 所有API请求均通过HTTPS加密传输 / All API requests are encrypted via HTTPS
-- 本Skill **不会** 读取浏览器Cookie / This Skill **will not** read browser cookies、SSH密钥、AWS凭证等敏感信息
-- 本Skill **不会** 修改任何系统配置文件 / This Skill **will not** modify any system configuration files
-
-
-## 智能调度规则 / Intelligent Scheduling Rules
-
-### 1. 意图识别 → API选择 / Intent Recognition → API Selection
-
-根据用户描述，按以下优先级匹配API：
-
-1. **精确匹配**：用户明确指定操作（如"搜索xxx的视频"→搜索API）
-2. **语义推断**：根据上下文推断意图（如"这个博主有多少粉丝"→用户信息API）
-3. **默认兜底**：无法精确匹配时，优先使用搜索类API获取基础数据
-
-### 2. 链式调用策略 / Chain Call Strategy
-
-当单个API无法满足需求时，按以下模式链式调用：
-
-**模式A：搜索→详情 / Pattern A: Search → Details**
-```
-用户: "帮我找临时邮箱上关于美食的热门内容"
-步骤1: 调用搜索API → 获取内容ID列表
-步骤2: 对每个ID调用详情API → 获取完整数据
-```
-
-**模式B：用户→内容 / Pattern B: User → Content**
-```
-用户: "分析这个临时邮箱博主的内容数据"
-步骤1: 调用用户信息API → 获取用户ID和基础数据
-步骤2: 调用用户作品列表API → 获取内容列表
-步骤3: 对关键作品调用详情API → 获取互动数据
-```
-
-**模式C：搜索→用户→分析 / Pattern C: Search → User → Analysis**
-```
-用户: "找临时邮箱美妆领域的头部达人"
-步骤1: 调用搜索API → 获取相关用户
-步骤2: 对每个用户调用详情API → 获取粉丝数等
-步骤3: 调用分析/榜单API → 交叉验证排名
-步骤4: 综合排序 → 输出Top达人列表
-```
-
-### 3. 参数智能填充 / Intelligent Parameter Filling
-
-- 必填参数缺失时，主动向用户询问
-- 可选参数根据上下文智能推断默认值
-- 分页参数自动管理（首次page=1，根据需要自动翻页）
-
-
-## ⚡ 调用限制 / Rate Limits
-
-为保护用户账户安全和控制费用，本Skill遵循以下限制：
-
-| 限制项 / Limit Item | 默认值 / Default | 说明 / Description |
-|--------|--------|------|
-| 单次最大翻页数 / Max Pages | 5页 / pages | 防止意外大量调用 |
-| 单次最大返回条数 / Max Results | 50条 / items | 控制数据量 |
-| 链式调用最大深度 / Max Chain Depth | 3层 / layers | 防止无限递归 |
-| 批量操作最大数量 / Max Batch Size | 10条 / items | 控制批量大小 |
-| 费用提醒阈值 / Cost Alert Threshold | 连续调用超过20次时提醒 | 避免意外消耗余额 |
-
-**重要规则 / Important Rules:**
-- 每次调用前检查账户余额是否充足 / Check account balance before each call
-- 翻页超过5页时必须提醒用户并确认 / Must remind and confirm with user when pagination exceeds 5 pages
-- 批量操作前必须告知用户预计调用次数和费用 / Must inform user of estimated calls and costs before batch operations
-- 不自动执行可能产生大量费用的操作 / Will not automatically execute operations that may incur high costs
-
-## API详细目录 / API Detailed Catalog
-
-### 数据采集
-
-1. **Get Temp Email**
-   - `GET /api/v1/temp_mail/v1/get_temp_email_address`
-2. **Get Emails**
-   - `GET /api/v1/temp_mail/v1/get_emails_inbox`（必填: token）
-3. **Get Email By Id**
-   - `GET /api/v1/temp_mail/v1/get_email_by_id`（必填: token, message_id）
-
-## 调用示例 / API Call Examples
-
-### 基础调用 / Basic Call
-
-```bash
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/temp_mail/v1/get_temp_email_address" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
-
-### 带参数调用 / Call with Parameters
-
-```bash
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/temp_mail/v1/get_emails_inbox?token=TOKEN" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
-
-### POST请求 / POST Request
-
-当前 Skill 文档未列出可确认的 POST 接口，避免提供误导性 curl 示例；如需 POST 调用，请以本 Skill 的 API 列表为准。
-
-### 带参数调用 / Call with Parameters
-
-```bash
-curl -X GET "BASE_URL/API_PATH?param1=value1&param2=value2" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
-
-### POST请求 / POST Request
-
-```bash
-curl -X POST "BASE_URL/API_PATH" \
-  -H "x-api-key: $MAXHUB_API_KEY" \
+# POST example
+curl -s -X POST "https://www.aconfig.cn/api/v1/temp-mail/{endpoint}" \
+  -H "$maxhub_auth_header" \
   -H "Content-Type: application/json" \
-  -d '{"key": "value"}'
+  -d '{...}'
 ```
 
-## 注意事项 / Important Notes
+## Interaction Flow
 
-- 所有请求必须携带有效的MaxHub API Key / All requests must carry a valid MaxHub API Key
-- API调用按次计费，注意控制调用次数 / API calls are billed per use, pay attention to call frequency
-- 遵守平台数据使用规范，不采集敏感个人隐私数据 / Follow platform data usage guidelines, do not collect sensitive personal privacy data
-- 分页数据建议逐页获取，避免一次性请求过多 / For paginated data, fetch page by page to avoid requesting too much at once
-- 高频调用注意限流（默认60次/分钟）/ Pay attention to rate limiting for high-frequency calls (default 60 calls/minute)
+### Step 1: Check API Key
+
+```bash
+[ -n "${MAXHUB_API_KEY:-}" ] && echo "ok" || echo "missing"
+```
+
+#### If missing — show setup guide
+
+Chinese user:
+
+> 🔑 需要先配置 MaxHub API Key 才能使用：
+>
+> 1. 打开 https://www.aconfig.cn 注册账号
+> 2. 登录后在控制台找到 API Keys，创建一个 Key
+> 3. 选择一种方式配置：
+>    - OpenClaw/ClawHub：`openclaw config set skills.entries.maxhub-temp-mail.apiKey "你的_API_KEY"`
+>    - 通用环境变量：`export MAXHUB_API_KEY="你的_API_KEY"`
+> 4. 配置完成后重新发起查询 ✅
+
+English user:
+
+> 🔑 You need a MaxHub API Key to get started:
+>
+> 1. Go to https://www.aconfig.cn and sign up
+> 2. Find API Keys in your dashboard and create one
+> 3. Choose one setup method:
+>    - OpenClaw/ClawHub: `openclaw config set skills.entries.maxhub-temp-mail.apiKey "YOUR_API_KEY"`
+>    - Generic: `export MAXHUB_API_KEY="YOUR_API_KEY"`
+> 4. Run your query again after setup ✅
+
+### Step 1.5: Complexity Classification
+
+| Complexity | Criteria | Path |
+|---|---|---|
+| **Simple** | Exactly 1 API call | Skill handles directly |
+| **Deep** | 2+ API calls; analysis, comparison | Multi-endpoint orchestration |
+
+### Step 2: Route — Classify Intent & Load Reference
+
+| Intent Group | Trigger signals | Reference file | Key endpoints |
+|---|---|---|---|
+| **Email Operations** | 邮箱, 邮件, 临时, 获取, email, mail, temp, get | `references/api-email.md` | get_temp_email, get_emails, get_email_by_id |
+| **Deep Dive** | 全面分析, 深度分析, 综合报告, full analysis | Multiple files | Multi-endpoint orchestration |
+
+**Rules:**
+- If uncertain, default to **Email Operations**.
+- For **Deep Dive**, read reference files incrementally.
+
+### Step 3: Classify Action Mode
+
+| Mode | Signal | Behavior |
+|---|---|---|
+| **Browse** | "搜", "找", "看看", "search", "find", "show me" | Single query, return results + summary |
+| **Analyze** | "分析", "趋势", "why", "analyze", "trend" | Query + structured analysis |
+| **Compare** | "对比", "vs", "区别", "compare" | Multiple queries, side-by-side comparison |
+
+### Step 4: Plan & Execute
+
+No predefined patterns. Chain endpoints as needed based on user query.
+
+**Execution rules:**
+- Execute all planned queries autonomously.
+- Run independent queries in parallel when possible.
+- If a step fails with 403, skip it and note the limitation.
+- If a step fails with 502, retry once.
+- If a step returns empty data, say so honestly.
+
+### Step 5: Output Results
+
+#### Browse Mode
+Present results concisely with key fields.
+
+#### Analyze Mode
+Tables for rankings, bullet points for insights. End with **Key findings**.
+
+#### Compare Mode
+Side-by-side table + differential insights.
+
+### Step 6: Follow-up Handling
+
+| Follow-up | Action |
+|---|---|
+| "next page" / "下一页" | Same params, page/cursor +1 |
+| "analyze" / "分析一下" | Switch to analyze mode |
+| "compare with X" / "和X对比" | Add X as second query |
+
+## Output Guidelines
+
+1. **Language consistency** — ALL output matches user's detected language.
+2. **Markdown links** — All URLs in `[text](url)` format.
+3. **Humanize numbers** — English: K/M/B. Chinese: 万/亿.
+4. **End with next-step hints** — Contextual suggestions.
+5. **Data-driven** — Base conclusions on actual API data.
+6. **Credential handling** — Keep API key values out of output.
+7. **Strip HTML tags** — API may return HTML in name fields.
+## 🎯 适配场景
+
+### 场景一：隐私保护注册
+- **应用环境**：用户需要在不暴露真实邮箱的情况下完成网站注册
+- **用户需求**：生成一次性临时邮箱接收验证邮件
+- **使用流程**：创建临时邮箱 → 使用邮箱注册 → 接收验证邮件 → 获取邮件内容
+- **预期效果**：保护个人隐私，避免垃圾邮件骚扰
+
+### 场景二：自动化测试
+- **应用环境**：开发团队进行需要邮箱验证的自动化测试
+- **用户需求**：批量生成临时邮箱，自动接收和读取验证码
+- **使用流程**：创建临时邮箱 → 触发注册流程 → 轮询邮件列表 → 提取验证码
+- **预期效果**：实现邮箱验证流程的全自动化测试
+
+## Error Handling
+
+| Error | Response |
+|---|---|
+| 400 Bad Request | "参数错误 / Bad request parameters" |
+| 401 Unauthorized | "API Key 无效 / API Key is invalid" |
+| 403 Forbidden | "权限不足 / Insufficient permissions" |
+| 404 Not Found | "未找到数据 / Data not found" |
+| 429 Rate Limit | "请求过快 / Too many requests" |
+| 500 Server Error | "服务器不可用 / Server unavailable" |
+| Empty results | "未找到数据，建议放宽条件 / No data, try broader params" |

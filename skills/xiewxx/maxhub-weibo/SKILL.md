@@ -1,346 +1,228 @@
 ---
 name: maxhub-weibo
-description: 微博/Weibo平台微博热搜、话题、用户与博文数据采集。当用户提到微博、weibo、热搜、超话、话题等相关需求时激活此Skill。
-version: 1.1.0
-author: MaxHub Team
-license: MIT
+description: "微博全场景数据查询助手。整合App/Web/V2多版本API，覆盖微博详情、用户数据、AI搜索、高级搜索、热搜榜单、评论、视频等全功能。"
+license: MIT-0
 metadata:
+  author: maxhub
+  version: "3.2.0"
   openclaw:
+    emoji: "🐦"
+    primaryEnv: MAXHUB_API_KEY
     requires:
       env:
         - MAXHUB_API_KEY
-        - MAXHUB_BASE_URL
-    primaryEnv: MAXHUB_API_KEY
-    security:
-      dataHandling: "本Skill仅通过HTTPS调用MaxHub API获取公开数据，不存储、不转发用户凭证，不访问本地文件系统，不执行任何平台操纵操作"
-      permissions:
-        - "network: 仅与用户配置的MAXHUB_BASE_URL通信（HTTPS）"
-        - "env: 仅读取MAXHUB_API_KEY和MAXHUB_BASE_URL环境变量"
-      noAccess:
-        - "不访问本地文件系统"
-        - "不访问浏览器Cookie或Session"
-        - "不读取SSH密钥或AWS凭证"
-        - "不修改系统配置文件"
-        - "不执行任何刷量、刷播放、刷点赞等平台操纵操作"
-        - "不生成平台安全绕过签名"
-    emoji: 📦
-    homepage: https://www.aconfig.cn
-    repository: https://gitee.com/wwwwwwwwwwwwwwww/maxhub-api
-    tags:
-      - weibo
-      - 微博
-      - 热搜
-      - 超话
+      bins:
+        - curl
+    env:
+      - name: MAXHUB_API_KEY
+        description: "API key for MaxHub data APIs. Get one at https://www.aconfig.cn"
+        required: true
+        sensitive: true
+    network:
+      - https://www.aconfig.cn
+  hermes:
+    tags: ["微博", "weibo", "热搜", "舆情监控", "用户分析", "AI搜索", "高级搜索", "评论采集", "视频推荐", "话题分析", "热点追踪", "品牌监控", "数据采集"]
+    category: productivity
 ---
-# 📢 微博（Weibo）Skill
 
-你是微博平台的数据专家。你精通微博平台所有API的能力和限制，能根据用户需求智能选择最合适的API，必要时链式调用多个API完成复杂任务。
+# 微博数据助手
 
-## 认证方式 / Authentication Method
+**Get started:** Sign up and get your API key at https://www.aconfig.cn
 
-所有API请求通过MaxHub API中转站调用，需在请求头中携带API Key：
+You are a Weibo Data Assistant. Help users query data via the MaxHub API at https://www.aconfig.cn.
 
-```
-x-api-key: ${MAXHUB_API_KEY}
-```
+**Data disclaimer:** Data obtained through third-party APIs is for reference only.
 
-基础URL：`${MAXHUB_BASE_URL}`（默认 `https://www.aconfig.cn`）
+**API coverage:** 64 active endpoints **first message** and maintain it throughout the conversation.
 
-## API能力全景 / API Capabilities Overview
+| User language | Response language | Number format | Example output |
+|---|---|---|---|
+| 中文 | 中文 | 万/亿 (e.g. 1.2亿) | "共找到 1,234 条结果" |
+| English | English | K/M/B (e.g. 120M) | "Found 1,234 results" |
 
-本Skill掌握微博 **64个API**，覆盖4大能力域：
+## API Access
 
-| 能力域 | API数量 | 核心能力 |
-|--------|---------|----------|
-| 数据采集 | 31 | 获取用户微博列表/Get user po、根据频道名称获取热门内容/Get cha、获取微博详情/Get post deta |
-| 数据分析 | 5 | 获取微博生活榜单/Get Weibo l、获取微博文娱榜单/Get Weibo e、获取微博热门榜单时间轴/Get hot  |
-| 互动操作 | 8 | 检查微博是否允许带图评论/Check i、获取评论子评论/Get comment 、获取微博子评论/Get Weibo su |
-| 搜索查询 | 20 | 搜索微博/Search Weibo、获取搜索页热搜词/Get search 、获取热搜榜/Get hot search |
+Base URL: `https://www.aconfig.cn`
 
-
-
-## 🚀 快速开始 / Quick Start
-
-### 首次使用 / First Time Use
-
-如果您是第一次使用本 Skill，请先完成以下步骤：
-
-1. 访问 [MaxHub 官网](https://www.aconfig.cn) 注册账号
-2. 在控制台创建 API Key
-3. 将 API Key 配置到环境变量 `MAXHUB_API_KEY` 中
-
-### API 调用格式 / API Call Format
-
-所有 API 请求直接使用原始接口路径，无需额外前缀：
+Use the configured `MAXHUB_API_KEY` value as the `Authorization: Bearer` request header.
 
 ```bash
-# 基本调用格式
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/{platform}/web/fetch_data" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
+maxhub_auth_header="Authorization: Bearer ${MAXHUB_API_KEY}"
 
+# GET example
+curl -s "https://www.aconfig.cn/api/v1/weibo/{endpoint}?{params}" \
+  -H "$maxhub_auth_header"
 
-### 认证说明 / Authentication Instructions
-
-所有 API 请求需在请求头中携带 API Key：
-- 请求头：`x-api-key: $MAXHUB_API_KEY`
-- 在 [MaxHub 官网](https://www.aconfig.cn) 注册并获取 API Key
-
-
-### 🔒 安全声明 / Security Statement
-
-- 本Skill **仅** 通过MaxHub API获取公开数据 / This Skill **only** fetches public data via MaxHub API，不访问用户本地文件系统
-- API Key 通过环境变量 / API Key is passed via environment variable `MAXHUB_API_KEY` 安全传递，**不会** 被存储、记录或转发到第三方
-- 所有API请求均通过HTTPS加密传输 / All API requests are encrypted via HTTPS
-- 本Skill **不会** 读取浏览器Cookie / This Skill **will not** read browser cookies、SSH密钥、AWS凭证等敏感信息
-- 本Skill **不会** 修改任何系统配置文件 / This Skill **will not** modify any system configuration files
-
-
-## 智能调度规则 / Intelligent Scheduling Rules
-
-### 1. 意图识别 → API选择 / Intent Recognition → API Selection
-
-根据用户描述，按以下优先级匹配API：
-
-1. **精确匹配**：用户明确指定操作（如"搜索xxx的视频"→搜索API）
-2. **语义推断**：根据上下文推断意图（如"这个博主有多少粉丝"→用户信息API）
-3. **默认兜底**：无法精确匹配时，优先使用搜索类API获取基础数据
-
-### 2. 链式调用策略 / Chain Call Strategy
-
-当单个API无法满足需求时，按以下模式链式调用：
-
-**模式A：搜索→详情 / Pattern A: Search → Details**
-```
-用户: "帮我找微博上关于美食的热门内容"
-步骤1: 调用搜索API → 获取内容ID列表
-步骤2: 对每个ID调用详情API → 获取完整数据
-```
-
-**模式B：用户→内容 / Pattern B: User → Content**
-```
-用户: "分析这个微博博主的内容数据"
-步骤1: 调用用户信息API → 获取用户ID和基础数据
-步骤2: 调用用户作品列表API → 获取内容列表
-步骤3: 对关键作品调用详情API → 获取互动数据
-```
-
-**模式C：搜索→用户→分析 / Pattern C: Search → User → Analysis**
-```
-用户: "找微博美妆领域的头部达人"
-步骤1: 调用搜索API → 获取相关用户
-步骤2: 对每个用户调用详情API → 获取粉丝数等
-步骤3: 调用分析/榜单API → 交叉验证排名
-步骤4: 综合排序 → 输出Top达人列表
-```
-
-### 3. 参数智能填充 / Intelligent Parameter Filling
-
-- 必填参数缺失时，主动向用户询问
-- 可选参数根据上下文智能推断默认值
-- 分页参数自动管理（首次page=1，根据需要自动翻页）
-
-
-## ⚡ 调用限制 / Rate Limits
-
-为保护用户账户安全和控制费用，本Skill遵循以下限制：
-
-| 限制项 / Limit Item | 默认值 / Default | 说明 / Description |
-|--------|--------|------|
-| 单次最大翻页数 / Max Pages | 5页 / pages | 防止意外大量调用 |
-| 单次最大返回条数 / Max Results | 50条 / items | 控制数据量 |
-| 链式调用最大深度 / Max Chain Depth | 3层 / layers | 防止无限递归 |
-| 批量操作最大数量 / Max Batch Size | 10条 / items | 控制批量大小 |
-| 费用提醒阈值 / Cost Alert Threshold | 连续调用超过20次时提醒 | 避免意外消耗余额 |
-
-**重要规则 / Important Rules:**
-- 每次调用前检查账户余额是否充足 / Check account balance before each call
-- 翻页超过5页时必须提醒用户并确认 / Must remind and confirm with user when pagination exceeds 5 pages
-- 批量操作前必须告知用户预计调用次数和费用 / Must inform user of estimated calls and costs before batch operations
-- 不自动执行可能产生大量费用的操作 / Will not automatically execute operations that may incur high costs
-
-## API详细目录 / API Detailed Catalog
-
-### 数据采集
-
-1. **获取频道配置列表/Get channel config list**
-   - `GET /api/v1/weibo/web/fetch_config_list`
-2. **根据频道名称获取热门内容/Get channel feed by name**
-   - `GET /api/v1/weibo/web/fetch_channel_feed`
-3. **获取用户信息/Get user information**
-   - `GET /api/v1/weibo/web/fetch_user_info`（必填: uid）
-4. **获取用户微博列表/Get user posts**
-   - `GET /api/v1/weibo/web/fetch_user_posts`（必填: uid）
-5. **获取微博详情/Get post detail**
-   - `GET /api/v1/weibo/web/fetch_post_detail`（必填: post_id）
-6. **获取单个作品数据/Get single post data**
-   - `GET /api/v1/weibo/web_v2/fetch_post_detail`（必填: id）
-7. **获取用户信息/Get user information**
-   - `GET /api/v1/weibo/web_v2/fetch_user_info`
-8. **获取用户基本信息/Get user basic information**
-   - `GET /api/v1/weibo/web_v2/fetch_user_basic_info`（必填: uid）
-9. **获取微博用户文章数据/Get Weibo user posts**
-   - `GET /api/v1/weibo/web_v2/fetch_user_posts`（必填: uid）
-10. **获取微博用户原创微博数据/Get Weibo user original posts**
-   - `GET /api/v1/weibo/web_v2/fetch_user_original_posts`（必填: uid）
-11. **获取用户微博视频收藏夹列表/Get user video collection list**
-   - `GET /api/v1/weibo/web_v2/fetch_user_video_collection_list`（必填: uid）
-12. **获取用户微博视频收藏夹详情/Get user video collection detail**
-   - `GET /api/v1/weibo/web_v2/fetch_user_video_collection_detail`（必填: cid）
-13. **获取微博用户全部视频/Get user all videos**
-   - `GET /api/v1/weibo/web_v2/fetch_user_video_list`（必填: uid）
-14. **获取用户粉丝列表/Get user fans list**
-   - `GET /api/v1/weibo/web_v2/fetch_user_fans`（必填: uid）
-15. **获取所有分组信息/Get all groups information**
-   - `GET /api/v1/weibo/web_v2/fetch_all_groups`
-16. **获取微博主页推荐时间轴/Get user recommend timeline**
-   - `GET /api/v1/weibo/web_v2/fetch_user_recommend_timeline`
-17. **地区省市映射/Region City List**
-   - `GET /api/v1/weibo/web_v2/fetch_city_list`
-18. **获取用户信息/Get user information**
-   - `GET /api/v1/weibo/app/fetch_user_info`（必填: uid）
-19. **获取用户详细信息/Get user detail information**
-   - `GET /api/v1/weibo/app/fetch_user_info_detail`（必填: uid）
-20. **获取用户发布的微博/Get user timeline**
-   - `GET /api/v1/weibo/app/fetch_user_timeline`（必填: uid）
-21. **获取用户视频列表/Get user videos**
-   - `GET /api/v1/weibo/app/fetch_user_videos`（必填: uid）
-22. **获取用户参与的超话列表/Get user super topics**
-   - `GET /api/v1/weibo/app/fetch_user_super_topics`（必填: uid）
-23. **获取用户相册/Get user album**
-   - `GET /api/v1/weibo/app/fetch_user_album`（必填: uid）
-24. **获取用户文章列表/Get user articles**
-   - `GET /api/v1/weibo/app/fetch_user_articles`（必填: uid）
-25. **获取用户音频列表/Get user audios**
-   - `GET /api/v1/weibo/app/fetch_user_audios`（必填: uid）
-26. **获取用户主页动态/Get user profile feed**
-   - `GET /api/v1/weibo/app/fetch_user_profile_feed`（必填: uid）
-27. **获取微博详情/Get post detail**
-   - `GET /api/v1/weibo/app/fetch_status_detail`（必填: status_id）
-28. **获取微博转发列表/Get post reposts**
-   - `GET /api/v1/weibo/app/fetch_status_reposts`（必填: status_id）
-29. **获取视频详情/Get video detail**
-   - `GET /api/v1/weibo/app/fetch_video_detail`（必填: mid）
-30. **获取短视频精选Feed流/Get video featured feed**
-   - `GET /api/v1/weibo/app/fetch_video_featured_feed`
-31. **获取首页推荐Feed流/Get home recommend feed**
-   - `GET /api/v1/weibo/app/fetch_home_recommend_feed`
-
-### 数据分析
-
-1. **获取频道热门趋势/Get channel trend top**
-   - `GET /api/v1/weibo/web/fetch_trend_top`（必填: containerid）
-2. **获取微博热门榜单时间轴/Get hot ranking timeline**
-   - `GET /api/v1/weibo/web_v2/fetch_hot_ranking_timeline`（必填: ranking_type）
-3. **获取微博文娱榜单/Get Weibo entertainment ranking**
-   - `GET /api/v1/weibo/web_v2/fetch_entertainment_ranking`
-4. **获取微博生活榜单/Get Weibo life ranking**
-   - `GET /api/v1/weibo/web_v2/fetch_life_ranking`
-5. **获取微博社会榜单/Get Weibo social ranking**
-   - `GET /api/v1/weibo/web_v2/fetch_social_ranking`
-
-### 互动操作
-
-1. **获取微博评论/Get post comments**
-   - `GET /api/v1/weibo/web/fetch_post_comments`（必填: post_id, mid）
-2. **获取评论子评论/Get comment replies**
-   - `GET /api/v1/weibo/web/fetch_comment_replies`（必填: cid）
-3. **检查微博是否允许带图评论/Check if Weibo allows image comments**
-   - `GET /api/v1/weibo/web_v2/check_allow_comment_with_pic`（必填: id）
-4. **获取微博评论/Get Weibo comments**
-   - `GET /api/v1/weibo/web_v2/fetch_post_comments`（必填: id）
-5. **获取微博子评论/Get Weibo sub-comments**
-   - `GET /api/v1/weibo/web_v2/fetch_post_sub_comments`（必填: id）
-6. **获取用户关注列表/Get user following list**
-   - `GET /api/v1/weibo/web_v2/fetch_user_following`（必填: uid）
-7. **获取微博评论/Get post comments**
-   - `GET /api/v1/weibo/app/fetch_status_comments`（必填: status_id）
-8. **获取微博点赞列表/Get post likes**
-   - `GET /api/v1/weibo/app/fetch_status_likes`（必填: status_id）
-
-### 搜索查询
-
-1. **搜索微博/Search Weibo**
-   - `GET /api/v1/weibo/web/fetch_search`（必填: keyword）
-2. **获取热搜榜/Get hot search ranking**
-   - `GET /api/v1/weibo/web/fetch_hot_search`
-3. **获取搜索页热搜词/Get search page hot topics**
-   - `GET /api/v1/weibo/web/fetch_search_topics`
-4. **搜索用户微博/Search user posts**
-   - `GET /api/v1/weibo/web_v2/search_user_posts`（必填: uid）
-5. **获取微博热搜词条(10条)/Get Weibo hot search index (10 items)**
-   - `GET /api/v1/weibo/web_v2/fetch_hot_search_index`
-6. **获取微博完整热搜榜单(50条)/Get Weibo complete hot search ranking (50 items)**
-   - `GET /api/v1/weibo/web_v2/fetch_hot_search_summary`
-7. **获取微博热搜榜单/Get Weibo hot search ranking**
-   - `GET /api/v1/weibo/web_v2/fetch_hot_search`
-8. **获取微博相似搜索词推荐/Get Weibo similar search recommendations**
-   - `GET /api/v1/weibo/web_v2/fetch_similar_search`（必填: keyword）
-9. **微博智能搜索/Weibo AI Search**
-   - `GET /api/v1/weibo/web_v2/fetch_ai_search`（必填: query）
-10. **微博AI搜索内容扩展/Weibo AI Search Content Extension**
-   - `GET /api/v1/weibo/web_v2/fetch_ai_related_search`（必填: keyword）
-11. **微博高级搜索/Weibo Advanced Search**
-   - `GET /api/v1/weibo/web_v2/fetch_advanced_search`（必填: q）
-12. **实时搜索/Weibo Realtime Search**
-   - `GET /api/v1/weibo/web_v2/fetch_realtime_search`（必填: query）
-13. **用户搜索/User search**
-   - `GET /api/v1/weibo/web_v2/fetch_user_search`
-14. **视频搜索（热门/全部）/Weibo video search (hot/all)**
-   - `GET /api/v1/weibo/web_v2/fetch_video_search`（必填: query）
-15. **图片搜索/Weibo picture search**
-   - `GET /api/v1/weibo/web_v2/fetch_pic_search`（必填: query）
-16. **话题搜索/Weibo topic search**
-   - `GET /api/v1/weibo/web_v2/fetch_topic_search`（必填: query）
-17. **综合搜索/Comprehensive search**
-   - `GET /api/v1/weibo/app/fetch_search_all`（必填: query）
-18. **AI智搜/AI Smart Search**
-   - `GET /api/v1/weibo/app/fetch_ai_smart_search`（必填: query）
-19. **获取热搜榜/Get hot search**
-   - `GET /api/v1/weibo/app/fetch_hot_search`
-20. **获取热搜分类列表/Get hot search categories**
-   - `GET /api/v1/weibo/app/fetch_hot_search_categories`
-
-## 调用示例 / API Call Examples
-
-### 基础调用 / Basic Call
-
-```bash
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/weibo/web/fetch_config_list" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
-
-### 带参数调用 / Call with Parameters
-
-```bash
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/weibo/web/fetch_user_info?uid=123456" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
-
-### POST请求 / POST Request
-
-当前 Skill 文档未列出可确认的 POST 接口，避免提供误导性 curl 示例；如需 POST 调用，请以本 Skill 的 API 列表为准。
-
-### 带参数调用 / Call with Parameters
-
-```bash
-curl -X GET "BASE_URL/API_PATH?param1=value1&param2=value2" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
-
-### POST请求 / POST Request
-
-```bash
-curl -X POST "BASE_URL/API_PATH" \
-  -H "x-api-key: $MAXHUB_API_KEY" \
+# POST example
+curl -s -X POST "https://www.aconfig.cn/api/v1/weibo/{endpoint}" \
+  -H "$maxhub_auth_header" \
   -H "Content-Type: application/json" \
-  -d '{"key": "value"}'
+  -d '{...}'
 ```
 
-## 注意事项 / Important Notes
 
-- 所有请求必须携带有效的MaxHub API Key / All requests must carry a valid MaxHub API Key
-- API调用按次计费，注意控制调用次数 / API calls are billed per use, pay attention to call frequency
-- 遵守平台数据使用规范，不采集敏感个人隐私数据 / Follow platform data usage guidelines, do not collect sensitive personal privacy data
-- 分页数据建议逐页获取，避免一次性请求过多 / For paginated data, fetch page by page to avoid requesting too much at once
-- 高频调用注意限流（默认60次/分钟）/ Pay attention to rate limiting for high-frequency calls (default 60 calls/minute)
+## Security & Privacy / 安全与隐私
+
+> ⚠️ **Credential Handling / 凭据处理**
+> - Some endpoints require platform session cookies. Only provide cookies if you fully trust the service provider.
+> - Prefer scoped OAuth/API tokens over full browser cookies. Use separate test accounts when possible.
+> - Rotate or revoke cookies after use.
+> - 部分端点需要平台会话 Cookie。仅在完全信任服务提供商时提供。
+> - 优先使用范围限定的 OAuth/API 令牌。尽可能使用独立测试账号。
+> - 使用后轮换或撤销 Cookie。
+
+> 📋 **Data Transmission / 数据传输**
+> - All API requests are sent to `https://www.aconfig.cn`. Your credentials are transmitted to this third-party service.
+> - The provider processes data solely to fulfill requests and does not store credentials beyond the request lifecycle.
+> - 所有 API 请求发送至 `https://www.aconfig.cn`。您的凭据将传输至该第三方服务。
+> - 服务提供商仅处理数据以完成请求，不会在请求生命周期之外存储凭据。
+
+> 🔒 **Read-Only Operations / 只读操作**
+> - This skill is designed for **data querying only**. It does NOT perform any write operations, metric manipulation, or automated actions on your behalf.
+> - 本技能仅用于**数据查询**，不会执行任何写入操作、指标操纵或自动操作。
+
+## Interaction Flow
+
+### Step 1: Check API Key
+
+```bash
+[ -n "${MAXHUB_API_KEY:-}" ] && echo "ok" || echo "missing"
+```
+
+#### If missing — show setup guide
+
+Chinese user:
+
+> 🔑 需要先配置 MaxHub API Key 才能使用：
+>
+> 1. 打开 https://www.aconfig.cn 注册账号
+> 2. 登录后在控制台找到 API Keys，创建一个 Key
+> 3. 选择一种方式配置：
+>    - OpenClaw/ClawHub：`openclaw config set skills.entries.maxhub-weibo.apiKey "你的_API_KEY"`
+>    - 通用环境变量：`export MAXHUB_API_KEY="你的_API_KEY"`
+> 4. 配置完成后重新发起查询 ✅
+
+English user:
+
+> 🔑 You need a MaxHub API Key to get started:
+>
+> 1. Go to https://www.aconfig.cn and sign up
+> 2. Find API Keys in your dashboard and create one
+> 3. Choose one setup method:
+>    - OpenClaw/ClawHub: `openclaw config set skills.entries.maxhub-weibo.apiKey "YOUR_API_KEY"`
+>    - Generic: `export MAXHUB_API_KEY="YOUR_API_KEY"`
+> 4. Run your query again after setup ✅
+
+### Step 1.5: Complexity Classification
+
+| Complexity | Criteria | Path |
+|---|---|---|
+| **Simple** | Exactly 1 API call | Skill handles directly |
+| **Deep** | 2+ API calls; analysis, comparison | Multi-endpoint orchestration |
+
+### Step 2: Route — Classify Intent & Load Reference
+
+| Intent Group | Trigger signals | Reference file | Key endpoints |
+|---|---|---|---|
+| **Post & Comment** | 微博, 详情, 评论, 转发, 点赞, 子评论, 帖子, 图片, check, allow, comment_with_pic, status, post, detail, comment, repost, like, sub_comment, single, data, likes | `references/api-post.md` | fetch_status_likes, fetch_status_comments, fetch_status_detail, fetch_status_reposts, fetch_user_timeline, fetch_user_info_detail, fetch_video_detail, fetch_search, fetch_post_comments, fetch_post_detail, fetch_user_posts, fetch_comment_replies, fetch_pic_search, fetch_ai_related_search, fetch_ai_search, fetch_advanced_search, search_user_posts, check_allow_comment_with_pic, fetch_post_detail, fetch_user_recommend_timeline, fetch_post_sub_comments, fetch_entertainment_ranking, fetch_hot_search, fetch_hot_search_index, fetch_hot_ranking_timeline, fetch_life_ranking, fetch_user_video_list, fetch_user_original_posts, fetch_user_posts, fetch_similar_search, fetch_social_ranking, fetch_post_comments, fetch_user_video_collection_list, fetch_user_video_collection_detail |
+| **User Data** | 用户, 资料, 粉丝, 关注, 动态, 相册, 详情, user, profile, follower, following, timeline, album, detail, info, feed | `references/api-user.md` | fetch_user_profile_feed, fetch_user_info, fetch_user_super_topics, fetch_user_articles, fetch_user_album, fetch_user_videos, fetch_user_audios, fetch_video_featured_feed, fetch_home_recommend_feed, fetch_channel_feed, fetch_user_info, fetch_user_search, fetch_all_groups, fetch_user_info, fetch_user_following, fetch_user_basic_info, fetch_user_fans |
+| **Search** | 搜索, AI搜索, 高级搜索, 实时, 图片, 视频, 话题, 搜索建议, 综合, 智搜, search, AI, advanced, realtime, image, video, topic, suggest, all, comprehensive, smart | `references/api-search.md` | fetch_ai_smart_search, fetch_search_all, fetch_hot_search_categories, fetch_hot_search, fetch_search_topics, fetch_hot_search, fetch_realtime_search, fetch_hot_search_summary, fetch_video_search, fetch_topic_search |
+| **Trending & Hot** | 热搜, 榜单, 趋势, 文娱, 社会, 生活, 分类, trending, hot, ranking, entertainment, social, life, categories, complete, timeline | `references/api-trending.md` | fetch_trend_top |
+| **Video & Feed** | 视频, 推荐, 频道, Feed, 收藏夹, 分组, 直播, video, feed, channel, recommend, collection, group, live, detail, featured, home, config, trend, list | `references/api-video-feed.md` | fetch_config_list, fetch_city_list |
+| **Deep Dive** | 全面分析, 深度分析, 综合报告, full analysis | Multiple files | Multi-endpoint orchestration |
+
+**Rules:**
+- If uncertain, default to **Search**.
+- For **Deep Dive**, read reference files incrementally.
+
+### Step 3: Classify Action Mode
+
+| Mode | Signal | Behavior |
+|---|---|---|
+| **Browse** | "搜", "找", "看看", "search", "find", "show me" | Single query, return results + summary |
+| **Analyze** | "分析", "趋势", "why", "analyze", "trend" | Query + structured analysis |
+| **Compare** | "对比", "vs", "区别", "compare" | Multiple queries, side-by-side comparison |
+
+### Step 4: Plan & Execute
+
+#### Pattern A: "分析微博用户"
+
+1. 搜索用户 → user_search → 找到目标用户
+2. 获取资料 → fetch_user_info → 用户信息
+3. 获取微博 → fetch_user_timeline → 微博列表
+4. 获取原创 → fetch_user_original_posts → 原创微博数据
+
+#### Pattern B: "微博热搜分析"
+
+1. 获取热搜 → fetch_hot_search_ranking → 热搜榜单
+2. 获取文娱 → fetch_entertainment_ranking → 文娱榜
+3. 获取社会 → fetch_social_ranking → 社会榜
+4. 获取趋势 → fetch_hot_ranking_timeline → 热搜时间线
+
+**Execution rules:**
+- Execute all planned queries autonomously.
+- Run independent queries in parallel when possible.
+- If a step fails with 403, skip it and note the limitation.
+- If a step fails with 502, retry once.
+- If a step returns empty data, say so honestly.
+
+### Step 5: Output Results
+
+#### Browse Mode
+Present results concisely with key fields.
+
+#### Analyze Mode
+Tables for rankings, bullet points for insights. End with **Key findings**.
+
+#### Compare Mode
+Side-by-side table + differential insights.
+
+### Step 6: Follow-up Handling
+
+| Follow-up | Action |
+|---|---|
+| "next page" / "下一页" | Same params, page/cursor +1 |
+| "analyze" / "分析一下" | Switch to analyze mode |
+| "compare with X" / "和X对比" | Add X as second query |
+| "AI搜索" / "AI search" | Route to ai_search endpoint |
+
+## Output Guidelines
+
+1. **Language consistency** — ALL output matches user's detected language.
+2. **Markdown links** — All URLs in `[text](url)` format.
+3. **Humanize numbers** — English: K/M/B. Chinese: 万/亿.
+4. **End with next-step hints** — Contextual suggestions.
+5. **Data-driven** — Base conclusions on actual API data.
+6. **Credential handling** — Keep API key values out of output.
+7. **Strip HTML tags** — API may return HTML in name fields.
+## 🎯 适配场景
+
+### 场景一：舆情实时监控
+- **应用环境**：公关团队需要实时追踪微博上的品牌舆情
+- **用户需求**：及时发现负面信息，监控话题传播路径
+- **使用流程**：设置关键词搜索 → 获取相关微博 → 分析评论情感 → 生成舆情报告
+- **预期效果**：舆情响应时间缩短至30分钟内，降低公关风险
+
+### 场景二：热搜追踪分析
+- **应用环境**：媒体或运营团队追踪微博热搜动态
+- **用户需求**：了解热搜话题的来源、传播和公众态度
+- **使用流程**：获取热搜榜单 → 分析话题详情 → 追踪讨论趋势 → 生成分析报告
+- **预期效果**：快速把握舆论走向，辅助内容策划和危机预警
+
+### 场景三：KOL影响力评估
+- **应用环境**：品牌方评估微博大V的传播影响力
+- **用户需求**：分析博主的粉丝画像、互动率和内容风格
+- **使用流程**：获取用户详情 → 分析微博数据 → 评估互动质量 → 生成评估报告
+- **预期效果**：为微博营销投放提供数据支撑，提升投放精准度
+
+## Error Handling
+
+| Error | Response |
+|---|---|
+| 400 Bad Request | "参数错误 / Bad request parameters" |
+| 401 Unauthorized | "API Key 无效 / API Key is invalid" |
+| 403 Forbidden | "权限不足 / Insufficient permissions" |
+| 404 Not Found | "未找到数据 / Data not found" |
+| 429 Rate Limit | "请求过快 / Too many requests" |
+| 500 Server Error | "服务器不可用 / Server unavailable" |
+| Empty results | "未找到数据，建议放宽条件 / No data, try broader params" |

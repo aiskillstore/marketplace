@@ -1,395 +1,203 @@
 ---
 name: maxhub-instagram
-description: Instagram/Instagram平台Instagram用户、帖子、Reel与Story数据采集。当用户提到instagram、ins、图片、reel、story等相关需求时激活此Skill。
-version: 1.1.0
-author: MaxHub Team
-license: MIT
+description: "Instagram 全场景数据查询助手。支持V1/V2/V3三个版本API，覆盖用户信息、帖子、Reels、Stories、评论、搜索、话题、地点等全功能。"
+license: MIT-0
 metadata:
+  author: maxhub
+  version: "3.2.0"
   openclaw:
+    emoji: "📸"
+    primaryEnv: MAXHUB_API_KEY
     requires:
       env:
         - MAXHUB_API_KEY
-        - MAXHUB_BASE_URL
-    primaryEnv: MAXHUB_API_KEY
-    security:
-      dataHandling: "本Skill仅通过HTTPS调用MaxHub API获取公开数据，不存储、不转发用户凭证，不访问本地文件系统，不执行任何平台操纵操作"
-      permissions:
-        - "network: 仅与用户配置的MAXHUB_BASE_URL通信（HTTPS）"
-        - "env: 仅读取MAXHUB_API_KEY和MAXHUB_BASE_URL环境变量"
-      noAccess:
-        - "不访问本地文件系统"
-        - "不访问浏览器Cookie或Session"
-        - "不读取SSH密钥或AWS凭证"
-        - "不修改系统配置文件"
-        - "不执行任何刷量、刷播放、刷点赞等平台操纵操作"
-        - "不生成平台安全绕过签名"
-    emoji: 📦
-    homepage: https://www.aconfig.cn
-    repository: https://gitee.com/wwwwwwwwwwwwwwww/maxhub-api
-    tags:
-      - instagram
-      - ins
-      - 图片
-      - reel
-      - story
+      bins:
+        - curl
+    env:
+      - name: MAXHUB_API_KEY
+        description: "API key for MaxHub data APIs. Get one at https://www.aconfig.cn"
+        required: true
+        sensitive: true
+    network:
+      - https://www.aconfig.cn
+  hermes:
+    tags: ["instagram", "ins", "帖子", "用户分析", "图片社交", "关键词搜索", "评论采集", "故事", "网红分析", "品牌营销", "视觉内容", "海外社媒", "数据采集"]
+    category: productivity
 ---
-# 📸 Instagram（Instagram）Skill
 
-你是Instagram平台的数据专家。你精通Instagram平台所有API的能力和限制，能根据用户需求智能选择最合适的API，必要时链式调用多个API完成复杂任务。
+# Instagram 数据助手
 
-## 认证方式 / Authentication Method
+**Get started:** Sign up and get your API key at https://www.aconfig.cn
 
-所有API请求通过MaxHub API中转站调用，需在请求头中携带API Key：
+You are a Instagram Data Assistant. Help users query data via the MaxHub API at https://www.aconfig.cn.
 
-```
-x-api-key: ${MAXHUB_API_KEY}
-```
+**Data disclaimer:** Data obtained through third-party APIs is for reference only.
 
-基础URL：`${MAXHUB_BASE_URL}`（默认 `https://www.aconfig.cn`）
+**API coverage:** 68 active endpoints **first message** and maintain it throughout the conversation.
 
-## API能力全景 / API Capabilities Overview
+| User language | Response language | Number format | Example output |
+|---|---|---|---|
+| 中文 | 中文 | 万/亿 (e.g. 1.2亿) | "共找到 1,234 条结果" |
+| English | English | K/M/B (e.g. 120M) | "Found 1,234 results" |
 
-本Skill掌握Instagram **88个API**，覆盖4大能力域：
+## API Access
 
-| 能力域 | API数量 | 核心能力 |
-|--------|---------|----------|
-| 数据采集 | 62 | 根据用户名获取用户数据/Get user、Shortcode转Media ID/C、根据用户名获取用户数据V2/Get us |
-| 搜索查询 | 12 | 搜索用户/话题/地点/Search us、搜索音乐/Search music、综合搜索/General search |
-| 互动操作 | 13 | 获取用户粉丝/Get user foll、获取帖子点赞列表/Get post li、获取用户关注/Get user foll |
-| 内容解析 | 1 | 从URL提取短码/Extract sho |
+Base URL: `https://www.aconfig.cn`
 
-
-
-## 🚀 快速开始 / Quick Start
-
-### 首次使用 / First Time Use
-
-如果您是第一次使用本 Skill，请先完成以下步骤：
-
-1. 访问 [MaxHub 官网](https://www.aconfig.cn) 注册账号
-2. 在控制台创建 API Key
-3. 将 API Key 配置到环境变量 `MAXHUB_API_KEY` 中
-
-### API 调用格式 / API Call Format
-
-所有 API 请求直接使用原始接口路径，无需额外前缀：
+Use the configured `MAXHUB_API_KEY` value as the `Authorization: Bearer` request header.
 
 ```bash
-# 基本调用格式
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/{platform}/web/fetch_data" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
+maxhub_auth_header="Authorization: Bearer ${MAXHUB_API_KEY}"
 
+# GET example
+curl -s "https://www.aconfig.cn/api/v1/instagram/{endpoint}?{params}" \
+  -H "$maxhub_auth_header"
 
-### 认证说明 / Authentication Instructions
-
-所有 API 请求需在请求头中携带 API Key：
-- 请求头：`x-api-key: $MAXHUB_API_KEY`
-- 在 [MaxHub 官网](https://www.aconfig.cn) 注册并获取 API Key
-
-
-### 🔒 安全声明 / Security Statement
-
-- 本Skill **仅** 通过MaxHub API获取公开数据 / This Skill **only** fetches public data via MaxHub API，不访问用户本地文件系统
-- API Key 通过环境变量 / API Key is passed via environment variable `MAXHUB_API_KEY` 安全传递，**不会** 被存储、记录或转发到第三方
-- 所有API请求均通过HTTPS加密传输 / All API requests are encrypted via HTTPS
-- 本Skill **不会** 读取浏览器Cookie / This Skill **will not** read browser cookies、SSH密钥、AWS凭证等敏感信息
-- 本Skill **不会** 修改任何系统配置文件 / This Skill **will not** modify any system configuration files
-
-
-## 智能调度规则 / Intelligent Scheduling Rules
-
-### 1. 意图识别 → API选择 / Intent Recognition → API Selection
-
-根据用户描述，按以下优先级匹配API：
-
-1. **精确匹配**：用户明确指定操作（如"搜索xxx的视频"→搜索API）
-2. **语义推断**：根据上下文推断意图（如"这个博主有多少粉丝"→用户信息API）
-3. **默认兜底**：无法精确匹配时，优先使用搜索类API获取基础数据
-
-### 2. 链式调用策略 / Chain Call Strategy
-
-当单个API无法满足需求时，按以下模式链式调用：
-
-**模式A：搜索→详情 / Pattern A: Search → Details**
-```
-用户: "帮我找Instagram上关于美食的热门内容"
-步骤1: 调用搜索API → 获取内容ID列表
-步骤2: 对每个ID调用详情API → 获取完整数据
-```
-
-**模式B：用户→内容 / Pattern B: User → Content**
-```
-用户: "分析这个Instagram博主的内容数据"
-步骤1: 调用用户信息API → 获取用户ID和基础数据
-步骤2: 调用用户作品列表API → 获取内容列表
-步骤3: 对关键作品调用详情API → 获取互动数据
-```
-
-**模式C：搜索→用户→分析 / Pattern C: Search → User → Analysis**
-```
-用户: "找Instagram美妆领域的头部达人"
-步骤1: 调用搜索API → 获取相关用户
-步骤2: 对每个用户调用详情API → 获取粉丝数等
-步骤3: 调用分析/榜单API → 交叉验证排名
-步骤4: 综合排序 → 输出Top达人列表
-```
-
-### 3. 参数智能填充 / Intelligent Parameter Filling
-
-- 必填参数缺失时，主动向用户询问
-- 可选参数根据上下文智能推断默认值
-- 分页参数自动管理（首次page=1，根据需要自动翻页）
-
-
-## ⚡ 调用限制 / Rate Limits
-
-为保护用户账户安全和控制费用，本Skill遵循以下限制：
-
-| 限制项 / Limit Item | 默认值 / Default | 说明 / Description |
-|--------|--------|------|
-| 单次最大翻页数 / Max Pages | 5页 / pages | 防止意外大量调用 |
-| 单次最大返回条数 / Max Results | 50条 / items | 控制数据量 |
-| 链式调用最大深度 / Max Chain Depth | 3层 / layers | 防止无限递归 |
-| 批量操作最大数量 / Max Batch Size | 10条 / items | 控制批量大小 |
-| 费用提醒阈值 / Cost Alert Threshold | 连续调用超过20次时提醒 | 避免意外消耗余额 |
-
-**重要规则 / Important Rules:**
-- 每次调用前检查账户余额是否充足 / Check account balance before each call
-- 翻页超过5页时必须提醒用户并确认 / Must remind and confirm with user when pagination exceeds 5 pages
-- 批量操作前必须告知用户预计调用次数和费用 / Must inform user of estimated calls and costs before batch operations
-- 不自动执行可能产生大量费用的操作 / Will not automatically execute operations that may incur high costs
-
-## API详细目录 / API Detailed Catalog
-
-### 数据采集
-
-1. **Shortcode转Media ID/Convert shortcode to media ID**
-   - `GET /api/v1/instagram/v1/shortcode_to_media_id`（必填: shortcode）
-2. **Media ID转Shortcode/Convert media ID to shortcode**
-   - `GET /api/v1/instagram/v1/media_id_to_shortcode`（必填: media_id）
-3. **用户ID转用户信息/Get user info by user ID**
-   - `GET /api/v1/instagram/v1/user_id_to_username`（必填: user_id）
-4. **根据用户名获取用户数据/Get user data by username**
-   - `GET /api/v1/instagram/v1/fetch_user_info_by_username`（必填: username）
-5. **根据用户名获取用户数据V2/Get user data by username V2**
-   - `GET /api/v1/instagram/v1/fetch_user_info_by_username_v2`（必填: username）
-6. **根据用户名获取用户数据V3/Get user data by username V3**
-   - `GET /api/v1/instagram/v1/fetch_user_info_by_username_v3`（必填: username）
-7. **根据用户ID获取用户数据/Get user data by user ID**
-   - `GET /api/v1/instagram/v1/fetch_user_info_by_id`（必填: user_id）
-8. **根据用户ID获取用户数据V2/Get user data by user ID V2**
-   - `GET /api/v1/instagram/v1/fetch_user_info_by_id_v2`（必填: user_id）
-9. **获取用户的About信息/Get user about info**
-   - `GET /api/v1/instagram/v1/fetch_user_about_info`（必填: user_id）
-10. **获取用户帖子列表/Get user posts list**
-   - `GET /api/v1/instagram/v1/fetch_user_posts`（必填: user_id）
-11. **获取用户帖子列表V2/Get user posts list V2**
-   - `GET /api/v1/instagram/v1/fetch_user_posts_v2`（必填: user_id）
-12. **获取用户Reels列表/Get user Reels list**
-   - `GET /api/v1/instagram/v1/fetch_user_reels`（必填: user_id）
-13. **获取用户转发列表/Get user reposts list**
-   - `GET /api/v1/instagram/v1/fetch_user_reposts`（必填: user_id）
-14. **获取用户被标记的帖子/Get user tagged posts**
-   - `GET /api/v1/instagram/v1/fetch_user_tagged_posts`（必填: user_id）
-15. **获取相关用户推荐/Get related profiles**
-   - `GET /api/v1/instagram/v1/fetch_related_profiles`（必填: user_id）
-16. **通过URL获取帖子详情/Get post by URL**
-   - `GET /api/v1/instagram/v1/fetch_post_by_url`（必填: post_url）
-17. **通过URL获取帖子详情 V2/Get post by URL V2**
-   - `GET /api/v1/instagram/v1/fetch_post_by_url_v2`（必填: post_url）
-18. **通过ID获取帖子详情/Get post by ID**
-   - `GET /api/v1/instagram/v1/fetch_post_by_id`（必填: post_id）
-19. **获取使用特定音乐的帖子/Get posts using specific music**
-   - `GET /api/v1/instagram/v1/fetch_music_posts`
-20. **获取话题标签下的帖子/Get posts by hashtag**
-   - `GET /api/v1/instagram/v1/fetch_hashtag_posts`（必填: hashtag）
-21. **获取地点信息/Get location info**
-   - `GET /api/v1/instagram/v1/fetch_location_info`（必填: location_id）
-22. **获取地点下的帖子/Get posts by location**
-   - `GET /api/v1/instagram/v1/fetch_location_posts`（必填: location_id）
-23. **获取国家城市列表/Get cities by country**
-   - `GET /api/v1/instagram/v1/fetch_cities`（必填: country_code）
-24. **获取城市地点列表/Get locations by city**
-   - `GET /api/v1/instagram/v1/fetch_locations`（必填: city_id）
-25. **获取探索页面分类/Get explore page sections**
-   - `GET /api/v1/instagram/v1/fetch_explore_sections`
-26. **获取分类下的帖子/Get posts by section**
-   - `GET /api/v1/instagram/v1/fetch_section_posts`（必填: section_id）
-27. **Shortcode转Media ID/Convert shortcode to media ID**
-   - `GET /api/v1/instagram/v2/shortcode_to_media_id`（必填: shortcode）
-28. **Media ID转Shortcode/Convert media ID to shortcode**
-   - `GET /api/v1/instagram/v2/media_id_to_shortcode`（必填: media_id）
-29. **用户ID转用户信息/Get user info by user ID**
-   - `GET /api/v1/instagram/v2/user_id_to_username`（必填: user_id）
-30. **获取用户信息/Get user info**
-   - `GET /api/v1/instagram/v2/fetch_user_info`
-31. **获取用户帖子/Get user posts**
-   - `GET /api/v1/instagram/v2/fetch_user_posts`
-32. **获取用户Reels/Get user reels**
-   - `GET /api/v1/instagram/v2/fetch_user_reels`
-33. **获取用户故事/Get user stories**
-   - `GET /api/v1/instagram/v2/fetch_user_stories`
-34. **获取用户精选/Get user highlights**
-   - `GET /api/v1/instagram/v2/fetch_user_highlights`
-35. **获取精选故事详情/Get highlight stories**
-   - `GET /api/v1/instagram/v2/fetch_highlight_stories`（必填: highlight_id）
-36. **获取用户被标记的帖子/Get user tagged posts**
-   - `GET /api/v1/instagram/v2/fetch_user_tagged_posts`
-37. **获取相似用户/Get similar users**
-   - `GET /api/v1/instagram/v2/fetch_similar_users`
-38. **获取帖子详情/Get post info**
-   - `GET /api/v1/instagram/v2/fetch_post_info`（必填: code_or_url）
-39. **获取音乐帖子/Get music posts**
-   - `GET /api/v1/instagram/v2/fetch_music_posts`（必填: audio_canonical_id）
-40. **获取地点帖子/Get location posts**
-   - `GET /api/v1/instagram/v2/fetch_location_posts`（必填: location_id）
-41. **获取话题帖子/Get hashtag posts**
-   - `GET /api/v1/instagram/v2/fetch_hashtag_posts`（必填: keyword）
-42. **通过用户名获取用户ID/Get user ID by username**
-   - `GET /api/v1/instagram/v3/get_user_id_by_username`（必填: username）
-43. **获取用户信息/Get user profile**
-   - `GET /api/v1/instagram/v3/get_user_profile`
-44. **获取用户短详情/Get user brief info**
-   - `GET /api/v1/instagram/v3/get_user_brief`（必填: user_id, username）
-45. **获取用户帖子列表/Get user posts**
-   - `GET /api/v1/instagram/v3/get_user_posts`（必填: username）
-46. **获取用户被标记的帖子/Get user tagged posts**
-   - `GET /api/v1/instagram/v3/get_user_tagged_posts`
-47. **获取用户Reels列表/Get user reels**
-   - `GET /api/v1/instagram/v3/get_user_reels`
-48. **获取用户精选Highlights列表/Get user highlights**
-   - `GET /api/v1/instagram/v3/get_user_highlights`
-49. **获取Highlight精选详情/Get highlight stories**
-   - `GET /api/v1/instagram/v3/get_highlight_stories`（必填: highlight_id）
-50. **获取用户账户简介/Get user about info**
-   - `GET /api/v1/instagram/v3/get_user_about`
-51. **获取用户曾用用户名/Get user former usernames**
-   - `GET /api/v1/instagram/v3/get_user_former_usernames`
-52. **获取用户Stories（快拍）/Get user stories**
-   - `GET /api/v1/instagram/v3/get_user_stories`
-53. **获取Reels推荐列表/Get recommended Reels feed**
-   - `GET /api/v1/instagram/v3/get_recommended_reels`
-54. **获取帖子详情/Get post info (media_id or URL)**
-   - `GET /api/v1/instagram/v3/get_post_info`（必填: media_id）
-55. **获取帖子详情(code)/Get post info by shortcode**
-   - `GET /api/v1/instagram/v3/get_post_info_by_code`（必填: code）
-56. **获取帖子oEmbed内嵌信息/Get post oEmbed info**
-   - `GET /api/v1/instagram/v3/get_post_oembed`（必填: url）
-57. **获取探索页推荐帖子/Get explore feed**
-   - `GET /api/v1/instagram/v3/get_explore`
-58. **获取地点详情/Get location info**
-   - `GET /api/v1/instagram/v3/get_location_info`（必填: location_id）
-59. **获取地点相关帖子/Get location posts**
-   - `GET /api/v1/instagram/v3/get_location_posts`（必填: location_id）
-60. **获取地点附近内容/Get nearby location content**
-   - `GET /api/v1/instagram/v3/get_location_nearby`（必填: location_id）
-61. **短码转媒体ID/Convert shortcode to media ID**
-   - `GET /api/v1/instagram/v3/shortcode_to_media_id`（必填: shortcode）
-62. **媒体ID转短码/Convert media ID to shortcode**
-   - `GET /api/v1/instagram/v3/media_id_to_shortcode`（必填: media_id）
-
-### 搜索查询
-
-1. **搜索用户/话题/地点/Search users/hashtags/places**
-   - `GET /api/v1/instagram/v1/fetch_search`（必填: query）
-2. **搜索用户/Search users**
-   - `GET /api/v1/instagram/v2/search_users`（必填: keyword）
-3. **综合搜索/General search**
-   - `GET /api/v1/instagram/v2/general_search`（必填: keyword）
-4. **搜索Reels/Search reels**
-   - `GET /api/v1/instagram/v2/search_reels`（必填: keyword）
-5. **搜索音乐/Search music**
-   - `GET /api/v1/instagram/v2/search_music`（必填: keyword）
-6. **搜索话题标签/Search hashtags**
-   - `GET /api/v1/instagram/v2/search_hashtags`（必填: keyword）
-7. **搜索地点/Search locations**
-   - `GET /api/v1/instagram/v2/search_locations`（必填: keyword）
-8. **根据坐标搜索地点/Search locations by coordinates**
-   - `GET /api/v1/instagram/v2/search_by_coordinates`（必填: latitude, longitude）
-9. **搜索用户/Search users**
-   - `GET /api/v1/instagram/v3/search_users`（必填: query）
-10. **搜索话题标签/Search hashtags**
-   - `GET /api/v1/instagram/v3/search_hashtags`（必填: query）
-11. **搜索地点/Search places**
-   - `GET /api/v1/instagram/v3/search_places`（必填: query）
-12. **综合搜索（支持分页）/General search (with pagination)**
-   - `GET /api/v1/instagram/v3/general_search`（必填: query）
-
-### 互动操作
-
-1. **获取帖子评论列表V2/Get post comments V2**
-   - `GET /api/v1/instagram/v1/fetch_post_comments_v2`（必填: media_id）
-2. **获取评论的子评论列表/Get comment replies**
-   - `GET /api/v1/instagram/v1/fetch_comment_replies`（必填: media_id, comment_id）
-3. **获取用户粉丝/Get user followers**
-   - `GET /api/v1/instagram/v2/fetch_user_followers`
-4. **获取用户关注/Get user following**
-   - `GET /api/v1/instagram/v2/fetch_user_following`
-5. **获取帖子点赞列表/Get post likes**
-   - `GET /api/v1/instagram/v2/fetch_post_likes`（必填: code_or_url）
-6. **获取帖子评论/Get post comments**
-   - `GET /api/v1/instagram/v2/fetch_post_comments`（必填: code_or_url）
-7. **获取评论回复/Get comment replies**
-   - `GET /api/v1/instagram/v2/fetch_comment_replies`（必填: code_or_url, comment_id）
-8. **获取帖子评论/Get post comments**
-   - `GET /api/v1/instagram/v3/get_post_comments`（必填: code）
-9. **获取评论的子评论/回复/Get comment replies**
-   - `GET /api/v1/instagram/v3/get_comment_replies`（必填: media_id, comment_id）
-10. **翻译评论/帖子文本/Translate comment or caption**
-   - `GET /api/v1/instagram/v3/translate_comment`（必填: comment_id）
-11. **批量翻译评论/Bulk translate comments**
-   - `GET /api/v1/instagram/v3/bulk_translate_comments`（必填: comment_ids）
-12. **获取用户关注列表/Get user following list**
-   - `GET /api/v1/instagram/v3/get_user_following`
-13. **获取用户粉丝列表/Get user followers list**
-   - `GET /api/v1/instagram/v3/get_user_followers`
-
-### 内容解析
-
-1. **从URL提取短码/Extract shortcode from URL**
-   - `GET /api/v1/instagram/v3/extract_shortcode`（必填: url）
-
-## 调用示例 / API Call Examples
-
-### 基础调用 / Basic Call
-
-```bash
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/instagram/v1/fetch_music_posts" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
-
-### 带参数调用 / Call with Parameters
-
-```bash
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/instagram/v1/shortcode_to_media_id?shortcode=ABC123" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
-
-### POST请求 / POST Request
-
-当前 Skill 文档未列出可确认的 POST 接口，避免提供误导性 curl 示例；如需 POST 调用，请以本 Skill 的 API 列表为准。
-
-### 带参数调用 / Call with Parameters
-
-```bash
-curl -X GET "BASE_URL/API_PATH?param1=value1&param2=value2" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
-
-### POST请求 / POST Request
-
-```bash
-curl -X POST "BASE_URL/API_PATH" \
-  -H "x-api-key: $MAXHUB_API_KEY" \
+# POST example
+curl -s -X POST "https://www.aconfig.cn/api/v1/instagram/{endpoint}" \
+  -H "$maxhub_auth_header" \
   -H "Content-Type: application/json" \
-  -d '{"key": "value"}'
+  -d '{...}'
 ```
 
-## 注意事项 / Important Notes
+## Interaction Flow
 
-- 所有请求必须携带有效的MaxHub API Key / All requests must carry a valid MaxHub API Key
-- API调用按次计费，注意控制调用次数 / API calls are billed per use, pay attention to call frequency
-- 遵守平台数据使用规范，不采集敏感个人隐私数据 / Follow platform data usage guidelines, do not collect sensitive personal privacy data
-- 分页数据建议逐页获取，避免一次性请求过多 / For paginated data, fetch page by page to avoid requesting too much at once
-- 高频调用注意限流（默认60次/分钟）/ Pay attention to rate limiting for high-frequency calls (default 60 calls/minute)
+### Step 1: Check API Key
+
+```bash
+[ -n "${MAXHUB_API_KEY:-}" ] && echo "ok" || echo "missing"
+```
+
+#### If missing — show setup guide
+
+Chinese user:
+
+> 🔑 需要先配置 MaxHub API Key 才能使用：
+>
+> 1. 打开 https://www.aconfig.cn 注册账号
+> 2. 登录后在控制台找到 API Keys，创建一个 Key
+> 3. 选择一种方式配置：
+>    - OpenClaw/ClawHub：`openclaw config set skills.entries.maxhub-instagram.apiKey "你的_API_KEY"`
+>    - 通用环境变量：`export MAXHUB_API_KEY="你的_API_KEY"`
+> 4. 配置完成后重新发起查询 ✅
+
+English user:
+
+> 🔑 You need a MaxHub API Key to get started:
+>
+> 1. Go to https://www.aconfig.cn and sign up
+> 2. Find API Keys in your dashboard and create one
+> 3. Choose one setup method:
+>    - OpenClaw/ClawHub: `openclaw config set skills.entries.maxhub-instagram.apiKey "YOUR_API_KEY"`
+>    - Generic: `export MAXHUB_API_KEY="YOUR_API_KEY"`
+> 4. Run your query again after setup ✅
+
+### Step 1.5: Complexity Classification
+
+| Complexity | Criteria | Path |
+|---|---|---|
+| **Simple** | Exactly 1 API call | Skill handles directly |
+| **Deep** | 2+ API calls; analysis, comparison | Multi-endpoint orchestration |
+
+### Step 2: Route — Classify Intent & Load Reference
+
+| Intent Group | Trigger signals | Reference file | Key endpoints |
+|---|---|---|---|
+| **User Data** | 用户, 资料, 粉丝, 关注, 帖子, Reels, Stories, 精选, 标记, 简介, 曾用名, user, profile, follower, following, posts, reels, stories, highlights, tagged, about, former, brief, info, id, username, similar, related, reposts | `references/api-user.md` | fetch_search, fetch_user_info_by_id, fetch_location_info, fetch_user_reels, fetch_related_profiles, search_reels, search_users, user_id_to_username, fetch_user_reels, fetch_user_info, fetch_user_following, fetch_user_stories, fetch_user_followers, fetch_user_highlights, fetch_similar_users, search_users, get_recommended_reels, get_user_reels, get_user_stories, get_user_profile, get_user_former_usernames, get_user_highlights, get_user_about, get_user_id_by_username |
+| **Post Data** | 帖子, 详情, 评论, 点赞, oembed, 子评论, post, detail, comment, like, oembed, reply, shortcode, media_id, url, translate, bulk | `references/api-post.md` | fetch_music_posts, fetch_section_posts, fetch_location_posts, fetch_post_comments_v2, fetch_user_posts_v2, fetch_user_posts, fetch_user_tagged_posts, fetch_user_reposts, fetch_comment_replies, fetch_hashtag_posts, fetch_post_by_id, fetch_post_by_url_v2, fetch_post_by_url, media_id_to_shortcode, shortcode_to_media_id, fetch_location_posts, fetch_post_likes, fetch_post_comments, fetch_post_info, fetch_user_posts, fetch_user_tagged_posts, fetch_highlight_stories, fetch_comment_replies, fetch_hashtag_posts, fetch_music_posts, get_highlight_stories, get_post_oembed, get_post_comments, get_post_info_by_code, get_post_info, get_user_posts, get_user_brief, get_user_tagged_posts, get_comment_replies |
+| **Search & Explore** | 搜索, 话题, 地点, 音乐, 探索, 发现, 推荐, search, hashtag, location, music, explore, discover, recommend, nearby, section, city, country, coordinate, general, pagination | `references/api-search.md` | fetch_cities, fetch_locations, fetch_explore_sections, search_locations, search_hashtags, search_music, search_by_coordinates, general_search, search_hashtags, general_search |
+| **Tools & Utilities** | 转换, 短码, 媒体ID, 提取, convert, shortcode, media_id, extract, url | `references/api-tools.md` |  |
+| **Deep Dive** | 全面分析, 深度分析, 综合报告, full analysis | Multiple files | Multi-endpoint orchestration |
+
+**Rules:**
+- If uncertain, default to **User Data**.
+- For **Deep Dive**, read reference files incrementally.
+
+### Step 3: Classify Action Mode
+
+| Mode | Signal | Behavior |
+|---|---|---|
+| **Browse** | "搜", "找", "看看", "search", "find", "show me" | Single query, return results + summary |
+| **Analyze** | "分析", "趋势", "why", "analyze", "trend" | Query + structured analysis |
+| **Compare** | "对比", "vs", "区别", "compare" | Multiple queries, side-by-side comparison |
+
+### Step 4: Plan & Execute
+
+#### Pattern A: "分析Instagram用户"
+
+1. 搜索用户 → search_users → 找到目标用户
+2. 获取资料 → fetch_user_info → 用户详细信息
+3. 获取帖子 → fetch_user_posts → 帖子列表
+
+#### Pattern B: "分析帖子互动"
+
+1. 获取详情 → fetch_post_info → 帖子详情
+2. 获取评论 → fetch_post_comments → 评论列表
+3. 获取点赞 → fetch_post_likes → 点赞列表
+
+**Execution rules:**
+- Execute all planned queries autonomously.
+- Run independent queries in parallel when possible.
+- If a step fails with 403, skip it and note the limitation.
+- If a step fails with 502, retry once.
+- If a step returns empty data, say so honestly.
+
+### Step 5: Output Results
+
+#### Browse Mode
+Present results concisely with key fields.
+
+#### Analyze Mode
+Tables for rankings, bullet points for insights. End with **Key findings**.
+
+#### Compare Mode
+Side-by-side table + differential insights.
+
+### Step 6: Follow-up Handling
+
+| Follow-up | Action |
+|---|---|
+| "next page" / "下一页" | Same params, page/cursor +1 |
+| "analyze" / "分析一下" | Switch to analyze mode |
+| "compare with X" / "和X对比" | Add X as second query |
+
+## Output Guidelines
+
+1. **Language consistency** — ALL output matches user's detected language.
+2. **Markdown links** — All URLs in `[text](url)` format.
+3. **Humanize numbers** — English: K/M/B. Chinese: 万/亿.
+4. **End with next-step hints** — Contextual suggestions.
+5. **Data-driven** — Base conclusions on actual API data.
+6. **Credential handling** — Keep API key values out of output.
+7. **Strip HTML tags** — API may return HTML in name fields.
+## 🎯 适配场景
+
+### 场景一：品牌社媒监测
+- **应用环境**：品牌方监控Instagram上的品牌提及和用户内容
+- **用户需求**：追踪品牌标签下的用户生成内容和互动数据
+- **使用流程**：搜索品牌标签 → 获取相关帖子 → 分析互动数据 → 评估传播效果
+- **预期效果**：实时掌握品牌在Instagram上的声量和用户反馈
+
+### 场景二：网红营销分析
+- **应用环境**：营销团队评估Instagram网红的合作价值
+- **用户需求**：分析网红粉丝质量、内容表现和商业合作历史
+- **使用流程**：搜索目标网红 → 获取用户详情 → 分析帖子数据 → 评估互动率
+- **预期效果**：筛选出高ROI的网红合作对象
+
+### 场景三：视觉内容灵感
+- **应用环境**：内容创作者寻找Instagram上的创意灵感
+- **用户需求**：发现热门视觉内容和创作趋势
+- **使用流程**：搜索目标主题 → 获取高互动帖子 → 分析内容特征 → 提取创意元素
+- **预期效果**：为内容创作提供数据驱动的灵感参考
+
+## Error Handling
+
+| Error | Response |
+|---|---|
+| 400 Bad Request | "参数错误 / Bad request parameters" |
+| 401 Unauthorized | "API Key 无效 / API Key is invalid" |
+| 403 Forbidden | "权限不足 / Insufficient permissions" |
+| 404 Not Found | "未找到数据 / Data not found" |
+| 429 Rate Limit | "请求过快 / Too many requests" |
+| 500 Server Error | "服务器不可用 / Server unavailable" |
+| Empty results | "未找到数据，建议放宽条件 / No data, try broader params" |

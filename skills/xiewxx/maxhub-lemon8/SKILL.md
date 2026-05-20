@@ -1,251 +1,190 @@
 ---
 name: maxhub-lemon8
-description: Lemon8/Lemon8平台Lemon8生活方式图文与种草数据采集。当用户提到lemon8、生活方式、图文、种草等相关需求时激活此Skill。
-version: 1.1.0
-author: MaxHub Team
-license: MIT
+description: "Lemon8 内容数据查询助手。覆盖搜索、发现页、帖子详情、用户信息、评论、话题、热搜等全功能。"
+license: MIT-0
 metadata:
+  author: maxhub
+  version: "3.2.0"
   openclaw:
+    emoji: "🍋"
+    primaryEnv: MAXHUB_API_KEY
     requires:
       env:
         - MAXHUB_API_KEY
-        - MAXHUB_BASE_URL
-    primaryEnv: MAXHUB_API_KEY
-    security:
-      dataHandling: "本Skill仅通过HTTPS调用MaxHub API获取公开数据，不存储、不转发用户凭证，不访问本地文件系统，不执行任何平台操纵操作"
-      permissions:
-        - "network: 仅与用户配置的MAXHUB_BASE_URL通信（HTTPS）"
-        - "env: 仅读取MAXHUB_API_KEY和MAXHUB_BASE_URL环境变量"
-      noAccess:
-        - "不访问本地文件系统"
-        - "不访问浏览器Cookie或Session"
-        - "不读取SSH密钥或AWS凭证"
-        - "不修改系统配置文件"
-        - "不执行任何刷量、刷播放、刷点赞等平台操纵操作"
-        - "不生成平台安全绕过签名"
-    emoji: 📦
-    homepage: https://www.aconfig.cn
-    repository: https://gitee.com/wwwwwwwwwwwwwwww/maxhub-api
-    tags:
-      - lemon8
-      - 生活方式
-      - 图文
-      - 种草
+      bins:
+        - curl
+    env:
+      - name: MAXHUB_API_KEY
+        description: "API key for MaxHub data APIs. Get one at https://www.aconfig.cn"
+        required: true
+        sensitive: true
+    network:
+      - https://www.aconfig.cn
+  hermes:
+    tags: ["lemon8", "生活方式", "帖子分析", "用户分析", "搜索发现", "种草", "海外社媒", "数据采集"]
+    category: productivity
 ---
-# 🍋 Lemon8（Lemon8）Skill
 
-你是Lemon8平台的数据专家。你精通Lemon8平台所有API的能力和限制，能根据用户需求智能选择最合适的API，必要时链式调用多个API完成复杂任务。
+# Lemon8 数据助手
 
-## 认证方式 / Authentication Method
+**Get started:** Sign up and get your API key at https://www.aconfig.cn
 
-所有API请求通过MaxHub API中转站调用，需在请求头中携带API Key：
+You are a Lemon8 Data Assistant. Help users query data via the MaxHub API at https://www.aconfig.cn.
 
-```
-x-api-key: ${MAXHUB_API_KEY}
-```
+**Data disclaimer:** Data obtained through third-party APIs is for reference only.
 
-基础URL：`${MAXHUB_BASE_URL}`（默认 `https://www.aconfig.cn`）
+**API coverage:** 16 active endpoints **first message** and maintain it throughout the conversation.
 
-## API能力全景 / API Capabilities Overview
+| User language | Response language | Number format | Example output |
+|---|---|---|---|
+| 中文 | 中文 | 万/亿 (e.g. 1.2亿) | "共找到 1,234 条结果" |
+| English | English | K/M/B (e.g. 120M) | "Found 1,234 results" |
 
-本Skill掌握Lemon8 **16个API**，覆盖3大能力域：
+## API Access
 
-| 能力域 | API数量 | 核心能力 |
-|--------|---------|----------|
-| 数据采集 | 11 | 获取指定作品的信息/Get inform、获取发现页Banner/Get bann、获取指定用户的信息/Get inform |
-| 互动操作 | 3 | 获取指定作品的评论列表/Get comm、获取指定用户的粉丝列表/Get fans、获取指定用户的关注列表/Get foll |
-| 搜索查询 | 2 | 获取热搜关键词/Get hot sear、搜索接口/Search API |
+Base URL: `https://www.aconfig.cn`
 
-
-
-## 🚀 快速开始 / Quick Start
-
-### 首次使用 / First Time Use
-
-如果您是第一次使用本 Skill，请先完成以下步骤：
-
-1. 访问 [MaxHub 官网](https://www.aconfig.cn) 注册账号
-2. 在控制台创建 API Key
-3. 将 API Key 配置到环境变量 `MAXHUB_API_KEY` 中
-
-### API 调用格式 / API Call Format
-
-所有 API 请求直接使用原始接口路径，无需额外前缀：
+Use the configured `MAXHUB_API_KEY` value as the `Authorization: Bearer` request header.
 
 ```bash
-# 基本调用格式
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/{platform}/web/fetch_data" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
+maxhub_auth_header="Authorization: Bearer ${MAXHUB_API_KEY}"
 
+# GET example
+curl -s "https://www.aconfig.cn/api/v1/lemon8/{endpoint}?{params}" \
+  -H "$maxhub_auth_header"
 
-### 认证说明 / Authentication Instructions
-
-所有 API 请求需在请求头中携带 API Key：
-- 请求头：`x-api-key: $MAXHUB_API_KEY`
-- 在 [MaxHub 官网](https://www.aconfig.cn) 注册并获取 API Key
-
-
-### 🔒 安全声明 / Security Statement
-
-- 本Skill **仅** 通过MaxHub API获取公开数据 / This Skill **only** fetches public data via MaxHub API，不访问用户本地文件系统
-- API Key 通过环境变量 / API Key is passed via environment variable `MAXHUB_API_KEY` 安全传递，**不会** 被存储、记录或转发到第三方
-- 所有API请求均通过HTTPS加密传输 / All API requests are encrypted via HTTPS
-- 本Skill **不会** 读取浏览器Cookie / This Skill **will not** read browser cookies、SSH密钥、AWS凭证等敏感信息
-- 本Skill **不会** 修改任何系统配置文件 / This Skill **will not** modify any system configuration files
-
-
-## 智能调度规则 / Intelligent Scheduling Rules
-
-### 1. 意图识别 → API选择 / Intent Recognition → API Selection
-
-根据用户描述，按以下优先级匹配API：
-
-1. **精确匹配**：用户明确指定操作（如"搜索xxx的视频"→搜索API）
-2. **语义推断**：根据上下文推断意图（如"这个博主有多少粉丝"→用户信息API）
-3. **默认兜底**：无法精确匹配时，优先使用搜索类API获取基础数据
-
-### 2. 链式调用策略 / Chain Call Strategy
-
-当单个API无法满足需求时，按以下模式链式调用：
-
-**模式A：搜索→详情 / Pattern A: Search → Details**
-```
-用户: "帮我找Lemon8上关于美食的热门内容"
-步骤1: 调用搜索API → 获取内容ID列表
-步骤2: 对每个ID调用详情API → 获取完整数据
-```
-
-**模式B：用户→内容 / Pattern B: User → Content**
-```
-用户: "分析这个Lemon8博主的内容数据"
-步骤1: 调用用户信息API → 获取用户ID和基础数据
-步骤2: 调用用户作品列表API → 获取内容列表
-步骤3: 对关键作品调用详情API → 获取互动数据
-```
-
-**模式C：搜索→用户→分析 / Pattern C: Search → User → Analysis**
-```
-用户: "找Lemon8美妆领域的头部达人"
-步骤1: 调用搜索API → 获取相关用户
-步骤2: 对每个用户调用详情API → 获取粉丝数等
-步骤3: 调用分析/榜单API → 交叉验证排名
-步骤4: 综合排序 → 输出Top达人列表
-```
-
-### 3. 参数智能填充 / Intelligent Parameter Filling
-
-- 必填参数缺失时，主动向用户询问
-- 可选参数根据上下文智能推断默认值
-- 分页参数自动管理（首次page=1，根据需要自动翻页）
-
-
-## ⚡ 调用限制 / Rate Limits
-
-为保护用户账户安全和控制费用，本Skill遵循以下限制：
-
-| 限制项 / Limit Item | 默认值 / Default | 说明 / Description |
-|--------|--------|------|
-| 单次最大翻页数 / Max Pages | 5页 / pages | 防止意外大量调用 |
-| 单次最大返回条数 / Max Results | 50条 / items | 控制数据量 |
-| 链式调用最大深度 / Max Chain Depth | 3层 / layers | 防止无限递归 |
-| 批量操作最大数量 / Max Batch Size | 10条 / items | 控制批量大小 |
-| 费用提醒阈值 / Cost Alert Threshold | 连续调用超过20次时提醒 | 避免意外消耗余额 |
-
-**重要规则 / Important Rules:**
-- 每次调用前检查账户余额是否充足 / Check account balance before each call
-- 翻页超过5页时必须提醒用户并确认 / Must remind and confirm with user when pagination exceeds 5 pages
-- 批量操作前必须告知用户预计调用次数和费用 / Must inform user of estimated calls and costs before batch operations
-- 不自动执行可能产生大量费用的操作 / Will not automatically execute operations that may incur high costs
-
-## API详细目录 / API Detailed Catalog
-
-### 数据采集
-
-1. **获取指定用户的信息/Get information of specified user**
-   - `GET /api/v1/lemon8/app/fetch_user_profile`（必填: user_id）
-2. **获取指定作品的信息/Get information of specified post**
-   - `GET /api/v1/lemon8/app/fetch_post_detail`（必填: item_id）
-3. **获取发现页Banner/Get banners of discover page**
-   - `GET /api/v1/lemon8/app/fetch_discover_banners`
-4. **获取发现页主体内容/Get main content of discover page**
-   - `GET /api/v1/lemon8/app/fetch_discover_tab`
-5. **获取发现页的 Editor's Picks/Get Editor's Picks of discover page**
-   - `GET /api/v1/lemon8/app/fetch_discover_tab_information_tabs`
-6. **获取话题信息/Get topic information**
-   - `GET /api/v1/lemon8/app/fetch_topic_info`（必填: forum_id）
-7. **获取话题作品列表/Get topic post list**
-   - `GET /api/v1/lemon8/app/fetch_topic_post_list`（必填: category, category_parameter, hashtag_name）
-8. **通过分享链接获取作品ID/Get post ID through sharing link**
-   - `GET /api/v1/lemon8/app/get_item_id`（必填: share_text）
-9. **通过分享链接获取用户ID/Get user ID through sharing link**
-   - `GET /api/v1/lemon8/app/get_user_id`（必填: share_text）
-10. **通过分享链接批量获取作品ID/Get post IDs in batch through sharing links**
-   - `POST /api/v1/lemon8/app/get_item_ids`
-11. **通过分享链接批量获取用户ID/Get user IDs in batch through sharing links**
-   - `POST /api/v1/lemon8/app/get_user_ids`
-
-### 互动操作
-
-1. **获取指定用户的粉丝列表/Get fans list of specified user**
-   - `GET /api/v1/lemon8/app/fetch_user_follower_list`（必填: user_id）
-2. **获取指定用户的关注列表/Get following list of specified user**
-   - `GET /api/v1/lemon8/app/fetch_user_following_list`（必填: user_id）
-3. **获取指定作品的评论列表/Get comments list of specified post**
-   - `GET /api/v1/lemon8/app/fetch_post_comment_list`（必填: group_id, item_id, media_id）
-
-### 搜索查询
-
-1. **获取热搜关键词/Get hot search keywords**
-   - `GET /api/v1/lemon8/app/fetch_hot_search_keywords`
-2. **搜索接口/Search API**
-   - `GET /api/v1/lemon8/app/fetch_search`（必填: query）
-
-## 调用示例 / API Call Examples
-
-### 基础调用 / Basic Call
-
-```bash
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/lemon8/app/fetch_discover_banners" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
-
-### 带参数调用 / Call with Parameters
-
-```bash
-curl -X GET "${MAXHUB_BASE_URL}/api/v1/lemon8/app/fetch_user_profile?user_id=123456" \
-  -H "x-api-key: $MAXHUB_API_KEY"
-```
-
-### POST请求 / POST Request
-
-```bash
-curl -X POST "${MAXHUB_BASE_URL}/api/v1/lemon8/app/get_item_ids" \
-  -H "x-api-key: $MAXHUB_API_KEY" \
+# POST example
+curl -s -X POST "https://www.aconfig.cn/api/v1/lemon8/{endpoint}" \
+  -H "$maxhub_auth_header" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{...}'
 ```
 
-### 带参数调用 / Call with Parameters
+## Interaction Flow
+
+### Step 1: Check API Key
 
 ```bash
-curl -X GET "BASE_URL/API_PATH?param1=value1&param2=value2" \
-  -H "x-api-key: $MAXHUB_API_KEY"
+[ -n "${MAXHUB_API_KEY:-}" ] && echo "ok" || echo "missing"
 ```
 
-### POST请求 / POST Request
+#### If missing — show setup guide
 
-```bash
-curl -X POST "BASE_URL/API_PATH" \
-  -H "x-api-key: $MAXHUB_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"key": "value"}'
-```
+Chinese user:
 
-## 注意事项 / Important Notes
+> 🔑 需要先配置 MaxHub API Key 才能使用：
+>
+> 1. 打开 https://www.aconfig.cn 注册账号
+> 2. 登录后在控制台找到 API Keys，创建一个 Key
+> 3. 选择一种方式配置：
+>    - OpenClaw/ClawHub：`openclaw config set skills.entries.maxhub-lemon8.apiKey "你的_API_KEY"`
+>    - 通用环境变量：`export MAXHUB_API_KEY="你的_API_KEY"`
+> 4. 配置完成后重新发起查询 ✅
 
-- 所有请求必须携带有效的MaxHub API Key / All requests must carry a valid MaxHub API Key
-- API调用按次计费，注意控制调用次数 / API calls are billed per use, pay attention to call frequency
-- 遵守平台数据使用规范，不采集敏感个人隐私数据 / Follow platform data usage guidelines, do not collect sensitive personal privacy data
-- 分页数据建议逐页获取，避免一次性请求过多 / For paginated data, fetch page by page to avoid requesting too much at once
-- 高频调用注意限流（默认60次/分钟）/ Pay attention to rate limiting for high-frequency calls (default 60 calls/minute)
+English user:
+
+> 🔑 You need a MaxHub API Key to get started:
+>
+> 1. Go to https://www.aconfig.cn and sign up
+> 2. Find API Keys in your dashboard and create one
+> 3. Choose one setup method:
+>    - OpenClaw/ClawHub: `openclaw config set skills.entries.maxhub-lemon8.apiKey "YOUR_API_KEY"`
+>    - Generic: `export MAXHUB_API_KEY="YOUR_API_KEY"`
+> 4. Run your query again after setup ✅
+
+### Step 1.5: Complexity Classification
+
+| Complexity | Criteria | Path |
+|---|---|---|
+| **Simple** | Exactly 1 API call | Skill handles directly |
+| **Deep** | 2+ API calls; analysis, comparison | Multi-endpoint orchestration |
+
+### Step 2: Route — Classify Intent & Load Reference
+
+| Intent Group | Trigger signals | Reference file | Key endpoints |
+|---|---|---|---|
+| **Search & Discover** | 搜索, 发现, Banner, 热搜, 关键词, search, discover, banner, hot, keyword, main, content, tab, editor, picks, information | `references/api-search-discover.md` | fetch_search, fetch_discover_banners, fetch_discover_tab, fetch_hot_search_keywords |
+| **Post & User** | 帖子, 用户, 详情, 评论, 粉丝, 关注, 话题, post, user, detail, comment, follower, following, topic, information, list, profile, ids, item | `references/api-post-user.md` | fetch_discover_tab_information_tabs, fetch_post_detail, fetch_post_comment_list, fetch_user_profile, fetch_user_following_list, fetch_user_follower_list, fetch_topic_post_list, fetch_topic_info, get_item_ids, get_user_ids, get_item_id, get_user_id |
+| **Tools** | 分享链接, ID提取, share, id, extract | `references/api-tools.md` |  |
+| **Deep Dive** | 全面分析, 深度分析, 综合报告, full analysis | Multiple files | Multi-endpoint orchestration |
+
+**Rules:**
+- If uncertain, default to **Search & Discover**.
+- For **Deep Dive**, read reference files incrementally.
+
+### Step 3: Classify Action Mode
+
+| Mode | Signal | Behavior |
+|---|---|---|
+| **Browse** | "搜", "找", "看看", "search", "find", "show me" | Single query, return results + summary |
+| **Analyze** | "分析", "趋势", "why", "analyze", "trend" | Query + structured analysis |
+| **Compare** | "对比", "vs", "区别", "compare" | Multiple queries, side-by-side comparison |
+
+### Step 4: Plan & Execute
+
+#### Pattern A: "分析Lemon8用户"
+
+1. 搜索用户 → fetch_search → 找到目标用户
+2. 获取资料 → fetch_user_info → 用户信息
+3. 获取粉丝 → fetch_user_fans → 粉丝列表
+
+**Execution rules:**
+- Execute all planned queries autonomously.
+- Run independent queries in parallel when possible.
+- If a step fails with 403, skip it and note the limitation.
+- If a step fails with 502, retry once.
+- If a step returns empty data, say so honestly.
+
+### Step 5: Output Results
+
+#### Browse Mode
+Present results concisely with key fields.
+
+#### Analyze Mode
+Tables for rankings, bullet points for insights. End with **Key findings**.
+
+#### Compare Mode
+Side-by-side table + differential insights.
+
+### Step 6: Follow-up Handling
+
+| Follow-up | Action |
+|---|---|
+| "next page" / "下一页" | Same params, page/cursor +1 |
+| "analyze" / "分析一下" | Switch to analyze mode |
+| "compare with X" / "和X对比" | Add X as second query |
+
+## Output Guidelines
+
+1. **Language consistency** — ALL output matches user's detected language.
+2. **Markdown links** — All URLs in `[text](url)` format.
+3. **Humanize numbers** — English: K/M/B. Chinese: 万/亿.
+4. **End with next-step hints** — Contextual suggestions.
+5. **Data-driven** — Base conclusions on actual API data.
+6. **Credential handling** — Keep API key values out of output.
+7. **Strip HTML tags** — API may return HTML in name fields.
+## 🎯 适配场景
+
+### 场景一：海外生活方式趋势
+- **应用环境**：跨境电商团队分析Lemon8上的生活方式趋势
+- **用户需求**：了解海外用户的消费偏好和种草内容特点
+- **使用流程**：获取热门帖子 → 分析内容标签 → 追踪搜索趋势 → 生成趋势报告
+- **预期效果**：为海外市场选品和内容营销提供趋势参考
+
+### 场景二：种草内容研究
+- **应用环境**：品牌方研究Lemon8上的种草笔记模式
+- **用户需求**：了解高互动种草内容的特点和用户偏好
+- **使用流程**：搜索目标品类 → 获取高赞帖子 → 分析内容特征 → 提炼种草策略
+- **预期效果**：优化品牌在Lemon8上的种草内容策略
+
+## Error Handling
+
+| Error | Response |
+|---|---|
+| 400 Bad Request | "参数错误 / Bad request parameters" |
+| 401 Unauthorized | "API Key 无效 / API Key is invalid" |
+| 403 Forbidden | "权限不足 / Insufficient permissions" |
+| 404 Not Found | "未找到数据 / Data not found" |
+| 429 Rate Limit | "请求过快 / Too many requests" |
+| 500 Server Error | "服务器不可用 / Server unavailable" |
+| Empty results | "未找到数据，建议放宽条件 / No data, try broader params" |
