@@ -57,11 +57,11 @@ MARKETS: dict[str, dict[str, Any]] = {
         "source_url": "https://raw.githubusercontent.com/openclaw/clawhub/main/docs/cli.md",
         "submit_url": None,
         "verify": "Use CLI output and the destination workspace listing; no stable public status API is documented here.",
-        "notes": "Official CLI documents skill publish <path> and sync.",
+        "notes": "Installed CLI variants differ. This adapter probes the current CLI help and uses the supported publish command shape.",
         "recon": [
             {
                 "url": "https://raw.githubusercontent.com/openclaw/clawhub/main/docs/cli.md",
-                "markers": ["### `skill publish <path>`", "### `sync`"],
+                "markers": ["### `publish <path>`", "### `sync`"],
             }
         ],
     },
@@ -223,14 +223,14 @@ MARKETS: dict[str, dict[str, Any]] = {
     },
     "skills-re": {
         "title": "skills.re",
-        "mode": "manual-web",
+        "mode": "auto-http",
         "status": "verified",
-        "auth": "Public submit surface visible",
+        "auth": "None",
         "requires": ["repo_url"],
         "source_url": "https://skills.re/submit",
-        "submit_url": "https://skills.re/submit",
-        "verify": "Use the public site listing after submit.",
-        "notes": "Submit-page copy mentions a repo-root skills/ folder, but live preview and public read APIs can still accept some root-pack repositories. Verify backend behavior before forcing a publish mirror.",
+        "submit_url": "https://skills.re/api/rpc/skills/submitGithubRepoPublic",
+        "verify": "Use the public author and skill pages or the public read APIs under https://skills.re/api/rpc/.",
+        "notes": "Public ORPC endpoints support repo preview and anonymous submit. Review both the preview request and the derived submit template first, then execute only when fetchRepo returns the exact target skillRootPath.",
         "recon": [
             {
                 "url": "https://skills.re/submit",
@@ -646,6 +646,21 @@ def github_owner_url(repo_url: str | None) -> str | None:
     return f"https://github.com/{owner}"
 
 
+def github_owner_handle(repo_url: str | None) -> str | None:
+    parts = github_repo_parts(repo_url)
+    if not parts:
+        return None
+    owner, _repo = parts
+    return owner
+
+
+def preferred_author_name(author_name: str | None, repo_url: str | None) -> str | None:
+    explicit = author_name.strip() if author_name else ""
+    if explicit:
+        return explicit
+    return github_owner_handle(repo_url)
+
+
 def github_skill_urls(repo_url: str | None, git_ref: str | None, relative_skill_dir: str) -> dict[str, str | None]:
     if not repo_url or not git_ref:
         return {"skill_url": None, "raw_skill_url": None}
@@ -725,13 +740,16 @@ def build_context(args: argparse.Namespace) -> dict[str, Any]:
     repo_url = clean_repo_url(getattr(args, "repo_url", None))
     tags = unique_tags(getattr(args, "tags", []) or [])
     summary_source = getattr(args, "summary", None) or skill.overview or skill.description
+    author_name = preferred_author_name(getattr(args, "author_name", None), repo_url)
     urls = github_skill_urls(repo_url, getattr(args, "git_ref", None), skill.relative_skill_dir)
+    skill_dir_url = github_tree_url(repo_url, getattr(args, "git_ref", None), skill.relative_skill_dir) or repo_url
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "skill": asdict(skill),
         "repo": {
             "repo_url": repo_url,
             "git_ref": getattr(args, "git_ref", None),
+            "skill_dir_url": skill_dir_url,
             "skill_url": urls["skill_url"],
             "raw_skill_url": urls["raw_skill_url"],
         },
@@ -741,7 +759,7 @@ def build_context(args: argparse.Namespace) -> dict[str, Any]:
             "overview": skill.overview,
             "tags": tags,
             "version": getattr(args, "version", None),
-            "author_name": getattr(args, "author_name", None),
+            "author_name": author_name,
             "author_email": getattr(args, "author_email", None),
             "image_url": getattr(args, "image_url", None),
             "skillz_category": getattr(args, "skillz_category", None),
@@ -814,6 +832,7 @@ def print_inspect(context: dict[str, Any], json_mode: bool) -> None:
     print(f"Relative skill dir: {skill['relative_skill_dir']}")
     print(f"Repo URL: {repo['repo_url'] or '(none)'}")
     print(f"Skill URL: {repo['skill_url'] or '(none)'}")
+    print(f"Author / submitter: {submission['author_name'] or '(none)'}")
     print(f"Summary: {submission['summary']}")
 
 
@@ -911,6 +930,27 @@ def build_skillsmd_payload(context: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def build_skills_re_fetch_payload(context: dict[str, Any]) -> dict[str, Any]:
+    repo_url = context["repo"]["repo_url"]
+    if not repo_url:
+        raise ValueError("skills-re requires --repo-url.")
+    return {"json": {"githubUrl": repo_url}}
+
+
+def build_skills_re_submit_payload(context: dict[str, Any], skill_root_paths: list[str]) -> dict[str, Any]:
+    repo_parts = github_repo_parts(context["repo"]["repo_url"])
+    if not repo_parts:
+        raise ValueError("skills-re requires a GitHub repository URL.")
+    owner, repo = repo_parts
+    return {
+        "json": {
+            "owner": owner,
+            "repo": repo,
+            "skillRootPaths": skill_root_paths,
+        }
+    }
+
+
 def build_bogen_payload(context: dict[str, Any]) -> dict[str, Any]:
     submission = context["submission"]
     missing = [field for field in ("author_name", "author_email", "bogen_category") if not submission[field]]
@@ -948,7 +988,7 @@ def build_skillsrep_payload(context: dict[str, Any]) -> dict[str, str]:
         ]
     )
     tags = submission["tags"] or [context["skill"]["name"]]
-    creator_name = submission["author_name"] or (github_repo_parts(repo_url)[0] if github_repo_parts(repo_url) else "")
+    creator_name = submission["author_name"] or github_owner_handle(repo_url) or ""
     creator_url = github_owner_url(repo_url) or repo_url
     return {
         "name": context["skill"]["name"],
@@ -965,21 +1005,51 @@ def build_skillsrep_payload(context: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def detect_clawhub_publish_prefix(clawhub_bin: str) -> list[str]:
+    candidates = [
+        (["publish"], ["publish", "--help"]),
+        (["skill", "publish"], ["skill", "publish", "--help"]),
+    ]
+    for prefix, probe in candidates:
+        try:
+            result = subprocess.run(
+                [clawhub_bin, *probe],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            raise ValueError(f"clawhub executable not found: {clawhub_bin}") from exc
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError(f"clawhub help probe timed out: {' '.join([clawhub_bin, *probe])}") from exc
+        if result.returncode == 0 and "Usage:" in (result.stdout or ""):
+            return [clawhub_bin, *prefix]
+    raise ValueError("Could not detect a supported ClawHub publish command from the installed CLI help.")
+
+
 def build_clawhub_command(context: dict[str, Any], args: argparse.Namespace) -> list[str]:
     version = context["submission"]["version"]
     if not version:
         raise ValueError("clawhub requires --version.")
-    return [args.clawhub_bin, "skill", "publish", context["skill"]["path"], "--version", version]
+    command_prefix = detect_clawhub_publish_prefix(args.clawhub_bin)
+    return [*command_prefix, context["skill"]["path"], "--version", version]
 
 
 def manual_notes(context: dict[str, Any], plan: list[dict[str, Any]]) -> str:
     repo_url = context["repo"]["repo_url"] or "(set --repo-url first)"
+    skill_dir_url = context["repo"].get("skill_dir_url") or repo_url
     skill_url = context["repo"]["skill_url"] or "(set --repo-url and --git-ref first)"
+    raw_skill_url = context["repo"]["raw_skill_url"] or "(set --repo-url and --git-ref first)"
+    author_name = context["submission"]["author_name"] or "(set --author-name or use a GitHub --repo-url)"
     lines = [
         "# Manual Submission Notes",
         "",
         f"- Repository URL: {repo_url}",
+        f"- Skill Folder URL: {skill_dir_url}",
         f"- SKILL.md URL: {skill_url}",
+        f"- Raw SKILL.md URL: {raw_skill_url}",
+        f"- Preferred author / submitter: {author_name}",
         f"- Repo layout: {context['skill']['repo_layout']}",
         "",
     ]
@@ -1020,6 +1090,11 @@ def write_bundle(context: dict[str, Any], plan: list[dict[str, Any]], out_dir: P
         "agentskill-sh.json": lambda: build_agentskill_sh_payload(context),
         "skillz-directory.json": lambda: build_skillz_payload(context),
         "skillstore-io.json": lambda: build_skillstore_payload(context),
+        "skills-re.fetch.json": lambda: build_skills_re_fetch_payload(context),
+        "skills-re.submit.template.json": lambda: build_skills_re_submit_payload(
+            context,
+            [context["skill"]["relative_skill_dir"]],
+        ),
         "skillsmd-dev.json": lambda: build_skillsmd_payload(context),
         "bogen-ai.json": lambda: build_bogen_payload(context),
         "skillsrep.form.json": lambda: build_skillsrep_payload(context),
@@ -1159,6 +1234,37 @@ def submit_skillstore_io(context: dict[str, Any], execute: bool) -> dict[str, An
         dry_run_output("skillstore-io", payload)
         return {"dry_run": True, "payload": payload}
     return post_json(MARKETS["skillstore-io"]["submit_url"], payload)
+
+
+def submit_skills_re(context: dict[str, Any], execute: bool) -> dict[str, Any]:
+    try:
+        fetch_payload = build_skills_re_fetch_payload(context)
+        submit_template = build_skills_re_submit_payload(context, [context["skill"]["relative_skill_dir"]])
+    except ValueError as exc:
+        fail(str(exc))
+    if not execute:
+        dry_run_output("skills-re.fetch", fetch_payload)
+        dry_run_output("skills-re.submit.template", submit_template)
+        return {
+            "dry_run": True,
+            "fetch_payload": fetch_payload,
+            "submit_template": submit_template,
+        }
+
+    fetch_result = post_json("https://skills.re/api/rpc/github/fetchRepo", fetch_payload)
+    fetch_body = fetch_result.get("body", {})
+    repo_json = fetch_body.get("json", {}) if isinstance(fetch_body, dict) else {}
+    skills = repo_json.get("skills", [])
+    target_path = context["skill"]["relative_skill_dir"]
+    matched_paths = [item.get("skillRootPath") for item in skills if item.get("skillRootPath") == target_path]
+    if not matched_paths:
+        fail(f"skills-re fetchRepo did not return target skillRootPath: {target_path}")
+    submit_payload = build_skills_re_submit_payload(context, matched_paths)
+    submit_result = post_json(MARKETS["skills-re"]["submit_url"], submit_payload)
+    return {
+        "fetch": fetch_result,
+        "submit": submit_result,
+    }
 
 
 def submit_skillsmd_dev(context: dict[str, Any], execute: bool) -> dict[str, Any]:
@@ -1309,7 +1415,10 @@ def add_shared_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tag", dest="tags", action="append", default=[], help="Tag to include in the bundle")
     parser.add_argument("--summary", help="Override the generated short summary")
     parser.add_argument("--version", help="Version for versioned markets such as ClawHub")
-    parser.add_argument("--author-name", help="Author or submitter name for markets that require it")
+    parser.add_argument(
+        "--author-name",
+        help="Author or submitter name for markets that require it; defaults to the GitHub owner handle from --repo-url",
+    )
     parser.add_argument("--author-email", help="Contact email for markets that require it")
     parser.add_argument("--image-url", help="Optional image URL for directory submissions")
     parser.add_argument(
@@ -1362,6 +1471,8 @@ def command_publish(args: argparse.Namespace) -> None:
             result = submit_skillz_directory(context, args.execute)
         elif market == "skillstore-io":
             result = submit_skillstore_io(context, args.execute)
+        elif market == "skills-re":
+            result = submit_skills_re(context, args.execute)
         elif market == "skillsmd-dev":
             result = submit_skillsmd_dev(context, args.execute)
         elif market == "bogen-ai":
@@ -1400,7 +1511,7 @@ def build_parser() -> argparse.ArgumentParser:
             """\
             Examples:
               python3 scripts/skill_market_publish.py plan ./my-skill --repo-url https://github.com/owner/repo
-              python3 scripts/skill_market_publish.py bundle ./my-skill --repo-url https://github.com/owner/repo --git-ref main --author-name "Your Name" --author-email you@example.com --skillz-category automation --bogen-category development --a2a-price 5 --a2a-category development --a2a-seller 0xabc --out-dir /tmp/skill-market-bundle
+              python3 scripts/skill_market_publish.py bundle ./my-skill --repo-url https://github.com/owner/repo --git-ref main --author-email you@example.com --skillz-category automation --bogen-category development --a2a-price 5 --a2a-category development --a2a-seller 0xabc --out-dir /tmp/skill-market-bundle
               python3 scripts/skill_market_publish.py publish agentskill-sh ./my-skill --repo-url https://github.com/owner/repo --execute
             """
         ),
@@ -1432,6 +1543,7 @@ def build_parser() -> argparse.ArgumentParser:
             "agentskill-sh",
             "skillz-directory",
             "skillstore-io",
+            "skills-re",
             "skillsmd-dev",
             "bogen-ai",
             "skillsrep",

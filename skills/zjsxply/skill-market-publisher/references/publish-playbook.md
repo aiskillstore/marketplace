@@ -58,6 +58,7 @@ Use these rules:
 Do not guess market-only fields.
 
 - Versioned CLI markets: set an explicit semantic version.
+- Username-like author or submitter fields: prefer the GitHub owner handle derived from the submitted repo URL unless the market explicitly needs a different public identity.
 - Review queues: provide author email only if the official form asks for it.
 - Seller markets: provide price, payout, wallet, or payment product fields only when required.
 - GitHub URL markets: use a stable repo or folder URL and a stable branch.
@@ -91,6 +92,12 @@ Common auth patterns:
   - Safe to automate if the endpoint is public and stable.
 - Logged-in web submit
   - Document the flow, but do not hardcode fragile private browser requests.
+- Logged-in web submit with stable first-party JSON
+  - Some markets expose a stable JSON flow once a normal site session exists.
+  - Prefer the exact create, review, visibility, and publish endpoints the site already uses.
+  - Keep these flows as SOP until the auth contract is wrapped safely in code.
+  - Expect extra state transitions after draft creation, such as `submit_for_review` or an explicit publish call.
+  - Watch for platform-side limits such as total uploaded text size, not just per-file size.
 - Logged-in CLI publish
   - Only wrap the CLI if the command shape is official and stable.
 - GitHub App install
@@ -112,7 +119,14 @@ Before or during submit, prepare a compact listing brief that contains:
 
 This mirrors the most useful public directory pages and makes both manual review and post-submit verification faster.
 
-## 9. Separate Reusable Guidance From Run Logs
+## 9. Open Manual Flows Safely
+
+- If a market is still `manual-web`, prefer opening the official submit page and guiding the user through it over replaying private browser requests.
+- Use `python3 scripts/open_manual_submit_pages.py --repo-url <repo> --git-ref <ref> --skill-path <skill-dir>` to open the tracked pages and print the short operator checklist plus exact URLs to paste.
+- Capture the resulting listing URL, queue URL, or submission page URL before closing the tab.
+- If a market exposes authenticated first-party JSON behind the normal site session, capture both the draft/create response and the final review or publish response. A successful draft alone is not enough.
+
+## 10. Separate Reusable Guidance From Run Logs
 
 Keep this skill reusable.
 

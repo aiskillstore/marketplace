@@ -69,6 +69,7 @@ Good public listing pages do more than repeat the skill description. When a mark
 - visible file inventory or package structure
 - trust signals such as audit score, security status, or known risks
 - publisher identity and ownership links
+- whether the public page or form implies a human action checklist that should be captured in `open_manual_submit_pages.py`
 
 These fields make manual submission packets easier to review and make post-submit verification faster.
 

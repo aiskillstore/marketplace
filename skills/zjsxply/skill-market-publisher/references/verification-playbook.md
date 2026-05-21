@@ -127,8 +127,9 @@ Interpret submit responses before deciding what to verify next:
   - `https://skills.re/author/<handle>`
   - `https://skills.re/skill/<handle>/<repo>/<skill-slug>`
 - Interpretation:
+  - submit response with `skillsCount` equal to the requested `skillRootPaths` count means the backend accepted the scoped submit
   - author API hit plus skill API hit: public
-  - root-pack repo accepted by preview or submit APIs can still be valid even if submit-page copy mentions a repo-root `skills/` directory
+  - root-pack repo accepted by preview or submit APIs can still be valid even if submit-page copy mentions a repo-root `skills/` directory, but only treat it as confirmed after public author or skill reads succeed
   - no public record after submit: pending review, blocked, or surface changed
 
 ### AgentSkillsRepo
@@ -143,15 +144,33 @@ Interpret submit responses before deciding what to verify next:
 
 ### SkillHub
 
-- Best signal: public skills listing plus detail page.
+- Best signal: publish response with a public URL, then the public detail page.
 - Check:
+  - authenticated `GET https://www.skillhub.club/api/user/skills`
+  - authenticated `POST https://www.skillhub.club/api/user/skills/<id>/publish`
   - `https://www.skillhub.club/skills`
-  - expected detail page such as `https://www.skillhub.club/skills/<slug>`
+  - expected detail page such as `https://www.skillhub.club/skills/<owner>-<skill-name>`
 - Optional operator check:
   - authenticated CLI output after `skillhub publish`
 - Interpretation:
+  - `push` success with `visibility=private` and `status=draft`: uploaded, not public
+  - publish response with `public_url`: strongest immediate signal
   - public detail page: listed
   - CLI success but no public page yet: likely pending propagation or publish not completed
+  - the public URL handle can be platform-side account metadata rather than the submitted GitHub owner handle; treat it as market-controlled until the site exposes a verified profile rename path
+
+### mdskills.ai
+
+- Best signal: draft creation plus `submit_for_review`, then public listing after review.
+- Check:
+  - authenticated `POST https://www.mdskills.ai/api/submit`
+  - authenticated `PATCH https://www.mdskills.ai/api/submissions/<id>` with `{"action":"submit_for_review"}`
+  - later public search and listing pages under `https://www.mdskills.ai/skills`
+- Interpretation:
+  - `{success:true,id,slug}`: draft created
+  - successful `submit_for_review`: accepted into the review queue
+  - public listing or search hit: live
+  - submit success without public listing: pending review, not yet public
 
 ### skillshop.sh
 
@@ -193,7 +212,7 @@ Interpret submit responses before deciding what to verify next:
   - missing success flash with a public detail page still counts as success
   - submit response without a redirect or public page: pending review or changed form behavior
 
-### Skills Directory (`skillsdir.dev`), mdskills.ai, Skillery, SkillsZoo, Agent Skills Index, skillscatalog.ai
+### Skills Directory (`skillsdir.dev`), Skillery, SkillsZoo, Agent Skills Index, skillscatalog.ai
 
 - Best signal: public listing or search result on the official site.
 - Use official review queues, detail pages, or search pages if available.
@@ -202,6 +221,7 @@ Interpret submit responses before deciding what to verify next:
   - `login required`
   - `blocked by current platform behavior`
   - `surface changed, needs recon`
+- For SkillsZoo specifically, a backend `500` from the logged-in submit endpoint should be classified as `blocked by current platform behavior`, not as a login failure.
 
 ## Negative Results
 
