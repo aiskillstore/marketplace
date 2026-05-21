@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-04-28T09:15:27.845Z",
+    "generated_at": "2026-05-21T08:25:35.534Z",
     "slug": "browser-act-amazon-reviews-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/ecommerce/amazon-reviews-api-skill",
     "source_ref": "main",
@@ -13,19 +13,19 @@
   },
   "skill": {
     "name": "amazon-reviews-api-skill",
-    "description": "This skill helps users automatically extract Amazon product reviews via the Amazon Reviews API. Agent should proactively apply this skill when users express needs like getting reviews for Amazon product with ASIN B07TS6R1SF, analyzing customer feedback for a specific Amazon item, getting ratings and comments for a competitive product, tracking sentiment of recent Amazon reviews, extracting verified purchase reviews for quality assessment, summarizing user experiences from Amazon product pages, monitoring product performance through customer reviews, collecting reviewer profiles and links for market research, gathering review titles and descriptions for content analysis, scraping Amazon reviews without requiring a login.",
-    "summary": "Extract Amazon product reviews via the BrowserAct API by providing an ASIN.",
-    "icon": "🛒",
+    "description": "Extract Amazon product reviews using the BrowserAct Amazon Reviews API. Provide an ASIN to get structured review data including ratings, review text, verified purchase status, and reviewer profiles without building crawlers or requiring an Amazon account.",
+    "summary": "Automated Amazon product review extraction via BrowserAct API — no captchas, no IP blocks, no hallucinations.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "browser-act",
     "license": "MIT",
     "category": "data",
     "tags": [
       "amazon",
-      "product-reviews",
+      "reviews",
+      "api",
       "data-extraction",
-      "market-research",
-      "sentiment-analysis"
+      "ecommerce"
     ],
     "supported_tools": [
       "claude",
@@ -35,37 +35,21 @@
     "risk_factors": [
       "network",
       "env_access",
-      "scripts"
+      "external_commands"
     ]
   },
   "security_audit": {
     "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static analysis identified network access, environment variable usage, and script execution patterns. After evaluation, these are all legitimate patterns for a data extraction skill. The Python script properly retrieves API credentials from environment variables rather than hardcoding them. Network calls are to the expected BrowserAct API endpoint. The critical heuristic finding is a false positive triggered by the combination of env_access and network patterns, which are appropriate for this skill type.",
+    "summary": "Static analysis flagged 49 patterns across 2 files (186 lines). After semantic review, all flagged patterns are either legitimate API wrapper behavior or false positives from markdown documentation. Network requests go exclusively to the documented BrowserAct API endpoint (api.browseract.com). Environment variable access is limited to BROWSERACT_API_KEY for API authentication. External command patterns in SKILL.md are markdown code blocks, not actual shell execution. No obfuscation, no data exfiltration, no suspicious endpoints detected. The critical heuristic combining code execution, network, and credential access was dismissed as the expected and documented behavior of this API wrapper skill.",
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "External Command Documentation in SKILL.md",
-        "description": "The SKILL.md contains backtick syntax examples showing script invocation commands. These are documentation examples in code blocks, not actual command execution risks.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 64
-          }
-        ],
-        "confidence": 0.35,
-        "confidence_reasoning": "Backtick patterns in SKILL.md are within code block fences showing example commands. No actual command injection vectors found in the skill files.",
-        "verdict": "false_positive",
-        "reasoning": "The backtick syntax is standard markdown for code examples. The skill instructs Claude to execute a specific Python script with a single ASIN argument, which is the intended use case."
-      }
-    ],
+    "medium_findings": [],
     "low_findings": [
       {
-        "title": "Network Access to BrowserAct API",
-        "description": "Python script makes HTTP requests to api.browseract.com endpoint.",
+        "title": "Network Requests to External API",
+        "description": "The Python script makes HTTP requests to api.browseract.com for workflow execution, status polling, and result retrieval. These are documented, legitimate API calls to the BrowserAct service that the skill is designed to wrap. All URLs are hardcoded to the official BrowserAct domain.",
         "locations": [
           {
             "file": "scripts/amazon_reviews_api.py",
@@ -86,42 +70,125 @@
             "file": "scripts/amazon_reviews_api.py",
             "line_start": 72,
             "line_end": 72
-          },
-          {
-            "file": "scripts/amazon_reviews_api.py",
-            "line_start": 96,
-            "line_end": 96
           }
-        ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Network calls are to hardcoded BrowserAct API endpoint for legitimate review extraction purpose.",
-        "verdict": "true_positive",
-        "reasoning": "Network access is expected for this skill type. The hardcoded URL points to the BrowserAct service, not external third-party services. Data flows to the user through the API response."
+        ]
       },
       {
-        "title": "Environment Variable Access for API Key",
-        "description": "Script retrieves BROWSERACT_API_KEY from environment variables.",
+        "title": "API Key via Environment Variable",
+        "description": "The script reads BROWSERACT_API_KEY from environment variables using os.getenv() for Bearer token authentication. This is standard practice for API key management. The key is transmitted only to api.browseract.com and never logged or exfiltrated elsewhere.",
         "locations": [
+          {
+            "file": "scripts/amazon_reviews_api.py",
+            "line_start": 17,
+            "line_end": 18
+          },
           {
             "file": "scripts/amazon_reviews_api.py",
             "line_start": 87,
             "line_end": 87
+          },
+          {
+            "file": "scripts/amazon_reviews_api.py",
+            "line_start": 103,
+            "line_end": 103
           }
-        ],
-        "confidence": 0.98,
-        "confidence_reasoning": "Secure pattern - API key is retrieved from environment, never hardcoded in source code.",
-        "verdict": "false_positive",
-        "reasoning": "Using os.getenv() to retrieve API credentials from environment is a security best practice, not a vulnerability. The static analyzer incorrectly flagged this as 'Generic API/secret keys' access. This pattern prevents credentials from being stored in source code."
+        ]
       },
       {
-        "title": "API Response Parsing",
-        "description": "Script checks for task IDs and error messages in API responses.",
+        "title": "Python Script Execution via Shell",
+        "description": "The SKILL.md instructs the agent to execute a Python script via bash command. This is the standard skill execution pattern. The ASIN argument is passed as a JSON payload value, not interpolated into shell commands, eliminating command injection risk.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 35,
+            "line_end": 38
+          }
+        ]
+      },
+      {
+        "title": "Documentation URLs to External Site",
+        "description": "SKILL.md and the Python script print URLs pointing users to browseract.com for API key setup. These are informational links in documentation and error messages, not data exfiltration.",
         "locations": [
           {
             "file": "scripts/amazon_reviews_api.py",
-            "line_start": 34,
-            "line_end": 34
+            "line_start": 96,
+            "line_end": 96
           },
+          {
+            "file": "SKILL.md",
+            "line_start": 22,
+            "line_end": 22
+          }
+        ]
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Markdown Backtick False Positives",
+        "description": "Static analyzer flagged 18 backtick patterns in SKILL.md as shell execution. These are markdown code blocks and inline code formatting in documentation, not actual command execution. All 18 detections across lines 20-64 are false positives.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 28,
+            "line_end": 30
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 35,
+            "line_end": 38
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 57
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 63,
+            "line_end": 64
+          }
+        ]
+      },
+      {
+        "title": "Weak Cryptography False Positives in Documentation",
+        "description": "Static analyzer flagged weak cryptographic algorithm at SKILL.md lines 3, 10, 29, 48, and 53. These lines contain documentation text describing product features, ASIN examples, and data output fields. No cryptographic code exists in this file.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 29
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 48,
+            "line_end": 48
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 53
+          }
+        ]
+      },
+      {
+        "title": "System Reconnaissance False Positives",
+        "description": "Static analyzer flagged system reconnaissance at Python error handling lines (36-37, 42) and SKILL.md feature descriptions (line 13, 63-64). These lines check API response status and describe product capabilities. No reconnaissance behavior exists.",
+        "locations": [
           {
             "file": "scripts/amazon_reviews_api.py",
             "line_start": 36,
@@ -131,28 +198,49 @@
             "file": "scripts/amazon_reviews_api.py",
             "line_start": 42,
             "line_end": 42
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 13
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 63,
+            "line_end": 64
           }
-        ],
-        "confidence": 0.88,
-        "confidence_reasoning": "Normal API response handling patterns, not system reconnaissance.",
-        "verdict": "false_positive",
-        "reasoning": "Checking for 'id' in response and error messages like 'Invalid authorization' is standard API response handling. The static analyzer misclassified this as 'System reconnaissance'."
+        ]
+      },
+      {
+        "title": "Dangerous Combination Heuristic Dismissed",
+        "description": "The critical heuristic flagged the combination of code execution, network, and credential access as suspicious. After review, this combination is the expected and documented behavior of an API wrapper skill. The script executes locally, calls a single known API endpoint, and uses credentials only for authentication to that endpoint.",
+        "locations": [
+          {
+            "file": "scripts/amazon_reviews_api.py",
+            "line_start": 1,
+            "line_end": 106
+          }
+        ]
       }
     ],
-    "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 186,
     "audit_model": "claude",
-    "audited_at": "2026-04-28T09:15:27.845Z",
+    "audited_at": "2026-05-21T08:25:35.534Z",
     "risk_factors": [
       "network",
       "env_access",
-      "scripts"
+      "external_commands"
     ],
     "risk_factor_evidence": [
       {
         "factor": "network",
         "evidence": [
+          {
+            "file": "scripts/amazon_reviews_api.py",
+            "line_start": 15,
+            "line_end": 15
+          },
           {
             "file": "scripts/amazon_reviews_api.py",
             "line_start": 29,
@@ -170,13 +258,13 @@
           },
           {
             "file": "scripts/amazon_reviews_api.py",
-            "line_start": 15,
-            "line_end": 15
-          },
-          {
-            "file": "scripts/amazon_reviews_api.py",
             "line_start": 96,
             "line_end": 96
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 22,
+            "line_end": 22
           }
         ]
       },
@@ -185,18 +273,73 @@
         "evidence": [
           {
             "file": "scripts/amazon_reviews_api.py",
+            "line_start": 17,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/amazon_reviews_api.py",
             "line_start": 87,
             "line_end": 87
+          },
+          {
+            "file": "scripts/amazon_reviews_api.py",
+            "line_start": 93,
+            "line_end": 93
+          },
+          {
+            "file": "scripts/amazon_reviews_api.py",
+            "line_start": 98,
+            "line_end": 98
+          },
+          {
+            "file": "scripts/amazon_reviews_api.py",
+            "line_start": 103,
+            "line_end": 103
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 20
           }
         ]
       },
       {
-        "factor": "scripts",
+        "factor": "external_commands",
         "evidence": [
           {
-            "file": "scripts/amazon_reviews_api.py",
-            "line_start": 1,
-            "line_end": 106
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 28,
+            "line_end": 28
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 30,
+            "line_end": 30
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 35,
+            "line_end": 38
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 57
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 63,
+            "line_end": 64
           }
         ]
       }
@@ -204,119 +347,120 @@
   },
   "content": {
     "user_title": "Extract Amazon Product Reviews via API",
-    "value_statement": "Need to gather customer reviews from Amazon for analysis? This skill automates review extraction using the BrowserAct API, giving you structured data without manual scraping or login requirements.",
+    "value_statement": "Collecting Amazon product reviews manually requires building crawlers, handling captchas, and managing IP restrictions. This skill automates review extraction through BrowserAct's API, delivering structured review data from any Amazon ASIN without an Amazon account or custom scraping infrastructure.",
     "seo_keywords": [
-      "Amazon reviews extraction",
-      "product review scraper",
-      "ASIN review data",
-      "customer feedback analysis",
-      "Claude Amazon integration",
-      "Codex data collection",
-      "Claude Code automation",
-      "sentiment analysis data",
-      "verified purchase reviews",
-      "market research tool"
+      "Amazon reviews",
+      "product reviews",
+      "ASIN extraction",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "review scraping",
+      "ecommerce data",
+      "customer feedback",
+      "BrowserAct"
     ],
     "actual_capabilities": [
-      "Extract structured reviews from Amazon by ASIN",
-      "Retrieve reviewer names, ratings, and review text",
-      "Access verified purchase status and review dates",
-      "Monitor review sentiment through timestamped data",
-      "Collect reviewer profile links for follow-up",
-      "Handle review variants and country information"
+      "Extract structured Amazon product reviews by providing an ASIN",
+      "Return reviewer names, ratings, review titles, descriptions, and dates",
+      "Identify verified purchases and reviewer countries",
+      "Include reviewer profile links for market research",
+      "Poll task status with timestamped progress logs",
+      "Handle authentication errors with clear user guidance"
     ],
     "limitations": [
-      "Requires valid BrowserAct API key (BROWSERACT_API_KEY environment variable)",
-      "Execution time depends on task queue; may take several minutes for completion",
-      "Data scope limited to reviews accessible via BrowserAct workflow template"
+      "Requires a BrowserAct API key from the user",
+      "Task execution may take several minutes for browser automation",
+      "Only extracts reviews available on the public Amazon product page",
+      "Does not bypass Amazon regional availability restrictions"
     ],
     "use_cases": [
       {
-        "title": "Market Research and Competitor Analysis",
-        "description": "Extract reviews from competitor products to understand customer pain points and identify market opportunities.",
-        "target_user": "Market researchers and product analysts"
+        "title": "Competitor Product Analysis",
+        "description": "Marketing analysts extract competitor product reviews to identify strengths, weaknesses, and customer sentiment trends.",
+        "target_user": "Marketing Analyst"
       },
       {
-        "title": "Quality Assurance Monitoring",
-        "description": "Collect customer feedback to identify product issues and track quality trends over time.",
-        "target_user": "QA engineers and product managers"
+        "title": "Customer Feedback Monitoring",
+        "description": "Product managers monitor recent reviews for their own products to detect quality issues and track customer satisfaction.",
+        "target_user": "Product Manager"
       },
       {
-        "title": "Sentiment Analysis Training Data",
-        "description": "Gather review text and ratings to build or improve sentiment analysis models.",
-        "target_user": "Data scientists and ML engineers"
+        "title": "Market Research Data Collection",
+        "description": "Researchers collect review data across product categories to analyze customer preferences, common complaints, and purchase patterns.",
+        "target_user": "Market Researcher"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Extract reviews for a product",
-        "prompt": "Use the amazon-reviews-api-skill to get the reviews for ASIN B07TS6R1SF.",
-        "scenario": "Beginner - Simple review extraction"
+        "title": "Basic Single Product Extraction",
+        "prompt": "Extract Amazon reviews for ASIN B07TS6R1SF.",
+        "scenario": "User wants reviews for a specific product they already know the ASIN for."
       },
       {
-        "title": "Compare reviews across products",
-        "prompt": "Extract reviews for ASIN B07TS6R1SF and ASIN B08N5WRWJ6 using the amazon-reviews-api-skill. Then summarize the key differences in customer satisfaction.",
-        "scenario": "Intermediate - Multi-product comparison"
+        "title": "Multi-Product Comparison",
+        "prompt": "Get reviews for these Amazon products: B07TS6R1SF, B08N5WRWJ6, and B09XYZ1234. Compare the average ratings and top complaints for each.",
+        "scenario": "User needs to compare customer feedback across multiple competing products."
       },
       {
-        "title": "Monitor recent feedback",
-        "prompt": "Use the amazon-reviews-api-skill to get the latest 50 reviews for ASIN B07TS6R1SF. Identify any emerging complaints or praise patterns.",
-        "scenario": "Advanced - Sentiment trend analysis"
+        "title": "Verified Purchase Filtering",
+        "prompt": "Extract reviews for ASIN B07TS6R1SF and focus on verified purchase reviews. Summarize what verified buyers say about product quality.",
+        "scenario": "User wants to filter out potentially unreliable unverified reviews for quality assessment."
       },
       {
-        "title": "Verify purchase analysis",
-        "prompt": "Extract reviews from ASIN B07TS6R1SF using the amazon-reviews-api-skill. Separate verified vs non-verified purchase reviews and calculate the average rating for each group.",
-        "scenario": "Advanced - Data filtering and analysis"
+        "title": "Sentiment Trend Analysis",
+        "prompt": "Extract all recent reviews for ASIN B08N5WRWJ6 from the past 3 months. Analyze sentiment over time and identify if customer satisfaction is improving or declining. Highlight recurring complaints.",
+        "scenario": "Advanced user tracking product performance through longitudinal review analysis."
       }
     ],
     "output_examples": [
       {
-        "input": "Get reviews for ASIN B07TS6R1SF",
-        "output": "Review Summary (10 reviews extracted):\n\n• Average Rating: 4.2 stars\n• Verified Purchases: 7/10\n\nTop Positive Themes:\n- Fast shipping (mentioned in 6 reviews)\n- Good value for money (4 reviews)\n\nTop Concerns:\n- Packaging damage (2 reviews)\n\nTop Reviewer: TechEnthusiast_2024\nRating: 5 stars\nTitle: \"Excellent product, fast delivery\"\nVerified: Yes\nPublished: 2024-03-15\n\n[Additional reviews available in extracted data]"
+        "input": "Extract Amazon reviews for ASIN B07TS6R1SF.",
+        "output": "I found 10 recent reviews for this product. Average rating: 4.2 out of 5 stars. Key themes: customers praise the build quality and ease of use, while some mention shipping delays. Seven out of 10 reviews are from verified purchasers. The most recent review gave 5 stars and highlighted responsive customer support."
       },
       {
-        "input": "What are customers saying about product B08N5WRWJ6?",
-        "output": "Customer Feedback Analysis for B08N5WRWJ6:\n\nSentiment Overview: Mixed (3.6 average rating)\n\nKey Insights:\n• Positive: Easy to use, compact design\n• Negative: Battery life concerns,说明书 unclear\n\nReviewer Location: Primarily US (70%), UK (20%), DE (10%)\n\nRecommendation: Focus on battery specifications and improve documentation clarity."
+        "input": "Get reviews for these Amazon products and compare: B07TS6R1SF, B08N5WRWJ6.",
+        "output": "Comparison complete. Product A (B07TS6R1SF): 4.2 stars from 10 reviews, top complaint is packaging. Product B (B08N5WRWJ6): 3.8 stars from 8 reviews, top complaint is battery life. Product A scores higher on durability, while Product B wins on price value."
       },
       {
-        "input": "Compare reviews between two similar products",
-        "output": "Review Comparison:\n\nProduct A (B07TS6R1SF): 4.5 avg, 85% verified\nProduct B (B08N5WRWJ6): 3.8 avg, 60% verified\n\nWinner: Product A has higher satisfaction and more verified buyers.\n\nMain Product A advantage: Quality consistency\nMain Product B advantage: Lower price point\n\nRecommendation: Product A preferred for quality; Product B for budget users."
+        "input": "Extract verified purchase reviews for ASIN B09XYZ1234 and summarize quality feedback.",
+        "output": "Found 6 verified purchase reviews with an overall rating of 4.5 out of 5. Verified buyers consistently mention excellent image quality, intuitive controls, and sturdy construction. One verified buyer reported a minor issue with the lens cap fit that was resolved by customer service."
       }
     ],
     "best_practices": [
-      "Set the BROWSERACT_API_KEY environment variable before invoking the skill to avoid authorization errors.",
-      "Monitor the task status output during execution; the script polls for completion and may take several minutes.",
-      "Check for 'Invalid authorization' in output first when troubleshooting errors, as this indicates an expired or invalid API key."
+      "Set BROWSERACT_API_KEY as an environment variable before using the skill to avoid repeated prompts",
+      "Provide the exact ASIN from the Amazon product URL for accurate results",
+      "Allow several minutes for task completion and monitor the timestamped status logs for progress"
     ],
     "anti_patterns": [
-      "Do not invoke the script without providing an ASIN argument, as this causes immediate script exit.",
-      "Do not ignore error messages about 'Invalid authorization' - recheck your API key configuration.",
-      "Do not exceed the single automatic retry limit; multiple retries indicate a configuration issue that needs resolution."
+      "Do not pass full Amazon URLs instead of ASINs — extract the ASIN from the URL first",
+      "Do not retry more than once on failures unless the error specifically mentions invalid authorization",
+      "Do not use this skill for products that require an Amazon login to view reviews"
     ],
     "faq": [
       {
-        "question": "What do I need to use this skill?",
-        "answer": "You need a BrowserAct API key set as the BROWSERACT_API_KEY environment variable. Get your key from browseract.com/reception/integrations."
+        "question": "What is an ASIN and where do I find it?",
+        "answer": "ASIN stands for Amazon Standard Identification Number. It is a 10-character alphanumeric code found in every Amazon product URL after /dp/ (for example, B07TS6R1SF)."
+      },
+      {
+        "question": "Do I need an Amazon account to use this skill?",
+        "answer": "No Amazon account is required. The skill uses BrowserAct automated browser infrastructure to access public product pages."
       },
       {
         "question": "How long does it take to extract reviews?",
-        "answer": "Task execution varies based on queue load. The script polls for up to 5 minutes and reports status every 10 seconds."
+        "answer": "Extraction typically takes 1 to 3 minutes. The script outputs timestamped status logs so you can monitor progress in real time."
       },
       {
-        "question": "What information is included in each review?",
-        "answer": "Extracted data includes reviewer name, profile link, star rating, review title, review text, publication date, country, product variant, and verified purchase status."
+        "question": "What data fields are included in the results?",
+        "answer": "Each review includes the reviewer name, profile link, star rating, review title, full review text, publication date, reviewer country, product variant, and verified purchase status."
       },
       {
-        "question": "Can I extract reviews from any Amazon product?",
-        "answer": "You need the ASIN (Amazon Standard Identification Number) for the product. Any valid Amazon product ASIN should work with the BrowserAct workflow."
+        "question": "Is there a limit on how many reviews I can extract?",
+        "answer": "The number of reviews depends on your BrowserAct API plan. Contact BrowserAct for rate limits and usage quotas on your account."
       },
       {
-        "question": "Why did the extraction fail?",
-        "answer": "Common causes: invalid API key (look for 'Invalid authorization' in output), network issues, or task timeout. Retry once automatically if not an auth error."
-      },
-      {
-        "question": "How many reviews can I extract per request?",
-        "answer": "The BrowserAct workflow processes reviews based on its template configuration. For large volumes, consider making multiple requests with different time windows."
+        "question": "What should I do if the extraction fails?",
+        "answer": "First check if the error mentions invalid authorization, which means your API key needs updating. For other errors, the skill will automatically retry once before reporting the issue to you."
       }
     ]
   },

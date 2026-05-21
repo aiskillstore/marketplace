@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-04-28T09:21:13.806Z",
+    "generated_at": "2026-05-21T08:21:53.682Z",
     "slug": "browser-act-youtube-video-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/video-platforms/youtube-video-api-skill",
     "source_ref": "main",
@@ -13,17 +13,19 @@
   },
   "skill": {
     "name": "youtube-video-api-skill",
-    "description": "This skill helps users automatically extract channel-level and video detail data from a specific YouTube channel via BrowserAct API. Agent should proactively apply this skill when users express needs like extracting channel video data, getting latest or popular videos from a YouTube channel, tracking competitor channel content, extracting video metrics such as views likes comments, retrieving subscriber count and channel info, monitoring posting cadence of a YouTube channel, gathering video data for content strategy analysis, getting earliest videos of a YouTube creator, analyzing engagement signals across a full channel, and downloading structured YouTube video details without manual scraping.",
-    "summary": "Extract structured YouTube channel and video metrics via BrowserAct API without manual scraping",
+    "description": "Extract channel-level and video detail data from any public YouTube channel using the BrowserAct API. Supports fetching latest, popular, or earliest videos with metrics like views, likes, comments, and subscriber counts.",
+    "summary": "Extract structured YouTube channel and video data without manual scraping.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "browser-act",
     "license": "MIT",
+    "category": "data",
     "tags": [
       "youtube",
-      "data-extraction",
-      "analytics",
-      "video-research"
+      "video-analytics",
+      "content-research",
+      "web-scraping",
+      "channel-analysis"
     ],
     "supported_tools": [
       "claude",
@@ -32,14 +34,20 @@
     ],
     "risk_factors": [
       "network",
-      "scripts"
+      "env_access",
+      "external_commands"
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static scanner flagged 52 potential issues, but all findings are false positives. Network access is legitimate BrowserAct API calls. Environment variable access is standard API key retrieval. External command warnings triggered by bash examples in documentation, not actual execution. No cryptographic operations, no malicious intent, no prompt injection detected.",
+    "summary": "The skill uses a Python script to call the BrowserAct API for YouTube data extraction. It accesses the BROWSERACT_API_KEY environment variable and makes HTTP requests to api.browseract.com. These patterns are legitimate and expected for this skill's purpose. The static scanner produced 52 findings, of which most (38) are false positives related to markdown formatting in SKILL.md being misinterpreted as shell execution or weak cryptography. The remaining true positive findings confirm expected behavior: network access to a third-party API, environment variable access for API key, and script execution. No evidence of malicious intent, data exfiltration, obfuscation, or prompt injection was found. The skill should be published with a security warning about third-party API usage and credential management.",
+    "risk_factors": [
+      "network",
+      "env_access",
+      "external_commands"
+    ],
     "risk_factor_evidence": [
       {
         "factor": "network",
@@ -63,17 +71,73 @@
             "file": "scripts/youtube_video_api.py",
             "line_start": 15,
             "line_end": 15
-          },
-          {
-            "file": "scripts/youtube_video_api.py",
-            "line_start": 96,
-            "line_end": 96
           }
         ]
       },
       {
-        "factor": "scripts",
+        "factor": "env_access",
         "evidence": [
+          {
+            "file": "scripts/youtube_video_api.py",
+            "line_start": 87,
+            "line_end": 87
+          },
+          {
+            "file": "scripts/youtube_video_api.py",
+            "line_start": 17,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/youtube_video_api.py",
+            "line_start": 93,
+            "line_end": 93
+          },
+          {
+            "file": "scripts/youtube_video_api.py",
+            "line_start": 104,
+            "line_end": 104
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 44,
+            "line_end": 47
+          }
+        ]
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "API Key Accessed from Environment Variable and Sent via Network",
+        "description": "The script reads BROWSERACT_API_KEY from environment variables and transmits it as a Bearer token in HTTP Authorization headers. This is legitimate API authentication behavior, but the combination of credential access and network transmission represents a risk if the environment is compromised.",
+        "locations": [
+          {
+            "file": "scripts/youtube_video_api.py",
+            "line_start": 87,
+            "line_end": 87
+          },
+          {
+            "file": "scripts/youtube_video_api.py",
+            "line_start": 18,
+            "line_end": 18
+          }
+        ]
+      },
+      {
+        "title": "Heuristic: Dangerous Combination of Code Execution, Network, and Credential Access",
+        "description": "The static analyzer flagged the combination of script execution (Python), network requests, and credential access as a heuristic risk. Evaluation confirms these capabilities exist but are used legitimately for calling the documented BrowserAct API. No evidence of data exfiltration, obfuscation, or malicious payloads was found.",
+        "locations": [
           {
             "file": "scripts/youtube_video_api.py",
             "line_start": 1,
@@ -82,13 +146,50 @@
         ]
       }
     ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
     "low_findings": [
       {
-        "title": "Network Access via HTTP Requests",
-        "description": "Script uses Python requests library to call BrowserAct API. This is intentional and required for the skill's core functionality.",
+        "title": "Hardcoded API Endpoint URL",
+        "description": "The BrowserAct API base URL is hardcoded in the script. This is expected for a skill that targets a specific API service, but poses a risk if the third-party service is compromised or changes ownership.",
+        "locations": [
+          {
+            "file": "scripts/youtube_video_api.py",
+            "line_start": 15,
+            "line_end": 15
+          }
+        ]
+      },
+      {
+        "title": "No Input Validation on YouTube Channel URL",
+        "description": "The YouTube channel URL is passed directly from user input to an API call without validation. While the API server handles invalid URLs gracefully, there is no client-side validation of the URL format before it is sent over the network.",
+        "locations": [
+          {
+            "file": "scripts/youtube_video_api.py",
+            "line_start": 101,
+            "line_end": 101
+          }
+        ]
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Environment Variable Access for API Key",
+        "description": "Script accesses BROWSERACT_API_KEY from environment and uses it in HTTP Bearer token authentication. Required and expected for this API-based skill.",
+        "locations": [
+          {
+            "file": "scripts/youtube_video_api.py",
+            "line_start": 87,
+            "line_end": 87
+          },
+          {
+            "file": "scripts/youtube_video_api.py",
+            "line_start": 18,
+            "line_end": 18
+          }
+        ]
+      },
+      {
+        "title": "HTTP Requests to External API",
+        "description": "Script makes HTTP POST and GET requests to a third-party API (api.browseract.com) for task submission, status polling, and result retrieval. This is the core functionality of the skill.",
         "locations": [
           {
             "file": "scripts/youtube_video_api.py",
@@ -105,150 +206,131 @@
             "line_start": 70,
             "line_end": 70
           }
-        ],
-        "confidence": 0.95,
-        "confidence_reasoning": "requests.post and requests.get are direct API calls to browseract.com. No exfiltration or malicious network behavior detected."
-      },
-      {
-        "title": "Environment Variable Access for API Key",
-        "description": "Script retrieves BROWSERACT_API_KEY from environment. Standard credential management pattern for third-party API authentication.",
-        "locations": [
-          {
-            "file": "scripts/youtube_video_api.py",
-            "line_start": 87,
-            "line_end": 87
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "os.getenv is standard Python pattern for API key retrieval. Key is used only for BrowserAct API authentication, not sent to external servers."
+        ]
       }
     ],
-    "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 197,
     "audit_model": "claude",
-    "audited_at": "2026-04-28T09:21:13.806Z",
-    "risk_factors": [
-      "network",
-      "scripts"
-    ]
+    "audited_at": "2026-05-21T08:21:53.682Z"
   },
   "content": {
-    "user_title": "Extract YouTube channel and video metrics automatically",
-    "value_statement": "Manually scraping YouTube data is time-consuming and often blocked by CAPTCHA or geo-restrictions. This skill automates extraction of channel metadata, video details, and engagement metrics via BrowserAct API without manual intervention.",
+    "user_title": "Extract YouTube Video Data with BrowserAct API",
+    "value_statement": "Manually collecting YouTube channel and video data is slow and error-prone. This skill automates extraction of structured video metrics including views, likes, comments, subscriber counts, and posting schedules through a single API request.",
     "seo_keywords": [
-      "Claude YouTube integration",
-      "YouTube data extraction Claude",
-      "Claude Code YouTube API",
-      "video analytics automation",
-      "channel metrics extraction",
-      "YouTube video data Claude",
-      "BrowserAct YouTube skill",
-      "video content research",
-      "YouTube competitor tracking",
-      "Claude Codex video analytics"
+      "youtube data extraction",
+      "youtube video analytics",
+      "youtube channel scraper",
+      "video metrics",
+      "competitor tracking",
+      "content research",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "youtube API tool"
     ],
     "actual_capabilities": [
-      "Extract channel metadata including subscriber count, channel title, and URL",
-      "Fetch video lists with metrics: view count, like count, comment count, publish date",
-      "Filter videos by type: Latest, Popular, or Earliest ordering",
-      "Retrieve video duration and direct video URLs for further processing",
-      "Poll task status with real-time progress updates during execution",
-      "Handle API authentication via environment variable with clear error messages"
+      "Extract channel information including subscriber count and channel title from any public YouTube channel",
+      "Retrieve video details such as view count, like count, comment count, and video duration",
+      "Filter videos by type: latest, most popular, or earliest uploads",
+      "Output structured JSON data ready for analysis or database import",
+      "Handle long-running tasks with status polling and automatic retry on failure"
     ],
     "limitations": [
-      "Requires valid BrowserAct API key (BROWSERACT_API_KEY environment variable)",
-      "Task execution may take several minutes for large channels due to polling",
-      "Data quality depends on BrowserAct template availability and YouTube page structure",
-      "No support for private or age-restricted content"
+      "Requires a valid BrowserAct API key (BROWSERACT_API_KEY environment variable)",
+      "Depends on a third-party API service that may have rate limits or downtime",
+      "Cannot access private YouTube videos or channels requiring login",
+      "Extraction speed depends on the BrowserAct service and can take several minutes for large channels"
     ],
     "use_cases": [
       {
-        "title": "Competitor Channel Monitoring",
-        "description": "Track competitor YouTube channels by extracting their video performance metrics. Monitor posting frequency, engagement rates, and subscriber growth to inform your content strategy.",
-        "target_user": "Content strategists and marketing teams"
+        "title": "Competitor Channel Analysis",
+        "description": "Track a competitor YouTube channel by extracting their latest videos and engagement metrics. Monitor posting frequency, view counts, and subscriber growth over time.",
+        "target_user": "Marketing analysts and competitive intelligence researchers"
       },
       {
-        "title": "Creator Research and Analysis",
-        "description": "Analyze engagement patterns across creator channels. Identify which video types (popular vs latest) drive most views, and correlate subscriber counts with video performance.",
-        "target_user": "Media analysts and influencer researchers"
+        "title": "Content Creator Portfolio Review",
+        "description": "Analyze a creator's most popular videos to understand what content drives engagement. Compare like-to-view ratios and comment activity across their catalog.",
+        "target_user": "Content strategists and creator economy investors"
       },
       {
-        "title": "Automated Content Reporting",
-        "description": "Automate YouTube channel monitoring for regular reporting. Extract structured data directly into databases or CRM systems without manual CSV exports.",
-        "target_user": "Operations teams and data engineers"
+        "title": "Video Performance Reporting",
+        "description": "Automate collection of video performance data for regular reporting. Extract structured metrics from owned channels including earliest and latest uploads for trend analysis.",
+        "target_user": "Social media managers and content operations teams"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Get popular videos from a channel",
-        "prompt": "Use the youtube-video-api-skill to extract the popular videos from the YouTube channel at [CHANNEL_URL] and show me their view counts and engagement metrics.",
-        "scenario": "When you need quick overview of trending content on a specific channel"
+        "title": "Extract Latest Videos from a Channel",
+        "prompt": "Get the latest 20 videos from the YouTube channel at https://www.youtube.com/@ChannelName. Extract their titles, view counts, like counts, and publish dates.",
+        "scenario": "Basic channel monitoring"
       },
       {
-        "title": "Track latest uploads",
-        "prompt": "Apply the youtube-video-api-skill to get the latest 10 videos from [CHANNEL_URL] including their publish dates and view counts.",
-        "scenario": "When monitoring a competitor for new content releases"
+        "title": "Find Most Popular Videos",
+        "prompt": "Find the most popular videos from https://www.youtube.com/@ChannelName. Show me which videos have the highest view counts and best like-to-view ratios.",
+        "scenario": "Content performance analysis"
       },
       {
-        "title": "Channel performance comparison",
-        "prompt": "Use the youtube-video-api-skill to extract metrics from [CHANNEL_URL_1] and [CHANNEL_URL_2], then compare their subscriber counts, average view counts, and posting frequency.",
-        "scenario": "When comparing performance across multiple channels"
+        "title": "Analyze Channel Growth",
+        "prompt": "Compare the earliest and latest videos from https://www.youtube.com/@ChannelName. How has their content strategy and engagement changed over time?",
+        "scenario": "Growth trend analysis"
       },
       {
-        "title": "Comprehensive channel audit",
-        "prompt": "Run the youtube-video-api-skill for [CHANNEL_URL] using both Popular and Earliest video types. Generate a summary report with channel info, video counts, and engagement trends.",
-        "scenario": "When conducting thorough research on a channel's full history"
+        "title": "Competitor Benchmarking Report",
+        "prompt": "Extract channel info and recent popular videos from https://www.youtube.com/@Competitor1 and https://www.youtube.com/@Competitor2. Compare subscriber counts, average views, posting frequency, and engagement rates side by side.",
+        "scenario": "Multi-channel competitive analysis"
       }
     ],
     "output_examples": [
       {
-        "input": "Extract the latest 5 videos from the BrowserAct YouTube channel",
-        "output": "Channel: BrowserAct (https://www.youtube.com/@BrowserAct)\n\nLatest Videos:\n1. Video Title - 12,500 views, published 2 days ago\n2. Video Title - 8,200 views, published 1 week ago\n3. Video Title - 15,700 views, published 2 weeks ago\n4. Video Title - 6,400 views, published 3 weeks ago\n5. Video Title - 9,100 views, published 1 month ago"
+        "input": "Get channel info and latest videos from https://www.youtube.com/@BrowserAct",
+        "output": [
+          "Channel Title: BrowserAct | Subscribers: 12,500 | Channel URL: https://www.youtube.com/@BrowserAct",
+          "Latest Videos: 1. 'API Automation Guide' (45,230 views, 1,200 likes, 89 comments) | 2. 'Browser Automation Tips' (32,100 views, 950 likes, 67 comments) | 3. 'Workflow Optimization' (28,700 views, 780 likes, 45 comments)"
+        ]
       },
       {
-        "input": "Compare the subscriber counts and top videos between two tech channels",
-        "output": "Channel A: 450K subscribers, average 25K views per video\nChannel B: 320K subscribers, average 18K views per video\n\nChannel A produces 2-3 videos per week with higher engagement rates."
-      },
-      {
-        "input": "Get the earliest videos from a channel to understand their growth",
-        "output": "Earliest Videos from [Channel Name]:\n- First video (2018): 500 views\n- First year content: average 200 views\n- Breakout video (2020): 50K views marked growth inflection\n- Current performance: consistent 10K-15K views"
+        "input": "Show me the most popular videos from a tech YouTube channel",
+        "output": [
+          "Found 10 videos sorted by popularity. Top 3: 'React Tutorial 2026' (250K views, 8.2K likes), 'TypeScript Basics' (180K views, 5.1K likes), 'Node.js Guide' (120K views, 3.4K likes). All videos retrieved with view counts, like counts, and publish dates.",
+          "Channel has 89,000 subscribers. Average video gets 45,000 views."
+        ]
       }
     ],
     "best_practices": [
-      "Always verify the BROWSERACT_API_KEY environment variable is set before invoking the skill to avoid authentication errors",
-      "Use the Popular video type as default for competitive analysis, as it shows the most relevant content",
-      "Check for 'Invalid authorization' in output first during error handling, as this indicates API key issues requiring user intervention"
+      "Set the BROWSERACT_API_KEY environment variable before using the skill for the first time. Store the key securely and never commit it to version control.",
+      "Use the Popular video type for competitive analysis to see what content performs best on a target channel.",
+      "Monitor task status output during execution. The script prints timestamped progress logs - wait for completion before assuming failure."
     ],
     "anti_patterns": [
-      "Do not pass unvalidated channel URLs directly to the script without verifying they are valid YouTube URLs",
-      "Do not retry the script more than once for non-authentication errors, as repeated failures indicate underlying issues",
-      "Do not assume the skill can extract private or members-only content; it only accesses publicly visible YouTube data"
+      "Do not run multiple extractions on the same channel simultaneously. This may trigger rate limits on the BrowserAct API.",
+      "Do not rely on this skill for real-time data. API responses may have a delay of several minutes depending on queue length.",
+      "Do not use the Earliest video type for large channels with thousands of videos. The extraction may time out before reaching the oldest content."
     ],
     "faq": [
       {
-        "question": "What is BrowserAct and why is it needed?",
-        "answer": "BrowserAct is a browser automation service that handles CAPTCHA, geo-blocking, and anti-scraping measures. The skill uses BrowserAct API to reliably extract YouTube data without manual scraping challenges."
+        "question": "What is the BROWSERACT_API_KEY and where do I get one?",
+        "answer": "It is an API key required to authenticate with the BrowserAct service. You can obtain one by signing up at browseract.com and visiting the integrations page in your console."
       },
       {
-        "question": "How do I get a BrowserAct API key?",
-        "answer": "Visit https://www.browseract.com/reception/integrations to obtain your API key. Set it as the BROWSERACT_API_KEY environment variable or provide it directly when prompted by the agent."
+        "question": "How long does video extraction usually take?",
+        "answer": "Extraction time varies from 30 seconds to several minutes depending on channel size and BrowserAct service load. The script prints status updates every 10 seconds during processing."
       },
       {
-        "question": "Why does the task take several minutes to complete?",
-        "answer": "The skill uses automated browser operations to navigate YouTube pages, which requires time for page loading and data extraction. Polling occurs every 10 seconds with a maximum wait of 5 minutes."
+        "question": "Can this skill extract data from private YouTube channels?",
+        "answer": "No. The skill only works with public YouTube channels. Private or unlisted videos cannot be accessed through this API."
       },
       {
-        "question": "What video types can I extract?",
-        "answer": "You can extract videos ordered by Popular (default), Latest, or Earliest. Popular shows highest-viewed content, Latest shows most recent uploads, and Earliest shows oldest videos on the channel."
+        "question": "What happens if the API key is invalid or expired?",
+        "answer": "The script will return an error containing Invalid authorization. You should then obtain a new API key from your BrowserAct console and update the environment variable."
       },
       {
-        "question": "Can I extract data from private or unlisted videos?",
-        "answer": "No, the skill only accesses publicly visible YouTube content. Private, unlisted, or age-restricted videos cannot be extracted through this skill."
+        "question": "Does this skill work with any YouTube channel URL format?",
+        "answer": "Yes. It supports standard YouTube channel URLs including the /@Handle format and /channel/ID format. The API resolves the channel internally."
       },
       {
-        "question": "How do I handle API key errors?",
-        "answer": "If you see 'Invalid authorization' in the output, check your BrowserAct API key at https://www.browseract.com/reception/integrations. Do not retry; resolve the key issue first by updating your environment variable."
+        "question": "What video data fields are included in the output?",
+        "answer": "Channel-level data includes channel title, URL, and subscriber count. Per-video data includes title, URL, publish date, view count, duration, comment count, and like count where available."
       }
     ]
   },
