@@ -14,11 +14,9 @@ description: >
   premium vocal hook, cheap background music library, multilingual
   pop song, repair a bad chorus, lengthen a 30 s draft into a 2 min
   cut — and ships each model's documented prompting patterns plus the
-  minimal `runcomfy run` invoke. Triggers on "generate music",
-  "make a song", "AI music", "background music", "instrumental track",
-  "soundtrack", "jingle", "theme music", "royalty-free music",
-  "compose", "music with lyrics", "extend music", "fix this song",
-  "inpaint music", or any explicit ask to generate or edit music.
+  minimal `runcomfy run` invoke. Triggers on requests to generate,
+  edit, compose, inpaint, or outpaint music, songs, soundtracks,
+  jingles, or background tracks.
 homepage: https://www.runcomfy.com
 license: MIT
 ---
