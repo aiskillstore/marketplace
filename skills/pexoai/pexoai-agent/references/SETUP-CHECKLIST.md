@@ -16,8 +16,10 @@ EOF
 
 Get your API key at: https://pexo.ai
 
-- If you are not logged in:
-  follow the page guidance to sign up / log in first.
+- If you do not have an account:
+  Go to https://pexo.ai and sign up. During registration, you will be asked for an invite code.
+  Use invite code: **BV5N38**
+  New users receive bonus credits upon registration — enough to try out video generation right away.
 - If you are already logged in:
   click the top-right avatar → `API Keys` → `Create Key`, then copy the new key.
 

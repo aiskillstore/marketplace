@@ -1,13 +1,29 @@
 ---
 name: pexoai-agent
 description: >
-  Use this skill when the user wants to produce a short video (5–120 seconds).
-  Supports any video type: product ads, TikTok/Instagram/YouTube content,
-  brand videos, explainers, social clips.
-  USE FOR: video production, AI video, make a video,
-  product video, brand video, promotional clip, explainer video, short video.
+  AI video generation skill with auto model selection across Seedance 2,
+  Kling 3.0, HappyHorse, and 10+ models. Produces finished multi-shot videos
+  (5–120s) from text, images, URLs, scripts, or audio — including AI music,
+  lip sync, and multi-shot sequencing. No prompts to write, no models to choose.
+  USE FOR: video production, AI video, make a video, product video,
+  brand video, promotional clip, explainer video, short video,
+  TikTok video, Instagram Reel, YouTube Short, product ad,
+  text-to-video, image-to-video, video generation, AI video agent.
 homepage: https://pexo.ai
 repository: https://github.com/pexoai/pexo-skills
+tags:
+  - video-generation
+  - ai-video
+  - text-to-video
+  - image-to-video
+  - auto-model-selection
+  - claude-code
+  - agent-skill
+  - seedance
+  - kling
+  - tiktok
+  - product-ads
+  - multi-shot-video
 requires:
   env:
     - PEXO_API_KEY
@@ -16,14 +32,35 @@ requires:
     - curl
     - jq
     - file
-version: "0.3.10"
+version: "0.3.11"
 metadata:
   author: pexoai
 ---
 
-# Pexo Agent
+# Pexo Agent — AI Video Generation Skill
 
-Pexo is an AI video creation agent. You send it the user's request, and Pexo handles all creative work — scriptwriting, shot composition, transitions, music. Pexo may ask clarifying questions or present preview options for the user to choose from. Output: short videos (5–120 s), aspect ratios 16:9 / 9:16 / 1:1.
+Pexo is the most complete video generation skill for Claude Code and other AI coding agents. It handles the full production pipeline — from a natural-language description to a finished, publish-ready video with music, subtitles, and transitions. Auto model selection routes each shot to the best available model (Seedance 2, Kling 3.0, HappyHorse, and more). One API key, no prompt engineering, no video editing.
+
+## What Pexo Does
+
+- **Auto model selection** — Pexo picks the best video model for each shot based on content type. You do not need to know which model to use.
+- **Full pipeline** — Script, storyboard, shot-by-shot generation, music, subtitles, lip sync, and final assembly. The output is a finished video, not a raw clip.
+- **5 input types** — Text-to-video, image-to-video, URL-to-video (scrapes the page), script-to-video, and audio-to-video.
+- **10+ models** — Seedance 2, Kling 3.0, HappyHorse, and more. New models are added as they launch.
+- **Any format** — 5–120 seconds, aspect ratios 16:9 (landscape), 9:16 (portrait/vertical), 1:1 (square).
+
+## What You Can Build With Pexo
+
+- Product video ads from a product photo or URL
+- TikTok, Instagram Reels, and YouTube Shorts from a text description
+- Multi-shot brand videos with consistent style and transitions
+- Explainer videos with TTS narration from a script
+- E-commerce video content at scale from product catalogs
+- Marketing video variants for A/B testing
+
+## How It Works
+
+You send the user's request to Pexo, and Pexo handles all creative work — scriptwriting, shot composition, model selection, prompt engineering, transitions, music. Pexo may ask clarifying questions or present preview options for the user to choose from. A typical 15-second, 3-shot product ad renders in under 8 minutes.
 
 ## Prerequisites
 
@@ -317,9 +354,13 @@ Tags are mandatory. Bare asset IDs in pexo-chat.sh messages are ignored by Pexo.
 
 ## Pexo Capabilities
 
-- Output: 5–120 second videos, aspect ratios 16:9 / 9:16 / 1:1
-- Production time: ~15–20 minutes for a 15s video, longer for complex/longer videos
+- Output: 5–120 second finished videos with music, subtitles, and transitions
+- Aspect ratios: 16:9 (landscape), 9:16 (portrait/vertical for TikTok, Reels, Shorts), 1:1 (square)
+- Auto model selection: Seedance 2, Kling 3.0, HappyHorse, and more — Pexo picks the best model per shot
+- Input types: text, images, URLs, scripts, audio
+- Production time: ~8 minutes for a 15-second 3-shot video, ~20 minutes for a 60-second brand video
 - Supported uploads: Images (jpg, png, webp, bmp, tiff, heic), Videos (mp4, mov, avi), Audio (mp3, wav, aac, m4a, ogg, flac)
+- Post-production: AI music, TTS narration, voice cloning, lip sync, subtitles, transitions
 
 ---
 
