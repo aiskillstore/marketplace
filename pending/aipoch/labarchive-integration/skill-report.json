@@ -1,0 +1,454 @@
+{
+  "schema_version": "2.0",
+  "meta": {
+    "generated_at": "2026-05-28T06:18:39.497Z",
+    "slug": "aipoch-labarchive-integration",
+    "source_url": "https://github.com/aipoch/medical-research-skills/tree/main/scientific-skills/Academic%20Writing/labarchive-integration",
+    "source_ref": "main",
+    "model": "claude",
+    "analysis_version": "3.0.0",
+    "source_type": "community",
+    "content_hash": "d54083515034758c3e44aef5847fd73ab2a8bfa529361a511ced99e8fdfc73be",
+    "tree_hash": "3d67a9b6b073a1987502bf4a8134ddbe07e549b180b1c52ef28ace23a8b06286"
+  },
+  "skill": {
+    "name": "labarchive-integration",
+    "description": "Converts LabArchives notebook data, entry metadata, and authorized ELN exports into manuscript-ready academic writing outputs such as Methods sections, data-availability statements, reproducibility appendices, experiment timelines, and submission support notes. Optional bundled scripts can be used to collect or validate source notebook data before writing.",
+    "summary": "Transform authorized LabArchives ELN data into manuscript-ready Methods sections, data availability statements, and reproducibility appendices.",
+    "icon": "📚",
+    "version": "1.0.0",
+    "author": "AIPOCH",
+    "license": "MIT",
+    "category": "writing",
+    "tags": [
+      "academic-writing",
+      "lab-archives",
+      "eln-integration",
+      "manuscript-preparation",
+      "research-documentation"
+    ],
+    "supported_tools": [
+      "claude",
+      "codex",
+      "claude-code"
+    ],
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ]
+  },
+  "security_audit": {
+    "risk_level": "medium",
+    "is_blocked": false,
+    "safe_to_publish": true,
+    "summary": "Static analysis flagged 200 potential issues, but manual evaluation confirms the vast majority (over 95%) are false positives from: (1) backtick code blocks in markdown documentation misidentified as shell execution, (2) legitimate LabArchives API endpoint URLs flagged as hardcoded URLs, and (3) security terminology in authentication guides triggering keyword patterns. The combination of filesystem, network, and credential access is inherent to an ELN API integration tool. No malicious intent, obfuscation, or data exfiltration patterns were found. Real concerns are limited to plaintext credential storage in YAML config files and credentials passed as API request parameters, both standard for this API but warranting user awareness.",
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Plaintext Credential Storage in YAML Configuration",
+        "description": "The setup_config.py script creates a config.yaml file storing API access_key_id, access_password, user_email, and user_external_password in plaintext. While the file is created with restricted permissions (0o600), plaintext storage of API credentials in the working directory presents a risk if the file is accidentally committed to version control or backed up insecurely. The skill warns users to keep config.yaml out of version control, but does not support environment variable fallback or encrypted storage options.",
+        "locations": [
+          {
+            "file": "scripts/setup_config.py",
+            "line_start": 55,
+            "line_end": 63
+          }
+        ]
+      },
+      {
+        "title": "API Credentials Passed as Request Parameters",
+        "description": "The entry_operations.py script sends access_key_id and access_password as POST form data parameters in upload_attachment() (lines 91-102). The init_client() functions in both entry_operations.py and notebook_operations.py pass credentials as constructor arguments for every API call. While this is the documented pattern for the labarchives-py library, passing credentials as URL/body parameters rather than headers or bearer tokens increases exposure in logs and proxies.",
+        "locations": [
+          {
+            "file": "scripts/entry_operations.py",
+            "line_start": 31,
+            "line_end": 37
+          },
+          {
+            "file": "scripts/entry_operations.py",
+            "line_start": 91,
+            "line_end": 102
+          }
+        ]
+      },
+      {
+        "title": "Notebook Backup Writes User Data to Local Filesystem",
+        "description": "The notebook_operations.py backup_notebook() function downloads full notebook content including attachments as .7z or .xml/.json files to the local filesystem. This is the intended functionality but could expose sensitive research data if backup files are not properly secured or if the output directory is world-readable. The tool does not set restrictive permissions on backup output files.",
+        "locations": [
+          {
+            "file": "scripts/notebook_operations.py",
+            "line_start": 75,
+            "line_end": 102
+          }
+        ]
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Analysis False Positives from Markdown Documentation",
+        "description": "Over 100 'Ruby/shell backtick execution' findings across reference markdown files (api_reference.md, authentication_guide.md, integrations.md) are false positives. These files contain Python and shell code examples within triple-backtick fenced code blocks for instructional purposes. No actual backtick execution occurs in any executable script path. All markdown is documentation, not runtime code.",
+        "locations": [
+          {
+            "file": "references/api_reference.md",
+            "line_start": 7,
+            "line_end": 7
+          },
+          {
+            "file": "references/authentication_guide.md",
+            "line_start": 42,
+            "line_end": 42
+          },
+          {
+            "file": "references/integrations.md",
+            "line_start": 26,
+            "line_end": 26
+          }
+        ]
+      },
+      {
+        "title": "Hardcoded API Endpoint URLs in Scripts and Documentation",
+        "description": "setup_config.py contains hardcoded LabArchives API endpoint URLs (api.labarchives.com, auapi.labarchives.com, ukapi.labarchives.com) and reference markdown files contain example URLs. These are legitimate, well-known LabArchives service endpoints required for the tool to function. No evidence of calls to unknown, suspicious, or user-controlled external hosts.",
+        "locations": [
+          {
+            "file": "scripts/setup_config.py",
+            "line_start": 22,
+            "line_end": 24
+          },
+          {
+            "file": "references/api_reference.md",
+            "line_start": 8,
+            "line_end": 17
+          }
+        ]
+      },
+      {
+        "title": "Heuristic Flag on Filesystem + Network + Credential Combination",
+        "description": "The static analyzer flagged a dangerous combination heuristic because the skill reads credential files, makes network API calls, and writes filesystem backups. This combination is inherent and expected for an ELN API integration tool. All three capabilities are documented and serve legitimate academic research purposes. No evidence of data exfiltration, lateral movement, or unauthorized access.",
+        "locations": [
+          {
+            "file": "scripts/entry_operations.py",
+            "line_start": 1,
+            "line_end": 1
+          }
+        ]
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Backtick Characters in Markdown Documentation",
+        "description": "Over 100 false-positive 'Ruby/shell backtick execution' detections across reference markdown files. These are triple-backtick fenced code blocks containing Python and shell examples for documentation purposes. No executable script uses backticks for command execution, and markdown files are not executed at runtime.",
+        "locations": [
+          {
+            "file": "references/api_reference.md",
+            "line_start": 7,
+            "line_end": 7
+          },
+          {
+            "file": "references/authentication_guide.md",
+            "line_start": 42,
+            "line_end": 42
+          },
+          {
+            "file": "references/integrations.md",
+            "line_start": 26,
+            "line_end": 26
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 56
+          }
+        ]
+      },
+      {
+        "title": "Security Keywords in Authentication Documentation",
+        "description": "The authentication_guide.md reference file contains security-related terminology ('encrypt', 'password', 'credentials', 'Access Key ID') that triggered 'weak cryptographic algorithm', 'ransomware keywords', and 'system reconnaissance' patterns. These are false positives - the text is legitimate documentation instructing users how to configure API authentication and follow security best practices for the actual LabArchives service.",
+        "locations": [
+          {
+            "file": "references/authentication_guide.md",
+            "line_start": 26,
+            "line_end": 26
+          },
+          {
+            "file": "references/authentication_guide.md",
+            "line_start": 272,
+            "line_end": 272
+          },
+          {
+            "file": "references/authentication_guide.md",
+            "line_start": 355,
+            "line_end": 355
+          }
+        ]
+      }
+    ],
+    "files_scanned": 9,
+    "total_lines": 2187,
+    "audit_model": "claude",
+    "audited_at": "2026-05-28T06:18:39.497Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ],
+    "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 113,
+            "line_end": 117
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/entry_operations.py",
+            "line_start": 35,
+            "line_end": 37
+          },
+          {
+            "file": "scripts/notebook_operations.py",
+            "line_start": 36,
+            "line_end": 39
+          },
+          {
+            "file": "scripts/setup_config.py",
+            "line_start": 22,
+            "line_end": 24
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/setup_config.py",
+            "line_start": 56,
+            "line_end": 60
+          },
+          {
+            "file": "scripts/notebook_operations.py",
+            "line_start": 100,
+            "line_end": 101
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "scripts/entry_operations.py",
+            "line_start": 24,
+            "line_end": 24
+          }
+        ]
+      }
+    ]
+  },
+  "content": {
+    "user_title": "Convert LabArchives ELN Data into Manuscript Writing",
+    "value_statement": "Researchers spend hours manually converting electronic lab notebook records into Methods sections and data statements for publication. This skill transforms authorized LabArchives exports into structured, evidence-grounded academic writing deliverables, saving time and ensuring every claim traces back to a notebook source.",
+    "seo_keywords": [
+      "LabArchives",
+      "academic writing",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "ELN integration",
+      "manuscript preparation",
+      "methods section",
+      "data availability statement",
+      "reproducibility"
+    ],
+    "actual_capabilities": [
+      "Generates Methods sections grounded in notebook entries, protocols, and instrument logs",
+      "Produces data availability statements with repository links and access constraints from notebook metadata",
+      "Creates reproducibility appendices citing protocol versions, software environments, and file provenance",
+      "Builds experiment timeline summaries from dated notebook entries and milestones",
+      "Writes submission support notes based on notebook scope and documentation completeness",
+      "Optionally collects notebook data via bundled Python scripts before generating writing outputs"
+    ],
+    "limitations": [
+      "Requires authorized access to LabArchives notebook data: cannot work without valid exports or pasted content",
+      "Will not fabricate missing protocol details, timestamps, or compliance statements not present in source material",
+      "Bundled Python scripts depend on the third-party labarchives-py library and valid API credentials",
+      "Writing outputs are limited to the five documented deliverable types: cannot generate arbitrary academic sections"
+    ],
+    "use_cases": [
+      {
+        "title": "Manuscript Preparation for Lab Scientists",
+        "description": "A researcher preparing a paper converts their LabArchives notebook entries into a structured Methods section, ensuring all procedures, instrument parameters, and protocol versions are accurately cited from the source notebook.",
+        "target_user": "Laboratory researchers and principal investigators preparing manuscripts for journal submission"
+      },
+      {
+        "title": "Grant Reporting and Data Management Plans",
+        "description": "A research administrator generates data availability statements and reproducibility documentation from existing ELN records to satisfy funder data-sharing requirements and institutional compliance checks.",
+        "target_user": "Research administrators and data managers responsible for grant compliance and reporting"
+      },
+      {
+        "title": "Collaborative Multi-Lab Submission Support",
+        "description": "A team preparing a multi-site study uses the skill to standardize how each lab's notebook evidence is turned into supplementary materials, ensuring consistent documentation format across all contributing sites.",
+        "target_user": "Collaborative research teams and consortium coordinators managing multi-site publications"
+      }
+    ],
+    "prompt_templates": [
+      {
+        "title": "Generate a Methods Section from Notebook Data",
+        "prompt": "I have exported LabArchives notebook data from an experiment. Use the labarchive-integration skill to convert this notebook content into a Methods section for a manuscript. Here is the exported data: [paste notebook content]. Focus on experimental workflow in chronological order and include instrument and software mentions from the source.",
+        "scenario": "First-time user with a notebook export ready for conversion"
+      },
+      {
+        "title": "Create a Data Availability Statement",
+        "prompt": "Based on this LabArchives notebook metadata, generate a data availability statement suitable for journal submission. Include what data are available, where they are stored, any access restrictions, and the relationship to the source LabArchives notebook. Notebook metadata: [paste metadata].",
+        "scenario": "Researcher preparing submission materials for a journal that requires data statements"
+      },
+      {
+        "title": "Build a Reproducibility Appendix",
+        "prompt": "Use the labarchive-integration skill to create a reproducibility appendix from these notebook records. Extract protocol version references, software and pipeline identifiers, file provenance information, and note any gaps in the audit trail where documentation is incomplete. Source: [paste notebook content].",
+        "scenario": "User needs supplementary materials documenting full experimental reproducibility"
+      },
+      {
+        "title": "Full Manuscript Support Package from Authorized Export",
+        "prompt": "I need a complete writing support package from my LabArchives notebook export. Generate: (1) a Methods draft, (2) a data availability statement, (3) a reproducibility appendix, and (4) an experiment timeline summary. If any deliverable cannot be fully grounded in the source, flag what is missing rather than inventing content. Notebook export: [paste authorized export].",
+        "scenario": "Advanced user generating multiple deliverables from a single comprehensive export"
+      }
+    ],
+    "output_examples": [
+      {
+        "input": "Notebook entries describing a western blot experiment with protocol details, antibody information, and imaging parameters",
+        "output": [
+          "Methods Draft section with chronological experimental workflow: sample preparation, gel electrophoresis conditions, transfer parameters, primary and secondary antibody details with catalog numbers, imaging system specifications, and quantification software version. All parameters sourced from notebook entries; missing values explicitly flagged as not documented."
+        ]
+      },
+      {
+        "input": "Notebook metadata including notebook ID, export status, associated repository links, and sharing constraints for a completed study",
+        "output": [
+          "Data Availability Statement: The data supporting this study are available in LabArchives notebook [NBID] and the accompanying repository at [repository link]. Access to raw notebook entries requires institutional LabArchives credentials. Derived datasets are publicly available under [license]. Access restrictions apply to [specific restricted data types] per institutional policy."
+        ]
+      }
+    ],
+    "best_practices": [
+      "Always verify authorization before processing notebook data: confirm the user has legitimate access to the source material",
+      "Use dry-run mode first when running bundled Python scripts to validate arguments before making live API calls",
+      "Keep config.yaml out of version control and use restrictive file permissions as recommended by the skill documentation"
+    ],
+    "anti_patterns": [
+      "Do not ask the skill to fabricate protocol details, timestamps, or compliance statements when they are absent from the source notebook",
+      "Do not paste raw credentials, API tokens, or private notebook identifiers into chat conversations when using the skill",
+      "Do not use the skill to access notebooks or data belonging to other users without explicit authorization"
+    ],
+    "faq": [
+      {
+        "question": "What type of LabArchives data do I need to use this skill?",
+        "answer": "You need an authorized export of your notebook content, manually pasted entry text, protocol summaries, or experiment metadata tables. The optional bundled scripts can also collect data directly from the LabArchives API if you have valid credentials."
+      },
+      {
+        "question": "Can this skill access notebooks I do not own?",
+        "answer": "No. The skill requires authorized access to the notebook data you provide. It will refuse to process requests for unauthorized access to other users' notebooks or data."
+      },
+      {
+        "question": "Does the skill invent or infer missing experimental details?",
+        "answer": "No. Every claim in the output must map back to source evidence. Missing information is explicitly labeled as not documented rather than fabricated. This is a core safety rule of the skill."
+      },
+      {
+        "question": "Do I need to install Python to use this skill?",
+        "answer": "The core writing conversion uses only the SKILL.md instructions and works without Python. The bundled Python scripts are optional utilities for collecting notebook data directly from the LabArchives API before writing."
+      },
+      {
+        "question": "What writing outputs can this skill produce?",
+        "answer": "The skill supports five deliverable types: Methods Draft, Data Availability Statement, Reproducibility Appendix, Experiment Timeline Summary, and Submission Support Note. Each follows a documented output contract with required fields."
+      },
+      {
+        "question": "Is my notebook data secure when using the bundled scripts?",
+        "answer": "The scripts store credentials in a local config.yaml file with restricted permissions (0o600). Backup files are written to your local filesystem. You are responsible for securing these files and keeping config.yaml out of version control."
+      }
+    ]
+  },
+  "file_structure": [
+    {
+      "name": "assets",
+      "type": "dir",
+      "path": "assets",
+      "children": [
+        {
+          "name": "writing_outputs_template.md",
+          "type": "file",
+          "path": "assets/writing_outputs_template.md",
+          "lines": 32
+        }
+      ]
+    },
+    {
+      "name": "references",
+      "type": "dir",
+      "path": "references",
+      "children": [
+        {
+          "name": "api_reference.md",
+          "type": "file",
+          "path": "references/api_reference.md",
+          "lines": 343
+        },
+        {
+          "name": "authentication_guide.md",
+          "type": "file",
+          "path": "references/authentication_guide.md",
+          "lines": 358
+        },
+        {
+          "name": "integrations.md",
+          "type": "file",
+          "path": "references/integrations.md",
+          "lines": 426
+        }
+      ]
+    },
+    {
+      "name": "scripts",
+      "type": "dir",
+      "path": "scripts",
+      "children": [
+        {
+          "name": "entry_operations.py",
+          "type": "file",
+          "path": "scripts/entry_operations.py",
+          "lines": 212
+        },
+        {
+          "name": "notebook_operations.py",
+          "type": "file",
+          "path": "scripts/notebook_operations.py",
+          "lines": 189
+        },
+        {
+          "name": "setup_config.py",
+          "type": "file",
+          "path": "scripts/setup_config.py",
+          "lines": 118
+        }
+      ]
+    },
+    {
+      "name": "labarchive-integration_audit_result_v1.json",
+      "type": "file",
+      "path": "labarchive-integration_audit_result_v1.json",
+      "lines": 300
+    },
+    {
+      "name": "SKILL.md",
+      "type": "file",
+      "path": "SKILL.md",
+      "lines": 209
+    }
+  ]
+}

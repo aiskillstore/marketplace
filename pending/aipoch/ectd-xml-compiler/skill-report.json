@@ -1,0 +1,398 @@
+{
+  "schema_version": "2.0",
+  "meta": {
+    "generated_at": "2026-05-28T05:33:04.679Z",
+    "slug": "aipoch-ectd-xml-compiler",
+    "source_url": "https://github.com/aipoch/medical-research-skills/tree/main/scientific-skills/Academic%20Writing/ectd-xml-compiler",
+    "source_ref": "main",
+    "model": "claude",
+    "analysis_version": "3.0.0",
+    "source_type": "community",
+    "content_hash": "25659860f43cc7aa31fccbab6a453fca457a889bba2bb6f3dae85a0f69c612c8",
+    "tree_hash": "bc26d3ebe01e2d7b438fca0c1ed6546c9663e5914ee62c71bca652e1d7676def"
+  },
+  "skill": {
+    "name": "ectd-xml-compiler",
+    "description": "Convert drug application documents (Word/PDF) into eCTD-compliant XML skeleton structures for FDA and EMA regulatory submissions.",
+    "summary": "Automatically parse Word and PDF drug application documents and generate eCTD 4.0/3.2.2 compliant XML skeleton files with module detection and MD5 checksums.",
+    "icon": "📦",
+    "version": "1.0.0",
+    "author": "AIPOCH",
+    "license": "MIT",
+    "category": "research",
+    "tags": [
+      "eCTD",
+      "XML",
+      "pharmaceutical",
+      "regulatory",
+      "document-conversion"
+    ],
+    "supported_tools": [
+      "claude",
+      "codex",
+      "claude-code"
+    ],
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "filesystem"
+    ]
+  },
+  "security_audit": {
+    "risk_level": "medium",
+    "is_blocked": false,
+    "safe_to_publish": true,
+    "summary": "Static analyzer reported 87 potential findings (risk score 100/100), but after manual evaluation the vast majority are false positives: markdown backticks flagged as shell execution, XML namespace URIs flagged as hardcoded URLs, and security checklist documentation flagged as path traversal. Two real medium-severity issues were confirmed: missing path traversal validation on file writes with user-supplied paths, and a code bug at line 258 causing UnboundLocalError that breaks XML generation. No evidence of malicious intent, data exfiltration, or backdoors. The skill is a legitimate document processing tool that needs security hardening before production use.",
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Missing Path Traversal Validation on File Writes",
+        "description": "The skill writes XML output files to user-supplied directory paths (--output flag) and reads input files from user-supplied paths without any path traversal validation (e.g., ../ sequences). The SKILL.md security checklist at lines 234 and 237 acknowledges this as an unchecked item, meaning the control is not implemented. An attacker could supply paths like '../../etc/passwd' to write files outside the intended output directory.",
+        "locations": [
+          {
+            "file": "scripts/main.py",
+            "line_start": 254,
+            "line_end": 254
+          },
+          {
+            "file": "scripts/main.py",
+            "line_start": 307,
+            "line_end": 307
+          },
+          {
+            "file": "scripts/main.py",
+            "line_start": 341,
+            "line_end": 341
+          },
+          {
+            "file": "scripts/main.py",
+            "line_start": 358,
+            "line_end": 358
+          }
+        ]
+      },
+      {
+        "title": "Runtime Code Bug Breaks XML Generation",
+        "description": "Line 258 in scripts/main.py references 'module_dir' before assignment in the expression 'self.output_dir / module_dir'. The variable should be 'module_id' instead. This causes an UnboundLocalError at runtime, meaning the generate_xml method will crash and no XML output is produced. This renders the skill's primary function inoperable.",
+        "locations": [
+          {
+            "file": "scripts/main.py",
+            "line_start": 257,
+            "line_end": 258
+          }
+        ]
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "MD5 Hash Used for File Checksums",
+        "description": "The _calculate_md5 method at line 244-250 uses hashlib.md5() for generating file checksums (index-md5.txt per eCTD specification). While MD5 is cryptographically weak, this usage is a legitimate eCTD regulatory requirement for file integrity verification, not a security vulnerability. The ICH eCTD specification mandates MD5 checksums. Users should be aware this provides tamper detection but not cryptographic security.",
+        "locations": [
+          {
+            "file": "scripts/main.py",
+            "line_start": 244,
+            "line_end": 250
+          }
+        ]
+      },
+      {
+        "title": "Incorrect Dependency in requirements.txt",
+        "description": "requirements.txt lists 'docx' as a dependency, but the code imports from 'docx' package (python-docx). The correct pip package name is 'python-docx', not 'docx'. Running 'pip install -r requirements.txt' would install the wrong package.",
+        "locations": [
+          {
+            "file": "requirements.txt",
+            "line_start": 1,
+            "line_end": 1
+          }
+        ]
+      },
+      {
+        "title": "Error Messages Leak Internal Details",
+        "description": "Exception handlers at lines 518-520 print raw exception messages via str(e) to stderr, which can leak stack traces, file paths, and internal state. The SKILL.md security checklist at line 240 acknowledges this as an unchecked item. This could expose system information in error scenarios.",
+        "locations": [
+          {
+            "file": "scripts/main.py",
+            "line_start": 518,
+            "line_end": 520
+          }
+        ]
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Unvalidated File Write Operations",
+        "description": "Three file write operations (lines 307, 341, 358) use user-controlled paths without validation. The output directory comes from the --output CLI flag and is used directly with open() and Path operations. No sanitization, canonicalization, or workspace boundary enforcement is performed on these paths. The SKILL.md security checklist items for path validation remain unchecked.",
+        "locations": [
+          {
+            "file": "scripts/main.py",
+            "line_start": 307,
+            "line_end": 307
+          },
+          {
+            "file": "scripts/main.py",
+            "line_start": 341,
+            "line_end": 341
+          },
+          {
+            "file": "scripts/main.py",
+            "line_start": 358,
+            "line_end": 358
+          }
+        ]
+      },
+      {
+        "title": "MD5 Checksum Generation",
+        "description": "Weak cryptographic hash (MD5) used for file checksum generation per eCTD specification requirements. Legitimate usage but weak algorithm.",
+        "locations": [
+          {
+            "file": "scripts/main.py",
+            "line_start": 244,
+            "line_end": 250
+          }
+        ]
+      }
+    ],
+    "files_scanned": 5,
+    "total_lines": 1194,
+    "audit_model": "claude",
+    "audited_at": "2026-05-28T05:33:04.679Z",
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "filesystem"
+    ],
+    "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "references/audit-reference.md",
+            "line_start": 11,
+            "line_end": 12
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 69
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 78
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/main.py",
+            "line_start": 273,
+            "line_end": 274
+          },
+          {
+            "file": "scripts/main.py",
+            "line_start": 313,
+            "line_end": 314
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 213,
+            "line_end": 215
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/main.py",
+            "line_start": 307,
+            "line_end": 307
+          },
+          {
+            "file": "scripts/main.py",
+            "line_start": 341,
+            "line_end": 341
+          },
+          {
+            "file": "scripts/main.py",
+            "line_start": 358,
+            "line_end": 358
+          }
+        ]
+      }
+    ]
+  },
+  "content": {
+    "user_title": "Generate eCTD XML Skeletons from Drug Application Documents",
+    "value_statement": "Manually creating eCTD XML structures for regulatory submissions is time-consuming and error-prone. This skill automates the conversion of Word and PDF drug application documents into ICH-compliant eCTD 4.0/3.2.2 XML skeletons with automatic module detection and MD5 checksum generation.",
+    "seo_keywords": [
+      "eCTD",
+      "XML compiler",
+      "pharmaceutical regulatory",
+      "drug application",
+      "document conversion",
+      "FDA submission",
+      "EMA submission",
+      "Claude",
+      "Codex",
+      "Claude Code"
+    ],
+    "actual_capabilities": [
+      "Parse Word (.docx) and PDF (.pdf) drug application documents and extract text, metadata, and heading hierarchy",
+      "Automatically detect the correct eCTD module (m1-m5) based on keyword matching in document content",
+      "Generate eCTD-compliant XML skeleton files for each module with leaf nodes, titles, and cross-references",
+      "Create master index.xml and index-md5.txt checksum files per ICH eCTD specification",
+      "Support regional configuration for FDA, EMA, and ICH submission formats",
+      "Validate generated XML structure completeness by checking required files exist"
+    ],
+    "limitations": [
+      "Input and output file paths are not validated against path traversal attacks; the skill should be run in a sandboxed environment",
+      "The skill only generates XML skeleton structure, not full eCTD submissions with complete content",
+      "PDF heading detection is limited to basic patterns and may miss complex document layouts",
+      "DTD validation logic is a stub and does not perform actual XML schema validation"
+    ],
+    "use_cases": [
+      {
+        "title": "Regulatory Affairs Specialist",
+        "description": "Quickly generate eCTD XML skeletons from clinical study reports and quality documentation before submitting to FDA or EMA, reducing manual XML authoring time.",
+        "target_user": "Pharmaceutical regulatory affairs professionals preparing drug application submissions"
+      },
+      {
+        "title": "Medical Writer",
+        "description": "Convert draft Word documents into structured eCTD module XML to verify document organization matches ICH requirements before finalizing submission content.",
+        "target_user": "Medical writers and scientific document authors creating regulatory content"
+      },
+      {
+        "title": "Quality Assurance Auditor",
+        "description": "Validate that generated eCTD XML structures have correct module assignments and complete file references by running the compiler with the --validate flag.",
+        "target_user": "QA professionals verifying regulatory submission completeness and format compliance"
+      }
+    ],
+    "prompt_templates": [
+      {
+        "title": "Basic Conversion",
+        "prompt": "Convert these drug application documents to eCTD XML format: [list file paths]. Use default ICH region and auto-detect modules.",
+        "scenario": "Getting started with a simple conversion of a few documents"
+      },
+      {
+        "title": "FDA-Specific Submission",
+        "prompt": "Generate an eCTD 3.2.2 XML skeleton for FDA submission from these documents: [list file paths]. Output to ./fda-submission directory and validate the result.",
+        "scenario": "Preparing documents specifically for FDA regulatory submission"
+      },
+      {
+        "title": "Module-Targeted Processing",
+        "prompt": "Process these quality documents into module m3 only: [list file paths]. The documents contain CMC and manufacturing data. Use eCTD 4.0 format.",
+        "scenario": "Processing documents that belong to a specific eCTD module"
+      },
+      {
+        "title": "Batch Processing with Validation",
+        "prompt": "Convert all documents in ./clinical-docs/ to an EMA-compliant eCTD 4.0 XML skeleton. Auto-detect modules, use verbose output, validate the XML structure, and report any missing or unassigned documents.",
+        "scenario": "Advanced batch processing with full validation for a complete submission package"
+      }
+    ],
+    "output_examples": [
+      {
+        "input": "Convert quality-doc.docx and analytical-data.pdf to eCTD XML format",
+        "output": "Successfully processed 2 files. Generated eCTD 4.0 XML skeleton in ./ectd-output with module assignments: m3 (2 documents). Created index.xml, m3/m3.xml, and index-md5.txt with file checksums."
+      },
+      {
+        "input": "Generate FDA eCTD 3.2.2 XML for clinical-study.pdf and validate",
+        "output": "Processed clinical-study.pdf and assigned to module m5 (Clinical Study Reports). Generated eCTD 3.2.2 skeleton with FDA region configuration. Validation complete: all required module files present, cross-references verified."
+      },
+      {
+        "input": "Convert all PDFs in current directory to eCTD with verbose output",
+        "output": "Processing: preclinical-tox.pdf -> assigned to module m4. Processing: cmc-batch.docx -> assigned to module m3. Processing: label-artwork.pdf -> assigned to module m1. Successfully processed 3 files. Module assignment: m1 (1), m3 (1), m4 (1). Output: ./ectd-output/index.xml"
+      }
+    ],
+    "best_practices": [
+      "Always run this skill in a sandboxed or containerized environment since it executes Python scripts that read and write files based on user-supplied paths.",
+      "Review the auto-detected module assignments before finalizing output, as keyword matching may misclassify documents with ambiguous content.",
+      "Install all optional dependencies (python-docx, PyPDF2, lxml) before running to ensure full document parsing and XML validation capabilities."
+    ],
+    "anti_patterns": [
+      "Do not run the skill with untrusted or unsanitized file paths without sandboxing, as input validation against path traversal is not implemented.",
+      "Do not treat the generated XML as a complete eCTD submission. The output is a skeleton structure only and requires manual content review and completion.",
+      "Do not rely on the --validate flag for formal DTD compliance checking; the DTD validation logic is currently a stub and only checks file existence."
+    ],
+    "faq": [
+      {
+        "question": "What document formats does this skill support?",
+        "answer": "The skill supports Microsoft Word documents (.docx, .doc) and PDF files (.pdf). Word documents require the python-docx library and PDFs require PyPDF2."
+      },
+      {
+        "question": "How does the skill determine which eCTD module a document belongs to?",
+        "answer": "The skill scans document content for keywords associated with each module. For example, documents containing terms like clinical, study, or trial are assigned to m5, while documents with quality, CMC, or API are assigned to m3. You can also manually specify the module with the --module flag."
+      },
+      {
+        "question": "Can this skill handle eCTD 3.2.2 and 4.0 formats?",
+        "answer": "Yes, the skill supports both eCTD 3.2.2 and 4.0 formats. Use the --version flag to specify which format you need. The default is version 4.0."
+      },
+      {
+        "question": "Does the skill perform full DTD validation of the generated XML?",
+        "answer": "No, the DTD validation logic is currently a stub. The --validate flag only checks that required XML files exist in the output directory. Full DTD schema validation requires the ICH eCTD DTD files which are not bundled."
+      },
+      {
+        "question": "Is the generated output ready for regulatory submission?",
+        "answer": "No, the generated output is an XML skeleton structure that provides the framework for an eCTD submission. You must review and complete the content, verify all module assignments, and ensure compliance with the specific regulatory requirements of your target agency."
+      },
+      {
+        "question": "What security precautions should I take when using this skill?",
+        "answer": "Run this skill in a sandboxed environment. The skill executes Python scripts that read and write files based on command-line arguments. Input path validation against directory traversal is not implemented, so use trusted file paths only."
+      }
+    ]
+  },
+  "file_structure": [
+    {
+      "name": "references",
+      "type": "dir",
+      "path": "references",
+      "children": [
+        {
+          "name": "audit-reference.md",
+          "type": "file",
+          "path": "references/audit-reference.md",
+          "lines": 22
+        }
+      ]
+    },
+    {
+      "name": "scripts",
+      "type": "dir",
+      "path": "scripts",
+      "children": [
+        {
+          "name": "main.py",
+          "type": "file",
+          "path": "scripts/main.py",
+          "lines": 557
+        }
+      ]
+    },
+    {
+      "name": "ectd-xml-compiler_audit_result_v2.json",
+      "type": "file",
+      "path": "ectd-xml-compiler_audit_result_v2.json",
+      "lines": 299
+    },
+    {
+      "name": "requirements.txt",
+      "type": "file",
+      "path": "requirements.txt",
+      "lines": 4
+    },
+    {
+      "name": "SKILL.md",
+      "type": "file",
+      "path": "SKILL.md",
+      "lines": 312
+    }
+  ]
+}
