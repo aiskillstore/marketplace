@@ -12,6 +12,7 @@ metadata:
   version: "1.0.0"
   category: mobile
   sources:
+    - expo/skills by Expo (https://github.com/expo/skills) — Native UI, navigation, and animation patterns
     - Expo documentation (docs.expo.dev)
     - React Native documentation (reactnative.dev)
     - EAS (Expo Application Services) documentation

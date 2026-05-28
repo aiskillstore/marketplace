@@ -8,6 +8,7 @@ metadata:
   version: "1.0.0"
   category: mobile
   sources:
+    - flutter-expert by Jeff Smolinski (https://github.com/Jeffallan/claude-skills) — Flutter expert skill framework
     - Flutter Documentation
     - Riverpod Documentation
     - Bloc Library Documentation
