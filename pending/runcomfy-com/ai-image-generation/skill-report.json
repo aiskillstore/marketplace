@@ -1,0 +1,476 @@
+{
+  "schema_version": "2.0",
+  "meta": {
+    "generated_at": "2026-06-04T09:29:49.063Z",
+    "slug": "runcomfy-com-ai-image-generation",
+    "source_url": "https://github.com/runcomfy-com/skills/tree/main/ai-image-generation/",
+    "source_ref": "main",
+    "model": "claude",
+    "analysis_version": "3.0.0",
+    "source_type": "community",
+    "content_hash": "d6db5a2052d5f3e7dfc687e72c14aa832a162a839cae755e360472d61d1ce3f6",
+    "tree_hash": "cbe1778bdb05043220dbbd2f2553654c64c0e741406797a3697b44f75572a74d"
+  },
+  "skill": {
+    "name": "ai-image-generation",
+    "description": "Generate and edit images on RunComfy via the `runcomfy` CLI — a smart router across the full image-model catalog: FLUX 2 (Klein 9B/4B, Pro, Dev, Flash, Turbo, Max), Google Nano Banana 2 / Pro, OpenAI GPT Image 2, ByteDance Seedream 5 / 4-5 / 4-0 and Dreamina 4-0, Alibaba Qwen Image and Z-Image Turbo, Wan 2-7. Covers both text-to-image (t2i) and image-to-image / edit (i2i) endpoints — the skill picks the right model for the user's actual intent (typography precision, photoreal portraits, sub-second iteration, multi-reference brand styling, open-weights workflow) and ships each model's documented prompting patterns plus the minimal `runcomfy run` invoke. Triggers on \"generate image\", \"make a picture\", \"text to image\", \"AI image\", \"make an image of …\", \"image to image\", \"i2i\", or any explicit ask to create or restyle an image.\n",
+    "summary": "Router for AI image generation and editing across 11+ RunComfy models, with documented prompt patterns and minimal CLI invokes for text-to-image and image-to-image workflows.",
+    "icon": "🎨",
+    "version": "1.0.0",
+    "author": "runcomfy-com",
+    "license": "MIT",
+    "category": "design",
+    "tags": [
+      "ai-image-generation",
+      "text-to-image",
+      "image-to-image",
+      "runcomfy",
+      "flux",
+      "image-editing"
+    ],
+    "supported_tools": [
+      "claude",
+      "codex",
+      "claude-code"
+    ],
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "filesystem"
+    ]
+  },
+  "security_audit": {
+    "risk_level": "low",
+    "is_blocked": false,
+    "safe_to_publish": true,
+    "summary": "This is a documentation-only routing skill (one SKILL.md file, 497 lines) that instructs the agent how to invoke the third-party `runcomfy` CLI for image generation. The static scanner flagged 309 patterns, but on review the vast majority are false positives: backtick-quoted shell snippets are markdown code-block examples (`runcomfy run <vendor>/<model>/<endpoint>`), hardcoded URLs are legitimate runcomfy.com / runcomfy.net documentation links, the 'weak cryptographic' matches correspond to JSON / RSA-style named flags, and 'system reconnaissance' matches are detection of the 'runcomfy' vendor name. The skill declares `allowed-tools: Bash(runcomfy *)` and the 'Security & Privacy' section itself documents token storage, prompt injection mitigations, outbound allowlist, file-size cap, and scope of bash usage. No prompt-injection text, no credential exfiltration, and no covert behavior was found.",
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Skill depends on third-party runcomfy CLI and external API",
+        "description": "The skill instructs the agent to install (@runcomfy/cli) and invoke the `runcomfy` binary, which then posts to `model-api.runcomfy.net` and downloads results from `*.runcomfy.net` / `*.runcomfy.com` URLs. The user is trusting the RunComfy service to handle uploaded prompts, reference images, and credentials. Mitigated by declared `allowed-tools: Bash(runcomfy *)` scope, an explicit outbound allowlist, a 2 GiB download cap, and the skill's own Security & Privacy section.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 5,
+            "line_end": 5
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 44
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 475,
+            "line_end": 488
+          }
+        ]
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Reference image URLs in example payloads are placeholders",
+        "description": "Several example `--input` JSON bodies contain `https://.../portrait.jpg` style placeholders (lines 364, 377, 391) and one line references `~/.config/runcomfy/token.json` for the auth token path (line 480). These are documentation placeholders and a documented config path, not actual targets. A user following the skill must supply their own image URLs; no path-traversal or exfiltration vector is created.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 364,
+            "line_end": 364
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 377,
+            "line_end": 377
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 391,
+            "line_end": 391
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 480,
+            "line_end": 480
+          }
+        ]
+      },
+      {
+        "title": "Optional `enable_web_search` flag fetches third-party web content into the model context",
+        "description": "The Nano Banana 2 schema documents an `enable_web_search: true` flag. When enabled, the model server may fetch web results and use them to steer generation. The skill itself defaults this to `false` and instructs the agent to enable it only on explicit user request — a correct and conservative default that limits indirect prompt-injection surface.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 281,
+            "line_end": 281
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 309,
+            "line_end": 309
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 485,
+            "line_end": 485
+          }
+        ]
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Backtick-quoted shell snippets (false positive)",
+        "description": "Static analyzer flagged ~210 backtick / shell-substitution patterns. All are markdown ```bash code-block examples of `runcomfy run <vendor>/<model>/<endpoint>` invocations. They are not executed; they are documentation showing the user the exact CLI command to copy. No user-supplied input is concatenated into a shell — the JSON `--input` is passed as an argument and shipped to the API over HTTPS.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 31,
+            "line_end": 45
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 192,
+            "line_end": 209
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 236,
+            "line_end": 254
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 287,
+            "line_end": 304
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 321,
+            "line_end": 325
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 360,
+            "line_end": 394
+          }
+        ]
+      },
+      {
+        "title": "Hardcoded documentation URLs (false positive)",
+        "description": "Static analyzer flagged ~60 'hardcoded URL' patterns. All are legitimate runcomfy.com / runcomfy.net / runcomfy model-page / docs / skills.sh links used for navigation, model catalog references, and CLI documentation. No URLs encode payloads, tokens, or user-controlled data.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 19,
+            "line_end": 19
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 25,
+            "line_end": 25
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 27,
+            "line_end": 27
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 47
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 469,
+            "line_end": 469
+          }
+        ]
+      },
+      {
+        "title": "Vendor-name 'system reconnaissance' detection (false positive)",
+        "description": "Static analyzer flagged lines 64, 69, 74, … 166 as 'system reconnaissance' — the matches are short, parallel pick-for/avoid-for lines that mention the runcomfy CLI and model name, not OS-info collection. These are model-selection guidance strings ('Pick for: …, Avoid for: …') in the routing table.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 64,
+            "line_end": 64
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 69,
+            "line_end": 69
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 74,
+            "line_end": 74
+          }
+        ]
+      }
+    ],
+    "files_scanned": 1,
+    "total_lines": 497,
+    "audit_model": "claude",
+    "audited_at": "2026-06-04T09:29:49.063Z",
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "filesystem"
+    ],
+    "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 5,
+            "line_end": 5
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 31,
+            "line_end": 45
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 51,
+            "line_end": 53
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 192,
+            "line_end": 209
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 236,
+            "line_end": 254
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 287,
+            "line_end": 304
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 321,
+            "line_end": 325
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 360,
+            "line_end": 394
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 19,
+            "line_end": 19
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 25,
+            "line_end": 27
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 47
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 71,
+            "line_end": 71
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 76
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 364,
+            "line_end": 364
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 377,
+            "line_end": 377
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 391,
+            "line_end": 391
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 469,
+            "line_end": 469
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 364,
+            "line_end": 364
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 377,
+            "line_end": 377
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 391,
+            "line_end": 391
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 480,
+            "line_end": 480
+          }
+        ]
+      }
+    ]
+  },
+  "content": {
+    "user_title": "Generate and Edit Images Across 11+ AI Models",
+    "value_statement": "Choosing the right image model and crafting the right prompt is slow. This skill classifies the user's intent, picks the right model from the RunComfy catalog, and ships the documented prompt patterns plus a one-line CLI invoke for text-to-image and image-to-image generation.",
+    "seo_keywords": [
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "AI image generation",
+      "text to image",
+      "image to image",
+      "RunComfy",
+      "FLUX",
+      "GPT Image 2",
+      "Seedream"
+    ],
+    "actual_capabilities": [
+      "Classifies user intent and routes to one of 11+ RunComfy image models (FLUX 2 Klein, FLUX 2 Pro/Dev/Flash/Turbo/Max, Nano Banana 2/Pro, GPT Image 2, Seedream 5/4-5, Dreamina 4-0, Qwen Image, Wan 2-7, Z-Image Turbo).",
+      "Generates images from text prompts via `runcomfy run <vendor>/<model>/<endpoint>` with each model's documented prompt patterns and field schema.",
+      "Edits existing images via image-to-image endpoints with multi-reference composition, identity preservation, and spatial-language instructions.",
+      "Ships the exact `runcomfy run` invoke for each route plus a one-line copy-pasteable command and a 7-row exit-code table for error handling.",
+      "Defaults to the safest, fastest model (FLUX 2 Klein 9B for t2i, Nano Banana 2 Edit for i2i) and only escalates to specialty models on explicit user need.",
+      "Documents its own security model: token storage path with 0600 mode, prompt-injection mitigations, outbound allowlist, 2 GiB download cap, and scope of bash usage."
+    ],
+    "limitations": [
+      "Does not generate images directly — requires the user to install `@runcomfy/cli` and authenticate with a RunComfy account or `RUNCOMFY_TOKEN`.",
+      "Mask-driven inpainting, controlled outpainting, and the full edit treatment are delegated to a separate `image-edit` skill, not handled here.",
+      "Image quality, latency, and cost depend on the chosen model — `4K` resolution on Nano Banana 2 is roughly 16× the cost of `0.5K` drafts.",
+      "Optional `enable_web_search` flag fetches third-party web content into the model context — disabled by default and should only be enabled on explicit user request."
+    ],
+    "use_cases": [
+      {
+        "title": "Brand designer producing launch creatives",
+        "description": "Pick GPT Image 2 for exact-text headlines in Latin, Cyrillic, Arabic, or Japanese, then run a multilingual launch set by swapping only the quoted headline string. Use Seedream 5 for photoreal portraits in the same brand campaign.",
+        "target_user": "Brand and marketing designers"
+      },
+      {
+        "title": "Product photographer iterating on shot lists",
+        "description": "Use FLUX 2 Klein 4B for sub-second concepting at 6 steps, lock the seed per product to keep identity drift low, and escalate to FLUX 2 Klein 9B at 25 steps for the final hero shot. Iterate in 4-up batches with Nano Banana 2 at 0.5K for fast ideation rounds.",
+        "target_user": "Product and e-commerce photographers"
+      },
+      {
+        "title": "Storyboard artist producing frame batches",
+        "description": "Run 10+ Seedream 5 Lite frames with fixed seeds to keep character identity consistent, then refine the chosen frame with Seedream 5 Lite Edit on the same brand so the i2i pass preserves identity across the pair.",
+        "target_user": "Storyboard artists and video pre-vis teams"
+      }
+    ],
+    "prompt_templates": [
+      {
+        "title": "Quick t2i draft (beginner)",
+        "prompt": "Generate an image of a small purple cat sitting on a moss-covered stone at golden hour, photoreal.",
+        "scenario": "First-pass ideation — uses the default FLUX 2 Klein route with no flags."
+      },
+      {
+        "title": "Typography-precise poster (intermediate)",
+        "prompt": "Create a 3:2 product poster. The headline reads exactly \"AURORA — Spring 2026\" in clean white sans-serif on a deep navy background. Below it, a small monospace line reads \"runs on water\". Use GPT Image 2 with size 1536_1024.",
+        "scenario": "Marketing asset with locked headline — uses Route 2 (GPT Image 2) for in-image text fidelity."
+      },
+      {
+        "title": "4-up ideation round (intermediate)",
+        "prompt": "Run Nano Banana 2 with num_images=4, aspect_ratio=1:1, resolution=0.5K, and a varying seed across runs. Prompt: \"Three product photos of a ceramic coffee mug on a marble counter, warm morning light, top-down angle, minimal styling.\"",
+        "scenario": "Fast concept board — uses Route 3 with cheap 0.5K drafts and a 4-up batch."
+      },
+      {
+        "title": "Same-brand generate-then-refine (advanced)",
+        "prompt": "Generate with Seedream 5 Lite t2i (85mm portrait, soft natural light, photoreal), then refine the chosen frame with Seedream 5 Lite edit using a preservation-led prompt: \"Keep the subject identity, pose, and clothing unchanged. Convert the background into a rainy neon cyberpunk street.\"",
+        "scenario": "Two-step pipeline that holds identity across the t2i → i2i pair on the same brand."
+      }
+    ],
+    "output_examples": [
+      {
+        "input": "User asks: \"Make me a logo that says AURORA — Spring 2026 in white on navy.\"",
+        "output": [
+          "Classify intent: typography-precise headline → Route 2 (GPT Image 2).",
+          "Pick size 1536_1024 (3:2 landscape poster).",
+          "Run: `runcomfy run openai/gpt-image-2/text-to-image --input '{\"prompt\":\"Minimal product poster. Centered bold headline reads exactly \\\"AURORA — Spring 2026\\\" in clean white sans-serif on a deep navy background.\",\"size\":\"1536_1024\"}' --output-dir ./out`",
+          "Exit code 0 → image lands in ./out."
+        ]
+      },
+      {
+        "input": "User asks: \"I need 4 quick mood variants of a coffee mug on marble, cheap resolution is fine.\"",
+        "output": [
+          "Classify intent: fast batch ideation → Route 3 (Nano Banana 2).",
+          "Set num_images=4, aspect_ratio=1:1, resolution=0.5K.",
+          "Run: `runcomfy run google/nano-banana-2/text-to-image --input '{\"prompt\":\"A coffee mug on marble counter, top-down warm morning light\",\"num_images\":4,\"aspect_ratio\":\"1:1\",\"resolution\":\"0.5K\"}' --output-dir ./out`",
+          "Four PNG variants land in ./out for the user to pick from."
+        ]
+      }
+    ],
+    "best_practices": [
+      "Match the model to the intent before invoking — use GPT Image 2 for exact in-image text, Seedream 5 for photoreal portraits, Nano Banana 2 for sub-second iteration, and FLUX 2 Klein 9B as the safe default.",
+      "Pass the prompt as a JSON string via `--input` and never interpolate it into a shell. The CLI ships the JSON body verbatim over HTTPS, so prompt content cannot trigger shell expansion.",
+      "Default `enable_web_search` to `false` and only flip it to `true` when the user explicitly needs real-world grounding (real products, places, or people)."
+    ],
+    "anti_patterns": [
+      "Do not pass arbitrary widths or heights to GPT Image 2 — only `1024_1024`, `1024_1536`, or `1536_1024` are accepted.",
+      "Do not crank steps past 28 on FLUX 2 Klein — diminishing returns and wasted compute.",
+      "Do not echo, log, or check in the `RUNCOMFY_TOKEN`; the CLI writes it to `~/.config/runcomfy/token.json` with mode 0600 and that path is the only place it should live."
+    ],
+    "faq": [
+      {
+        "question": "Do I need a RunComfy account to use this skill?",
+        "answer": "Yes. The skill routes through the runcomfy CLI, which requires a RunComfy account. Sign in with `runcomfy login` (opens a browser) or set `RUNCOMFY_TOKEN` for CI / containers."
+      },
+      {
+        "question": "Which model should I pick for in-image text like logos or headlines?",
+        "answer": "Use GPT Image 2. It is documented as best-in-class for in-image text rendering, including Japanese kana, Cyrillic, and Arabic. Quote the headline exactly with `\"…\"` and name the script when it is not Latin."
+      },
+      {
+        "question": "Which model is best for photoreal portraits?",
+        "answer": "Seedream 5 Lite wins on skin tones, natural lighting, and East Asian aesthetic. For a more design / illustration skew, use FLUX 2 Klein 9B with explicit lens and lighting language."
+      },
+      {
+        "question": "Can I edit an existing image with this skill?",
+        "answer": "Yes, the skill ships three i2i routes: Nano Banana 2 Edit (default, 1–20 refs), GPT Image 2 Edit (up to 10 refs, multilingual text rewrite), and FLUX Kontext Pro (single-image precise). For mask-driven inpainting, use the dedicated `image-edit` skill instead."
+      },
+      {
+        "question": "Is my prompt data sent anywhere besides RunComfy?",
+        "answer": "No. The skill's outbound allowlist is `model-api.runcomfy.net` and `*.runcomfy.net` / `*.runcomfy.com` for generated-output downloads. There is no telemetry and no callback. Optional `enable_web_search` only fetches web content into the model context when explicitly enabled."
+      },
+      {
+        "question": "What does the exit code table tell me?",
+        "answer": "0 = success, 64 = bad CLI args, 65 = bad input JSON or schema mismatch, 69 = upstream 5xx, 75 = retryable timeout or 429, 77 = not signed in or token rejected. Full reference is at docs.runcomfy.com/cli/troubleshooting."
+      }
+    ]
+  },
+  "file_structure": [
+    {
+      "name": "SKILL.md",
+      "type": "file",
+      "path": "SKILL.md",
+      "lines": 497
+    }
+  ]
+}
