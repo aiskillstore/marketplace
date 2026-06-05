@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-04T09:29:52.596Z",
+    "generated_at": "2026-06-05T09:20:16.823Z",
     "slug": "doany-ai-lipsync",
     "source_url": "https://github.com/doany-ai/skills/tree/main/lipsync/",
     "source_ref": "main",
@@ -13,9 +13,9 @@
   },
   "skill": {
     "name": "lipsync",
-    "description": "Lip-sync a face to a specific audio track on RunComfy via the `runcomfy` CLI. Routes across ByteDance OmniHuman (audio-driven full-body avatar from a portrait + audio), Sync Labs sync v2 / Pro (state-of-the-art mouth sync onto a video), Kling lipsync (audio-to- video and text-to-video with synced speech), and Creatify lipsync. The skill picks the right endpoint for the user's actual intent — portrait still + audio (avatar-style), source video + audio (mouth- swap on existing footage), or generate-and-sync from a script. Triggers on \"lip sync\", \"lipsync\", \"make this video speak\", \"match audio to mouth\", \"dub video\", \"sync lips to voice\", \"Sync Labs\", \"voiceover sync\", or any explicit ask to drive a face's mouth from an audio track.\n",
-    "summary": "Route lip-sync requests to the right RunComfy model — Sync Labs, OmniHuman, Kling, or Creatify — and invoke the CLI with the correct JSON payload.",
-    "icon": "👄",
+    "description": "Lip-sync a face to a specific audio track on RunComfy via the `runcomfy` CLI. Routes across ByteDance OmniHuman (audio-driven full-body avatar from a portrait + audio), Sync Labs sync v2 / Pro (state-of-the-art mouth sync onto a video), Kling lipsync (audio-to- video and text-to-video with synced speech), and Creatify lipsync. The skill picks the right endpoint for the user's actual intent — portrait still + audio (avatar-style), source video + audio (mouth- swap on existing footage), or generate-and-sync from a script. Triggers on \"lip sync\", \"lipsync\", \"make this video speak\", \"match audio to mouth\", \"dub video\", \"sync lips to voice\", \"Sync Labs\", \"voiceover sync\", or any explicit ask to drive a face's mouth from an audio track.",
+    "summary": "Route lip-sync requests to the right RunComfy model — Sync Labs, OmniHuman, Kling, or Creatify — for mouth-swap, avatar, or script-driven video generation.",
+    "icon": "🎬",
     "version": "1.0.0",
     "author": "doany-ai",
     "license": "MIT",
@@ -24,8 +24,8 @@
       "lipsync",
       "video-generation",
       "runcomfy",
-      "avatar",
-      "ai-video"
+      "sync-labs",
+      "avatar"
     ],
     "supported_tools": [
       "claude",
@@ -42,30 +42,73 @@
     "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a documentation-only skill that routes lip-sync requests to RunComfy CLI endpoints. All static findings are false positives. The 'backtick execution' detections (51 locations) are markdown formatting, not shell code. The 'hardcoded URL' findings (32 locations) are legitimate documentation links and placeholder CDN URLs (your-cdn.example). The 'weak cryptographic algorithm' flags are triggered by model version strings like 'v2' or 'Wan 2-7', not actual crypto usage. The 'system reconnaissance' detections are from natural-language model descriptions like 'Pick for' and 'Avoid for'. The skill restricts bash to `runcomfy *` only, documents a strict outbound allowlist (model-api.runcomfy.net), includes consent guidance, and has no executable code.",
+    "summary": "Evaluation of 97 static findings confirms all are false positives. The SKILL.md file is pure documentation describing how to use the RunComfy CLI for lip-syncing — no executable code is present. The 'backtick execution' findings are markdown code blocks, 'hardcoded URLs' are documentation links to runcomfy.com, and 'cryptographic algorithm' / 'system reconnaissance' patterns are false matches on prose text. The skill is well-secured: it uses scoped bash permissions (`Bash(runcomfy *)`), explicitly restricts outbound traffic to *.runcomfy.net/*.runcomfy.com, requires explicit user-provided URLs, and includes a comprehensive Security & Privacy section addressing dual-use consent concerns.",
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [],
     "low_findings": [
       {
-        "title": "Outbound network requests to third-party API",
-        "description": "The skill instructs the agent to call RunComfy model APIs (model-api.runcomfy.net). This is the documented core functionality, not a security risk. The skill includes a strict allowlist of outbound endpoints.",
+        "title": "External Command Execution (Scoped)",
+        "description": "The skill invokes the `runcomfy` CLI via scoped bash permission `Bash(runcomfy *)`. While this is necessary for the skill's core functionality, any CLI invocation with broad wildcard permissions could theoretically be abused if the CLI itself has vulnerabilities. The skill documents proper usage patterns and security boundaries.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 214,
-            "line_end": 214
+            "line_start": 3,
+            "line_end": 3
           }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "Network calls are the intended skill behavior, not an exfiltration risk. The skill documents the exact endpoints and the allowlist is narrow."
+        ]
+      },
+      {
+        "title": "Network Access to External API",
+        "description": "The skill makes outbound network requests to model-api.runcomfy.net and related runcomfy domains to submit lip-sync jobs and download results. This is expected for the skill's purpose, but users should be aware that their video/audio assets are sent to third-party AI processing endpoints.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 226,
+            "line_end": 226
+          }
+        ]
+      },
+      {
+        "title": "API Token Storage in Home Directory",
+        "description": "The `runcomfy login` command stores API tokens in ~/.config/runcomfy/token.json with 0600 permissions. This is standard practice for CLI tools but represents a filesystem access pattern. The skill correctly documents using environment variables (RUNCOMFY_TOKEN) for CI/container environments as the more secure alternative.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 220,
+            "line_end": 220
+          }
+        ]
       }
     ],
-    "dangerous_patterns": [],
+    "dangerous_patterns": [
+      {
+        "title": "Scoped Bash Execution with Wildcard",
+        "description": "Pattern detected: `Bash(runcomfy *)` in the allowed-tools frontmatter. This grants permission to run any runcomfy subcommand. While scoped to a specific binary, the wildcard means all subcommands are permitted. This is standard for CLI-wrapper skills.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          }
+        ]
+      },
+      {
+        "title": "User-Controlled URL Inputs",
+        "description": "Pattern detected: The skill accepts user-provided video_url and audio_url parameters in JSON input. The skill documentation explicitly warns that these are untrusted inputs that could contain indirect prompt injection via embedded instructions in media files.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 222,
+            "line_end": 224
+          }
+        ]
+      }
+    ],
     "files_scanned": 1,
     "total_lines": 237,
     "audit_model": "claude",
-    "audited_at": "2026-06-04T09:29:52.596Z",
+    "audited_at": "2026-06-05T09:20:16.823Z",
     "risk_factors": [
       "external_commands",
       "network",
@@ -82,8 +125,8 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 30,
-            "line_end": 41
+            "line_start": 38,
+            "line_end": 40
           },
           {
             "file": "SKILL.md",
@@ -99,6 +142,16 @@
             "file": "SKILL.md",
             "line_start": 159,
             "line_end": 166
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 220,
+            "line_end": 220
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 228,
+            "line_end": 228
           }
         ]
       },
@@ -107,33 +160,13 @@
         "evidence": [
           {
             "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 18
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 26,
             "line_end": 26
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 113,
-            "line_end": 114
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 138,
-            "line_end": 139
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 162,
-            "line_end": 163
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 193,
-            "line_end": 195
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 210,
-            "line_end": 210
           },
           {
             "file": "SKILL.md",
@@ -155,133 +188,138 @@
     ]
   },
   "content": {
-    "user_title": "Lip-Sync Any Face to Any Audio",
-    "value_statement": "Users need to drive a face's mouth from a specific audio track but don't know which model to pick. This skill routes the request to the right RunComfy endpoint and invokes the CLI with the correct payload.",
+    "user_title": "Sync any face to any audio track",
+    "value_statement": "Creating lip-synced video requires choosing the right AI model for your specific use case. This skill automatically routes your request to the best RunComfy endpoint — Sync Labs, OmniHuman, or Kling — based on your input format and quality needs.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
+      "lip sync",
       "lipsync",
-      "lip-sync",
-      "AI video generation",
       "RunComfy",
-      "talking head",
-      "avatar video",
+      "Sync Labs",
+      "video generation",
+      "AI avatar",
       "mouth sync"
     ],
     "actual_capabilities": [
-      "Route lip-sync requests to Sync Labs sync v2 or v2 Pro for mouth-swap on existing video",
-      "Route to ByteDance OmniHuman for portrait-still-plus-audio avatar generation",
-      "Route to Kling lipsync for audio-to-video or text-to-video mouth sync",
-      "Route to Creatify lipsync for Creatify-ecosystem workflows",
-      "Invoke the runcomfy CLI with the correct JSON input payload for each model",
-      "Classify user intent (source video + audio, portrait + audio, or script-only) and pick the matching route"
+      "Routes lip-sync requests to Sync Labs sync v2 or v2 Pro for mouth-swap on existing video footage",
+      "Routes avatar-style requests to ByteDance OmniHuman for talking-head generation from a portrait + audio",
+      "Routes Kling lipsync for audio-to-video or text-to-video workflows with synced speech",
+      "Routes Creatify lipsync endpoint for Creatify-ecosystem workflows",
+      "Classifies user intent (source video, portrait still, or script-only) to select the optimal model",
+      "Generates properly formatted runcomfy CLI invocations with correct JSON input schemas"
     ],
     "limitations": [
-      "Does not generate or process video locally — depends on the RunComfy CLI and remote API",
-      "Cannot enforce consent for real-person lipsync — the operator is responsible for verifying rights",
-      "Lipsync on real public figures or for defamatory or sexually explicit content is refused by the skill's guidance, not technically blocked",
-      "Audio quality directly affects mouth-sync quality — noisy or music-laden audio produces poor results"
+      "Requires the runcomfy CLI to be installed and authenticated separately",
+      "Only works with RunComfy's supported lip-sync models — cannot use custom or local models",
+      "Quality depends on input audio clarity — noisy or music-heavy audio produces poor sync",
+      "Does not perform content moderation — operator responsibility to verify consent for real people",
+      "Subject to RunComfy API rate limits and pricing"
     ],
     "use_cases": [
       {
-        "title": "Foreign-language dub of a brand video",
-        "description": "Dub an existing marketing video into another language by pairing the original footage with a translated voiceover MP3.",
-        "target_user": "Marketing and localization teams"
+        "title": "Foreign-language video dubbing",
+        "description": "Dub an existing brand video into another language by syncing the translated voiceover to the original footage using Sync Labs sync v2 Pro.",
+        "target_user": "Marketing teams localizing video content"
       },
       {
-        "title": "UGC ad creator from a single portrait",
-        "description": "Generate a talking-head video from one portrait photo and a product-pitch voiceover for social media ads.",
-        "target_user": "Content creators and social media managers"
+        "title": "UGC ad generation from portrait",
+        "description": "Generate a talking-head video ad from a single portrait photo and a voiceover script using OmniHuman — no filming required.",
+        "target_user": "Social media managers and content creators"
       },
       {
-        "title": "Multi-language product launch",
-        "description": "Produce the same talking-head video in many languages from one portrait and multiple voiceover files, keeping identity consistent.",
-        "target_user": "Product marketing teams"
+        "title": "Script-to-video with synced speech",
+        "description": "Write a script and get a video with naturally synced speech generated in-pass using Kling text-to-video or HappyHorse.",
+        "target_user": "Video producers and scriptwriters"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic lipsync from a video and audio file",
-        "prompt": "Sync the mouth in this video to this audio. Source video: [URL]. Voiceover: [URL].",
-        "scenario": "Beginner — you have both the original video and the target audio"
+        "title": "Basic mouth-swap request",
+        "prompt": "I have a video at [URL] and an audio track at [URL]. Use the lipsync skill to sync the mouth movements to the audio.",
+        "scenario": "Simple sync with existing assets"
       },
       {
-        "title": "Talking-head avatar from a portrait",
-        "prompt": "Make this portrait speak this voiceover. Portrait: [URL]. Audio: [URL].",
-        "scenario": "Beginner — you have a still image and want a talking-head video"
+        "title": "Avatar generation from portrait",
+        "prompt": "Create a talking-head video using this portrait [URL] and this voiceover [URL]. I want the person to appear as if they are speaking the voiceover naturally.",
+        "scenario": "Avatar-style generation from still image"
       },
       {
-        "title": "Generate and sync from a script",
-        "prompt": "I have a script but no audio file. Script: [paste script]. Generate the video with synced speech.",
-        "scenario": "Intermediate — no pre-recorded audio available"
+        "title": "High-quality dubbing",
+        "prompt": "I need a premium-quality lip-sync dub. Use Sync Labs v2 Pro for the best mouth fidelity. Source video: [URL]. Translated voiceover: [URL].",
+        "scenario": "Professional dubbing with quality priority"
       },
       {
-        "title": "Premium-quality dubbing with model selection",
-        "prompt": "I need hero-quality mouth sync for a professional dub. Original video: [URL]. Translated voiceover: [URL]. Use the best available model for mouth fidelity. Budget is not a concern.",
-        "scenario": "Advanced — specifying quality tier and budget constraints"
+        "title": "Script-driven video generation",
+        "prompt": "I have a script but no audio recording. Generate a video with synced speech from this script: '[script text]'. Use the lipsync skill's text-to-video route.",
+        "scenario": "Script-only workflow without pre-recorded audio"
       }
     ],
     "output_examples": [
       {
-        "input": "Sync the mouth in my product demo video to this Spanish voiceover.",
+        "input": "Sync this video to this audio using premium quality",
         "output": [
-          "Route: Sync Labs sync v2 Pro (premium mouth fidelity)",
-          "Command: runcomfy run sync/sync/lipsync/v2/pro with video_url and audio_url",
-          "Result: a 1080p MP4 in ./out with synced Spanish speech"
+          "Selected model: sync/sync/lipsync/v2/pro (Sync Labs sync v2 Pro)",
+          "Reason: Premium quality requested — v2 Pro delivers best mouth fidelity",
+          "Input: video_url + audio_url as JSON",
+          "Command: runcomfy run sync/sync/lipsync/v2/pro --input '{...}' --output-dir ./out"
         ]
       },
       {
-        "input": "Make this headshot speak my 30-second product pitch.",
+        "input": "Make this portrait talk to this voiceover",
         "output": [
-          "Route: OmniHuman (portrait + audio → talking-head video)",
-          "Command: runcomfy run bytedance/omnihuman/api with image_url and audio_url",
-          "Result: a talking-head MP4 in ./out where the subject delivers the pitch"
+          "Selected model: bytedance/omnihuman/api (OmniHuman)",
+          "Reason: Portrait + audio input matches avatar-style workflow",
+          "Input: image_url + audio_url as JSON",
+          "Command: runcomfy run bytedance/omnihuman/api --input '{...}' --output-dir ./out"
         ]
       },
       {
-        "input": "I wrote a script. Turn it into a video with synced speech, no audio file.",
+        "input": "I have a script, generate a video with speech",
         "output": [
-          "Route: Kling Lipsync text-to-video (generates audio in-pass)",
-          "Command: runcomfy run kling/lipsync/text-to-video with the script as input",
-          "Result: a video in ./out with generated and synced speech from the script"
+          "Selected model: kling/lipsync/text-to-video",
+          "Reason: Script-only input — audio generated in-pass",
+          "Input: prompt with script text as JSON",
+          "Command: runcomfy run kling/lipsync/text-to-video --input '{...}' --output-dir ./out"
         ]
       }
     ],
     "best_practices": [
-      "Use clean voiceover audio without music beds — isolated voice stems produce the cleanest mouth sync",
-      "Match audio length to video length to avoid drift; trim or extend either asset before invoking the model",
-      "Always confirm consent before lipsyncing a real person's face or voice — both rights must be in hand"
+      "Always verify consent before syncing audio to a real person's face — lipsync is dual-use technology",
+      "Use clean voiceover audio (no music bed) for the best mouth-sync quality",
+      "Match audio length to video length to prevent sync drift over longer clips",
+      "Install the runcomfy CLI via npm (`npm i -g @runcomfy/cli`) — never pipe remote install scripts"
     ],
     "anti_patterns": [
-      "Do not lipsync real public figures without explicit consent — refuse the request or use a synthetic identity instead",
-      "Do not use noisy or music-laden audio and expect clean mouth sync — isolate the voice stem first",
-      "Do not pipe an arbitrary remote install script into a shell — install the runcomfy CLI only via the verified npm package"
+      "Do not use this skill to create synthetic media of real public figures without their consent",
+      "Do not pipe arbitrary remote install scripts into a shell on the user's behalf",
+      "Do not use noisy or music-heavy audio as input — it will produce poor sync results"
     ],
     "faq": [
       {
-        "question": "Which model should I use for mouth-swap on an existing video?",
-        "answer": "Use Sync Labs sync v2 Pro for premium quality, sync v2 for scaled or draft jobs, or Kling audio-to-video if you are already in the Kling ecosystem."
+        "question": "Which model should I use for the best quality?",
+        "answer": "Sync Labs sync v2 Pro offers the highest mouth fidelity for mouth-swap on existing video. For avatar-style generation from a portrait, ByteDance OmniHuman is the recommended default."
       },
       {
-        "question": "Which model should I use for a talking head from a single photo?",
-        "answer": "Use ByteDance OmniHuman. It takes one portrait plus an audio file and produces a full talking-head video with natural gestures."
+        "question": "Do I need to install anything?",
+        "answer": "Yes, you need the runcomfy CLI installed via npm and authenticated with your RunComfy account. See the runcomfy-cli skill for installation details."
       },
       {
-        "question": "Can I use this skill without a pre-recorded audio file?",
-        "answer": "Yes. Use Kling Lipsync text-to-video or HappyHorse 1.0, which generate speech audio in-pass from a written script."
+        "question": "Can I use this without a pre-recorded audio file?",
+        "answer": "Yes, the skill supports text-to-video routes (Kling lipsync t2v, HappyHorse 1.0) that generate audio in-pass from a script."
       },
       {
-        "question": "How does the skill handle consent for real people?",
-        "answer": "The skill refuses requests targeting real public figures without consent, or requests aimed at defamatory or sexually explicit synthetic media. The operator is responsible for verifying rights."
+        "question": "Is this safe to use with real people's faces?",
+        "answer": "The skill does not gate inputs. You are responsible for ensuring you have consent from anyone whose face or voice appears in the output. Do not use this for defamatory or non-consensual synthetic media."
       },
       {
-        "question": "What are the outbound network endpoints?",
-        "answer": "Only model-api.runcomfy.net and related *.runcomfy.net / *.runcomfy.com domains. There is no telemetry or other outbound traffic."
+        "question": "What file formats are supported?",
+        "answer": "Input formats depend on the target model, but generally MP4 for video and MP3 for audio. The skill passes URLs to the CLI — your assets must be hosted at accessible URLs."
       },
       {
-        "question": "Is there a file-size limit on downloaded outputs?",
-        "answer": "Yes. The runcomfy CLI aborts any single download larger than 2 GiB to prevent runaway disk usage."
+        "question": "How much does it cost?",
+        "answer": "Pricing depends on the RunComfy model used and processing duration. Check runcomfy.com for current rates. Sync Labs v2 Pro is more expensive than standard v2."
       }
     ]
   },
