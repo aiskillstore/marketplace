@@ -3,22 +3,17 @@ name: ai-music
 displayName: "AI Music"
 allowed-tools: Bash(runcomfy *)
 description: >
-  Generate AI music on RunComfy via the `runcomfy` CLI — a smart router
-  across the music-model catalog. Routes to ElevenLabs AI Music
-  Generation (premium 44.1 kHz stereo vocal tracks, 5 s–5 min, $0.0083/s)
-  and ACE Step / ACE Step 1.5 (StepFun-AI open-weights, tag-driven
-  composition, multilingual lyrics, $0.0002–0.0003/s, ~27× cheaper),
-  plus ACE Step audio-inpaint (regenerate a time range inside an
-  existing track) and ACE Step audio-outpaint (extend a track before
-  or after). Picks the right model for the user's actual intent —
-  premium vocal hook, cheap background music library, multilingual
-  pop song, repair a bad chorus, lengthen a 30 s draft into a 2 min
-  cut — and ships each model's documented prompting patterns plus the
-  minimal `runcomfy run` invoke. Triggers on "generate music",
-  "make a song", "AI music", "background music", "instrumental track",
-  "soundtrack", "jingle", "theme music", "royalty-free music",
-  "compose", "music with lyrics", "extend music", "fix this song",
-  "inpaint music", or any explicit ask to generate or edit music.
+  Generate AI music on RunComfy via the `runcomfy` CLI. Routes across
+  the music-model catalog to ElevenLabs AI Music Generation (premium
+  44.1 kHz stereo vocal tracks, 5 s–5 min) and ACE Step / ACE Step 1.5
+  (open-weights, tag-driven, multilingual lyrics, ~27× cheaper), plus
+  ACE Step audio-inpaint (regenerate a time range) and audio-outpaint
+  (extend a track). Picks the right model for the user's intent and
+  ships each model's documented prompting patterns plus the minimal
+  `runcomfy run` invoke. Triggers on "generate music", "make a song",
+  "background music", "instrumental", "jingle", "theme music",
+  "royalty-free music", "compose", "music with lyrics", "extend
+  music", "fix this song", "inpaint music", or any explicit ask.
 homepage: https://www.runcomfy.com
 license: MIT
 ---
