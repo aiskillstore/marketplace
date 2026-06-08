@@ -1,3 +1,8 @@
+---
+name: imagegen
+description: Generate AI images using DALL-E 3 / gpt-image-1 through the verging.ai proxy API.
+---
+
 # AI Image Generation — verging.ai
 
 Generate AI images using DALL-E 3 / gpt-image-1 through the verging.ai proxy API.
