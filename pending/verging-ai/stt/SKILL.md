@@ -1,3 +1,8 @@
+---
+name: stt
+description: Transcribe audio to text using OpenAI Whisper through the verging.ai proxy API.
+---
+
 # Speech-to-Text — verging.ai
 
 Transcribe audio to text using OpenAI Whisper through the verging.ai proxy API.
