@@ -1,5 +1,5 @@
 ---
-name: chat
+name: verging-ai-chat
 description: Generate AI chat completions using GPT-4o through the verging.ai proxy API with streaming (SSE) and non-streaming response support.
 ---
 

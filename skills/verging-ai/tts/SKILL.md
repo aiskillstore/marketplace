@@ -1,5 +1,5 @@
 ---
-name: tts
+name: verging-ai-tts
 description: Convert text to speech audio using OpenAI TTS-1-HD through the verging.ai proxy API. Supports multiple voices, playback speed control, and various audio output formats.
 ---
 
