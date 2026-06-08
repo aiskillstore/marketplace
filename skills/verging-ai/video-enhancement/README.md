@@ -1,26 +1,63 @@
 # video-enhancement - AI Video Enhancement
 
-Enhance video quality using AI. Upscale resolution, denoise, sharpen low-quality videos to HD/4K.
+Upscale and enhance video quality using AI. Supports local files and YouTube/Bilibili URLs.
 
 ## Install
-# Claude Code
-/plugin marketplace add verging-ai/agent-skills
-/plugin install video-enhancement
 
-# ClawHub
-clawhub install verging-ai/agent-skills
+```bash
+npx skills add verging-ai/agent-skills --skill video-enhancement
+```
 
-## Get API Key
-1. Visit https://verging.ai
-2. Login → Click user avatar (top right) → Select "API Keys" from dropdown
-3. Create key → Set: export VERGING_API_KEY="your_key"
+## Setup
 
-## Options (optional)
-- --hd: HD quality (3 credits/sec)
-- --start N: Start time in seconds
-- --end N: End time in seconds
-- --download: Save result to local
+1. Visit [verging.ai](https://verging.ai)
+2. Login → Click avatar (top right) → API Keys
+3. Create a key, then set it:
+
+```bash
+export VERGING_API_KEY="vrg_sk_your_key_here"
+```
+
+## Requirements
+
+- `yt-dlp` (for downloading YouTube/Bilibili videos)
+- `ffmpeg` / `ffprobe` (for trimming)
+- `curl`
+
+## Usage
+
+```bash
+# Enhance a local video
+/video-enhancement -v ./video.mp4
+
+# Enhance a YouTube video
+/video-enhancement -v "https://youtube.com/watch?v=xxx"
+
+# HD upscaling, trim to first 20 seconds, auto-download
+/video-enhancement -v ./video.mp4 --end 20 --hd --download
+```
+
+## Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| --video | -v | Video file or URL | Required |
+| --start | -s | Start time (seconds) | 0 |
+| --end | -e | End time (seconds) | Video end |
+| --hd | | HD upscaling (4K) | false |
+| --download | -d | Auto-download result | false |
+| --output | -o | Output path | Current dir |
 
 ## Credits
-- Normal: 1 credit/sec
-- HD: 3 credits/sec
+
+| Mode | Cost |
+|------|------|
+| Normal | 3 credits/second |
+| HD | 5 credits/second |
+
+Max video duration: 30 seconds (longer videos are auto-trimmed).
+
+## Links
+
+- Website: https://verging.ai
+- API Docs: https://verging.ai/docs/api
