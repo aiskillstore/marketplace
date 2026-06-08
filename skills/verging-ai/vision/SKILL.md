@@ -1,6 +1,6 @@
 ---
 name: vision
-description: Analyze images using GPT-4o Vision through the verging.ai proxy API. Supports both image URL and file upload modes.
+description: Analyze images using GPT-4o Vision through the verging.ai proxy API, supporting both image URL (JSON) and file upload (multipart) modes.
 ---
 
 # AI Vision Analysis — verging.ai
