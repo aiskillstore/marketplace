@@ -1,7 +1,7 @@
 ---
 name: faceswap
-description: AI Face Swap - Swap face in video, deepfake face replacement, face swap for portraits. Use from command line. Supports local video files, YouTube, Bilibili URLs, auto-download, real-time progress tracking.
-version: 1.0.5
+description: AI Face Swap - Swap face in video using verging.ai API. Supports local video files, YouTube/Bilibili URLs, local and remote face images. Auto-download, trimming, real-time progress.
+version: 1.2.0
 author: verging.ai
 category: media
 user-invocable: true
@@ -20,11 +20,10 @@ metadata:
 
 # faceswap - AI Face Swap Service
 
-You are a CLI assistant for AI face swap. Users can use you to call verging.ai's AI face swap functionality.
+You are a CLI assistant for AI face swap via verging.ai.
 
-## User Input Format
+## Command Format
 
-Users will provide commands like:
 ```
 /faceswap --video <video file or URL> --face <face image or URL> [options]
 ```
@@ -33,257 +32,122 @@ Users will provide commands like:
 
 | Option | Short | Description | Default |
 |--------|-------|-------------|---------|
-| --video | -v | Target video file path or URL | Required |
+| --video | -v | Video file path or URL (YouTube/Bilibili) | Required |
 | --face | -f | Face image file path or URL | Required |
-| --start | -s | Video start time in seconds | 0 |
-| --end | -e | Video end time in seconds | Video duration |
-| --hd | -h | HD mode (3 credits/sec vs 1 credit/sec) | false |
-| --api-key | -k | Your API Key | VERGING_API_KEY env |
-| --output | -o | Result save path | Current directory |
-| --download | -d | Auto download result to local | false |
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| VERGING_API_KEY | Your API Key |
-| VERGING_API_URL | API base URL (default: https://verging.ai/api/v1) |
-
-## API Endpoints
-
-| Endpoint | Method | Format | Purpose |
-|----------|--------|--------|---------|
-| /api/v1/auth/me | GET | - | Get user info (including credits) |
-| /api/v1/upload-video | POST | Form Data | Get R2 presigned upload URL |
-| /api/v1/faceswap/create-job | POST | Form Data | Create face swap job |
-| /api/v1/faceswap/jobs | GET | - | Query job status |
+| --start | -s | Start time in seconds | 0 |
+| --end | -e | End time in seconds | Video end (max 30s total) |
+| --hd | | HD mode (3 credits/sec) | false (1 credit/sec) |
+| --api-key | -k | API Key | $VERGING_API_KEY |
+| --output | -o | Save path for result | Current directory |
+| --download | -d | Auto download result | false |
 
 ## Authentication
 
-All API requests require authentication via the `Authorization` header:
+**Recommended:** `Authorization: ApiKey <your_key>`
 
 ```bash
-Authorization: ApiKey <your_api_key>
+# ✅ Recommended (canonical form)
+curl -H "Authorization: ApiKey vrg_sk_your_key_here" https://verging.ai/api/v1/auth/me
+
+# ✅ Also works (Bearer with API key is supported)
+curl -H "Authorization: Bearer vrg_sk_your_key_here" https://verging.ai/api/v1/auth/me
 ```
 
-**⚠️ Important: There is a space between "ApiKey" and your key!**
+Get your API key: https://verging.ai → Login → Avatar → API Keys
 
-Example:
+## API Reference (Exact Formats)
+
+### 1. Check Credits
 ```bash
-# ✅ Correct
-Authorization: ApiKey vrg_sk_123456...
-
-# ❌ Wrong (missing space)
-Authorization: ApiKeyvrg_sk_123456...
-```
-
-You can get your API key from https://verging.ai (Login → Click avatar → API Keys).
-
-### Authentication Examples
-
-```bash
-# Check user info
 curl -H "Authorization: ApiKey $VERGING_API_KEY" \
   https://verging.ai/api/v1/auth/me
+```
+Response: `{"email":"...","name":"...","credits":100}`
 
-# Step 1: Get presigned upload URL for video
-curl -X POST -H "Authorization: ApiKey $VERGING_API_KEY" \
-  -F "video_file_name=video.mp4" \
-  -F "job_type=face-swap" \
-  https://verging.ai/api/v1/upload-video
-
-# The response contains:
-# {
-#   "result": {
-#     "url": "https://...r2.cloudflarestorage.com/...mp4?X-Amz-...",
-#     "public_url": "https://img.panpan8.com/face-swap/2026-03-11/xxx.mp4"
-#   }
-# }
-
-# Step 2: Upload video file to the presigned URL
-curl -X PUT -T /path/to/video.mp4 \
-  "https://...presigned-url-from-step-1..."
-
-# Step 3: Get presigned upload URL for face image (same method)
-curl -X POST -H "Authorization: ApiKey $VERGING_API_KEY" \
-  -F "video_file_name=face.jpg" \
-  -F "job_type=face-swap" \
-  https://verging.ai/api/v1/upload-video
-
-# Step 4: Upload face image to presigned URL
-curl -X PUT -T /path/to/face.jpg \
-  "https://...presigned-url..."
-
-# Step 5: Create face swap job
-# Use the public_url from Step 2 and Step 4
-curl -X POST -H "Authorization: ApiKey $VERGING_API_KEY" \
-  -F "swap_image=@/path/to/face.jpg" \
-  -F "file_name=face.jpg" \
-  -F "target_video_url=https://img.panpan8.com/face-swap/2026-03-11/xxx.mp4" \
-  -F "user_video_duration=10" \
-  -F "is_hd=false" \
-  https://verging.ai/api/v1/faceswap/create-job
-
-# Query job status
-curl -H "Authorization: ApiKey $VERGING_API_KEY" \
-  "https://verging.ai/api/v1/faceswap/jobs?job_ids=123"
-
-# List all jobs
-curl -H "Authorization: ApiKey $VERGING_API_KEY" \
-  https://verging.ai/api/v1/faceswap/jobs
+### 2. Get Upload URL (Form Data - NOT JSON)
+```bash
+# ⚠️ MUST use -F (multipart form-data), NOT -d (JSON)
+curl -X POST https://verging.ai/api/v1/upload-video \
+  -H "Authorization: ApiKey $VERGING_API_KEY" \
+  -F "video_file_name=trimmed.mp4" \
+  -F "job_type=face-swap"
+```
+Response:
+```json
+{
+  "code": 100000,
+  "result": {
+    "url": "https://...r2.cloudflarestorage.com/...?X-Amz-...",
+    "public_url": "https://img.panpan8.com/face-swap/2026-05-31/xxx.mp4"
+  }
+}
 ```
 
-**Important:** 
-- Replace `$VERGING_API_KEY` with your actual API key or set it as an environment variable
-- The `Authorization` header uses format: `ApiKey <key>` (not `Bearer <key>`)
+### 3. Upload Video to R2 (PUT with binary body)
+```bash
+curl -X PUT -T /tmp/verging-faceswap/trimmed.mp4 \
+  -H "Content-Type: video/mp4" \
+  "<presigned_url_from_step_2>"
+```
 
-## Dependencies
+### 4. Create Face Swap Job (Multipart — face image uploaded here directly)
+```bash
+# ⚠️ swap_image is a FILE upload (@path) — the server uploads it to R2 internally
+# ⚠️ You do NOT need to separately upload the face image via /upload-video
+curl -X POST https://verging.ai/api/v1/faceswap/create-job \
+  -H "Authorization: ApiKey $VERGING_API_KEY" \
+  -F "swap_image=@/tmp/verging-faceswap/face.jpg" \
+  -F "file_name=video.mp4" \
+  -F "target_video_url=<video_public_url_from_step_2>" \
+  -F "user_video_duration=30" \
+  -F "is_hd=false"
+```
+Response: `{"code":10000,"result":{"job_id":295,...}}`
 
-This skill requires:
-- **Remote video download capability** (only when user provides a URL like YouTube, Bilibili, etc.):
-  - Preferred: install yt-dlp skill first: `npx skills add lwmxiaobei/yt-dlp-skill --skill yt-dlp`
-  - Alternative: `npx skills add mapleshaw/yt-dlp-downloader-skill --skill yt-dlp-downloader`
-  - Alternative: use `yt-dlp` directly if already available on the system
-  - If no download tool is available, prompt the user to download the video locally first
-- **ffmpeg/ffprobe**: For video trimming (optional, only when --start or --end specified)
-- **curl**: Usually built-in
+### 5. Poll Job Status
+```bash
+curl -H "Authorization: ApiKey $VERGING_API_KEY" \
+  "https://verging.ai/api/v1/faceswap/jobs?job_ids=295"
+```
+Response: `[{"id":295,"status":"COMPLETED","progress":100,"result_url":"https://..."}]`
 
-## Processing Flow
+## Execution Flow (Follow Exactly)
 
-When the user executes the /faceswap command, please follow these steps:
+1. **Parse args** → extract video path/URL, face path/URL, options
+2. **Download remote resources** (if URLs provided):
+   - Video URL → `yt-dlp "URL" -o /tmp/verging-faceswap/input.mp4`
+   - Image URL → `curl -L -o /tmp/verging-faceswap/face.jpg "URL"`
+3. **Get video duration** → `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 video.mp4`
+4. **Trim if needed** (--start/--end or duration > 30s):
+   ```bash
+   ffmpeg -i input.mp4 -ss <start> -to <end> -c:v libx264 -c:a aac /tmp/verging-faceswap/trimmed.mp4
+   ```
+5. **Check credits** → GET /api/v1/auth/me (need duration × 1 or ×3 for HD)
+6. **Upload video only** → POST /upload-video (Form Data) → PUT to presigned URL
+7. **Create job** → POST /faceswap/create-job (face image goes as multipart file directly via `swap_image=@path`, no separate upload needed)
+8. **Poll status** → GET /faceswap/jobs?job_ids=X every 5 seconds until COMPLETED
+9. **Return/download result** → show result_url, optionally curl download
 
-### 0. Check Dependencies
+## Critical Notes
 
-- If user provides a remote video URL, check if `yt-dlp` is available: `which yt-dlp`
-- For local videos without trimming, no additional tools needed
-
-### 1. Parse Arguments
-- Parse --video and --face parameters
-- If remote URL, need to download to local
-- Parse time range --start and --end
-
-### 2. Download Remote Resources
-- If user provides a remote video URL (YouTube, Bilibili, etc.):
-  - Try `yt-dlp "URL" -o /tmp/verging-faceswap/video.mp4`
-  - If yt-dlp is not available, suggest installing the yt-dlp skill: `npx skills add lwmxiaobei/yt-dlp-skill --skill yt-dlp`
-  - If installation is not possible, ask the user to download the video locally first
-- For images: use curl to download
-- Temp directory: /tmp/verging-faceswap/
-
-### 3. Get Video Duration
-- Use ffprobe: ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "video.mp4"
-
-### 4. Trim Video (if --start or --end specified)
-- If user specifies --start or --end parameters, first trim the video
-- Use ffmpeg to trim specified time range:
-  ```
-  ffmpeg -i input.mp4 -ss <start> -to <end> -c copy output.mp4
-  ```
-- Or re-encode for accurate frames:
-  ```
-  ffmpeg -i input.mp4 -ss <start> -to <end> -c:v libx264 -c:a aac output.mp4
-  ```
-- Use trimmed video as the file to upload
-
-### 5. Check User Credits
-- Call /api/v1/auth/me to get user info
-- Calculate required credits: Normal mode 1 credit/sec, HD mode 3 credits/sec
-- If insufficient credits, prompt user to recharge
-
-### 6. Upload Video to R2
-- Call `/api/v1/upload-video` with Form Data (`video_file_name`, `job_type`)
-- Get presigned upload URL from response
-- Upload video file to presigned URL using PUT method
-- Save the `public_url` from response for next step
-
-### 7. Upload Face Image to R2
-- Same as step 6, but use the face image file
-- Save the `public_url`
-
-### 8. Create Job
-- Call `/api/v1/faceswap/create-job` with Form Data:
-  - `swap_image`: Face image file (will be re-uploaded to R2)
-  - `file_name`: Original file name
-  - `target_video_url`: The video public URL from step 6
-  - `user_video_duration`: Video duration in seconds
-  - `is_hd`: true/false
-
-### 8. Poll Job Status
-- Every 5 seconds call /api/v1/faceswap/jobs?job_ids=xxx to query status
-- Status: PENDING → PROCESSING → COMPLETED/FAILED
-- Show progress percentage
-
-### 9. Return Result
-- After completion, return result_url
-- If user specified --download or --output, use curl to download result
+- **Use `Authorization: ApiKey <key>` (recommended)** — `Bearer <key>` also works
+- **Only the VIDEO needs separate upload** via /upload-video + PUT to presigned URL
+- **Face image is uploaded directly in create-job** as multipart `swap_image=@path` — no separate upload step
+- **`/upload-video` uses Form Data (`-F`)** — NOT JSON (`-d`)
+- **Max video duration: 30 seconds** — trim longer videos first
+- **Temp directory: `/tmp/verging-faceswap/`** — create with `mkdir -p`
+- If yt-dlp is unavailable, ask user to download video manually
 
 ## Credit Consumption
 
-| Mode | Credits/sec |
-|------|-------------|
-| Normal | 1 credit/sec |
-| HD | 3 credits/sec |
+| Mode | Cost |
+|------|------|
+| Normal | 1 credit/second |
+| HD | 3 credits/second |
 
-## Example Conversation
+## Privacy & Security
 
-User: /faceswap -v ./input.mp4 -f ./my-face.jpg --start 5 --end 15
-
-You:
-1. Parse arguments
-2. Check if video needs trimming (--start/--end specified)
-3. Get video duration
-4. Check credits sufficient (10 seconds = 10 credits)
-5. Upload video and face image to R2
-6. Create face swap job
-7. Poll for completion
-8. Return result URL
-
-User: /faceswap -v ./input.mp4 -f ./my-face.jpg
-
-You:
-1. Parse arguments - local video, no trimming needed
-2. Get video duration
-3. Call API to get user info
-4. Check credits sufficient
-5. Upload video and face image to R2
-6. Create face swap job
-7. Poll for completion
-8. Return result URL
-
-## Notes
-
-- This skill uses yt-dlp for remote video downloads (YouTube, Bilibili, etc.)
-- For local videos without trimming, no additional tools needed
-- API Key can be passed via --api-key parameter or read from environment variable VERGING_API_KEY
-- **If user doesn't provide API Key**: Prompt user to get one at https://verging.ai (Login → Click user avatar → API Keys), and guide them to set the environment variable
-- Video duration max 30 seconds
-- Support downloading videos from YouTube, Bilibili, etc. using yt-dlp
-- Show progress during processing
-- **If --start or --end is specified, video will be trimmed locally before upload, saving upload time and processing cost**
-
-## Privacy and Security
-
-### API Key
-
-This skill requires a **verging.ai API Key**. Get it from:
-1. Visit https://verging.ai
-2. Login → Click user avatar (top right) → Select "API Keys"
-3. Create a new API key
-
-**Security recommendations:**
-- Use a dedicated API key with minimal permissions
-- Never expose your API key in public repositories
-- Set it via environment variable: `export VERGING_API_KEY="your_key"`
-
-### Data Handling
-
-- **Video uploads:** Videos are uploaded to verging.ai's R2 storage for processing
-- **Temporary files:** Local temporary files are stored in `/tmp/verging-faceswap/` and cleaned up after processing
-- **Result videos:** Processed videos are returned via a public URL
-- **No data retention:** This skill does not store any user data beyond the session
-
-### Legal Notice
-
+- Set key via env: `export VERGING_API_KEY="your_key"`
+- Never expose API key in public repos
 - Only process media you have rights to
-- Be aware of local laws regarding deepfake technology
-- Use responsibly and ethically
+- Temp files in `/tmp/verging-faceswap/` — clean up after use
