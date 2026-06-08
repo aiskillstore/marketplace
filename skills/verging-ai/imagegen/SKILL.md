@@ -1,6 +1,6 @@
 ---
 name: imagegen
-description: Generate AI images using DALL-E 3 or gpt-image-1 through the verging.ai proxy API. Supports configurable models, sizes, quality levels, and batch generation (1-4 images per request) with credit-based billing.
+description: Generate AI images using DALL-E 3 or gpt-image-1 through the verging.ai proxy API. Supports standard and HD quality, multiple images per request, and returns CDN-hosted image URLs.
 ---
 
 # AI Image Generation — verging.ai
