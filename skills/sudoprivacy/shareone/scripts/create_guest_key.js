@@ -1,36 +1,44 @@
-const http = require('http');
-const https = require('https');
-const os = require('os');
-const fs = require('fs');
-const path = require('path');
+const {
+    isSudowork,
+    requestPublicShareOneJson,
+    requestShareOneJson,
+    saveLocalApiKey,
+    saveSudoworkApiKey,
+} = require('./shareone_client');
 
-const baseUrl = process.env.SHAREONE_BASE_URL || 'https://shareone.app';
-const client = baseUrl.startsWith('https') ? https : http;
-const url = new URL('/api/v1/agent-guest-key', baseUrl);
-
-const req = client.request(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' }
-}, (res) => {
-    let data = '';
-    res.on('data', chunk => data += chunk);
-    res.on('end', () => {
-        if (res.statusCode === 200) {
-            const result = JSON.parse(data);
-            if (result.api_key) {
-                const credPath = path.join(os.homedir(), '.shareone_credentials');
-                fs.writeFileSync(credPath, JSON.stringify({ api_key: result.api_key }));
-                console.log(`GUEST_KEY_CREATED:${result.api_key}`);
+async function createGuestKey() {
+    try {
+        const requestJson = isSudowork() ? requestPublicShareOneJson : requestShareOneJson;
+        const result = await requestJson('/api/v1/agent-guest-key', {
+            method: 'POST',
+            authRequired: false,
+        });
+        if (result.api_key) {
+            if (isSudowork()) {
+                try {
+                    await saveSudoworkApiKey(result.api_key);
+                } catch (error) {
+                    console.log(`ERROR:SUDOWORK_AUTH_PROXY_SAVE_FAILED:${result.api_key}`);
+                    console.log("Auth Proxy 设置 ShareOne API Key 失败。请前往 Sudowork 的密钥管理手动添加 API Key，操作路径：【远程连接】-【密钥管理】。");
+                    if (error && error.message) {
+                        console.log(`DETAIL:${error.message}`);
+                    }
+                    return;
+                }
+            } else {
+                saveLocalApiKey(result.api_key);
             }
-        } else if (res.statusCode === 429) {
+            console.log(`GUEST_KEY_CREATED:${result.api_key}`);
+            return;
+        }
+        console.log("ERROR:INVALID_RESPONSE");
+    } catch (error) {
+        if (error.statusCode === 429) {
             console.log("ERROR:RATE_LIMIT_EXCEEDED");
         } else {
-            console.log(`ERROR:HTTP_${res.statusCode}`);
+            console.log(`ERROR:${error.message}`);
         }
-    });
-});
+    }
+}
 
-req.on('error', (e) => {
-    console.log(`ERROR:${e.message}`);
-});
-req.end();
+createGuestKey();
