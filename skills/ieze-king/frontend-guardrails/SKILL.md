@@ -1,6 +1,6 @@
 ---
 name: frontend-guardrails
-description: Professional frontend standards for building, scaffolding, extending, or reviewing any UI or frontend project — new or existing — even when standards aren't explicitly asked for. Keeps generated code consistent, reusable, secure, and production-quality. Framework-agnostic: React, Vue, Angular, Svelte, plain JS.
+description: "Professional frontend standards for building, scaffolding, extending, or reviewing any UI or frontend project — new or existing — even when standards aren't explicitly asked for. Keeps generated code consistent, reusable, secure, and production-quality. Framework-agnostic: React, Vue, Angular, Svelte, plain JS."
 ---
 
 # Frontend Guardrails
