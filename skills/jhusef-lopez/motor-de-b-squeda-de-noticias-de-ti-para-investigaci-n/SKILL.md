@@ -1,5 +1,5 @@
 ---
-name: Motor de búsqueda de noticias de TI para investigación
+name: motor-de-b-squeda-de-noticias-de-ti-para-investigaci-n
 description: Analista de vigilancia científica en TI para entornos doctorales. Conecta noticias recientes con evidencia científica verificable y entrega metadatos completos, trazables y listos para uso académico.
 version: 1.0.0
 ---
