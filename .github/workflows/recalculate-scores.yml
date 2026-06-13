@@ -57,7 +57,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           token: ${{ steps.app-token.outputs.token }}
-          sparse-checkout: .github/actions
+          sparse-checkout: |
+            .github/actions
+            scripts
+            skills
           fetch-depth: 1
 
       - name: Download Skillstore CLI
@@ -95,15 +98,31 @@ jobs:
             # Single-skill mode: per-slug wrapper
             WRAPPER_ARGS+=( --slugs "$INPUT_SLUG" )
             echo "Mode: Single skill ($INPUT_SLUG)"
-          elif [ -n "$INPUT_LIMIT" ]; then
-            # No explicit slugs, but a limit was given. We can't enumerate
-            # from the workflow, so fall back to the wrapper's legacy
-            # --recalculate top-level-retry path which forwards --limit.
-            WRAPPER_ARGS+=( --recalculate --limit "$INPUT_LIMIT" )
-            echo "Mode: All skills (limit $INPUT_LIMIT)"
           else
-            WRAPPER_ARGS+=( --recalculate )
-            echo "Mode: All skills"
+            # Scheduled/default full recalculation must still use the
+            # per-slug isolation wrapper. Enumerate checked-out skills and
+            # pass explicit slugs instead of the legacy top-level
+            # --recalculate retry path.
+            mapfile -t ALL_SLUGS < <(find skills -name "SKILL.md" -print | sed 's|^skills/||; s|/SKILL.md$||' | sort)
+            if [ -n "$INPUT_LIMIT" ]; then
+              if ! [[ "$INPUT_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
+                echo "::error::limit must be a positive integer when provided: $INPUT_LIMIT"
+                exit 2
+              fi
+              mapfile -t ALL_SLUGS < <(printf '%s\n' "${ALL_SLUGS[@]}" | head -n "$INPUT_LIMIT")
+              echo "Mode: All skills (limit $INPUT_LIMIT)"
+            else
+              echo "Mode: All skills"
+            fi
+
+            if [ "${#ALL_SLUGS[@]}" -eq 0 ]; then
+              echo "::error::No skills found to recalculate. Sparse checkout may be missing skills/."
+              exit 1
+            fi
+
+            SLUGS_CSV=$(printf '%s\n' "${ALL_SLUGS[@]}" | paste -sd, -)
+            WRAPPER_ARGS+=( --slugs "$SLUGS_CSV" )
+            echo "Skills queued: ${#ALL_SLUGS[@]}"
           fi
 
           if [ "$INPUT_CONCURRENCY" != "5" ]; then
@@ -145,16 +164,20 @@ jobs:
           echo "duration=${DURATION}s" >> $GITHUB_OUTPUT
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
 
-          # Treat partial progress as a successful run; only hard-fail
-          # when nothing was processed at all. Per-slug failures are
-          # surfaced as ::warning:: lines and counted in the summary.
+          # Treat partial per-slug failures as a successful run only when
+          # at least one slug succeeded. A non-zero wrapper exit means the
+          # run made no successful progress (all/global failure) and must
+          # keep the workflow red.
+          SUCCESSFUL=$(( ${PROCESSED:-0} - ${ERRORS:-0} ))
           if [ "$EXIT_CODE" -ne 0 ]; then
-            if [ "${PROCESSED:-0}" -eq 0 ]; then
-              echo "::error::Recalculation failed: no skills processed."
+            if [ "${PROCESSED:-0}" -eq 0 ] || [ "$SUCCESSFUL" -le 0 ]; then
+              echo "::error::Recalculation failed: no skills were scored successfully."
               exit "$EXIT_CODE"
             fi
 
             echo "::warning::Score recalculation finished with $ERRORS error(s) after processing $PROCESSED skill(s); keeping the workflow green because it made progress."
+          elif [ "${ERRORS:-0}" -gt 0 ]; then
+            echo "::warning::Score recalculation finished with $ERRORS error(s) after processing $PROCESSED skill(s)."
           fi
 
       - name: Cleanup

@@ -8,7 +8,7 @@
 //   AC1: a single slug failure (simulated TimeoutError) does not abort
 //        the whole run; other slugs still get processed.
 //   AC2: the run exits 0 when at least one slug succeeds, and exits 1
-//        only if all-or-some slugs failed after retries.
+//        only if all slugs failed after retries.
 //   AC3: per-slug retries happen with backoff; after the retry budget
 //        is exhausted, the slug is counted in Errors.
 //
@@ -29,6 +29,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const WRAPPER = join(REPO_ROOT, 'scripts', 'recalculate-scores.sh');
 const FAKE_CLI = join(REPO_ROOT, 'scripts', 'tests', 'fake-cli.sh');
+const RECALCULATE_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'recalculate-scores.yml');
+const SYNC_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'sync-to-supabase.yml');
 
 function runWrapper({ mode, failSlug, timeoutSlug, recalcFail = false, slugs, maxAttempts = 3, retryBase = 0 }) {
 	const tmp = mkdtempSync(join(tmpdir(), 'recalc-test-'));
@@ -231,4 +233,32 @@ test('wrapper rejects --recalculate + --slugs combination', () => {
 	});
 	assert.equal(result.status, 2);
 	assert.match(result.stderr, /mutually exclusive/);
+});
+
+
+// -------- workflow integration guards for Trent review blockers --------
+
+test('recalculate-scores workflow checks out wrapper and skill paths', () => {
+	const workflow = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
+	assert.match(workflow, /sparse-checkout:\s*\|[\s\S]*\.github\/actions/, 'download action path must be checked out');
+	assert.match(workflow, /sparse-checkout:\s*\|[\s\S]*\n\s*scripts\n/, 'scripts directory containing the wrapper must be checked out');
+	assert.match(workflow, /sparse-checkout:\s*\|[\s\S]*\n\s*skills\n/, 'skills tree must be checked out for all-skills enumeration');
+});
+
+test('recalculate-scores workflow default all-skills path uses per-slug wrapper', () => {
+	const workflow = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
+	assert.match(workflow, /find skills -name "SKILL\.md"/, 'workflow must enumerate skills from the checkout');
+	assert.match(workflow, /WRAPPER_ARGS\+=\( --slugs "\$SLUGS_CSV" \)/, 'default full run must pass explicit slugs to the wrapper');
+	assert.doesNotMatch(workflow, /WRAPPER_ARGS\+=\(\s*--recalculate/, 'workflow must not use legacy top-level --recalculate path');
+});
+
+test('workflows fail no-success/global scoring failures instead of masking them', () => {
+	const recalc = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
+	const sync = readFileSync(SYNC_WORKFLOW, 'utf8');
+	assert.match(recalc, /SUCCESSFUL=\$\(\( \$\{PROCESSED:-0\} - \$\{ERRORS:-0\} \)\)/);
+	assert.match(recalc, /Recalculation failed: no skills were scored successfully/);
+	assert.match(recalc, /exit "\$EXIT_CODE"/);
+	assert.match(sync, /tee score-output\.log/);
+	assert.match(sync, /Quality scoring failed: no synced skills were scored successfully/);
+	assert.match(sync, /exit "\$EXIT_CODE"/);
 });

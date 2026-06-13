@@ -225,8 +225,8 @@ jobs:
 
           # Delegate to the per-slug wrapper so a single breakdown update
           # failure (e.g. transient Supabase TimeoutError) is logged and
-          # retried, but never aborts the whole sync. The previous batched
-          # approach lost up to BATCH_SIZE skills per failed batch.
+          # retried without aborting the whole sync. If every slug fails,
+          # keep the job red instead of masking a global scoring failure.
           # GitHub Actions runs bash with `-e`; disable it while running
           # the wrapper so we can decide whether to continue after
           # partial failures.
@@ -236,13 +236,25 @@ jobs:
             --slugs "$SYNCED_SLUGS" \
             --concurrency 5 \
             --max-attempts 3 \
-            --retry-base-seconds 5
-          EXIT_CODE=$?
+            --retry-base-seconds 5 2>&1 | tee score-output.log
+          EXIT_CODE=${PIPESTATUS[0]}
           set -e
+
+          PROCESSED=$(grep -oP 'Processed:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+          UPDATED=$(grep -oP 'Updated:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+          ERRORS=$(grep -oP 'Errors:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+          SUCCESSFUL=$(( ${PROCESSED:-0} - ${ERRORS:-0} ))
 
           echo ""
           if [ $EXIT_CODE -ne 0 ]; then
-            echo "::warning::Quality scoring reported failures (exit $EXIT_CODE). The sync continues \u2014 see Errors: count above."
+            if [ "${PROCESSED:-0}" -eq 0 ] || [ "$SUCCESSFUL" -le 0 ]; then
+              echo "::error::Quality scoring failed: no synced skills were scored successfully."
+              exit "$EXIT_CODE"
+            fi
+
+            echo "::warning::Quality scoring reported $ERRORS error(s) after $PROCESSED processed / $UPDATED updated skill(s); continuing because it made progress."
+          elif [ "${ERRORS:-0}" -gt 0 ]; then
+            echo "::warning::Quality scoring completed with $ERRORS error(s) after $PROCESSED processed / $UPDATED updated skill(s)."
           else
             echo "✅ Quality score calculation complete"
           fi
