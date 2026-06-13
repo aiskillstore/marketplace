@@ -221,67 +221,43 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
         run: |
-          echo "🎯 Calculating quality scores"
+          echo "🎯 Calculating quality scores (per-slug with retry)"
 
-          # Batch size: 100 skills per batch to avoid memory/timeout issues
-          BATCH_SIZE=100
+          # Delegate to the per-slug wrapper so a single breakdown update
+          # failure (e.g. transient Supabase TimeoutError) is logged and
+          # retried without aborting the whole sync. If every slug fails,
+          # keep the job red instead of masking a global scoring failure.
+          # GitHub Actions runs bash with `-e`; disable it while running
+          # the wrapper so we can decide whether to continue after
+          # partial failures.
+          set +e
+          bash scripts/recalculate-scores.sh \
+            --cli "$GITHUB_WORKSPACE/skillstore-cli" \
+            --slugs "$SYNCED_SLUGS" \
+            --concurrency 5 \
+            --max-attempts 3 \
+            --retry-base-seconds 5 2>&1 | tee score-output.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
 
-          # Convert comma-separated slugs to array
-          IFS=',' read -ra SLUGS_ARRAY <<< "$SYNCED_SLUGS"
-          TOTAL_SLUGS=${#SLUGS_ARRAY[@]}
-
-          echo "   Total skills to score: $TOTAL_SLUGS"
-
-          # Calculate number of batches
-          BATCH_COUNT=$(( (TOTAL_SLUGS + BATCH_SIZE - 1) / BATCH_SIZE ))
-          echo "   Batches needed: $BATCH_COUNT (batch size: $BATCH_SIZE)"
-
-          # Track failures
-          FAILED_BATCHES=0
-          SUCCESSFUL_SKILLS=0
-
-          # Process each batch
-          for ((BATCH=0; BATCH<BATCH_COUNT; BATCH++)); do
-            START=$((BATCH * BATCH_SIZE))
-            END=$((START + BATCH_SIZE))
-            [ $END -gt $TOTAL_SLUGS ] && END=$TOTAL_SLUGS
-
-            # Build batch string (comma-separated)
-            BATCH_SLUGS=""
-            for ((i=START; i<END; i++)); do
-              [ -n "$BATCH_SLUGS" ] && BATCH_SLUGS="$BATCH_SLUGS,"
-              BATCH_SLUGS="$BATCH_SLUGS${SLUGS_ARRAY[$i]}"
-            done
-
-            BATCH_NUM=$((BATCH + 1))
-            BATCH_LEN=$((END - START))
-            echo ""
-            echo "📊 Processing batch $BATCH_NUM/$BATCH_COUNT ($BATCH_LEN skills)"
-
-            # Run scoring for this batch with error handling
-            set +e
-            "$GITHUB_WORKSPACE/skillstore-cli" skill score --slugs "$BATCH_SLUGS" --concurrency 5
-            EXIT_CODE=$?
-            set -e
-
-            if [ $EXIT_CODE -ne 0 ]; then
-              echo "::warning::Batch $BATCH_NUM failed with exit code $EXIT_CODE"
-              FAILED_BATCHES=$((FAILED_BATCHES + 1))
-            else
-              echo "✅ Batch $BATCH_NUM completed successfully"
-              SUCCESSFUL_SKILLS=$((SUCCESSFUL_SKILLS + BATCH_LEN))
-            fi
-          done
+          PROCESSED=$(grep -oP 'Processed:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+          UPDATED=$(grep -oP 'Updated:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+          ERRORS=$(grep -oP 'Errors:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+          SUCCESSFUL=$(( ${PROCESSED:-0} - ${ERRORS:-0} ))
 
           echo ""
-          echo "📈 Scoring complete: $SUCCESSFUL_SKILLS/$TOTAL_SLUGS skills scored successfully"
+          if [ $EXIT_CODE -ne 0 ]; then
+            if [ "${PROCESSED:-0}" -eq 0 ] || [ "$SUCCESSFUL" -le 0 ]; then
+              echo "::error::Quality scoring failed: no synced skills were scored successfully."
+              exit "$EXIT_CODE"
+            fi
 
-          if [ $FAILED_BATCHES -gt 0 ]; then
-            echo "::warning::$FAILED_BATCHES batch(es) failed. Check logs for details."
-            # Don't fail the workflow - partial success is acceptable
+            echo "::warning::Quality scoring reported $ERRORS error(s) after $PROCESSED processed / $UPDATED updated skill(s); continuing because it made progress."
+          elif [ "${ERRORS:-0}" -gt 0 ]; then
+            echo "::warning::Quality scoring completed with $ERRORS error(s) after $PROCESSED processed / $UPDATED updated skill(s)."
+          else
+            echo "✅ Quality score calculation complete"
           fi
-
-          echo "✅ Quality score calculation complete"
 
   # ============================================================
   # CACHE INVALIDATION JOB
