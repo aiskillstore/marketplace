@@ -81,45 +81,59 @@ jobs:
           echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo ""
 
-          # Build command flags using environment variables (safe from injection)
-          FLAGS="--recalculate"
+          # Build wrapper args. The wrapper script (scripts/recalculate-scores.sh)
+          # runs the CLI in per-slug mode with retry/backoff so a single
+          # breakdown update TimeoutError does not take down the whole run.
+          WRAPPER_ARGS=(
+            --cli "$GITHUB_WORKSPACE/skillstore-cli"
+            --concurrency "$INPUT_CONCURRENCY"
+            --max-attempts 3
+            --retry-base-seconds 5
+          )
 
           if [ -n "$INPUT_SLUG" ]; then
-            FLAGS="$FLAGS $INPUT_SLUG"
+            # Single-skill mode: per-slug wrapper
+            WRAPPER_ARGS+=( --slugs "$INPUT_SLUG" )
             echo "Mode: Single skill ($INPUT_SLUG)"
+          elif [ -n "$INPUT_LIMIT" ]; then
+            # No explicit slugs, but a limit was given. We can't enumerate
+            # from the workflow, so fall back to the wrapper's legacy
+            # --recalculate top-level-retry path which forwards --limit.
+            WRAPPER_ARGS+=( --recalculate --limit "$INPUT_LIMIT" )
+            echo "Mode: All skills (limit $INPUT_LIMIT)"
           else
+            WRAPPER_ARGS+=( --recalculate )
             echo "Mode: All skills"
           fi
 
-          if [ -n "$INPUT_LIMIT" ]; then
-            FLAGS="$FLAGS --limit $INPUT_LIMIT"
-            echo "Limit: $INPUT_LIMIT"
+          if [ "$INPUT_CONCURRENCY" != "5" ]; then
+            echo "Concurrency: $INPUT_CONCURRENCY"
           fi
 
-          FLAGS="$FLAGS --concurrency $INPUT_CONCURRENCY"
-          echo "Concurrency: $INPUT_CONCURRENCY"
-
           if [ "$INPUT_DRY_RUN" = "true" ]; then
-            FLAGS="$FLAGS --dry-run"
+            WRAPPER_ARGS+=( --dry-run )
             echo "Dry Run: Yes"
           fi
 
           echo ""
-          echo "Running: "$GITHUB_WORKSPACE/skillstore-cli" skill score $FLAGS"
+          echo "Running: scripts/recalculate-scores.sh ${WRAPPER_ARGS[*]}"
           echo "----------------------------------------"
 
-          # Run score command and capture output
-          "$GITHUB_WORKSPACE/skillstore-cli" skill score $FLAGS 2>&1 | tee score-output.log
+          # Run wrapper. Output to both stdout and score-output.log for
+          # backwards-compatible grep parsing.
+          bash scripts/recalculate-scores.sh "${WRAPPER_ARGS[@]}" 2>&1 | tee score-output.log
           EXIT_CODE=${PIPESTATUS[0]}
 
           echo ""
           echo "----------------------------------------"
 
-          # Parse results from log
-          PROCESSED=$(grep -oP 'Processed:\s*\K\d+' score-output.log 2>/dev/null || echo "0")
-          UPDATED=$(grep -oP 'Updated:\s*\K\d+' score-output.log 2>/dev/null || echo "0")
-          ERRORS=$(grep -oP 'Errors:\s*\K\d+' score-output.log 2>/dev/null || echo "0")
-          DURATION=$(grep -oP 'Duration:\s*\K\d+' score-output.log 2>/dev/null || echo "0")
+          # Parse results from log. The wrapper prints aggregate
+          # Processed/Updated/Errors/Duration lines at the very end; the
+          # earlier per-slug lines emitted by the CLI are ignored.
+          PROCESSED=$(grep -oP 'Processed:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+          UPDATED=$(grep -oP 'Updated:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+          ERRORS=$(grep -oP 'Errors:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+          DURATION=$(grep -oP 'Duration:\s*\K\d+' score-output.log | tail -n1 || echo "0")
 
           echo "processed=$PROCESSED" >> $GITHUB_OUTPUT
           echo "updated=$UPDATED" >> $GITHUB_OUTPUT
@@ -127,8 +141,17 @@ jobs:
           echo "duration=${DURATION}s" >> $GITHUB_OUTPUT
           echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
 
-          # Exit with CLI's exit code
-          exit $EXIT_CODE
+          # Treat partial progress as a successful run; only hard-fail
+          # when nothing was processed at all. Per-slug failures are
+          # surfaced as ::warning:: lines and counted in the summary.
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            if [ "${PROCESSED:-0}" -eq 0 ]; then
+              echo "::error::Recalculation failed: no skills processed."
+              exit "$EXIT_CODE"
+            fi
+
+            echo "::warning::Score recalculation finished with $ERRORS error(s) after processing $PROCESSED skill(s); keeping the workflow green because it made progress."
+          fi
 
       - name: Cleanup
         if: always()
@@ -174,8 +197,10 @@ jobs:
 
           if [ "$EXIT_CODE" = "0" ]; then
             echo "✅ Score recalculation completed successfully" >> $GITHUB_STEP_SUMMARY
+          elif [ "$PROCESSED" -gt 0 ]; then
+            echo "⚠️ Score recalculation completed with warnings (non-fatal exit code: $EXIT_CODE)" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ Score recalculation completed with errors (exit code: $EXIT_CODE)" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Score recalculation failed before making progress (exit code: $EXIT_CODE)" >> $GITHUB_STEP_SUMMARY
           fi
 
           cat << 'EOF' >> $GITHUB_STEP_SUMMARY
