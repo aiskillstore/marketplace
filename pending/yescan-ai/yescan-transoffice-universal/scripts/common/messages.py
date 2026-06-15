@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+
+CREDENTIAL_NOT_CONFIGURED = "SCAN_WEBSERVICE_KEY 未配置，请访问 https://scan.quark.cn/business → 开发者后台 → 登录/注册账号 → 查看API Key"
+QUOTA_INSUFFICIENT = "请前往https://scan.quark.cn/business，登录开发者后台，选择需要的套餐进行充值（请注意购买Skill专用套餐）"
+BASE64_CONTENT_EMPTY = "BASE64 内容不能为空"
+FILE_SAVE_SUCCESS = "文件保存成功：{path}"
+FILE_SAVE_FAILED = "保存文件失败：{error}"
+UNSUPPORTED_IMAGE_FORMAT = "不支持的图片格式: {format}，支持格式: {supported}"
+CLI_DESCRIPTION = "Quark OCR - 支持图片 URL、本地路径、BASE64 字符串"
+CLI_EPILOG_AVAILABLE_SCENES = "可用场景（--scene 参数值）:"
+CLI_SCENE_HELP = "场景名称（如 general-ocr, idcard-ocr 等）"
+CLI_URL_HELP = "图片 URL"
+CLI_PATH_HELP = "本地图片文件路径"
+CLI_BASE64_HELP = "BASE64 字符串"
+CLI_EPILOG_EXAMPLES = "示例:"
