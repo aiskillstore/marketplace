@@ -2,22 +2,6 @@
 """
 FileSaver - 通用文件保存器
 用于保存扫描王服务返回的结果到文件（图片、Word、Excel 等）。
-
-Security audit notes
---------------------
-- Output files are written to ``tempfile.gettempdir()`` by default
-  (``/tmp`` on POSIX, ``%TEMP%`` on Windows). This is intentional and
-  documented in ``../../SECURITY.md`` § "Output file storage". Callers
-  may pass an explicit ``filepath`` / ``default_dir`` to redirect output.
-- Filenames are generated with ``os.urandom(8)`` to prevent predictable
-  paths / symlink races in the shared temp directory.
-- Magic-byte detection (``_detect_format_from_magic_bytes``) is a
-  **defensive check** — it ensures the decoded payload really is the
-  image format we expect before naming the file with that extension. It
-  is NOT a binary-execution path; we never run, parse, or interpret the
-  bytes beyond this header inspection.
-- ``base64.b64decode`` is used purely as the transport-decoding step for
-  the JSON API response, not as obfuscation.
 """
 import os
 import base64

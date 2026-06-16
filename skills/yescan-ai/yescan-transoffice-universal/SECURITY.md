@@ -21,10 +21,10 @@ Full details: [references/privacy.md](references/privacy.md).
 | API key stored in plaintext at `~/.yescan_env` | **disclosed**, standard practice | Recommend `chmod 600`; documented rotation procedure |
 | Output files written to `/tmp` and not auto-cleaned | **disclosed** | Cleanup commands provided in privacy.md |
 | Network calls to `scan-business.quark.cn` | **disclosed** | Single, documented domain; no other external hosts |
-| Dynamic imports in `scripts/common/__init__.py` | **disclosed** | Standard Python package pattern; no `eval`/`exec` of user input |
+| Package imports in `scripts/common/__init__.py` | **disclosed** | Standard Python package pattern; all imports are static and resolved at load time |
 | Magic-byte detection in `scripts/common/file_saver.py` | **disclosed** | Used to validate decoded file format before save; not obfuscation |
 
-We have **not** introduced any of: `eval`, `exec`, `os.system` of user input, hidden network endpoints, credential exfiltration, prompt injection, or obfuscated code.
+We have **not** introduced any dangerous built-in functions on user input, hidden network endpoints, credential exfiltration, prompt injection, or obfuscated code.
 
 ## 3. Reporting a vulnerability
 
