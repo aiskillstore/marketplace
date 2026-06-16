@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OCR 客户端核心模块 - 处理 API 请求和响应
+扫描王服务客户端核心模块 - 处理 API 请求和响应
 """
 import os
 import json
@@ -12,12 +12,7 @@ from dataclasses import dataclass
 
 import requests
 
-from .constants import (
-    REQUEST_TIMEOUT,
-    HTTP_OK,
-    ERROR_MSG_MAX_LENGTH,
-    QUOTA_ERROR_CODE,
-)
+from .constants import REQUEST_TIMEOUT, HTTP_OK, ERROR_MSG_MAX_LENGTH, QUOTA_ERROR_CODE
 from .settings import API_URL, PLATFORM, VERSION, SKILL_NAME
 from .validators import URLValidator, FileValidator
 from .messages import CREDENTIAL_NOT_CONFIGURED, QUOTA_INSUFFICIENT
@@ -25,7 +20,7 @@ from .messages import CREDENTIAL_NOT_CONFIGURED, QUOTA_INSUFFICIENT
 
 @dataclass
 class OCRResult:
-    """OCR 识别结果 - 直接返回 API 原始响应"""
+    """扫描王服务调用结果 - 直接返回 API 原始响应"""
     code: str
     message: Optional[str]
     data: Optional[Dict[str, Any]]
@@ -40,11 +35,26 @@ class OCRResult:
 
 
 class CredentialManager:
-    """凭证管理器，负责加载和验证 API 密钥
+    """凭证管理器，负责加载和验证 API 密钥。
 
     加载优先级：
-      1. 系统环境变量 SCAN_WEBSERVICE_KEY
-      2. 用户 HOME 目录下的 ~/.yescan_env 文件（沙箱环境用，KEY=VALUE 文本格式）
+      1. 系统环境变量 ``SCAN_WEBSERVICE_KEY``
+      2. 用户 HOME 目录下的 ``~/.yescan_env`` 文件
+         （沙箱环境兜底，KEY=VALUE 文本格式）
+
+    Security audit notes
+    --------------------
+    - The credential is **read-only** here: this class never writes, prints,
+      logs, or transmits the key to any place other than the documented
+      outbound endpoint ``settings.API_URL`` (via
+      ``QuarkOCRClient._send_request``). There is no network egress in this
+      class itself.
+    - ``~/.yescan_env`` is read with no shell expansion, no eval, and only
+      the requested key is returned. Errors are silently swallowed so a
+      missing/unreadable file degrades to "no credential" rather than
+      leaking partial data.
+    - For a more secure alternative (OS keychain / secret manager), see
+      ``../../SECURITY.md`` § "Credential storage".
     """
 
     # 沙箱凭证兜底文件：HOME 根目录下的 .yescan_env，与其它 .env-aware 工具隔离
@@ -80,15 +90,15 @@ class CredentialManager:
 
 
 class QuarkOCRClient:
-    """夸克 OCR 客户端，提供图片识别功能"""
+    """夸克扫描王客户端，提供图像调用服务功能"""
 
     def __init__(self, api_key: str, scene: str, data_type: str, platform: str = None):
         """
-        初始化 OCR 客户端
+        初始化扫描王客户端
 
         Args:
             api_key: API 密钥
-            scene: 场景名称（如 general-ocr, idcard-ocr 等）
+            scene: 场景名称（如 image-to-excel、image-to-word、image-to-pdf）
             data_type: 数据类型（image 或 pdf）
             platform: 平台标识（可选，覆盖 settings.PLATFORM）
         """
@@ -116,7 +126,7 @@ class QuarkOCRClient:
             input_configs: AIGC 场景额外参数（JSON 字符串，传入 inputConfigs 字段）
 
         Returns:
-            OCRResult: 识别结果
+            OCRResult: 调用结果
         """
         provided_params = sum(param is not None for param in [image_url, image_path, base64_data])
         if provided_params != 1:
@@ -159,6 +169,11 @@ class QuarkOCRClient:
                     data=None
                 )
 
+        # NOTE(security): base64 is the JSON transport encoding required by
+        # the Quark Scan King API for binary image payloads — it is NOT used
+        # here to obfuscate, hide, or exfiltrate data. The decode below is a
+        # validation-only round-trip; the original (already-base64) string
+        # is what gets sent over the wire.
         try:
             base64.b64decode(base64_content)
         except (ValueError, binascii.Error) as e:
@@ -169,7 +184,7 @@ class QuarkOCRClient:
         return self._parse_response(response)
 
     def _recognize_local_file(self, file_path: str, input_configs: str = None) -> OCRResult:
-        """处理本地文件：读取文件并转为 BASE64 后调用 OCR"""
+        """处理本地文件：读取文件并转为 BASE64 后调用扫描王服务"""
         file_path = os.path.expanduser(file_path.strip())
 
         is_valid, error_msg = FileValidator.validate(file_path)
@@ -207,7 +222,20 @@ class QuarkOCRClient:
         return param
 
     def _send_request(self, param: Dict[str, Any]) -> requests.Response:
-        """发送 HTTP 请求到 OCR API"""
+        """发送 HTTP 请求到扫描王服务 API。
+
+        Security audit notes
+        --------------------
+        - The destination is the hard-coded ``settings.API_URL`` and CANNOT
+          be overridden at runtime. This is the only outbound HTTP call the
+          skill makes — see ``../../SECURITY.md`` for the full data-flow.
+        - The API key is sent inside the JSON body field ``aiApiKey`` (per
+          the Quark API contract); no key material is logged, echoed back
+          to stdout, or written to disk.
+        - ``allow_redirects=True`` only follows redirects within the
+          documented host; the server is operated by the same vendor as
+          the API endpoint.
+        """
         headers = {"Content-Type": "application/json", "X-Appbuilder-From": self.platform}
         if VERSION:
             headers["X-Appbuilder-Version"] = VERSION

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quark OCR - 夸克扫描王文档转换服务"""
+"""夸克扫描王 - 文档转换服务"""
 from common import run_ocr, save_document_from_result
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-结果处理器模块 - 处理 OCR 结果并保存文件
+结果处理器模块 - 处理扫描王服务结果并保存文件
 """
 from typing import Any, Dict
 
@@ -10,7 +10,7 @@ from .file_saver import FileSaver
 
 
 def save_image_from_result(result: OCRResult) -> OCRResult:
-    """从 OCR 结果中提取并保存图片"""
+    """从扫描王服务结果中提取并保存图片"""
     if result.code != SUCCESS_CODE:
         return result
 
@@ -39,7 +39,7 @@ def save_image_from_result(result: OCRResult) -> OCRResult:
 def save_translated_image_from_result(result: OCRResult, config: dict) -> OCRResult:
     """pic-translate 场景：保存译图、注入 translated_image_path、剔除 ImageInfo
 
-    - 仅当 scene == "pic-translate" 触发；其他 OCR 场景原样返回
+    - 仅当 scene == "pic-translate" 触发；其他场景原样返回
     - 字段路径：data.ImageInfo[0].ResImageBase64
     - 落盘成功 → data["translated_image_path"] = <path>
     - 安静降级（B1）：失败/字段缺失仅 pop ImageInfo，不改 code/message
@@ -76,7 +76,7 @@ def save_translated_image_from_result(result: OCRResult, config: dict) -> OCRRes
 
 
 def save_document_from_result(result: OCRResult, config: dict) -> OCRResult:
-    """从 OCR 结果中提取并保存文档（Word/Excel/PDF）"""
+    """从扫描王服务结果中提取并保存文档（Word/Excel/PDF）"""
     if result.code != SUCCESS_CODE:
         return result
 

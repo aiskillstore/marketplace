@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-公共执行器模块 - 封装 OCR 脚本的通用执行逻辑
+公共执行器模块 - 封装扫描王脚本的通用执行逻辑
 """
 import sys
 import argparse
@@ -8,11 +8,7 @@ from typing import Callable, Optional
 
 from .ocr_client import OCRResult, CredentialManager, QuarkOCRClient
 from .scene_configs import get_scene_config, list_scenes
-from .messages import (
-    CLI_DESCRIPTION, CLI_EPILOG_AVAILABLE_SCENES,
-    CLI_SCENE_HELP, CLI_URL_HELP, CLI_PATH_HELP, CLI_BASE64_HELP,
-    CLI_EPILOG_EXAMPLES,
-)
+from .messages import CLI_DESCRIPTION, CLI_EPILOG_AVAILABLE_SCENES, CLI_SCENE_HELP, CLI_URL_HELP, CLI_PATH_HELP, CLI_BASE64_HELP, CLI_EPILOG_EXAMPLES
 
 
 # 结果处理器类型
@@ -23,14 +19,14 @@ ResultHandlerWithConfig = Callable[[OCRResult, dict], OCRResult]
 def run_ocr(result_handler: Optional[ResultHandler] = None,
             result_handler_with_config: Optional[ResultHandlerWithConfig] = None) -> None:
     """
-    通用 OCR 执行器
+    通用扫描王服务执行器
     
     Args:
         result_handler: 结果处理函数，签名为 (OCRResult) -> OCRResult
         result_handler_with_config: 需要配置的结果处理函数，签名为 (OCRResult, config) -> OCRResult
     
     使用示例:
-        # OCR类（不保存文件）
+        # 仅调用（不保存文件）
         run_ocr()
         
         # 图片增强类（保存图片）
@@ -47,8 +43,8 @@ def run_ocr(result_handler: Optional[ResultHandler] = None,
   {', '.join(list_scenes())}
 
 {CLI_EPILOG_EXAMPLES}
-  python3 scripts/scan.py --scene general-ocr --url "https://example.com/image.jpg"
-  python3 scripts/scan.py --scene idcard-ocr --path "/path/to/idcard.jpg"
+  python3 scripts/scan.py --scene image-to-excel --url "https://example.com/sales.png"
+  python3 scripts/scan.py --scene image-to-word --path "/path/to/notes.jpg"
         """
     )
     
