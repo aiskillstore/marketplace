@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AgentCall Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #e0e0e0; font-family: system-ui; padding: 20px; }
+  h2 { font-size: 14px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+  .grid { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; height: calc(100vh - 40px); }
+  .panel { background: #151515; border-radius: 8px; padding: 16px; overflow-y: auto; }
+  .participant { padding: 8px 0; border-bottom: 1px solid #222; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #333; }
+  .dot.speaking { background: #22c55e; }
+  .transcript-entry { padding: 6px 0; border-bottom: 1px solid #1a1a1a; }
+  .speaker { color: #3b82f6; font-weight: 600; font-size: 13px; }
+  .text { color: #ccc; font-size: 14px; margin-top: 2px; }
+  .status-bar { display: flex; justify-content: space-between; padding: 8px 0; color: #555; font-size: 12px; }
+  #agent-status { color: #a855f7; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="status-bar">
+  <span>AgentCall Dashboard</span>
+  <span id="agent-status">connecting...</span>
+</div>
+<div class="grid">
+  <div class="panel">
+    <h2>Participants</h2>
+    <div id="participants"></div>
+  </div>
+  <div class="panel">
+    <h2>Transcript</h2>
+    <div id="transcript"></div>
+  </div>
+</div>
+<script src="agentcall-audio.js"></script>
+<script>
+let ws = null;
+const audioPlayer = new AgentCallAudio({
+  onInterrupted: (info) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'tts.interrupted', ...info }));
+    }
+  }
+});
+const participants = {};
+let activeSpeaker = '';
+
+function renderParticipants() {
+  const el = document.getElementById('participants');
+  el.innerHTML = Object.values(participants).map(p =>
+    `<div class="participant"><div class="dot ${p.name === activeSpeaker ? 'speaking' : ''}"></div>${p.name}</div>`
+  ).join('');
+}
+
+function addTranscript(speaker, text) {
+  const el = document.getElementById('transcript');
+  const entry = document.createElement('div');
+  entry.className = 'transcript-entry';
+  entry.innerHTML = `<div class="speaker">${speaker}</div><div class="text">${text}</div>`;
+  el.appendChild(entry);
+  el.scrollTop = el.scrollHeight;
+}
+
+const params = new URLSearchParams(window.location.search);
+const wsURL = params.get('ws');
+if (wsURL) {
+  ws = new WebSocket(wsURL);
+  ws.onopen = () => document.getElementById('agent-status').textContent = 'connected';
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    audioPlayer.handleEvent(msg);
+    const type = msg.event || msg.type || '';
+
+    if (type === 'participant.joined') {
+      const p = msg.participant || {};
+      participants[p.id || p.name] = p;
+      renderParticipants();
+    } else if (type === 'participant.left') {
+      const p = msg.participant || {};
+      delete participants[p.id || p.name];
+      renderParticipants();
+    } else if (type === 'active_speaker') {
+      activeSpeaker = (msg.speaker || {}).name || '';
+      renderParticipants();
+    } else if (type === 'transcript.final') {
+      addTranscript((msg.speaker || {}).name || 'Unknown', msg.text || '');
+    } else if (type === 'voice.state') {
+      // Ignore server's listening reset if audio is still playing
+      if (msg.state === 'listening' && audioPlayer.isPlaying()) return;
+      document.getElementById('agent-status').textContent = (msg.state || '').replace(/_/g, ' ');
+    }
+  };
+  ws.onclose = () => document.getElementById('agent-status').textContent = 'disconnected';
+}
+</script>
+</body>
+</html>

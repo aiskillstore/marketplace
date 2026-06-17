@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentCall Avatar — Pattern</title>
+<style>
+  /* =========================================================================
+     AgentCall Avatar — Pattern (radial sunburst)
+     Loaded by bridge-visual.py with ?ws=<websocket-url>&name=<bot-name>.
+     Wired identically to avatar/orb/ring: voice.state from backend WS,
+     audio player drives speaking/listening, /tasks.json polled for the
+     work-in-progress list. No template-side transcript handling, no
+     auto-revert timers (last-write-wins), no mic getUserMedia (passive
+     avatar — FirstCall handles audio routing on its own).
+     ========================================================================= */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0e1a;
+    --text: #e6eaf2;
+    --text-dim: #8b95ad;
+    --listening: #f5f7fb;
+    --hearing: #5b8def;
+    --thinking: #c792ea;
+    --working: #ff8a4c;
+    --speaking: #5bd1a3;
+    --interrupted: #d4a85e;
+    --aware: #14b8a6;
+    --holding: #f5b73d;
+    --connecting: #8b95ad;
+  }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background 0.6s ease;
+  }
+  /* Per-state background tints (flat — poor-network safe). */
+  body.s-listening                 { background: #0a0e1a; }
+  body.s-hearing-input,
+  body.s-actively_listening        { background: #0d1626; }
+  body.s-thinking                  { background: #150f24; }
+  body.s-working                   { background: #1d130c; }
+  body.s-speaking                  { background: #0d1f17; }
+  body.s-holding,
+  body.s-waiting_to_speak          { background: #1c160a; }
+  body.s-interrupted               { background: #1c1410; }
+  body.s-contextually_aware        { background: #0d1c1a; }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    position: relative;
+  }
+  .stage {
+    width: 100%;
+    max-width: 720px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+  }
+  /* Radial visualizer — 16-spoke sunburst. */
+  .radial {
+    position: relative;
+    width: 320px;
+    height: 320px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--listening);
+    transition: color 0.5s ease;
+    contain: layout style paint;
+  }
+  .radial[data-state="hearing-input"],
+  .radial[data-state="actively_listening"] { color: var(--hearing); }
+  .radial[data-state="thinking"]    { color: var(--thinking); }
+  .radial[data-state="working"]     { color: var(--working); }
+  .radial[data-state="speaking"]    { color: var(--speaking); }
+  .radial[data-state="interrupted"] { color: var(--interrupted); }
+  .radial[data-state="contextually_aware"] { color: var(--aware); }
+  .radial[data-state="holding"],
+  .radial[data-state="waiting_to_speak"] { color: var(--holding); }
+  .radial[data-state="connecting"],
+  .radial[data-state="initializing"] { color: var(--connecting); }
+  .radial-inner { position: relative; width: 280px; height: 280px; }
+  .radial[data-state="thinking"] .radial-inner {
+    animation: radial-spin 1.6s linear infinite;
+    will-change: transform;
+  }
+  @keyframes radial-spin { to { transform: rotate(360deg); } }
+  /* Spokes — equal length, all pulse together. */
+  .bar {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 10px;
+    height: 60px;
+    border-radius: 3px;
+    background: currentColor;
+    opacity: 0.4;
+    transform-origin: center bottom;
+    will-change: opacity, height;
+    animation: spoke-pulse var(--pulse-period, 1.8s) ease-in-out infinite;
+  }
+  /* Default opacity-only pulse — outer circle stays perfectly round. */
+  @keyframes spoke-pulse {
+    0%, 100% { opacity: var(--bar-base, 0.4); }
+    50%      { opacity: var(--bar-peak, 1); }
+  }
+  /* Speaking — soothing length breath, ~20% expand, anchored at inner end. */
+  @keyframes speaking-breath {
+    0%, 100% { height: 60px; opacity: 0.9; }
+    50%      { height: 72px; opacity: 1;   }
+  }
+  .radial[data-state="speaking"] .bar {
+    animation: speaking-breath 1.05s ease-in-out infinite;
+  }
+  /* Per-state pulse rhythm. */
+  .radial[data-state="listening"]    .bar { --bar-base: 0.55; --bar-peak: 0.95; --pulse-period: 2.4s; }
+  .radial[data-state="hearing-input"] .bar,
+  .radial[data-state="actively_listening"] .bar { --bar-base: 0.5; --bar-peak: 1; --pulse-period: 1.2s; }
+  .radial[data-state="thinking"]     .bar { --bar-base: 0.4; --bar-peak: 0.85; --pulse-period: 1.4s; }
+  .radial[data-state="working"]      .bar { --bar-base: 0.45; --bar-peak: 0.9; --pulse-period: 1s; }
+  .radial[data-state="holding"]      .bar,
+  .radial[data-state="waiting_to_speak"] .bar { --bar-base: 0.5; --bar-peak: 1; --pulse-period: 1.4s; }
+  .radial[data-state="interrupted"]  .bar { --bar-base: 0.6; --bar-peak: 0.6; }
+  /* Status block. */
+  .status-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    text-align: center;
+  }
+  .activity {
+    font-size: 42px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    color: var(--text);
+    min-height: 50px;
+    transition: color 0.5s ease;
+    line-height: 1.25;
+  }
+  .sub-activity {
+    font-size: 22px;
+    font-weight: 400;
+    color: var(--text-dim);
+    line-height: 1.4;
+    max-width: 640px;
+    min-height: 30px;
+    transition: opacity 0.4s ease;
+    opacity: 0.85;
+  }
+  .sub-activity:empty { opacity: 0; }
+  body.s-listening    .activity { color: var(--listening); }
+  body.s-hearing-input .activity,
+  body.s-actively_listening .activity { color: var(--hearing); }
+  body.s-thinking     .activity { color: var(--thinking); }
+  body.s-working      .activity { color: var(--working); }
+  body.s-speaking     .activity { color: var(--speaking); }
+  body.s-interrupted  .activity { color: var(--interrupted); }
+  body.s-contextually_aware .activity { color: var(--aware); }
+  body.s-holding      .activity,
+  body.s-waiting_to_speak .activity { color: var(--holding); }
+  body.s-connecting   .activity,
+  body.s-initializing .activity { color: var(--connecting); }
+
+  /* Work-in-progress task list (polled from bridge's /tasks.json every 2s).
+     Independent of voice state — a separate UI layer below the status. */
+  #tasks {
+    margin-top: 6px;
+    font-size: 17px;
+    color: var(--text-dim);
+    line-height: 1.7;
+    text-align: center;
+    max-width: 640px;
+  }
+  #tasks div { opacity: 1; transition: opacity 400ms ease; padding: 2px 0; }
+  #tasks div.fading { opacity: 0; }
+</style>
+</head>
+<body class="s-listening">
+  <div class="stage">
+    <div class="radial" id="radial" data-state="listening">
+      <div class="radial-inner" id="radial-inner"></div>
+    </div>
+    <div class="status-block">
+      <div class="activity" id="activity"></div>
+      <!-- sub-activity reserved for future single-line working summary; empty in production today -->
+      <div class="sub-activity" id="sub-activity"></div>
+    </div>
+    <div id="tasks"></div>
+  </div>
+<script src="agentcall-audio.js"></script>
+<script>
+// =============================================================
+// AgentCall Avatar — Pattern (radial sunburst)
+// Wired identically to avatar/orb/ring:
+//   - voice.state from backend WS drives the visual state
+//   - audio player overrides speaking/listening based on actual playback
+//     (server's listening reset is suppressed if audio is still playing)
+//   - /tasks.json polled every 2s for the work-in-progress list
+// =============================================================
+
+const BAR_COUNT = 16;
+const RADIUS = 36;
+
+// Activity labels per state. waiting_to_speak gets the "✋ May I speak?"
+// treatment to match the holding state's call-attention feel.
+const ACTIVITY_TEXT = {
+  "listening":          "Listening",
+  "actively_listening": "Listening",
+  "hearing-input":      "Listening",
+  "thinking":           "Thinking",
+  "working":            "Working",
+  "waiting_to_speak":   "✋ May I speak?",
+  "speaking":           "Replying",
+  "holding":            "✋ Can I add something?",
+  "contextually_aware": "Following up",
+  "interrupted":        "Interrupted",
+  "connecting":         "Joining the call",
+  "initializing":       "Setting up",
+};
+
+// Build the spokes (equal angular spacing, anchored at inner end).
+const inner = document.getElementById("radial-inner");
+const radial = document.getElementById("radial");
+const activityEl = document.getElementById("activity");
+const subActivityEl = document.getElementById("sub-activity");
+for (let i = 0; i < BAR_COUNT; i++) {
+  const angleDeg = (i / BAR_COUNT) * 360 - 90;
+  const angleRad = angleDeg * Math.PI / 180;
+  const cx = Math.cos(angleRad) * RADIUS;
+  const cy = Math.sin(angleRad) * RADIUS;
+  const bar = document.createElement("div");
+  bar.className = "bar";
+  bar.style.left = "50%";
+  bar.style.top  = "50%";
+  bar.style.transform = `translate(-50%, -100%) translate(${cx}px, ${cy}px) rotate(${angleDeg + 90}deg)`;
+  bar.style.transformOrigin = "50% 100%";
+  inner.appendChild(bar);
+}
+
+let currentState = "listening";
+
+function setState(state) {
+  if (!(state in ACTIVITY_TEXT)) state = "listening";
+  currentState = state;
+  radial.dataset.state = state;
+  document.body.className = "s-" + state;
+  activityEl.textContent = ACTIVITY_TEXT[state] || "";
+  // sub-activity stays empty in production (no agent.activity event driver).
+  subActivityEl.textContent = "";
+}
+
+// Audio playback (handles tts.webpage_audio chunks streamed from the bridge).
+const audioPlayer = new AgentCallAudio({
+  onStateChange: (playing) => {
+    // Audio player is the source of truth for speaking/listening — server
+    // sends voice.state=listening on tts.done, but audio chunks may still
+    // be playing. setState matches the actual playback state.
+    if (playing) setState("speaking");
+    else setState("listening");
+  },
+  onSuspensionStart: () => {
+    // 1st partial during playback — flip to "interrupted" immediately
+    // for visual feedback. Reverts to "speaking" if false alarm.
+    setState("interrupted");
+  },
+  onSuspensionEnd: () => {
+    // 2s window expired below word threshold — bot is resuming.
+    setState("speaking");
+  },
+  onInterrupted: (info) => {
+    // Confirmed interrupt — state stays "interrupted" until auto-thinking
+    // on user.message flips it to "thinking", then speaking on the bot's
+    // reply. setState here is redundant with onSuspensionStart but
+    // harmless and robust if templates wire callbacks differently.
+    setState("interrupted");
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "tts.interrupted", ...info }));
+    }
+  }
+});
+
+// WebSocket — connect to bridge for voice.state events.
+const params = new URLSearchParams(window.location.search);
+const wsURL = params.get("ws");
+let ws = null;
+
+if (wsURL) {
+  setState("connecting");
+  ws = new WebSocket(wsURL);
+  ws.onopen = () => setState("listening");
+  ws.onmessage = (e) => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    const t = msg.event || msg.type;
+    if (t === "voice.state" && msg.state) {
+      // Suppress server's listening reset if audio is still playing —
+      // the audio player will set listening when playback actually finishes.
+      if (msg.state === "listening" && audioPlayer.isPlaying()) return;
+      // Suppress stale speaking/listening from queued tts.speak that drained
+      // through backend after interruption. Player's gate still gates audio;
+      // this gates the visual.
+      if (audioPlayer.interrupted && (msg.state === "speaking" || msg.state === "listening")) return;
+      setState(msg.state);
+    }
+    audioPlayer.handleEvent(msg);
+  };
+  ws.onclose = () => setState("listening");
+} else {
+  // Preview cycle — visible immediately when the page is opened directly.
+  // Showcases all visual states (including unused ones like working/holding)
+  // for design preview. Production behavior unaffected.
+  const STATES = ["listening", "hearing-input", "thinking", "working", "speaking", "holding", "contextually_aware", "interrupted"];
+  const HOLDS  = { "listening": 2500, "hearing-input": 2000, "thinking": 2500, "working": 3000, "speaking": 3000, "holding": 2500, "contextually_aware": 2500, "interrupted": 1000 };
+  const WORKING_TASKS = ["Researching dynamic UI patterns", "Preparing presentation", "Web search"];
+  let i = 0, w = 0;
+  (function cycle() {
+    const s = STATES[i % STATES.length];
+    setState(s);
+    if (s === "working") {
+      subActivityEl.textContent = WORKING_TASKS[w % WORKING_TASKS.length];
+      w++;
+    }
+    setTimeout(cycle, HOLDS[s] || 2500);
+    i++;
+  })();
+}
+
+setState("listening");
+
+// --- Work-in-progress task list (polled from bridge's /tasks.json every 2s) ---
+// Same pattern as avatar/orb/ring templates. Independent of voice state.
+let taskList = [];
+async function pollTasks() {
+  try {
+    const r = await fetch('tasks.json', { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    renderTasks(Array.isArray(data.tasks) ? data.tasks : []);
+  } catch (e) { /* silent — bridge may be tearing down */ }
+}
+function renderTasks(newTasks) {
+  const container = document.getElementById('tasks');
+  const removed = taskList.filter(t => !newTasks.includes(t));
+  const added = newTasks.filter(t => !taskList.includes(t));
+  for (const t of removed) {
+    const el = container.querySelector(`[data-task="${CSS.escape(t)}"]`);
+    if (el) {
+      el.classList.add('fading');
+      setTimeout(() => el.remove(), 400);
+    }
+  }
+  for (const t of added) {
+    const el = document.createElement('div');
+    el.dataset.task = t;
+    el.textContent = t;
+    container.appendChild(el);
+  }
+  taskList = newTasks;
+}
+setInterval(pollTasks, 2000);
+pollTasks();
+</script>
+</body>
+</html>

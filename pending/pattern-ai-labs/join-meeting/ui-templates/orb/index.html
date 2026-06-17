@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AgentCall Orb</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; overflow: hidden; font-family: system-ui, -apple-system, sans-serif; }
+  .container { text-align: center; }
+  canvas { display: block; margin: 0 auto; }
+  .name { color: #e0e0e0; font-size: 22px; font-weight: 500; margin-top: 16px; letter-spacing: 0.5px; }
+  .status { color: #666; font-size: 15px; margin-top: 10px; text-transform: uppercase; letter-spacing: 1.5px; }
+  #tasks { margin-top: 14px; font-size: 13px; color: #777; line-height: 1.7; }
+  #tasks div { opacity: 1; transition: opacity 400ms ease; padding: 1px 0; }
+  #tasks div.fading { opacity: 0; }
+</style>
+</head>
+<body>
+<div class="container">
+  <canvas id="orb"></canvas>
+  <div id="name" class="name"></div>
+  <div id="status" class="status">listening</div>
+  <div id="tasks"></div>
+</div>
+<script src="agentcall-audio.js"></script>
+<script>
+const canvas = document.getElementById('orb');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const nameEl = document.getElementById('name');
+
+const params = new URLSearchParams(window.location.search);
+nameEl.textContent = params.get('name') || 'Agent';
+
+canvas.width = 400;
+canvas.height = 400;
+
+const colors = {
+  listening: [60, 130, 246],
+  speaking: [34, 197, 94],
+  thinking: [168, 85, 247],
+  idle: [100, 100, 100],
+  waiting_to_speak: [234, 179, 8],
+  interrupted: [239, 68, 68],
+  actively_listening: [96, 165, 250],
+  contextually_aware: [20, 184, 166],
+};
+
+let state = 'listening';
+let audioLevel = 0;
+let phase = 0;
+
+function getColor() {
+  return colors[state] || colors.idle;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  const baseRadius = 80;
+  const pulse = Math.sin(phase) * 10 * (1 + audioLevel);
+  const radius = baseRadius + pulse;
+  const [r, g, b] = getColor();
+
+  // Glow.
+  const gradient = ctx.createRadialGradient(cx, cy, radius * 0.5, cx, cy, radius * 2);
+  gradient.addColorStop(0, `rgba(${r},${g},${b},0.3)`);
+  gradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius * 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Core orb.
+  const coreGradient = ctx.createRadialGradient(cx - 20, cy - 20, 0, cx, cy, radius);
+  coreGradient.addColorStop(0, `rgba(${Math.min(r+60,255)},${Math.min(g+60,255)},${Math.min(b+60,255)},1)`);
+  coreGradient.addColorStop(1, `rgba(${r},${g},${b},0.8)`);
+  ctx.fillStyle = coreGradient;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  phase += 0.03;
+  audioLevel *= 0.95;
+  requestAnimationFrame(draw);
+}
+
+draw();
+
+// WebSocket
+const wsURL = params.get('ws');
+let ws = null;
+
+const audioPlayer = new AgentCallAudio({
+  onStateChange: (playing) => {
+    audioLevel = playing ? 0.5 : 0;
+    // Audio player controls speaking/listening state (server sends too early)
+    if (playing) {
+      state = 'speaking';
+      statusEl.textContent = 'speaking';
+    } else {
+      state = 'listening';
+      statusEl.textContent = 'listening';
+    }
+  },
+  onSuspensionStart: () => {
+    state = 'interrupted';
+    statusEl.textContent = 'interrupted';
+  },
+  onSuspensionEnd: () => {
+    state = 'speaking';
+    statusEl.textContent = 'speaking';
+  },
+  onInterrupted: (info) => {
+    state = 'interrupted';
+    statusEl.textContent = 'interrupted';
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'tts.interrupted', ...info }));
+    }
+  }
+});
+
+if (wsURL) {
+  ws = new WebSocket(wsURL);
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.event === 'voice.state' || msg.type === 'voice.state') {
+      const newState = msg.state || 'listening';
+      // Ignore server's listening reset if audio is still playing
+      if (newState === 'listening' && audioPlayer.isPlaying()) return;
+      // Suppress stale speaking/listening from drained tts.speak during interrupt
+      if (audioPlayer.interrupted && (newState === 'speaking' || newState === 'listening')) {
+        return;
+      }
+      state = newState;
+      statusEl.textContent = state.replace(/_/g, ' ');
+    }
+    if (msg.audio_level !== undefined) {
+      audioLevel = msg.audio_level;
+    }
+    audioPlayer.handleEvent(msg);
+  };
+}
+
+// --- Work-in-progress task list (polled from bridge's /tasks.json every 2s) ---
+let currentTasks = [];
+async function pollTasks() {
+  try {
+    const r = await fetch('tasks.json', { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    renderTasks(Array.isArray(data.tasks) ? data.tasks : []);
+  } catch (e) { /* silent */ }
+}
+function renderTasks(newTasks) {
+  const container = document.getElementById('tasks');
+  const removed = currentTasks.filter(t => !newTasks.includes(t));
+  const added = newTasks.filter(t => !currentTasks.includes(t));
+  for (const t of removed) {
+    const el = container.querySelector(`[data-task="${CSS.escape(t)}"]`);
+    if (el) {
+      el.classList.add('fading');
+      setTimeout(() => el.remove(), 400);
+    }
+  }
+  for (const t of added) {
+    const el = document.createElement('div');
+    el.dataset.task = t;
+    el.textContent = t;
+    container.appendChild(el);
+  }
+  currentTasks = newTasks;
+}
+setInterval(pollTasks, 2000);
+pollTasks();
+</script>
+</body>
+</html>
