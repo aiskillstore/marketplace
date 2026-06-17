@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-OCR 客户端核心模块 - 处理 API 请求和响应
+扫描王服务客户端核心模块 - 处理 API 请求和响应
 """
 import os
 import json
@@ -12,12 +12,7 @@ from dataclasses import dataclass
 
 import requests
 
-from .constants import (
-    REQUEST_TIMEOUT,
-    HTTP_OK,
-    ERROR_MSG_MAX_LENGTH,
-    QUOTA_ERROR_CODE,
-)
+from .constants import REQUEST_TIMEOUT, HTTP_OK, ERROR_MSG_MAX_LENGTH, QUOTA_ERROR_CODE
 from .settings import API_URL, PLATFORM, VERSION, SKILL_NAME
 from .validators import URLValidator, FileValidator
 from .messages import CREDENTIAL_NOT_CONFIGURED, QUOTA_INSUFFICIENT
@@ -25,7 +20,7 @@ from .messages import CREDENTIAL_NOT_CONFIGURED, QUOTA_INSUFFICIENT
 
 @dataclass
 class OCRResult:
-    """OCR 识别结果 - 直接返回 API 原始响应"""
+    """扫描王服务调用结果 - 直接返回 API 原始响应"""
     code: str
     message: Optional[str]
     data: Optional[Dict[str, Any]]
@@ -80,18 +75,10 @@ class CredentialManager:
 
 
 class QuarkOCRClient:
-    """夸克 OCR 客户端，提供图片识别功能"""
+    """夸克扫描王客户端，提供图像调用服务功能"""
 
     def __init__(self, api_key: str, scene: str, data_type: str, platform: str = None):
-        """
-        初始化 OCR 客户端
-
-        Args:
-            api_key: API 密钥
-            scene: 场景名称（如 general-ocr, idcard-ocr 等）
-            data_type: 数据类型（image 或 pdf）
-            platform: 平台标识（可选，覆盖 settings.PLATFORM）
-        """
+        """初始化扫描王客户端（scene、data_type、platform 见 scene_configs.py）"""
         self.api_key = api_key
         self.scene = scene
         self.data_type = data_type
@@ -116,7 +103,7 @@ class QuarkOCRClient:
             input_configs: AIGC 场景额外参数（JSON 字符串，传入 inputConfigs 字段）
 
         Returns:
-            OCRResult: 识别结果
+            OCRResult: 调用结果
         """
         provided_params = sum(param is not None for param in [image_url, image_path, base64_data])
         if provided_params != 1:
@@ -169,7 +156,7 @@ class QuarkOCRClient:
         return self._parse_response(response)
 
     def _recognize_local_file(self, file_path: str, input_configs: str = None) -> OCRResult:
-        """处理本地文件：读取文件并转为 BASE64 后调用 OCR"""
+        """处理本地文件：读取文件并转为 BASE64 后调用扫描王服务"""
         file_path = os.path.expanduser(file_path.strip())
 
         is_valid, error_msg = FileValidator.validate(file_path)
@@ -207,7 +194,7 @@ class QuarkOCRClient:
         return param
 
     def _send_request(self, param: Dict[str, Any]) -> requests.Response:
-        """发送 HTTP 请求到 OCR API"""
+        """发送 HTTP 请求到扫描王服务 API"""
         headers = {"Content-Type": "application/json", "X-Appbuilder-From": self.platform}
         if VERSION:
             headers["X-Appbuilder-Version"] = VERSION

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-结果处理器模块 - 处理 OCR 结果并保存文件
+结果处理器模块 - 处理扫描王服务结果并保存文件
 """
 from typing import Any, Dict
 
