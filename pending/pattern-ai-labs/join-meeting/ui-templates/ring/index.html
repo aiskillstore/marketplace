@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AgentCall Ring</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+  .container { text-align: center; }
+
+  canvas { display: block; margin: 0 auto; }
+
+  .name {
+    color: #e0e0e0;
+    font-size: 22px;
+    font-weight: 500;
+    margin-top: 20px;
+    letter-spacing: 0.5px;
+  }
+
+  .status {
+    color: #666;
+    font-size: 15px;
+    margin-top: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 400;
+    transition: color 0.4s ease;
+  }
+  #tasks {
+    margin-top: 16px;
+    font-size: 13px;
+    color: #777;
+    line-height: 1.7;
+    letter-spacing: 0.3px;
+  }
+  #tasks div { opacity: 1; transition: opacity 400ms ease; padding: 1px 0; }
+  #tasks div.fading { opacity: 0; }
+</style>
+</head>
+<body>
+<div class="container">
+  <canvas id="ring" width="300" height="300"></canvas>
+  <div id="name" class="name"></div>
+  <div id="status" class="status">listening</div>
+  <div id="tasks"></div>
+</div>
+<script src="agentcall-audio.js"></script>
+<script>
+const canvas = document.getElementById('ring');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const nameEl = document.getElementById('name');
+
+const params = new URLSearchParams(window.location.search);
+nameEl.textContent = params.get('name') || 'Agent';
+
+// Voice state → color (RGB) + status label + whether it pulses
+const states = {
+  listening:          { color: [180, 180, 180], label: 'Listening',              pulse: false },
+  actively_listening: { color: [96, 165, 250],  label: 'Heard you',              pulse: false },
+  thinking:           { color: [234, 179, 8],   label: 'Thinking...',            pulse: true, speed: 0.03, amount: 0.05 },
+  waiting_to_speak:   { color: [34, 197, 94],   label: 'Ready to speak',         pulse: false },
+  speaking:           { color: [34, 197, 94],   label: 'Speaking',               pulse: true, speed: 0.05, amount: 0.08 },
+  interrupted:        { color: [239, 68, 68],   label: 'Interrupted',            pulse: false },
+  contextually_aware: { color: [168, 85, 247],  label: 'Listening for follow-up', pulse: false },
+};
+
+let currentState = 'listening';
+let phase = 0;
+
+function getStateConfig() {
+  return states[currentState] || states.listening;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  const baseRadius = 100;
+  const lineWidth = 3;
+  const config = getStateConfig();
+  const [r, g, b] = config.color;
+
+  // Pulse scale
+  let scale = 1;
+  if (config.pulse) {
+    scale = 1 + Math.sin(phase) * config.amount;
+    phase += config.speed;
+  } else {
+    // Smoothly return to 1
+    phase *= 0.95;
+  }
+
+  const radius = baseRadius * scale;
+
+  // Outer glow (neon effect)
+  const glowSize = 25;
+  const gradient = ctx.createRadialGradient(cx, cy, radius - glowSize, cx, cy, radius + glowSize);
+  gradient.addColorStop(0, `rgba(${r},${g},${b},0)`);
+  gradient.addColorStop(0.4, `rgba(${r},${g},${b},0.15)`);
+  gradient.addColorStop(0.6, `rgba(${r},${g},${b},0.15)`);
+  gradient.addColorStop(1, `rgba(${r},${g},${b},0)`);
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius + glowSize, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Main ring
+  ctx.strokeStyle = `rgb(${r},${g},${b})`;
+  ctx.lineWidth = lineWidth;
+  ctx.shadowColor = `rgb(${r},${g},${b})`;
+  ctx.shadowBlur = 20;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Inner subtle glow
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = `rgba(${r},${g},${b},0.3)`;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius - 6, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Update status color to match ring
+  statusEl.style.color = `rgb(${r},${g},${b})`;
+
+  requestAnimationFrame(draw);
+}
+
+draw();
+
+// WebSocket
+const wsURL = params.get('ws');
+let ws = null;
+
+const audioPlayer = new AgentCallAudio({
+  onStateChange: (playing) => {
+    // Audio player is the source of truth for speaking/listening in direct mode.
+    // Server sends voice.state too early (on tts.done, before audio finishes playing).
+    if (playing) {
+      setState('speaking');
+    } else {
+      setState('listening');
+    }
+  },
+  onSuspensionStart: () => {
+    setState('interrupted');
+  },
+  onSuspensionEnd: () => {
+    setState('speaking');
+  },
+  onInterrupted: (info) => {
+    setState('interrupted');
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'tts.interrupted', ...info }));
+    }
+  }
+});
+
+function setState(state) {
+  currentState = state;
+  const config = states[state] || states.listening;
+  statusEl.textContent = config.label;
+}
+
+if (wsURL) {
+  ws = new WebSocket(wsURL);
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    const eventType = msg.event || msg.type;
+
+    if (eventType === 'voice.state' && msg.state) {
+      // Ignore server's "listening" reset if audio is still playing.
+      // The server sends voice.state:listening on tts.done, but audio
+      // chunks are still being played on the webpage at that point.
+      if (msg.state === 'listening' && audioPlayer.isPlaying()) {
+        // Audio player will set listening when playback actually finishes.
+        return;
+      }
+      // Suppress stale speaking/listening from drained tts.speak during interrupt
+      if (audioPlayer.interrupted && (msg.state === 'speaking' || msg.state === 'listening')) {
+        return;
+      }
+      setState(msg.state);
+    }
+
+    audioPlayer.handleEvent(msg);
+  };
+}
+
+// --- Work-in-progress task list (polled from bridge's /tasks.json every 2s) ---
+let taskList = [];
+async function pollTasks() {
+  try {
+    const r = await fetch('tasks.json', { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    renderTasks(Array.isArray(data.tasks) ? data.tasks : []);
+  } catch (e) { /* silent */ }
+}
+function renderTasks(newTasks) {
+  const container = document.getElementById('tasks');
+  const removed = taskList.filter(t => !newTasks.includes(t));
+  const added = newTasks.filter(t => !taskList.includes(t));
+  for (const t of removed) {
+    const el = container.querySelector(`[data-task="${CSS.escape(t)}"]`);
+    if (el) {
+      el.classList.add('fading');
+      setTimeout(() => el.remove(), 400);
+    }
+  }
+  for (const t of added) {
+    const el = document.createElement('div');
+    el.dataset.task = t;
+    el.textContent = t;
+    container.appendChild(el);
+  }
+  taskList = newTasks;
+}
+setInterval(pollTasks, 2000);
+pollTasks();
+</script>
+</body>
+</html>

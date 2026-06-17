@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AgentCall Voice Agent</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d0d0d;
+    display: flex; align-items: center; justify-content: center;
+    height: 100vh; overflow: hidden;
+    font-family: system-ui, sans-serif; color: #fff;
+  }
+  .container { text-align: center; }
+
+  .ring {
+    width: 180px; height: 180px;
+    border-radius: 50%;
+    border: 2px solid #333;
+    margin: 0 auto 20px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.3s ease;
+  }
+  .ring.mic-active {
+    border-color: #22c55e;
+    box-shadow: 0 0 30px rgba(34, 197, 94, 0.3);
+    animation: pulse-mic 1.5s ease-in-out infinite;
+  }
+  .ring.playing {
+    border-color: #60a5fa;
+    box-shadow: 0 0 30px rgba(96, 165, 250, 0.3);
+    animation: pulse-speak 0.8s ease-in-out infinite;
+  }
+  .ring.error {
+    border-color: #ef4444;
+  }
+
+  .icon { font-size: 48px; }
+  .name { color: #888; font-size: 16px; margin-bottom: 8px; }
+  .status { color: #555; font-size: 12px; text-transform: uppercase; letter-spacing: 1.5px; }
+  .status.active { color: #22c55e; }
+  .status.error { color: #ef4444; }
+
+  @keyframes pulse-mic {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+  }
+  @keyframes pulse-speak {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.06); }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="ring" id="ring">
+    <div class="icon" id="icon">🎙️</div>
+  </div>
+  <div id="name" class="name"></div>
+  <div id="status" class="status">Initializing mic...</div>
+</div>
+
+<!--
+  Voice Agent Template
+  ====================
+  This template demonstrates how to build a webpage that:
+  1. Auto-starts microphone recording on load (required for voice agent webpages)
+  2. Plays TTS audio from AgentCall (via tts.webpage_audio events)
+  3. Handles interruptions (via tts.audio_clear events)
+
+  HOW MIC INPUT WORKS:
+  - FirstCall (meeting infrastructure) loads this page in the rendering environment
+  - FirstCall (meeting infrastructure) auto-grants microphone permission
+  - This page calls getUserMedia({ audio: true }) on load
+  - The browser's mic input = meeting audio (what participants are saying)
+  - Your voice agent AI processes this audio and generates responses
+  - Responses are played via AgentCallAudio → captured by FirstCall (meeting infrastructure) → meeting hears it
+
+  WHY AUTO-START IS REQUIRED:
+  - The rendering environment cannot click buttons or interact with UI
+  - If your page waits for a "Click to start" button, it will never start
+  - getUserMedia MUST be called in a script that runs on page load
+  - FirstCall (meeting infrastructure) grants permission automatically — no permission dialog appears
+
+  HOW TO USE THIS AS A BASE:
+  - Replace the simple mic visualization with your voice agent logic
+  - Process the audio stream with your STT engine
+  - Send the text to your LLM
+  - Generate response audio (via your own TTS or AgentCall's tts.speak)
+  - Play response via AgentCallAudio or your own Web Audio pipeline
+
+  EXAMPLE: Connect to OpenAI Realtime API
+  - getUserMedia → feed audio to OpenAI Realtime WebSocket
+  - Receive response audio from OpenAI → play via Web Audio
+  - This page becomes a full voice agent in the meeting
+-->
+
+<script src="agentcall-audio.js"></script>
+<script>
+const params = new URLSearchParams(window.location.search);
+const botName = params.get('name') || 'Voice Agent';
+const statusEl = document.getElementById('status');
+const ringEl = document.getElementById('ring');
+const iconEl = document.getElementById('icon');
+
+document.getElementById('name').textContent = botName;
+
+// --- Audio Player (for TTS playback from AgentCall) ---
+let ws = null;
+const audioPlayer = new AgentCallAudio({
+  onStateChange: (playing) => {
+    if (playing) {
+      ringEl.className = 'ring playing';
+      statusEl.textContent = 'Speaking';
+      statusEl.className = 'status active';
+    } else if (micStream) {
+      ringEl.className = 'ring mic-active';
+      statusEl.textContent = 'Listening';
+      statusEl.className = 'status active';
+    }
+  },
+  onInterrupted: (info) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'tts.interrupted', ...info }));
+    }
+  }
+});
+
+// --- Auto-Start Microphone ---
+// This is REQUIRED for voice agent webpages.
+// FirstCall (meeting infrastructure) grants mic permission automatically.
+// Must run on page load — no button clicks allowed (the rendering environment can't click).
+
+let micStream = null;
+
+async function startMic() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    // Mic is live — meeting audio is now available.
+    ringEl.className = 'ring mic-active';
+    statusEl.textContent = 'Listening';
+    statusEl.className = 'status active';
+    iconEl.textContent = '🎙️';
+
+    // EXAMPLE: Process mic audio with your voice agent.
+    // The code below shows how to access the raw audio stream.
+    // Replace this with your STT → LLM → TTS pipeline.
+
+    const audioCtx = new AudioContext({ sampleRate: 16000 });
+    const source = audioCtx.createMediaStreamSource(micStream);
+    const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+
+    processor.onaudioprocess = (e) => {
+      // Raw audio samples from the meeting (16kHz Float32Array).
+      // Feed this to your STT engine, OpenAI Realtime API, etc.
+      // const samples = e.inputBuffer.getChannelData(0);
+
+      // Example: detect if someone is speaking (simple energy check).
+      const input = e.inputBuffer.getChannelData(0);
+      let energy = 0;
+      for (let i = 0; i < input.length; i++) energy += input[i] * input[i];
+      energy = Math.sqrt(energy / input.length);
+
+      // If speaking energy detected and we're playing audio, clear it (interruption).
+      if (energy > 0.01 && audioPlayer.isPlaying()) {
+        audioPlayer.clear();
+      }
+    };
+
+    source.connect(processor);
+    processor.connect(audioCtx.destination);
+
+  } catch (err) {
+    // Mic failed — show error.
+    ringEl.className = 'ring error';
+    statusEl.textContent = 'Mic failed: ' + err.message;
+    statusEl.className = 'status error';
+    iconEl.textContent = '🚫';
+  }
+}
+
+// Start mic immediately on page load.
+startMic();
+
+// --- WebSocket Connection (for AgentCall events) ---
+const wsURL = params.get('ws');
+if (wsURL) {
+  ws = new WebSocket(wsURL);
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+
+    // Handle audio playback + clear.
+    audioPlayer.handleEvent(msg);
+
+    // Handle voice state (if collaborative mode).
+    const eventType = msg.event || msg.type;
+    if (eventType === 'voice.state' && msg.state) {
+      // Ignore server's listening reset if audio is still playing
+      if (msg.state === 'listening' && audioPlayer.isPlaying()) return;
+      statusEl.textContent = msg.state.replace(/_/g, ' ');
+    }
+  };
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>AgentCall Avatar</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; display: flex; align-items: center; justify-content: center; height: 100vh; overflow: hidden; font-family: system-ui, sans-serif; }
+  .container { text-align: center; }
+
+  .avatar-ring {
+    position: relative;
+    width: 220px; height: 220px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto;
+    transition: box-shadow 0.4s ease, border-color 0.3s ease;
+    border: 3px solid #333;
+  }
+
+  .avatar {
+    width: 200px; height: 200px;
+    border-radius: 50%;
+    object-fit: cover;
+  }
+
+  .name { color: #e0e0e0; font-size: 22px; font-weight: 500; margin-top: 16px; letter-spacing: 0.5px; }
+
+  .status {
+    color: #666; font-size: 15px; margin-top: 10px;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    transition: color 0.3s ease;
+  }
+
+  /* --- Voice State Styles --- */
+
+  /* listening: idle, subtle pulse, muted border */
+  .state-listening .avatar-ring {
+    border-color: #555;
+    animation: pulse-subtle 4s ease-in-out infinite;
+  }
+  .state-listening .status { color: #555; }
+
+  /* actively_listening: name detected, border brightens */
+  .state-actively_listening .avatar-ring {
+    border-color: #60a5fa;
+    box-shadow: 0 0 20px rgba(96, 165, 250, 0.3);
+    animation: pulse-alert 1.5s ease-in-out infinite;
+  }
+  .state-actively_listening .status { color: #60a5fa; }
+
+  /* thinking: preparing response, purple glow */
+  .state-thinking .avatar-ring {
+    border-color: #a855f7;
+    box-shadow: 0 0 25px rgba(168, 85, 247, 0.35);
+    animation: pulse-think 2s ease-in-out infinite;
+  }
+  .state-thinking .status { color: #a855f7; }
+
+  /* waiting_to_speak: response ready, waiting for silence */
+  .state-waiting_to_speak .avatar-ring {
+    border-color: #eab308;
+    box-shadow: 0 0 20px rgba(234, 179, 8, 0.25);
+    animation: pulse-wait 1s ease-in-out infinite;
+  }
+  .state-waiting_to_speak .status { color: #eab308; }
+
+  /* speaking: actively outputting audio */
+  .state-speaking .avatar-ring {
+    border-color: #22c55e;
+    box-shadow: 0 0 30px rgba(34, 197, 94, 0.4);
+    animation: pulse-speak 0.7s ease-in-out infinite;
+  }
+  .state-speaking .status { color: #22c55e; }
+
+  /* interrupted: stopped mid-speech */
+  .state-interrupted .avatar-ring {
+    border-color: #ef4444;
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+    animation: none;
+    transform: scale(0.97);
+  }
+  .state-interrupted .status { color: #ef4444; }
+
+  /* contextually_aware: follow-up window (20s after speaking) */
+  .state-contextually_aware .avatar-ring {
+    border-color: #14b8a6;
+    box-shadow: 0 0 20px rgba(20, 184, 166, 0.25);
+    animation: pulse-aware 3s ease-in-out infinite;
+  }
+  .state-contextually_aware .status { color: #14b8a6; }
+
+  /* --- Work-in-progress task list (independent of voice state) --- */
+  #tasks {
+    margin-top: 18px;
+    font-size: 13px;
+    color: #888;
+    line-height: 1.7;
+    min-height: 0;
+    text-align: center;
+  }
+  #tasks div {
+    opacity: 1;
+    transition: opacity 400ms ease;
+    padding: 1px 0;
+  }
+  #tasks div.fading { opacity: 0; }
+
+  /* --- Animations --- */
+  @keyframes pulse-subtle {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.01); }
+  }
+  @keyframes pulse-alert {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.03); }
+  }
+  @keyframes pulse-think {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.02); opacity: 0.9; }
+  }
+  @keyframes pulse-wait {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+  }
+  @keyframes pulse-speak {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.06); }
+  }
+  @keyframes pulse-aware {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.015); }
+  }
+</style>
+</head>
+<body>
+<div class="container" id="root">
+  <div class="avatar-ring">
+    <img id="avatar" class="avatar" src="" alt="Avatar">
+  </div>
+  <div id="name" class="name"></div>
+  <div id="status" class="status">listening</div>
+  <div id="tasks"></div>
+</div>
+<script src="agentcall-audio.js"></script>
+<script>
+const params = new URLSearchParams(window.location.search);
+const wsURL = params.get('ws');
+let ws = null;
+
+const audioPlayer = new AgentCallAudio({
+  onStateChange: (playing) => {
+    // Audio player controls speaking/listening (server sends too early)
+    if (playing) {
+      setVoiceState('speaking');
+    } else {
+      setVoiceState('listening');
+    }
+  },
+  onSuspensionStart: () => {
+    setVoiceState('interrupted');
+  },
+  onSuspensionEnd: () => {
+    setVoiceState('speaking');
+  },
+  onInterrupted: (info) => {
+    setVoiceState('interrupted');
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'tts.interrupted', ...info }));
+    }
+  }
+});
+const avatarURL = params.get('avatar') || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="%23333"/><circle cx="50" cy="40" r="18" fill="%23666"/><ellipse cx="50" cy="75" rx="28" ry="20" fill="%23666"/></svg>';
+const botName = params.get('name') || 'Agent';
+
+document.getElementById('avatar').src = avatarURL;
+document.getElementById('name').textContent = botName;
+
+let currentState = 'listening';
+
+const stateLabels = {
+  listening: 'Listening',
+  actively_listening: 'Heard you',
+  thinking: 'Thinking...',
+  waiting_to_speak: 'Ready to speak',
+  speaking: 'Speaking',
+  interrupted: 'Interrupted',
+  contextually_aware: 'Listening for follow-up',
+};
+
+function setVoiceState(state) {
+  currentState = state;
+  document.getElementById('root').className = 'container state-' + state;
+  document.getElementById('status').textContent = stateLabels[state] || state.replace(/_/g, ' ');
+}
+
+setVoiceState('listening');
+
+// Connect to AgentCall WebSocket.
+if (wsURL) {
+  ws = new WebSocket(wsURL);
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    const eventType = msg.event || msg.type;
+
+    if (eventType === 'voice.state' && msg.state) {
+      // Ignore server's listening reset if audio is still playing
+      if (msg.state === 'listening' && audioPlayer.isPlaying()) return;
+      // Suppress stale speaking/listening from drained tts.speak during interrupt
+      if (audioPlayer.interrupted && (msg.state === 'speaking' || msg.state === 'listening')) return;
+      setVoiceState(msg.state);
+    }
+
+    // Audio playback + clear.
+    audioPlayer.handleEvent(msg);
+  };
+}
+
+// --- Work-in-progress task list ---
+// Polls /tasks.json (served by the bridge's local template server, reached
+// through the tunnel as /ui/tasks.json from the cloud). The agent updates
+// the list via the `tasks.set` command; we poll every 2s and render the
+// current contents below the status. Removed tasks fade out gracefully.
+let currentTasks = [];
+async function pollTasks() {
+  try {
+    const r = await fetch('tasks.json', { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    renderTasks(Array.isArray(data.tasks) ? data.tasks : []);
+  } catch (e) { /* silent — bridge may be tearing down */ }
+}
+function renderTasks(newTasks) {
+  const container = document.getElementById('tasks');
+  const removed = currentTasks.filter(t => !newTasks.includes(t));
+  const added = newTasks.filter(t => !currentTasks.includes(t));
+  for (const t of removed) {
+    const el = container.querySelector(`[data-task="${CSS.escape(t)}"]`);
+    if (el) {
+      el.classList.add('fading');
+      setTimeout(() => el.remove(), 400);
+    }
+  }
+  for (const t of added) {
+    const el = document.createElement('div');
+    el.dataset.task = t;
+    el.textContent = t;
+    container.appendChild(el);
+  }
+  currentTasks = newTasks;
+}
+setInterval(pollTasks, 2000);
+pollTasks();
+</script>
+</body>
+</html>
