@@ -1,0 +1,685 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import json
+import subprocess
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+from benchmark_release_lock import git_status, release_lock_status
+
+ROOT = Path(__file__).resolve().parent.parent
+SCRIPT_INTERFACE = "cli"
+SCRIPT_INTERFACE_REASON = "Renders a release-facing benchmark reproducibility manifest and Markdown report."
+
+METHODOLOGY_SECTIONS = [
+    "## Benchmark Types",
+    "## Sample Sources",
+    "## Evaluation Dimensions",
+    "## Weighting Rule",
+    "## Failure Disclosure",
+    "## Reproduction",
+]
+
+REQUIRED_ARTIFACTS = [
+    ("methodology", "reports/benchmark_methodology.md"),
+    ("failure_disclosure", "evals/failure-cases.md"),
+    ("output_cases", "evals/output/cases.jsonl"),
+    ("output_schema", "evals/output/schema.json"),
+    ("output_scorecard", "reports/output_quality_scorecard.json"),
+    ("output_execution", "reports/output_execution_runs.json"),
+    ("blind_review", "reports/output_blind_review_pack.json"),
+    ("review_adjudication", "reports/output_review_adjudication.json"),
+    ("trigger_scorecard", "reports/route_scorecard.json"),
+    ("runtime_conformance", "reports/conformance_matrix.json"),
+    ("trust_report", "reports/security_trust_report.json"),
+    ("python_compatibility", "reports/python_compatibility.json"),
+    ("registry_audit", "reports/registry_audit.json"),
+    ("package_verification", "reports/package_verification.json"),
+    ("install_simulation", "reports/install_simulation.json"),
+    ("skill_os2_audit", "reports/skill_os2_audit.json"),
+    ("world_class_evidence_plan", "reports/world_class_evidence_plan.json"),
+    ("world_class_evidence_ledger", "reports/world_class_evidence_ledger.json"),
+    ("world_class_evidence_intake", "reports/world_class_evidence_intake.json"),
+    ("world_class_evidence_preflight", "reports/world_class_evidence_preflight.json"),
+    ("world_class_submission_review", "reports/world_class_submission_review.json"),
+    ("world_class_operator_runbook", "reports/world_class_operator_runbook.json"),
+    ("world_class_operator_runbook_markdown", "reports/world_class_operator_runbook.md"),
+    ("world_class_operator_runbook_html", "reports/world_class_operator_runbook.html"),
+    ("world_class_claim_guard", "reports/world_class_claim_guard.json"),
+]
+
+REPRODUCTION_COMMANDS = [
+    {
+        "label": "source commit",
+        "command": "git rev-parse HEAD",
+        "evidence": "git commit hash",
+    },
+    {
+        "label": "trigger eval",
+        "command": "make eval-suite",
+        "evidence": "reports/eval_suite.json",
+    },
+    {
+        "label": "output eval",
+        "command": "python3 scripts/yao.py output-eval",
+        "evidence": "reports/output_quality_scorecard.json",
+    },
+    {
+        "label": "output execution",
+        "command": "python3 scripts/yao.py output-exec --runner-command '[\"python3\",\"scripts/local_output_eval_runner.py\"]'",
+        "evidence": "reports/output_execution_runs.json",
+    },
+    {
+        "label": "blind review adjudication",
+        "command": "python3 scripts/yao.py output-review",
+        "evidence": "reports/output_review_adjudication.json",
+    },
+    {
+        "label": "skill ir",
+        "command": "python3 scripts/yao.py skill-ir . --output-json skill-ir/examples/yao-meta-skill.json",
+        "evidence": "skill-ir/examples/yao-meta-skill.json",
+    },
+    {
+        "label": "runtime conformance",
+        "command": "python3 scripts/yao.py conformance .",
+        "evidence": "reports/conformance_matrix.json",
+    },
+    {
+        "label": "trust report",
+        "command": "python3 scripts/yao.py trust .",
+        "evidence": "reports/security_trust_report.json",
+    },
+    {
+        "label": "python compatibility",
+        "command": "python3 scripts/yao.py python-compat .",
+        "evidence": "reports/python_compatibility.json",
+    },
+    {
+        "label": "package",
+        "command": "python3 scripts/yao.py package . --platform openai --platform claude --platform generic --platform vscode --expectations evals/packaging_expectations.json --output-dir dist --zip",
+        "evidence": "dist/yao-meta-skill.zip",
+    },
+    {
+        "label": "package verify",
+        "command": "python3 scripts/yao.py package-verify . --package-dir dist --require-zip",
+        "evidence": "reports/package_verification.json",
+    },
+    {
+        "label": "install simulate",
+        "command": "python3 scripts/yao.py install-simulate . --package-dir dist",
+        "evidence": "reports/install_simulation.json",
+    },
+    {
+        "label": "registry audit",
+        "command": "python3 scripts/yao.py registry-audit .",
+        "evidence": "reports/registry_audit.json",
+    },
+    {
+        "label": "skill os audit",
+        "command": "python3 scripts/yao.py skill-os2-audit .",
+        "evidence": "reports/skill_os2_audit.json",
+    },
+    {
+        "label": "world-class evidence plan",
+        "command": "python3 scripts/yao.py world-class-evidence .",
+        "evidence": "reports/world_class_evidence_plan.json",
+    },
+    {
+        "label": "world-class evidence ledger",
+        "command": "python3 scripts/yao.py world-class-ledger . --submissions-dir evidence/world_class/submissions",
+        "evidence": "reports/world_class_evidence_ledger.json",
+    },
+    {
+        "label": "world-class evidence intake",
+        "command": "python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions",
+        "evidence": "reports/world_class_evidence_intake.json",
+    },
+    {
+        "label": "world-class evidence preflight",
+        "command": "python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions",
+        "evidence": "reports/world_class_evidence_preflight.json",
+    },
+    {
+        "label": "world-class submission review",
+        "command": "python3 scripts/yao.py world-class-submission-review . --submissions-dir evidence/world_class/submissions",
+        "evidence": "reports/world_class_submission_review.json",
+    },
+    {
+        "label": "world-class operator runbook",
+        "command": "python3 scripts/yao.py world-class-runbook . --submissions-dir evidence/world_class/submissions",
+        "evidence": "reports/world_class_operator_runbook.json",
+    },
+    {
+        "label": "world-class claim guard",
+        "command": "python3 scripts/yao.py world-class-claim-guard .",
+        "evidence": "reports/world_class_claim_guard.json",
+    },
+    {
+        "label": "evidence consistency",
+        "command": "python3 scripts/yao.py evidence-consistency .",
+        "evidence": "reports/evidence_consistency.json",
+    },
+    {
+        "label": "full ci",
+        "command": "make ci-test",
+        "evidence": "CI target output",
+    },
+]
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def rel_path(path: Path, root: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(root.resolve()))
+    except ValueError:
+        return str(path.resolve())
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def git_commit(skill_dir: Path) -> str:
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=skill_dir,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+    return proc.stdout.strip() or "unknown"
+
+
+def count_jsonl(path: Path) -> int:
+    if not path.exists():
+        return 0
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+
+
+def count_failure_cases(path: Path) -> int:
+    if not path.exists():
+        return 0
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("### "))
+
+
+def methodology_check(path: Path) -> dict[str, Any]:
+    text = path.read_text(encoding="utf-8") if path.exists() else ""
+    sections = [{"heading": heading, "exists": heading in text} for heading in METHODOLOGY_SECTIONS]
+    return {
+        "path": "reports/benchmark_methodology.md",
+        "exists": path.exists(),
+        "sections": sections,
+        "missing_sections": [item["heading"] for item in sections if not item["exists"]],
+    }
+
+
+def artifact_record(skill_dir: Path, label: str, rel: str) -> dict[str, Any]:
+    path = skill_dir / rel
+    record: dict[str, Any] = {
+        "label": label,
+        "path": rel,
+        "exists": path.exists(),
+    }
+    if path.exists() and path.is_file():
+        record["bytes"] = path.stat().st_size
+        record["sha256"] = sha256_file(path)
+    return record
+
+
+def evidence_bundle_fingerprint(artifacts: list[dict[str, Any]]) -> dict[str, Any]:
+    digest = hashlib.sha256()
+    existing_count = 0
+    missing_paths = []
+    for artifact in sorted(artifacts, key=lambda item: str(item.get("path", ""))):
+        path = str(artifact.get("path", ""))
+        digest.update(path.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(artifact.get("label", "")).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(bool(artifact.get("exists"))).encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(artifact.get("sha256", "")).encode("utf-8"))
+        digest.update(b"\0")
+        if artifact.get("exists"):
+            existing_count += 1
+        else:
+            missing_paths.append(path)
+    return {
+        "algorithm": "sha256(path,label,exists,artifact_sha256)",
+        "artifact_count": len(artifacts),
+        "existing_count": existing_count,
+        "missing_count": len(missing_paths),
+        "missing_paths": missing_paths,
+        "sha256": digest.hexdigest(),
+    }
+
+
+def public_claim_blockers(
+    local_reproducibility_ready: bool,
+    release_lock_ready: bool,
+    provider_evidence_complete: bool,
+    human_review_complete: bool,
+    world_class_ready: bool,
+    world_class_open_gap_count: int,
+    world_class_ledger_pending_count: int,
+    world_class_source_check_count: int,
+    world_class_source_pass_count: int,
+    world_class_source_blocked_count: int,
+) -> list[str]:
+    blockers = []
+    if not local_reproducibility_ready:
+        blockers.append("local benchmark reproducibility is incomplete")
+    if not release_lock_ready:
+        blockers.append("release lock is not clean or commit is unavailable")
+    if not provider_evidence_complete:
+        blockers.append("provider-backed model holdout evidence is incomplete")
+    if not human_review_complete:
+        blockers.append("human blind-review adjudication is incomplete")
+    if not world_class_ready:
+        blockers.append(
+            f"world-class evidence is not accepted yet ({world_class_open_gap_count} open gaps, "
+            f"{world_class_ledger_pending_count} ledger pending)"
+        )
+    if (
+        world_class_source_check_count == 0
+        or world_class_source_pass_count != world_class_source_check_count
+        or world_class_source_blocked_count > 0
+    ):
+        blockers.append(
+            "world-class source checks are not all accepted "
+            f"({world_class_source_pass_count}/{world_class_source_check_count} pass, "
+            f"{world_class_source_blocked_count} blocked)"
+        )
+    return blockers
+
+
+def beta_test_blockers(
+    local_reproducibility_ready: bool,
+    release_lock_ready: bool,
+    provider_evidence_complete: bool,
+) -> list[str]:
+    blockers = []
+    if not local_reproducibility_ready:
+        blockers.append("local benchmark reproducibility is incomplete")
+    if not release_lock_ready:
+        blockers.append("release lock is not clean or commit is unavailable")
+    if not provider_evidence_complete:
+        blockers.append("provider-backed model holdout source evidence is incomplete")
+    return blockers
+
+
+BETA_DEFERRED_EVIDENCE = {
+    "provider-holdout": {
+        "label": "Provider holdout ledger review",
+        "reason": "Provider-backed source evidence exists, but formal ledger submission and reviewer acceptance are still pending before public claims.",
+    },
+    "human-adjudication": {
+        "label": "Human blind-review adjudication",
+        "reason": "Human adjudication evidence is still pending; deferred for beta/public testing and still required before superiority, fully-reviewed, or world-class claims.",
+    },
+    "native-permission-enforcement": {
+        "label": "Native permission enforcement evidence",
+        "reason": "Native enforcement proof is still pending; deferred for beta/public testing and still required before world-class claims.",
+    },
+    "native-client-telemetry": {
+        "label": "Real client telemetry evidence",
+        "reason": "Real client telemetry is still pending; deferred for beta/public testing and still required before world-class claims.",
+    },
+}
+
+
+def beta_deferred_evidence(world_class_ledger: dict[str, Any]) -> list[dict[str, str]]:
+    deferred = []
+    entries = world_class_ledger.get("entries", [])
+    if not isinstance(entries, list):
+        return deferred
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("status") != "pending":
+            continue
+        key = str(entry.get("key") or "")
+        if not key:
+            continue
+        fallback = BETA_DEFERRED_EVIDENCE.get(key, {})
+        deferred.append(
+            {
+                "key": key,
+                "label": str(entry.get("label") or fallback.get("label") or key),
+                "reason": str(
+                    fallback.get("reason")
+                    or "Formal evidence is still pending; deferred for beta/public testing and still required before public claims."
+                ),
+            }
+        )
+    return deferred
+
+
+def build_report(skill_dir: Path, generated_at: str) -> dict[str, Any]:
+    reports = skill_dir / "reports"
+    output_quality = load_json(reports / "output_quality_scorecard.json")
+    output_execution = load_json(reports / "output_execution_runs.json")
+    output_review = load_json(reports / "output_review_adjudication.json")
+    skill_os2 = load_json(reports / "skill_os2_audit.json")
+    world_class_plan = load_json(reports / "world_class_evidence_plan.json")
+    world_class_ledger = load_json(reports / "world_class_evidence_ledger.json")
+    trust = load_json(reports / "security_trust_report.json")
+    package_verification = load_json(reports / "package_verification.json")
+    methodology = methodology_check(reports / "benchmark_methodology.md")
+    artifacts = [artifact_record(skill_dir, label, rel) for label, rel in REQUIRED_ARTIFACTS]
+    evidence_bundle = evidence_bundle_fingerprint(artifacts)
+    missing_artifacts = [item["path"] for item in artifacts if not item["exists"]]
+    output_summary = output_quality.get("summary", {})
+    execution_summary = output_execution.get("summary", {})
+    review_summary = output_review.get("summary", {})
+    failure_case_count = count_failure_cases(skill_dir / "evals" / "failure-cases.md")
+    output_case_count = count_jsonl(skill_dir / "evals" / "output" / "cases.jsonl")
+    status = git_status(skill_dir)
+    commit = git_commit(skill_dir)
+    release_lock = release_lock_status(status, commit)
+    local_reproducibility_ready = (
+        not methodology["missing_sections"]
+        and not missing_artifacts
+        and output_case_count >= 5
+        and failure_case_count > 0
+        and output_summary.get("gate_pass") is True
+        and execution_summary.get("command_executed_count", 0) > 0
+        and execution_summary.get("timing_observed_count", 0) > 0
+    )
+    human_review_complete = review_summary.get("pair_count", 0) > 0 and review_summary.get("pending_count", 0) == 0
+    provider_evidence_complete = execution_summary.get("model_executed_count", 0) > 0 and execution_summary.get("token_observed_count", 0) > 0
+    world_class_ready = bool(skill_os2.get("summary", {}).get("world_class_ready", False))
+    world_class_open_gap_count = int(skill_os2.get("summary", {}).get("open_gap_count", 0) or 0)
+    world_class_summary = world_class_ledger.get("summary", {})
+    world_class_ledger_pending_count = int(world_class_summary.get("pending_count", 0) or 0)
+    world_class_source_check_count = int(world_class_summary.get("source_check_count", 0) or 0)
+    world_class_source_pass_count = int(world_class_summary.get("source_pass_count", 0) or 0)
+    world_class_source_blocked_count = int(world_class_summary.get("source_blocked_count", 0) or 0)
+    claim_blockers = public_claim_blockers(
+        local_reproducibility_ready,
+        release_lock["ready"],
+        provider_evidence_complete,
+        human_review_complete,
+        world_class_ready,
+        world_class_open_gap_count,
+        world_class_ledger_pending_count,
+        world_class_source_check_count,
+        world_class_source_pass_count,
+        world_class_source_blocked_count,
+    )
+    public_claim_ready = not claim_blockers
+    beta_blockers = beta_test_blockers(
+        local_reproducibility_ready,
+        release_lock["ready"],
+        provider_evidence_complete,
+    )
+    beta_deferred = beta_deferred_evidence(world_class_ledger)
+    beta_test_ready = not beta_blockers
+    limitations = [
+        "The git commit and dirty flags are generation-time context; release lock is blocked by source changes, while generated evidence artifacts are tracked separately.",
+        "Pending blind-review decisions are visible but do not count as human adjudication.",
+        "World-class readiness remains false until external and human evidence gaps close.",
+        "Beta/public testing may proceed without human blind-review only when wording avoids superiority, fully-reviewed, or world-class claims.",
+    ]
+    if provider_evidence_complete:
+        limitations.insert(
+            1,
+            "Provider-backed model holdout source evidence is complete, but ledger acceptance still requires a valid independently reviewed submission packet.",
+        )
+    else:
+        limitations.insert(
+            1,
+            "Local command-runner evidence is reproducible but does not replace provider-backed model holdout evidence.",
+        )
+    return {
+        "schema_version": "1.0",
+        "ok": local_reproducibility_ready,
+        "generated_at": generated_at,
+        "skill_dir": rel_path(skill_dir, ROOT),
+        "commit": commit,
+        "git_status": status,
+        "summary": {
+            "reproducibility_ready": local_reproducibility_ready,
+            "release_lock_ready": release_lock["ready"],
+            "methodology_complete": not methodology["missing_sections"],
+            "required_artifact_count": len(artifacts),
+            "missing_artifact_count": len(missing_artifacts),
+            "evidence_bundle_sha256": evidence_bundle["sha256"],
+            "source_contract_sha256": trust.get("summary", {}).get("package_sha256", ""),
+            "archive_sha256": package_verification.get("summary", {}).get("archive_sha256", ""),
+            "output_case_count": output_case_count,
+            "failure_disclosure_count": failure_case_count,
+            "command_count": len(REPRODUCTION_COMMANDS),
+            "command_executed_count": execution_summary.get("command_executed_count", 0),
+            "timing_observed_count": execution_summary.get("timing_observed_count", 0),
+            "model_executed_count": execution_summary.get("model_executed_count", 0),
+            "token_observed_count": execution_summary.get("token_observed_count", 0),
+            "human_review_complete": human_review_complete,
+            "provider_evidence_complete": provider_evidence_complete,
+            "world_class_ready": world_class_ready,
+            "world_class_open_gap_count": world_class_open_gap_count,
+            "world_class_task_count": world_class_plan.get("summary", {}).get("task_count", 0),
+            "world_class_ledger_pending_count": world_class_ledger_pending_count,
+            "world_class_source_check_count": world_class_source_check_count,
+            "world_class_source_pass_count": world_class_source_pass_count,
+            "world_class_source_blocked_count": world_class_source_blocked_count,
+            "beta_test_ready": beta_test_ready,
+            "beta_test_blocker_count": len(beta_blockers),
+            "beta_test_deferred_evidence_count": len(beta_deferred),
+            "public_claim_ready": public_claim_ready,
+            "public_claim_blocker_count": len(claim_blockers),
+            "working_tree_dirty": status.get("dirty"),
+            "changed_file_count": status.get("changed_file_count"),
+            "source_tree_dirty": status.get("source_dirty"),
+            "source_changed_file_count": status.get("source_changed_file_count"),
+            "generated_tree_dirty": status.get("generated_dirty"),
+            "generated_changed_file_count": status.get("generated_changed_file_count"),
+        },
+        "beta_test_release": {
+            "ready": beta_test_ready,
+            "scope": "beta/public test release without superiority, fully-reviewed, or world-class claims",
+            "blockers": beta_blockers,
+            "allowed_deferred_evidence": beta_deferred,
+            "policy": "Human blind-review, native permission enforcement, real client telemetry, and ledger acceptance may be deferred for beta/public testing, but public claims must remain blocked until those evidence entries are accepted.",
+            "required_wording": "Use beta, public test, or technical preview wording; do not claim world-class readiness, fully reviewed quality, or proven superiority over baseline.",
+        },
+        "public_claim": {
+            "ready": public_claim_ready,
+            "scope": "public benchmark or world-class readiness claim",
+            "blockers": claim_blockers,
+            "policy": "Local reproducibility can pass before public claims; public claims require provider evidence, human adjudication, clean release lock, accepted world-class evidence, and complete source checks.",
+        },
+        "release_lock": release_lock,
+        "evidence_bundle": evidence_bundle,
+        "methodology": methodology,
+        "artifacts_checked": artifacts,
+        "missing_artifacts": missing_artifacts,
+        "reproduction_commands": REPRODUCTION_COMMANDS,
+        "failure_disclosure": {
+            "path": "evals/failure-cases.md",
+            "case_count": failure_case_count,
+            "policy": "Keep representative failures visible and tied to regression checks.",
+        },
+        "limitations": limitations,
+        "artifacts": {
+            "json": "reports/benchmark_reproducibility.json",
+            "markdown": "reports/benchmark_reproducibility.md",
+        },
+    }
+
+
+def render_markdown(report: dict[str, Any]) -> str:
+    summary = report["summary"]
+    lines = [
+        "# Benchmark Reproducibility",
+        "",
+        f"Generated at: `{report['generated_at']}`",
+        f"Commit: `{report['commit']}`",
+        f"Working tree dirty at generation: `{str(summary.get('working_tree_dirty')).lower()}`",
+        f"Source tree dirty at generation: `{str(summary.get('source_tree_dirty')).lower()}`",
+        f"Generated evidence dirty at generation: `{str(summary.get('generated_tree_dirty')).lower()}`",
+        f"Evidence bundle SHA256: `{summary.get('evidence_bundle_sha256', '')}`",
+        "",
+        "## Summary",
+        "",
+        f"- reproducibility ready: `{str(summary['reproducibility_ready']).lower()}`",
+        f"- release lock ready: `{str(summary.get('release_lock_ready')).lower()}`",
+        f"- methodology complete: `{str(summary['methodology_complete']).lower()}`",
+        f"- required artifacts: `{summary['required_artifact_count']}`",
+        f"- missing artifacts: `{summary['missing_artifact_count']}`",
+        f"- source contract sha256: `{summary.get('source_contract_sha256', '')[:12]}`",
+        f"- archive sha256: `{summary.get('archive_sha256', '')[:12]}`",
+        f"- output cases: `{summary['output_case_count']}`",
+        f"- disclosed failure cases: `{summary['failure_disclosure_count']}`",
+        f"- reproduction commands: `{summary['command_count']}`",
+        f"- provider evidence complete: `{str(summary['provider_evidence_complete']).lower()}`",
+        f"- human review complete: `{str(summary['human_review_complete']).lower()}`",
+        f"- world-class ready: `{str(summary['world_class_ready']).lower()}`",
+        f"- world-class source checks: `{summary.get('world_class_source_pass_count', 0)}` pass / `{summary.get('world_class_source_check_count', 0)}` total; `{summary.get('world_class_source_blocked_count', 0)}` blocked",
+        f"- beta test ready: `{str(summary['beta_test_ready']).lower()}`",
+        f"- beta test blockers: `{summary['beta_test_blocker_count']}`",
+        f"- beta deferred evidence: `{summary['beta_test_deferred_evidence_count']}`",
+        f"- public claim ready: `{str(summary['public_claim_ready']).lower()}`",
+        f"- public claim blockers: `{summary['public_claim_blocker_count']}`",
+        f"- changed files at generation: `{summary.get('changed_file_count')}`",
+        f"- source changed files at generation: `{summary.get('source_changed_file_count')}`",
+        f"- generated changed files at generation: `{summary.get('generated_changed_file_count')}`",
+        "",
+        "This report proves local benchmark reproducibility only. It keeps external provider and human-review gaps visible instead of counting them as complete. The git commit and dirty samples are generation-time context; the evidence bundle SHA is the durable anchor for the artifacts listed below.",
+        "",
+    ]
+    beta_release = report.get("beta_test_release", {})
+    lines.extend(
+        [
+            "## Beta Test Boundary",
+            "",
+            f"- ready: `{str(beta_release.get('ready')).lower()}`",
+            f"- scope: {beta_release.get('scope', 'beta/public test release')}",
+            f"- policy: {beta_release.get('policy', '')}",
+            f"- required wording: {beta_release.get('required_wording', '')}",
+            "",
+            "| Blocker |",
+            "| --- |",
+        ]
+    )
+    beta_blockers = beta_release.get("blockers", [])
+    if beta_blockers:
+        lines.extend(f"| {item} |" for item in beta_blockers)
+    else:
+        lines.append("| none |")
+    lines.extend(["", "| Deferred evidence | Reason |", "| --- | --- |"])
+    deferred = beta_release.get("allowed_deferred_evidence", [])
+    if deferred:
+        lines.extend(f"| `{item.get('key', '')}` | {item.get('reason', '')} |" for item in deferred)
+    else:
+        lines.append("| none | none |")
+    lines.extend(
+        [
+            "",
+            "## Public Claim Boundary",
+            "",
+        ]
+    )
+    lines.extend(
+        [
+            f"- ready: `{str(report.get('public_claim', {}).get('ready')).lower()}`",
+            f"- scope: {report.get('public_claim', {}).get('scope', 'public benchmark claim')}",
+            f"- policy: {report.get('public_claim', {}).get('policy', '')}",
+            "",
+            "| Blocker |",
+            "| --- |",
+        ]
+    )
+    blockers = report.get("public_claim", {}).get("blockers", [])
+    if blockers:
+        lines.extend(f"| {item} |" for item in blockers)
+    else:
+        lines.append("| none |")
+    lines.extend(
+        [
+            "",
+            "## Release Lock",
+            "",
+            f"- ready: `{str(report.get('release_lock', {}).get('ready')).lower()}`",
+            f"- reason: {report.get('release_lock', {}).get('reason', 'unknown')}",
+            f"- status scope: {report.get('release_lock', {}).get('status_scope', 'generation-time status')}",
+            "",
+            "## Evidence Bundle",
+        ]
+    )
+    lines.extend(
+        [
+            "",
+            f"- algorithm: `{report.get('evidence_bundle', {}).get('algorithm', '')}`",
+            f"- artifacts: `{report.get('evidence_bundle', {}).get('existing_count', 0)}` / `{report.get('evidence_bundle', {}).get('artifact_count', 0)}`",
+            f"- sha256: `{report.get('evidence_bundle', {}).get('sha256', '')}`",
+            "",
+            "## Methodology Sections",
+            "",
+            "| Section | Status |",
+            "| --- | --- |",
+        ]
+    )
+    for section in report["methodology"]["sections"]:
+        lines.append(f"| `{section['heading']}` | {'present' if section['exists'] else 'missing'} |")
+    lines.extend(["", "## Required Artifacts", "", "| Label | Path | Status | SHA256 |", "| --- | --- | --- | --- |"])
+    for artifact in report["artifacts_checked"]:
+        digest = artifact.get("sha256", "")
+        lines.append(
+            f"| {artifact['label']} | `{artifact['path']}` | {'present' if artifact['exists'] else 'missing'} | `{digest[:12]}` |"
+        )
+    lines.extend(["", "## Reproduction Commands", ""])
+    for command in report["reproduction_commands"]:
+        lines.append(f"- `{command['command']}`")
+        lines.append(f"  - evidence: `{command['evidence']}`")
+    lines.extend(["", "## Failure Disclosure", ""])
+    disclosure = report["failure_disclosure"]
+    lines.append(f"- path: `{disclosure['path']}`")
+    lines.append(f"- disclosed cases: `{disclosure['case_count']}`")
+    lines.append(f"- policy: {disclosure['policy']}")
+    lines.extend(["", "## Limits", ""])
+    lines.extend(f"- {item}" for item in report["limitations"])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Render benchmark reproducibility evidence.")
+    parser.add_argument("skill_dir", nargs="?", default=".")
+    parser.add_argument("--output-json", default="reports/benchmark_reproducibility.json")
+    parser.add_argument("--output-md", default="reports/benchmark_reproducibility.md")
+    parser.add_argument("--generated-at", default=date.today().isoformat())
+    args = parser.parse_args()
+
+    skill_dir = Path(args.skill_dir).resolve()
+    report = build_report(skill_dir, args.generated_at)
+    output_json = Path(args.output_json)
+    output_md = Path(args.output_md)
+    if not output_json.is_absolute():
+        output_json = skill_dir / output_json
+    if not output_md.is_absolute():
+        output_md = skill_dir / output_md
+    output_json.parent.mkdir(parents=True, exist_ok=True)
+    output_md.parent.mkdir(parents=True, exist_ok=True)
+    output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    output_md.write_text(render_markdown(report), encoding="utf-8")
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

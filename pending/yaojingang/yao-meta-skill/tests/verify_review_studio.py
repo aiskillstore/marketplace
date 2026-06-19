@@ -1,0 +1,557 @@
+#!/usr/bin/env python3
+import json
+import re
+import sys
+
+
+from review_studio_helpers import ROOT, prepare_tmp_root, render_review_studio_fixture
+from review_studio_world_class_assertions import assert_world_class_action
+
+sys.path.insert(0, str(ROOT / "scripts"))
+import render_review_studio as review_studio  # noqa: E402
+import review_studio_formatting as review_formatting  # noqa: E402
+import review_studio_gates as review_gates  # noqa: E402
+import review_studio_layout as review_layout  # noqa: E402
+
+
+def main() -> None:
+    tmp_root = prepare_tmp_root()
+    output_html, output_json, proc = render_review_studio_fixture(tmp_root)
+    payload = json.loads(proc.stdout)
+    assert payload["ok"], payload
+    assert payload["schema_version"] == "2.0", payload
+    assert payload["summary"]["decision"] == "review", payload
+    assert payload["summary"]["gate_count"] == 16, payload
+    assert payload["summary"]["gate_contract_ok"] is True, payload
+    assert payload["summary"]["world_class_score"] == 91, payload
+    assert payload["summary"]["warning_count"] == 3, payload
+    assert payload["summary"]["blocker_count"] == 0, payload
+    assert payload["summary"]["action_count"] == 3, payload
+    assert payload["summary"]["annotation_count"] == 0, payload
+    assert payload["summary"]["open_annotation_blocker_count"] == 0, payload
+    assert payload["summary"]["action_count"] == payload["summary"]["warning_count"] + payload["summary"]["blocker_count"], payload
+    assert {item["gate_key"] for item in payload["review_actions"]} == {
+        "output-lab",
+        "review-waivers",
+        "world-class-evidence",
+    }, payload
+    action_by_gate = {item["gate_key"]: item for item in payload["review_actions"]}
+    gate_keys = {item["key"] for item in payload["gates"]}
+    assert gate_keys == review_gates.REVIEW_STUDIO_GATE_KEYS, payload
+    for gate in payload["gates"]:
+        if gate["status"] == "pass":
+            assert gate["review_action_id"] == "", gate
+            assert gate["review_action_title"] == "", gate
+            assert gate["review_action_next_step"] == "", gate
+            assert gate["review_action_reason"] == "", gate
+            assert gate["review_action_source_ref_count"] == 0, gate
+            assert gate["review_action_verification_command"] == "", gate
+            continue
+        action = action_by_gate[gate["key"]]
+        assert gate["review_action_id"] == action["action_id"] == f"review-action-{gate['key']}", gate
+        assert gate["review_action_status"] == action["status"] == gate["status"], gate
+        assert gate["review_action_title"] == action["title"] == action["label"], gate
+        assert gate["review_action_next_step"] == action["next_step"] == action["summary"], gate
+        assert gate["review_action_reason"] == action["reason"] == action["why"], gate
+        assert gate["review_action_source_ref_count"] == len(action["source_refs"]) > 0, gate
+        assert gate["review_action_verification_command"] == action["verification_command"], gate
+    assert set(review_gates.GATE_WEIGHTS) == review_gates.REVIEW_STUDIO_GATE_KEYS, review_gates.GATE_WEIGHTS
+    gate_contract = payload["gate_contract"]
+    assert gate_contract["ok"] is True, gate_contract
+    assert gate_contract["expected_gate_count"] == 16, gate_contract
+    assert gate_contract["actual_gate_count"] == 16, gate_contract
+    assert set(gate_contract["expected_gate_keys"]) == review_gates.REVIEW_STUDIO_GATE_KEYS, gate_contract
+    assert set(gate_contract["rendered_gate_keys"]) == review_gates.REVIEW_STUDIO_GATE_KEYS, gate_contract
+    assert gate_contract["missing_gate_keys"] == [], gate_contract
+    assert gate_contract["unknown_gate_keys"] == [], gate_contract
+    assert gate_contract["duplicate_gate_keys"] == [], gate_contract
+    assert gate_contract["unweighted_gate_keys"] == [], gate_contract
+    output_gate = next(item for item in payload["gates"] if item["key"] == "output-lab")
+    assert output_gate["status"] == "warn", output_gate
+    assert "5/5 cases" in output_gate["detail"], output_gate
+    assert "file-backed 1" in output_gate["detail"], output_gate
+    assert "blind A/B 5" in output_gate["detail"], output_gate
+    assert "exec 10" in output_gate["detail"], output_gate
+    assert "model 10" in output_gate["detail"], output_gate
+    assert "reviewed 0/5" in output_gate["detail"], output_gate
+    assert "review pending 5" in output_gate["detail"], output_gate
+    context_gate = next(item for item in payload["gates"] if item["key"] == "context-budget")
+    assert context_gate["status"] == "pass", context_gate
+    initial_load = re.search(r"initial load (\d+)/1000", context_gate["detail"])
+    assert initial_load, context_gate
+    assert int(initial_load.group(1)) <= 1000, context_gate
+    assert "deferred " in context_gate["detail"], context_gate
+    assert "/120000" in context_gate["detail"], context_gate
+    assert "top deferred scripts" in context_gate["detail"], context_gate
+    assert "resource governance governed" in context_gate["detail"], context_gate
+    assert "quality density" in context_gate["detail"], context_gate
+    release_gate = next(item for item in payload["gates"] if item["key"] == "release-notes")
+    assert "upgrade minor declared / minor recommended" in release_gate["detail"], release_gate
+    assert "reports/upgrade_check.json" in release_gate["evidence"], release_gate
+    registry_gate = next(item for item in payload["gates"] if item["key"] == "registry-audit")
+    assert "install pass" in registry_gate["detail"], registry_gate
+    assert "installer permissions 12 enforced / 0 failures" in registry_gate["detail"], registry_gate
+    assert "reports/install_simulation.json" in registry_gate["evidence"], registry_gate
+    trust_gate = next(item for item in payload["gates"] if item["key"] == "trust-report")
+    assert trust_gate["status"] == "pass", trust_gate
+    assert "3 network-capable scripts" in trust_gate["detail"], trust_gate
+    assert "0 help smoke failures" in trust_gate["detail"], trust_gate
+    python_compat_gate = next(item for item in payload["gates"] if item["key"] == "python-compat")
+    assert python_compat_gate["status"] == "pass", python_compat_gate
+    assert "Python 3.11" in python_compat_gate["detail"], python_compat_gate
+    assert "0 compatibility issues" in python_compat_gate["detail"], python_compat_gate
+    assert "0 f-string 3.11 hazards" in python_compat_gate["detail"], python_compat_gate
+    assert python_compat_gate["evidence"] == "reports/python_compatibility.json", python_compat_gate
+    architecture_gate = next(item for item in payload["gates"] if item["key"] == "architecture-maintainability")
+    assert architecture_gate["status"] == "pass", architecture_gate
+    assert "0 hotspots" in architecture_gate["detail"], architecture_gate
+    assert re.search(r"\d+ watchlist files?", architecture_gate["detail"]), architecture_gate
+    assert re.search(r"\d+ early watch files?", architecture_gate["detail"]), architecture_gate
+    assert "0 blockers" in architecture_gate["detail"], architecture_gate
+    assert "CLI handlers" in architecture_gate["detail"], architecture_gate
+    assert architecture_gate["evidence"] == "reports/architecture_maintainability.json", architecture_gate
+    permission_gate = next(item for item in payload["gates"] if item["key"] == "permission-gates")
+    assert permission_gate["status"] == "pass", permission_gate
+    assert "permissions approved" in permission_gate["detail"], permission_gate
+    assert "gaps 0" in permission_gate["detail"], permission_gate
+    permission_runtime_gate = next(item for item in payload["gates"] if item["key"] == "permission-runtime")
+    assert permission_runtime_gate["status"] == "pass", permission_runtime_gate
+    assert "metadata fallback 4" in permission_runtime_gate["detail"], permission_runtime_gate
+    assert "native 0" in permission_runtime_gate["detail"], permission_runtime_gate
+    intent_gate = next(item for item in payload["gates"] if item["key"] == "intent-canvas")
+    assert intent_gate["status"] == "pass", intent_gate
+    assert "intent confidence 100/100" in intent_gate["detail"], intent_gate
+    atlas_gate = next(item for item in payload["gates"] if item["key"] == "skill-atlas")
+    assert atlas_gate["status"] == "pass", atlas_gate
+    assert "actionable route collisions" in atlas_gate["detail"], atlas_gate
+    assert "actionable drift" in atlas_gate["detail"], atlas_gate
+    operations_gate = next(item for item in payload["gates"] if item["key"] == "operations-loop")
+    assert operations_gate["status"] == "pass", operations_gate
+    assert "metadata events" in operations_gate["detail"], operations_gate
+    assert "risk low" in operations_gate["detail"], operations_gate
+    assert "daily proposals" in operations_gate["detail"], operations_gate
+    assert "weekly queue" in operations_gate["detail"], operations_gate
+    assert "reports/adoption_drift_report.json" in operations_gate["evidence"], operations_gate
+    assert "reports/skillops/daily" in operations_gate["evidence"], operations_gate
+    assert "reports/skillops/weekly" in operations_gate["evidence"], operations_gate
+    waivers_gate = next(item for item in payload["gates"] if item["key"] == "review-waivers")
+    assert waivers_gate["status"] == "warn", waivers_gate
+    assert "1 warning gates still need reviewer decision" in waivers_gate["detail"], waivers_gate
+    assert "reports/review_waivers.json" in waivers_gate["evidence"], waivers_gate
+    world_class_gate = next(item for item in payload["gates"] if item["key"] == "world-class-evidence")
+    world_class_summary = json.loads((ROOT / "reports" / "world_class_evidence_ledger.json").read_text(encoding="utf-8"))[
+        "summary"
+    ]
+    assert world_class_gate["status"] == "warn", world_class_gate
+    assert "4 pending world-class evidence entries" in world_class_gate["detail"], world_class_gate
+    assert "1 human pending" in world_class_gate["detail"], world_class_gate
+    assert "3 external pending" in world_class_gate["detail"], world_class_gate
+    assert (
+        f"source checks {world_class_summary['source_pass_count']}/{world_class_summary['source_check_count']} pass"
+        in world_class_gate["detail"]
+    ), world_class_gate
+    assert f"{world_class_summary['source_blocked_count']} blocked" in world_class_gate["detail"], world_class_gate
+    assert "overclaim guard true" in world_class_gate["detail"], world_class_gate
+    assert world_class_gate["evidence"] == "reports/world_class_evidence_ledger.json", world_class_gate
+    assert output_html.exists(), output_html
+    assert output_json.exists(), output_json
+    full_payload = json.loads(output_json.read_text(encoding="utf-8"))
+    assert full_payload["evidence_paths"]["skill_ir"] == "skill-ir/examples/yao-meta-skill.json", full_payload[
+        "evidence_paths"
+    ]
+    assert full_payload["evidence_paths"]["compiled_targets"] == "reports/compiled_targets.md", full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["output_execution"] == "reports/output_execution_runs.md", full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["output_blind_review"] == "reports/output_blind_review_pack.md", full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["output_review_kit_html"] == "reports/output_review_kit.html", full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["output_review_decisions"] == "reports/output_review_decisions.json", full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["output_review_adjudication"] == "reports/output_review_adjudication.md", full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["python_compatibility"] == "reports/python_compatibility.md", full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["architecture_maintainability"] == "reports/architecture_maintainability.md", full_payload["evidence_paths"]
+    if (ROOT / "reports" / "benchmark_reproducibility.md").exists():
+        assert full_payload["evidence_paths"]["benchmark_reproducibility"] == "reports/benchmark_reproducibility.md", full_payload["evidence_paths"]
+    if (ROOT / "reports" / "skill_os2_coverage.md").exists():
+        assert full_payload["evidence_paths"]["skill_os2_coverage"] == "reports/skill_os2_coverage.md", full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["daily_skillops"].startswith("reports/skillops/daily/"), full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["weekly_curator"].startswith("reports/skillops/weekly/"), full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["review_annotations"] == "reports/review_annotations.md", full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["adaptation_proposals"] == "reports/adaptation_proposals.md", full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["adaptation_approval_ledger"] == "reports/adaptation_approval_ledger.json", full_payload["evidence_paths"]
+    assert full_payload["evidence_paths"]["adaptation_regression"] == "reports/adaptation_regression_report.md", full_payload["evidence_paths"]
+    if (ROOT / "reports" / "world_class_evidence_plan.md").exists():
+        assert full_payload["evidence_paths"]["world_class_evidence_plan"] == "reports/world_class_evidence_plan.md", full_payload["evidence_paths"]
+    if (ROOT / "reports" / "world_class_evidence_ledger.md").exists():
+        assert full_payload["evidence_paths"]["world_class_evidence_ledger"] == "reports/world_class_evidence_ledger.md", full_payload["evidence_paths"]
+    if (ROOT / "reports" / "world_class_evidence_intake.md").exists():
+        assert full_payload["evidence_paths"]["world_class_evidence_intake"] == "reports/world_class_evidence_intake.md", full_payload["evidence_paths"]
+    if (ROOT / "reports" / "world_class_evidence_preflight.md").exists():
+        assert full_payload["evidence_paths"]["world_class_evidence_preflight"] == "reports/world_class_evidence_preflight.md", full_payload["evidence_paths"]
+    if (ROOT / "reports" / "world_class_evidence_preflight.html").exists():
+        assert full_payload["evidence_paths"]["world_class_evidence_preflight_html"] == "reports/world_class_evidence_preflight.html", full_payload["evidence_paths"]
+    if (ROOT / "reports" / "world_class_submission_review.md").exists():
+        assert full_payload["evidence_paths"]["world_class_submission_review"] == "reports/world_class_submission_review.md", full_payload["evidence_paths"]
+    if (ROOT / "reports" / "world_class_operator_runbook.md").exists():
+        assert full_payload["evidence_paths"]["world_class_operator_runbook"] == "reports/world_class_operator_runbook.md", full_payload["evidence_paths"]
+    if (ROOT / "reports" / "world_class_operator_runbook.html").exists():
+        assert full_payload["evidence_paths"]["world_class_operator_runbook_html"] == "reports/world_class_operator_runbook.html", full_payload["evidence_paths"]
+    if (ROOT / "reports" / "world_class_claim_guard.md").exists():
+        assert full_payload["evidence_paths"]["world_class_claim_guard"] == "reports/world_class_claim_guard.md", full_payload["evidence_paths"]
+    assert full_payload["data"]["output_blind_review"]["summary"]["pair_count"] == 5, full_payload["data"]["output_blind_review"]
+    assert full_payload["data"]["output_execution"]["summary"]["command_executed_count"] == 10, full_payload["data"]["output_execution"]
+    assert full_payload["data"]["output_execution"]["summary"]["recorded_fixture_count"] == 0, full_payload["data"]["output_execution"]
+    assert full_payload["data"]["output_execution"]["summary"]["model_executed_count"] == 10, full_payload["data"]["output_execution"]
+    assert full_payload["data"]["output_execution"]["summary"]["token_observed_count"] == 10, full_payload["data"]["output_execution"]
+    assert full_payload["data"]["output_execution"]["summary"]["token_estimated_count"] == 0, full_payload["data"]["output_execution"]
+    assert full_payload["data"]["output_review_adjudication"]["summary"]["pending_count"] == 5, full_payload["data"]["output_review_adjudication"]
+    assert full_payload["data"]["output_review_adjudication"]["summary"]["answer_revealed_count"] == 0, full_payload["data"]["output_review_adjudication"]
+    assert full_payload["data"]["output_review_adjudication"]["summary"]["pending_answer_hidden_count"] == 5, full_payload["data"]["output_review_adjudication"]
+    assert full_payload["data"]["output_review_adjudication"]["summary"]["reviewer_checklist_count"] == 5, full_payload["data"]["output_review_adjudication"]
+    assert full_payload["data"]["output_review_adjudication"]["summary"]["reviewer_checklist_pending_count"] == 5, full_payload["data"]["output_review_adjudication"]
+    assert full_payload["data"]["output_review_adjudication"]["summary"]["reviewer_checklist_ready_count"] == 0, full_payload["data"]["output_review_adjudication"]
+    assert all(not item["expected_revealed"] for item in full_payload["data"]["output_review_adjudication"]["pairs"]), full_payload["data"]["output_review_adjudication"]
+    benchmark_summary = full_payload["data"]["benchmark_reproducibility"]["summary"]
+    assert benchmark_summary["reproducibility_ready"] is True, benchmark_summary
+    assert benchmark_summary["release_lock_ready"] == (benchmark_summary["source_tree_dirty"] is False), benchmark_summary
+    assert "generated_tree_dirty" in benchmark_summary, benchmark_summary
+    expected_beta_ready = (
+        benchmark_summary["reproducibility_ready"]
+        and benchmark_summary["release_lock_ready"]
+        and benchmark_summary["provider_evidence_complete"]
+    )
+    assert benchmark_summary["beta_test_ready"] is expected_beta_ready, benchmark_summary
+    assert benchmark_summary["beta_test_deferred_evidence_count"] >= 1, benchmark_summary
+    beta_release = full_payload["data"]["benchmark_reproducibility"]["beta_test_release"]
+    assert beta_release["ready"] is expected_beta_ready, beta_release
+    assert not any("human blind-review" in item for item in beta_release["blockers"]), beta_release
+    pending_ledger_keys = {
+        item["key"]
+        for item in full_payload["data"]["world_class_evidence_ledger"]["entries"]
+        if item.get("status") == "pending"
+    }
+    deferred_keys = {item["key"] for item in beta_release["allowed_deferred_evidence"]}
+    assert deferred_keys == pending_ledger_keys, beta_release
+    assert any(item["key"] == "human-adjudication" for item in beta_release["allowed_deferred_evidence"]), (
+        beta_release
+    )
+    assert benchmark_summary["public_claim_ready"] is False, benchmark_summary
+    assert benchmark_summary["public_claim_blocker_count"] >= 3, benchmark_summary
+    public_claim = full_payload["data"]["benchmark_reproducibility"]["public_claim"]
+    assert public_claim["ready"] is False, public_claim
+    assert not any("provider-backed model holdout evidence is incomplete" in item for item in public_claim["blockers"]), public_claim
+    assert any("human blind-review adjudication is incomplete" in item for item in public_claim["blockers"]), public_claim
+    output_review_checklist = full_payload["data"]["output_review_adjudication"]["reviewer_checklist"]
+    assert len(output_review_checklist) == 5, output_review_checklist
+    assert all(not item["answer_key_visible"] for item in output_review_checklist), output_review_checklist
+    assert output_review_checklist[0]["commands"]["adjudicate"] == "python3 scripts/yao.py output-review", output_review_checklist[0]
+    assert full_payload["data"]["review_annotations"]["summary"]["annotation_count"] == 0, full_payload["data"]["review_annotations"]
+    daily_skillops_summary = full_payload["data"]["daily_skillops"]["summary"]
+    assert daily_skillops_summary["writes_source_files"] is False, daily_skillops_summary
+    assert daily_skillops_summary["auto_patch_enabled"] is False, daily_skillops_summary
+    weekly_curator_summary = full_payload["data"]["weekly_curator"]["summary"]
+    assert weekly_curator_summary["unique_opportunity_count"] >= 1, weekly_curator_summary
+    assert weekly_curator_summary["writes_source_files"] is False, weekly_curator_summary
+    assert weekly_curator_summary["auto_patch_enabled"] is False, weekly_curator_summary
+    assert full_payload["data"]["adaptation_proposals"]["report_contract"]["contract"] == "adaptation-proposals", full_payload["data"]["adaptation_proposals"]
+    assert full_payload["data"]["adaptation_proposals"]["proposal_count"] == full_payload["data"]["adaptation_proposals"]["summary"]["proposal_count"], full_payload["data"]["adaptation_proposals"]
+    assert full_payload["data"]["adaptation_approval_ledger"]["report_contract"]["contract"] == "adaptation-approval-ledger", full_payload["data"]["adaptation_approval_ledger"]
+    assert full_payload["data"]["adaptation_approval_ledger"]["pending_review_count"] == 0, full_payload["data"]["adaptation_approval_ledger"]
+    assert full_payload["data"]["adaptation_regression"]["report_contract"]["contract"] == "adaptation-regression-report", full_payload["data"]["adaptation_regression"]
+    assert full_payload["data"]["adaptation_regression"]["approval_draft_supported"] is True, full_payload["data"]["adaptation_regression"]
+    waiver_summary = full_payload["data"]["review_waivers"]["summary"]
+    assert waiver_summary["waiver_candidate_count"] == 2, waiver_summary
+    assert waiver_summary["waiverable_open_count"] == 1, waiver_summary
+    assert waiver_summary["non_waivable_count"] == 1, waiver_summary
+    waiver_candidates = {item["gate_key"]: item for item in full_payload["data"]["review_waivers"]["waiver_candidates"]}
+    assert waiver_candidates["output-lab"]["waiver_allowed"] is True, waiver_candidates
+    assert waiver_candidates["output-lab"]["status"] == "needs-reviewer-decision", waiver_candidates
+    assert waiver_candidates["output-lab"]["risk_summary"] == "review pending 5; model-executed 10; output failures 0", waiver_candidates
+    assert "review-waivers . --add-waiver" in waiver_candidates["output-lab"]["suggested_command"], waiver_candidates
+    assert "Does not count as provider, human, or public world-class completion evidence" in waiver_candidates["output-lab"]["world_class_boundary"], waiver_candidates
+    assert waiver_candidates["world-class-evidence"]["waiver_allowed"] is False, waiver_candidates
+    assert waiver_candidates["world-class-evidence"]["status"] == "cannot-waive", waiver_candidates
+    assert waiver_candidates["world-class-evidence"]["risk_summary"] == "4 pending evidence entries; 1 human pending; 3 external pending", waiver_candidates
+    assert "Non-waivable completion boundary" in waiver_candidates["world-class-evidence"]["world_class_boundary"], waiver_candidates
+    assert full_payload["data"]["compiled_targets"]["summary"]["target_count"] >= 4, full_payload["data"]["compiled_targets"]
+    assert full_payload["data"]["compiled_targets"]["summary"]["block_count"] == 0, full_payload["data"]["compiled_targets"]
+    assert full_payload["data"]["runtime_permissions"]["summary"]["metadata_fallback_count"] == 4, full_payload["data"]["runtime_permissions"]
+    assert full_payload["evidence_paths"]["runtime_permissions"] == "reports/runtime_permission_probes.md", full_payload["evidence_paths"]
+    assert full_payload["data"]["python_compatibility"]["summary"]["target_python"] == "3.11", full_payload["data"]["python_compatibility"]
+    assert full_payload["data"]["python_compatibility"]["summary"]["issue_count"] == 0, full_payload["data"]["python_compatibility"]
+    assert full_payload["data"]["architecture_maintainability"]["summary"]["hotspot_count"] == 0, full_payload["data"]["architecture_maintainability"]
+    assert full_payload["data"]["architecture_maintainability"]["summary"]["watchlist_count"] == 0, full_payload["data"]["architecture_maintainability"]
+    assert full_payload["data"]["architecture_maintainability"]["summary"]["early_watchlist_count"] >= 2, full_payload["data"]["architecture_maintainability"]
+    assert full_payload["data"]["architecture_maintainability"]["summary"]["blocker_count"] == 0, full_payload["data"]["architecture_maintainability"]
+    early_watch_paths = {
+        item["path"] for item in full_payload["data"]["architecture_maintainability"]["early_watchlist"]
+    }
+    assert "scripts/cross_packager.py" not in early_watch_paths, full_payload["data"]["architecture_maintainability"]
+    action_keys = {item["gate_key"] for item in full_payload["review_actions"]}
+    assert action_keys == {"output-lab", "review-waivers", "world-class-evidence"}, full_payload["review_actions"]
+    assert_world_class_action(full_payload)
+    if full_payload["data"]["skill_os2_coverage"]:
+        assert full_payload["data"]["skill_os2_coverage"]["summary"]["local_blueprint_ready"] is True, full_payload["data"]["skill_os2_coverage"]
+        assert full_payload["data"]["skill_os2_coverage"]["summary"]["public_world_class_ready"] is False, full_payload["data"]["skill_os2_coverage"]
+        assert full_payload["data"]["skill_os2_coverage"]["summary"]["extension_track_count"] == 4, full_payload["data"]["skill_os2_coverage"]
+        assert full_payload["data"]["skill_os2_coverage"]["summary"]["extension_partial_count"] == 0, full_payload["data"]["skill_os2_coverage"]
+        assert full_payload["data"]["skill_os2_coverage"]["summary"]["extension_planned_count"] == 0, full_payload["data"]["skill_os2_coverage"]
+        assert full_payload["data"]["skill_os2_coverage"]["summary"]["extension_covered_count"] == 4, full_payload["data"]["skill_os2_coverage"]
+        assert full_payload["data"]["skill_os2_coverage"]["summary"]["adaptive_extension_ready"] is True, full_payload["data"]["skill_os2_coverage"]
+        extension_tracks = {
+            item["key"]: item
+            for item in full_payload["data"]["skill_os2_coverage"]["reference_extension_tracks"]
+        }
+        assert extension_tracks["skill-interpretation-report"]["status"] == "covered", extension_tracks
+        assert extension_tracks["adaptive-self-iteration"]["status"] == "covered", extension_tracks
+        assert extension_tracks["daily-skillops-report"]["status"] == "covered", extension_tracks
+        assert extension_tracks["weekly-curator-report"]["status"] == "covered", extension_tracks
+    world_class_entries = full_payload["data"]["world_class_evidence_ledger"]["entries"]
+    assert len(world_class_entries) == 4, world_class_entries
+    assert {item["key"] for item in world_class_entries} == {
+        "provider-holdout",
+        "human-adjudication",
+        "native-permission-enforcement",
+        "native-client-telemetry",
+    }, world_class_entries
+    provider_entry = next(item for item in world_class_entries if item["key"] == "provider-holdout")
+    assert provider_entry["status"] == "pending", provider_entry
+    assert "reports/output_execution_runs.json summary.model_executed_count > 0" in provider_entry["success_checks"], provider_entry
+    assert any("output-exec --provider-runner openai" in step for step in provider_entry["runbook"]), provider_entry
+    assert provider_entry["observed_state"]["model_executed_count"] == 10, provider_entry
+    assert provider_entry["observed_state"]["token_observed_count"] == 10, provider_entry
+    provider_submission_status = provider_entry["submission_state"]["status"]
+    assert provider_submission_status in {"invalid-contract", "missing"}, provider_entry
+    if provider_submission_status == "invalid-contract":
+        assert provider_entry["submission_state"]["artifact_sha256_verified_count"] == 1, provider_entry
+    else:
+        assert provider_entry["submission_state"].get("artifact_sha256_verified_count", 0) == 0, provider_entry
+    assert provider_entry["submission_state"]["ledger_counts_as_completion"] is False, provider_entry
+    assert full_payload["data"]["atlas"]["summary"]["actionable_route_collision_count"] == 0, full_payload["data"]["atlas"]
+    assert full_payload["data"]["atlas"]["summary"]["actionable_drift_signal_count"] == 0, full_payload["data"]["atlas"]
+    assert full_payload["data"]["atlas"]["summary"]["non_actionable_issue_count"] >= 1, full_payload["data"]["atlas"]
+    synthetic_actions = review_studio.build_review_actions(
+        [
+            {
+                "key": "output-lab",
+                "label": "输出实验",
+                "status": "warn",
+                "detail": "synthetic missing output coverage",
+                "evidence": "reports/output_quality_scorecard.json",
+                "link": "reports/output_quality_scorecard.md",
+            }
+        ],
+        ROOT,
+        output_html,
+    )
+    assert len(synthetic_actions) == 1, synthetic_actions
+    assert synthetic_actions[0]["title"] == "输出实验", synthetic_actions
+    assert synthetic_actions[0]["next_step"] == synthetic_actions[0]["summary"], synthetic_actions
+    assert synthetic_actions[0]["reason"] == synthetic_actions[0]["why"], synthetic_actions
+    assert synthetic_actions[0]["source_refs"], synthetic_actions
+    assert {item["path"] for item in synthetic_actions[0]["source_refs"]} >= {
+        "evals/output/cases.jsonl",
+        "reports/output_quality_scorecard.md",
+        "reports/output_execution_runs.md",
+        "reports/output_blind_review_pack.md",
+        "reports/output_review_kit.html",
+        "reports/output_review_adjudication.md",
+    }, synthetic_actions
+    assert all(item["exists"] for item in synthetic_actions[0]["source_refs"]), synthetic_actions
+    assert all(isinstance(item["line"], int) and item["line"] >= 1 for item in synthetic_actions[0]["source_refs"]), synthetic_actions
+    assert all("excerpt" in item for item in synthetic_actions[0]["source_refs"]), synthetic_actions
+    assert any(item["path"] == "reports/output_review_kit.html" and item["matched_pattern"] == "Output Review Kit" and "Output Review Kit" in item["excerpt"] for item in synthetic_actions[0]["source_refs"]), synthetic_actions
+    assert any(item["path"] == "evals/output/cases.jsonl" and item["matched_pattern"] == '"id"' and '"id"' in item["excerpt"] for item in synthetic_actions[0]["source_refs"]), synthetic_actions
+    synthetic_json = json.dumps(synthetic_actions, ensure_ascii=False)
+    assert str(ROOT) not in synthetic_json, synthetic_json
+    synthetic_html = review_studio.render_review_actions(synthetic_actions)
+    assert "source-ref-list" in synthetic_html, synthetic_html
+    assert "evals/output/cases.jsonl" in synthetic_html, synthetic_html
+    assert "<blockquote>" in synthetic_html, synthetic_html
+    assert "pattern: Output Review Kit" in synthetic_html, synthetic_html
+    html = output_html.read_text(encoding="utf-8")
+    assert "Review Studio 2.0" in html, html[:400]
+    assert "<blockquote>" in html, html
+    assert "pattern: # World-Class Evidence Ledger" in html, html
+    assert "审查闸门" in html, html[:1200]
+    assert "修复动作" in html, html[:3000]
+    assert "补足 output eval 覆盖、execution evidence、blind A/B 和 reviewer adjudication。" in html, html[:9000]
+    assert "resource governance governed" in html, html[:9000]
+    assert "reports/output_review_kit.html" in html, html[:9000]
+    assert "python3 scripts/adjudicate_output_review.py --write-template" in html, html[:9000]
+    assert "对保留的 warning 写入 reviewer、理由、范围和到期时间，或修掉 warning。" in html, html[:9000]
+    assert "补齐 provider、真人盲评、原生权限执行和真实客户端遥测证据" in html, html
+    assert "action-card warn with-evidence" in html, html
+    assert "action-evidence-panel" in html, html
+    assert "证据采集" in html, html
+    assert "action-evidence-grid" in html, html
+    assert "action-evidence-checks" in html, html
+    assert "阶段队列" in html, html
+    assert "action-phase-list" in html, html
+    assert "action-phase-row blocked" in html, html
+    assert "#20 · unblock-access" in html, html
+    assert "#40 · collect-source" in html, html
+    assert "action-repair-list" in html, html
+    assert "action-repair-row blocked" in html, html
+    assert "provider-api-key" in html, html
+    assert "model_executed_count" in html, html
+    assert "#20 · unblock-access · precheck" in html, html
+    assert "#40 · collect-source · source-check" in html, html
+    assert "operator with provider credentials" in html, html
+    assert "python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions" in html, html
+    assert "action-command-list" in html, html
+    assert "action-runbook-list" in html, html
+    assert "采集契约" in html, html
+    assert "action-collection-grid" in html, html
+    assert "来源要求" in html, html
+    assert "通过条件" in html, html
+    assert "证据资产" in html, html
+    assert "隐私边界" in html, html
+    assert "世界证据" in html, html
+    assert "证据台账" in html, html
+    assert "证据入口" in html, html
+    assert "入口边界" in html, html
+    assert "声明守卫" in html, html
+    assert "声明边界" in html, html
+    assert "提交清单" in html, html
+    assert "world-intake-grid" in html, html
+    assert "操作命令" in html, html
+    assert "收集要求" in html, html
+    assert "通过条件" in html, html
+    assert "evidence/world_class/submissions/provider-holdout.json" in html, html
+    assert "evidence/world_class/templates/provider-holdout.intake.json" in html, html
+    assert "Native Client Telemetry" in html, html
+    assert "native-client-telemetry.json" in html, html
+    assert "python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions" in html, html
+    assert "python3 scripts/yao.py world-class-ledger . --submissions-dir evidence/world_class/submissions" in html, html
+    assert "资产角色" in html, html
+    assert "submission-ref" in html, html
+    assert "supporting-evidence" in html, html
+    assert "artifact_refs: true" in html, html
+    assert "intake 只校验证据包格式、来源、隐私和反过度声明" in html, html
+    assert "reports/world_class_evidence_intake.md" in html, html
+    assert "reports/world_class_operator_runbook.html" in html, html
+    assert "reports/world_class_claim_guard.md" in html, html
+    assert "日常运维" in html, html
+    assert "周度队列" in html, html
+    assert "Weekly Queue" in html, html
+    assert "英文完成断言、true 状态声明或中文完成态" in html, html
+    assert "world-evidence-grid" in html, html
+    assert "Provider Holdout" in html, html
+    assert "Native Permission Enforcement" in html, html
+    assert "提交态" in html, html
+    assert "status: missing" in html, html
+    assert "完成定义" in html, html
+    assert "证据来源" in html, html
+    assert "隐私约束" in html, html
+    assert "reports/output_execution_runs.json summary.model_executed_count &gt; 0" in html, html
+    assert "计划、metadata fallback、待评审和本地命令不会被当成完成证据" in html, html
+    assert "执行步骤" in html, html
+    assert "output-exec --provider-runner openai" in html, html
+    assert "&lt;redacted&gt;" not in html and "<redacted>" not in html, html
+    assert "world-runbook-panel" in html, html
+    assert "源证据检查" in html, html
+    assert "world-source-checks" in html, html
+    assert "Provider model run" in html, html
+    assert "model_executed_count: 10 / &gt;0" in html, html
+    assert "Token usage observed" in html, html
+    assert "蓝图覆盖" in html, html
+    assert "Extension Track Count" in html, html
+    assert "Adaptive Extension Ready" in html, html
+    assert "<dt>Extension Partial Count</dt><dd>0</dd>" in html, html
+    assert "<dt>Extension Covered Count</dt><dd>4</dd>" in html, html
+    assert "<dt>Extension Planned Count</dt><dd>0</dd>" in html, html
+    assert "Adaptive Extension Ready" in html, html
+    assert "本地蓝图" in html, html
+    assert "public world-class 仍以 world-class evidence ledger" in html, html
+    assert "公开声明" in html, html
+    assert "声明阻断" in html, html
+    assert "可公开声明" in html, html
+    assert "provider-backed model holdout evidence is incomplete" not in html, html
+    assert "human blind-review adjudication is incomplete" in html, html
+    assert "审查批注" in html, html[:9000]
+    assert "当前没有 reviewer 批注" in html, html[:9000]
+    assert "输出实验" in html, html[:2000]
+    assert "执行证据" in html, html
+    assert "盲评包" in html, html[:5000]
+    assert "审定报告" in html, html
+    assert "评审清单" in html, html
+    assert "output-review-grid" in html, html
+    assert "awaiting-decision" in html, html
+    assert "答案隐藏" in html, html
+    assert "winner_variant" in html, html
+    assert "python3 scripts/yao.py output-review" in html, html
+    assert "答案揭示" in html, html
+    assert "答案隐藏" in html, html
+    assert "注册审计" in html, html[:3000]
+    assert "包体验证" in html, html[:5000]
+    assert "Upgrade" in html, html[:6000]
+    assert "Compiler" in html, html[:6000]
+    assert "目标编译" in html, html[:9000]
+    assert "reports/compiled_targets.md" in output_json.read_text(encoding="utf-8"), output_json
+    assert "Install" in html, html[:6500]
+    assert "运营回路" in html, html[:7600]
+    assert "人工批准" in html, html[:8200]
+    assert "warning 可以被有边界地接受" in html, html
+    assert "批准概况" in html, html
+    assert "批准候选" in html, html
+    assert "waiver-candidate-grid" in html, html
+    assert "可批准 · needs-reviewer-decision" in html, html
+    assert "不可批准 · cannot-waive" in html, html
+    assert "review pending 5; model-executed 10; output failures 0" in html, html
+    assert "4 pending evidence entries; 1 human pending; 3 external pending" in html, html
+    assert "Does not count as provider, human, or public world-class completion evidence" in html, html
+    assert "Non-waivable completion boundary" in html, html
+    assert "python3 scripts/yao.py review-waivers . --add-waiver" in html, html
+    assert "Reviewer confirms this release does not claim provider-backed or human-adjudicated output superiority" in html, html
+    assert "Do not use a waiver to claim public world-class readiness" in html, html
+    assert "权限批准" in html, html[:9000]
+    assert "权限探针" in html, html[:9500]
+    assert "Python 兼容" in html, html[:10000]
+    assert "解释器边界" in html, html[:10000]
+    assert "reports/python_compatibility.md" in html, html
+    assert "架构维护" in html, html
+    assert "Arch Debt" in html, html
+    assert "reports/architecture_maintainability.md" in html, html
+    assert "0 hotspots" in html, html
+    assert re.search(r"\d+ watchlist files?", html), html
+    assert "kv-grid" in html, html
+    assert "案例数" in html, html
+    assert "命令执行" in html, html
+    assert "包体哈希" in html, html
+    assert "{&#x27;" not in html, html
+    assert "&#x27;case_count&#x27;" not in html, html
+    assert "&#x27;name&#x27;" not in html, html
+    assert "reports/review_waivers.md" in output_json.read_text(encoding="utf-8"), output_json
+    assert "upgrade minor declared / minor recommended" in html, html[:8000]
+    assert str(ROOT) not in output_json.read_text(encoding="utf-8"), output_json
+    formatted = review_formatting.render_kv_grid(
+        {"case_count": 5, "package_sha256": "abc123"},
+        ["case_count", "package_sha256"],
+        "missing",
+    )
+    assert "kv-grid" in formatted, formatted
+    assert "案例数" in formatted, formatted
+    assert "<code>abc123</code>" in formatted, formatted
+    assert review_formatting.value_text({"case_count": 5}) == "案例数: 5"
+    assert review_gates.min_output_cases("scaffold") == 1
+    assert review_gates.min_output_cases("production") == 3
+    assert review_gates.min_output_cases("governed") == 5
+    assert review_gates.status_label("warn") == "关注"
+    assert review_gates.weighted_score([{"key": "output-lab", "status": "pass"}]) == 100
+    assert review_gates.weighted_score([{"key": "output-lab", "status": "warn"}]) == 60
+    assert not review_gates.gate_contract([{"key": "output-lab", "status": "pass"}])["ok"]
+    assert len(review_layout.REVIEW_STUDIO_NAV) == 16, review_layout.REVIEW_STUDIO_NAV
+    assert ("#world-class", "世界证据") in review_layout.REVIEW_STUDIO_NAV, review_layout.REVIEW_STUDIO_NAV
+    assert "position: sticky" in review_layout.review_studio_css(), review_layout.review_studio_css()[:400]
+    assert review_layout.review_studio_css() == (ROOT / "assets" / "review-studio.css").read_text(
+        encoding="utf-8"
+    ).strip()
+    assert "#overview" in review_layout.render_review_nav(), review_layout.render_review_nav()
+    assert "审查总览" in review_layout.render_review_nav(), review_layout.render_review_nav()
+    assert "闸门契约" in html, html[:9000]
+    assert "期望 Gate" in html, html[:9000]
+    assert "实际 Gate" in html, html[:9000]
+    assert review_layout.render_review_nav([]) == ""
+    print(json.dumps({"ok": True}, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

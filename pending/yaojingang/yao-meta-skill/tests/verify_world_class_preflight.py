@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent.parent
+SCRIPT = ROOT / "scripts" / "render_world_class_preflight.py"
+CLI = ROOT / "scripts" / "yao.py"
+TMP = ROOT / "tests" / "tmp_world_class_preflight"
+
+
+def run_preflight(extra_env: dict[str, str] | None = None, *extra: str) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env.pop("OPENAI_API_KEY", None)
+    env.pop("DEEPSEEK_API_KEY", None)
+    env.pop("YAO_OUTPUT_EVAL_MODEL", None)
+    if extra_env:
+        env.update(extra_env)
+    return subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            str(ROOT),
+            "--generated-at",
+            "2026-06-16",
+            *extra,
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+
+
+def run_cli(*extra: str) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
+    env["YAO_CLI_TELEMETRY"] = "0"
+    env.pop("OPENAI_API_KEY", None)
+    env.pop("DEEPSEEK_API_KEY", None)
+    return subprocess.run(
+        [sys.executable, str(CLI), "world-class-preflight", str(ROOT), *extra],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+
+
+def by_key(items: list[dict], key: str) -> dict:
+    return next(item for item in items if item.get("evidence_key") == key)
+
+
+def main() -> None:
+    shutil.rmtree(TMP, ignore_errors=True)
+    TMP.mkdir(parents=True, exist_ok=True)
+
+    output_json = TMP / "world_class_evidence_preflight.json"
+    output_md = TMP / "world_class_evidence_preflight.md"
+    output_html = TMP / "world_class_evidence_preflight.html"
+    proc = run_preflight(None, "--output-json", str(output_json), "--output-md", str(output_md), "--output-html", str(output_html))
+    payload = json.loads(proc.stdout)
+    assert payload["schema_version"] == "1.0", payload
+    assert payload["ok"] is True, payload
+    summary = payload["summary"]
+    assert summary["decision"] == "collection-preflight-blocked", summary
+    assert summary["ready_to_claim_world_class"] is False, summary
+    assert summary["preflight_counts_as_evidence"] is False, summary
+    assert summary["credential_value_exposed"] is False, summary
+    assert summary["evidence_item_count"] == 4, summary
+    assert summary["pending_count"] == 4, summary
+    assert summary["precheck_count"] >= 12, summary
+    assert summary["precheck_missing_count"] >= 1, summary
+    assert summary["precheck_external_required_count"] == 2, summary
+    assert summary["precheck_human_required_count"] == 1, summary
+    assert summary["source_check_count"] >= 13, summary
+    assert summary["source_pass_count"] + summary["source_blocked_count"] == summary["source_check_count"], summary
+    assert summary["source_blocked_count"] >= 6, summary
+    assert summary["repair_checklist_count"] == (
+        summary["source_blocked_count"]
+        + summary["precheck_missing_count"]
+        + summary["precheck_human_required_count"]
+        + summary["precheck_external_required_count"]
+    ), summary
+    assert summary["repair_blocked_count"] == summary["repair_checklist_count"], summary
+    assert summary["repair_ready_count"] == 0, summary
+    assert summary["repair_phase_counts"]["unblock-access"] >= 1, summary
+    assert summary["repair_phase_counts"]["collect-source"] >= 1, summary
+    assert summary["phase_queue_count"] == 2, summary
+    assert summary["phase_queue_blocked_count"] == 2, summary
+    assert summary["phase_queue_row_count"] == summary["repair_checklist_count"], summary
+    assert summary["phase_queue_next_phase"] == "unblock-access", summary
+    assert summary["phase_queue_next_action_id"] == "human-adjudication-precheck-human-reviewer", summary
+    assert summary["phase_queue_next_command"] == (
+        "python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions"
+    ), summary
+    assert summary["phase_queue_counts_as_completion"] is False, summary
+    assert summary["next_repair_action_id"] == "human-adjudication-precheck-human-reviewer", summary
+    assert summary["next_repair_phase"] == "unblock-access", summary
+    assert summary["next_repair_owner"] == "human reviewer", summary
+    assert summary["next_repair_command"] == (
+        "python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions"
+    ), summary
+    assert summary["repair_counts_as_completion"] is False, summary
+    assert payload["submissions"]["preflight_counts_submission_as_completion"] is False, payload
+    assert payload["submissions"]["drafts_count_as_evidence"] is False, payload
+    assert payload["submissions"]["submission_kit_command"] == (
+        "python3 scripts/yao.py world-class-submission-kit . "
+        "--output-dir evidence/world_class/submissions"
+    ), payload["submissions"]
+    assert payload["submissions"]["submission_kit_prefill_command"] == (
+        "python3 scripts/yao.py world-class-submission-kit . "
+        "--output-dir evidence/world_class/submissions --prefill-artifacts"
+    ), payload["submissions"]
+    assert payload["submissions"]["artifact_prefill_counts_as_evidence"] is False, payload
+    phase_queue = payload["phase_queue"]
+    assert [item["phase"] for item in phase_queue] == ["unblock-access", "collect-source"], phase_queue
+    assert all(item["counts_as_completion"] is False for item in phase_queue), phase_queue
+    assert phase_queue[0]["status"] == "blocked", phase_queue
+    assert phase_queue[0]["blocked_count"] >= 1, phase_queue
+    assert phase_queue[0]["next_action_id"] == "human-adjudication-precheck-human-reviewer", phase_queue
+    assert phase_queue[0]["verification_command"] == (
+        "python3 scripts/yao.py world-class-preflight . --submissions-dir evidence/world_class/submissions"
+    ), phase_queue
+    assert "human reviewer" in phase_queue[0]["owners"], phase_queue
+    assert "human-adjudication" in phase_queue[0]["evidence_keys"], phase_queue
+    assert phase_queue[1]["phase"] == "collect-source", phase_queue
+    assert phase_queue[1]["row_count"] == summary["source_blocked_count"], phase_queue
+    role_contract = payload["submissions"]["artifact_role_contract"]
+    assert role_contract["role_source"] == "world-class-submission-kit", role_contract
+    assert role_contract["counts_as_evidence"] is False, role_contract
+    assert role_contract["artifact_prefill_counts_as_evidence"] is False, role_contract
+    assert role_contract["submission_ref_total_count"] >= 4, role_contract
+    assert role_contract["submission_ref_ready_count"] <= role_contract["submission_ref_total_count"], role_contract
+    assert role_contract["supporting_evidence_total_count"] >= 4, role_contract
+    roles = {item["role"]: item for item in role_contract["roles"]}
+    assert roles["submission-ref"]["copy_to_artifact_refs"] is True, roles
+    assert roles["supporting-evidence"]["copy_to_artifact_refs"] is False, roles
+    assert payload["artifacts"]["html"] == "reports/world_class_evidence_preflight.html", payload["artifacts"]
+    submission_commands = payload["submissions"]["commands"]
+    assert submission_commands["prepare_submission"] == (
+        "python3 scripts/yao.py world-class-submission-kit . "
+        "--output-dir evidence/world_class/submissions"
+    ), submission_commands
+    assert submission_commands["prepare_prefilled_submission"] == (
+        "python3 scripts/yao.py world-class-submission-kit . "
+        "--output-dir evidence/world_class/submissions --prefill-artifacts"
+    ), submission_commands
+    assert submission_commands["validate_intake"] == (
+        "python3 scripts/yao.py world-class-intake . --submissions-dir evidence/world_class/submissions"
+    ), submission_commands
+    assert submission_commands["submission_review"] == (
+        "python3 scripts/yao.py world-class-submission-review . --submissions-dir evidence/world_class/submissions"
+    ), submission_commands
+    assert submission_commands["refresh_ledger"] == (
+        "python3 scripts/yao.py world-class-ledger . --submissions-dir evidence/world_class/submissions"
+    ), submission_commands
+    assert submission_commands["guard_claim"] == "python3 scripts/yao.py world-class-claim-guard .", submission_commands
+
+    provider = by_key(payload["items"], "provider-holdout")
+    assert provider["status"] == "blocked", provider
+    assert provider["commands"]["prepare_submission"] == (
+        "python3 scripts/yao.py world-class-submission-kit . "
+        "--evidence-key provider-holdout --output-dir evidence/world_class/submissions"
+    ), provider
+    assert provider["commands"]["prepare_prefilled_submission"] == (
+        "python3 scripts/yao.py world-class-submission-kit . "
+        "--evidence-key provider-holdout --output-dir evidence/world_class/submissions --prefill-artifacts"
+    ), provider
+    assert provider["submission_kit"]["drafts_count_as_evidence"] is False, provider
+    assert provider["submission_kit"]["artifact_prefill_counts_as_evidence"] is False, provider
+    assert provider["submission_kit"]["prefill_command"] == provider["commands"]["prepare_prefilled_submission"], provider
+    assert provider["submission_kit"]["output_dir"] == "evidence/world_class/submissions", provider
+    assert provider["submission_kit"]["draft_path"] == "evidence/world_class/submissions/provider-holdout.json", provider
+    provider_roles = provider["submission_kit"]["artifact_role_contract"]
+    assert provider_roles["submission_ref_total_count"] == 1, provider_roles
+    assert provider_roles["submission_ref_ready_count"] == 1, provider_roles
+    assert provider_roles["supporting_evidence_total_count"] >= 1, provider_roles
+    provider_checks = {item["key"]: item for item in provider["prechecks"]}
+    assert provider_checks["provider-api-key"]["status"] == "missing", provider_checks
+    assert provider_checks["provider-api-key"]["actual"] == "not-set", provider_checks
+    assert provider_checks["provider-api-key"]["secret_value_redacted"] is True, provider_checks
+    assert provider_checks["provider-api-key"]["env_any"] == ["OPENAI_API_KEY", "DEEPSEEK_API_KEY"], provider_checks
+    assert "sk-test-secret" not in proc.stdout, proc.stdout
+    assert "OPENAI_API_KEY" in proc.stdout, proc.stdout
+    assert "DEEPSEEK_API_KEY" in proc.stdout, proc.stdout
+    provider_repairs = {item["target"]: item for item in provider["repair_checklist"]}
+    provider_phases = {item["phase"]: item for item in provider["phase_queue"]}
+    assert set(provider_phases) == {"unblock-access"}, provider_phases
+    assert provider_phases["unblock-access"]["next_action_id"] == "provider-holdout-precheck-provider-api-key", provider_phases
+    assert provider_repairs["provider-api-key"]["repair_type"] == "precheck", provider_repairs
+    assert provider_repairs["provider-api-key"]["action_id"] == "provider-holdout-precheck-provider-api-key", provider_repairs
+    assert provider_repairs["provider-api-key"]["phase"] == "unblock-access", provider_repairs
+    assert provider_repairs["provider-api-key"]["priority"] == 20, provider_repairs
+    assert provider_repairs["provider-api-key"]["owner"] == "operator with provider credentials", provider_repairs
+    assert provider_repairs["provider-api-key"]["verification_command"].endswith(
+        "world-class-preflight . --submissions-dir evidence/world_class/submissions"
+    ), provider_repairs
+    assert provider_repairs["provider-api-key"]["counts_as_completion"] is False, provider_repairs
+    provider_source = {item["field"]: item for item in provider["source_checklist"]}
+    assert provider_source["model_executed_count"]["status"] == "pass", provider_source
+    assert provider_source["timing_observed_count"]["status"] == "pass", provider_source
+    assert provider_source["token_observed_count"]["status"] == "pass", provider_source
+
+    human = by_key(payload["items"], "human-adjudication")
+    assert human["status"] == "ready-for-human-review", human
+    human_checks = {item["key"]: item for item in human["prechecks"]}
+    assert human_checks["human-reviewer"]["status"] == "human-required", human_checks
+    assert "reviewer identity" in human["next_action"], human
+    assert any("Record a reviewer choice and reason" in row["next_action"] for row in human["source_checklist"]), human
+    assert any("required rationale" in item["next_action"] for item in human["prechecks"]), human
+    assert any("reviewed_at" in item["next_action"] for item in human["prechecks"]), human
+    human_repairs = {item["target"]: item for item in human["repair_checklist"]}
+    assert human_repairs["human-reviewer"]["repair_type"] == "precheck", human_repairs
+    assert human_repairs["human-reviewer"]["owner"] == "human reviewer", human_repairs
+    assert human_repairs["pending_count"]["repair_type"] == "source-check", human_repairs
+    assert "output-review" in human_repairs["pending_count"]["verification_command"], human_repairs
+
+    native = by_key(payload["items"], "native-permission-enforcement")
+    assert native["status"] == "blocked", native
+    assert any(item["status"] == "external-required" for item in native["prechecks"]), native
+
+    markdown = output_md.read_text(encoding="utf-8")
+    assert "World-Class Evidence Preflight" in markdown, markdown
+    assert "ready to claim world-class: `false`" in markdown, markdown
+    assert "preflight counts as evidence: `false`" in markdown, markdown
+    assert "credential value exposed: `false`" in markdown, markdown
+    assert "Submission Kit Handoff" in markdown, markdown
+    assert "Phase Queue" in markdown, markdown
+    assert "Phase queue rows group the same repair checklist into operator execution phases" in markdown, markdown
+    assert "phase queue: `2` blocked / `2` phases" in markdown, markdown
+    assert "next phase action: `human-adjudication-precheck-human-reviewer`" in markdown, markdown
+    assert "| Priority | Phase | Status | Rows | Owners | Evidence | Verify | Next action |" in markdown, markdown
+    assert "Repair Checklist" in markdown, markdown
+    assert "Repair rows convert preflight and source blockers into a prioritized operator queue" in markdown, markdown
+    assert "repair rows:" in markdown, markdown
+    assert "next repair action: `human-adjudication-precheck-human-reviewer`" in markdown, markdown
+    assert "| Priority | Phase | Owner | Evidence | Type | Target | Status | Verify | Next action |" in markdown, markdown
+    assert "`unblock-access`" in markdown, markdown
+    assert "operator with provider credentials" in markdown, markdown
+    assert "`provider-api-key`" in markdown, markdown
+    assert "Provider model run" in markdown, markdown
+    assert "world-class-submission-kit . --output-dir evidence/world_class/submissions" in markdown, markdown
+    assert "world-class-submission-kit . --output-dir evidence/world_class/submissions --prefill-artifacts" in markdown, markdown
+    assert "world-class-submission-kit . --evidence-key provider-holdout --output-dir evidence/world_class/submissions" in markdown, markdown
+    assert "world-class-submission-kit . --evidence-key provider-holdout --output-dir evidence/world_class/submissions --prefill-artifacts" in markdown, markdown
+    assert "drafts count as evidence: `false`" in markdown, markdown
+    assert "artifact prefill counts as evidence: `false`" in markdown, markdown
+    assert "does not make a draft count as evidence" in markdown, markdown
+    assert "submission refs ready:" in markdown, markdown
+    assert "`submission-ref` rows are the only checklist rows expected in `artifact_refs`" in markdown, markdown
+    assert "| `supporting-evidence` | `false` |" in markdown, markdown
+    assert "values are never printed" in markdown, markdown
+    html = output_html.read_text(encoding="utf-8")
+    assert "<title>World-Class Evidence Preflight</title>" in html, html
+    assert "World-Class Evidence Preflight" in html, html
+    assert "Phase Queue" in html, html
+    assert "phase-row blocked" in html, html
+    assert "<dt>Rows</dt>" in html, html
+    assert "<dt>Counts</dt>" in html, html
+    assert "does not count as completion" in html, html
+    assert "Evidence Queue" in html, html
+    assert "Submission Kit" in html, html
+    assert "Repair Rows" in html, html
+    assert "Repairs" in html, html
+    assert "repair-row blocked" in html, html
+    assert "<dt>Priority</dt>" in html, html
+    assert "<dt>Phase</dt>" in html, html
+    assert "<dt>Owner</dt>" in html, html
+    assert "operator with provider credentials" in html, html
+    assert "world-class-preflight . --submissions-dir evidence/world_class/submissions" in html, html
+    assert "<strong>provider-api-key</strong>" in html, html
+    assert "<strong>Provider model run</strong>" in html, html
+    assert "world-class-submission-kit . --output-dir evidence/world_class/submissions" in html, html
+    assert "world-class-submission-kit . --output-dir evidence/world_class/submissions --prefill-artifacts" in html, html
+    assert "provider-holdout" in html, html
+    assert "Artifact prefill is convenience data only." in html, html
+    assert "artifact prefill counts as evidence" in html, html
+    assert "Artifact Roles" in html, html
+    assert "copy to artifact_refs: <code>true</code>" in html, html
+    assert "supporting-evidence" in html, html
+    assert "Source Checks" in html, html
+    assert "ready_to_claim_world_class" in html, html
+    assert "Environment variables are displayed only as set or not-set" in html, html
+
+    env_json = TMP / "preflight_with_env.json"
+    env_proc = run_preflight(
+        {"DEEPSEEK_API_KEY": "sk-test-secret", "YAO_OUTPUT_EVAL_MODEL": "deepseek-test"},
+        "--output-json",
+        str(env_json),
+        "--output-md",
+        str(TMP / "preflight_with_env.md"),
+        "--output-html",
+        str(TMP / "preflight_with_env.html"),
+    )
+    env_payload = json.loads(env_proc.stdout)
+    env_provider = by_key(env_payload["items"], "provider-holdout")
+    env_provider_checks = {item["key"]: item for item in env_provider["prechecks"]}
+    assert env_provider_checks["provider-api-key"]["status"] == "pass", env_provider_checks
+    assert env_provider_checks["provider-api-key"]["actual"] == "set", env_provider_checks
+    assert env_provider_checks["provider-api-key"]["set_envs"] == ["DEEPSEEK_API_KEY"], env_provider_checks
+    assert env_provider_checks["provider-model"]["status"] == "pass", env_provider_checks
+    assert "sk-test-secret" not in env_proc.stdout, env_proc.stdout
+    assert "sk-test-secret" not in (TMP / "preflight_with_env.html").read_text(encoding="utf-8"), env_payload
+    assert env_payload["summary"]["credential_value_exposed"] is False, env_payload
+    assert env_payload["summary"]["ready_to_claim_world_class"] is False, env_payload
+    assert env_payload["summary"]["repair_checklist_count"] == payload["summary"]["repair_checklist_count"] - 1, env_payload
+    assert env_payload["summary"]["phase_queue_row_count"] == payload["summary"]["phase_queue_row_count"] - 1, env_payload
+    assert env_payload["summary"]["phase_queue_count"] == 2, env_payload
+
+    spaced_dir = TMP / "submission kit spaced"
+    spaced_proc = run_preflight(
+        None,
+        "--submissions-dir",
+        str(spaced_dir),
+        "--output-json",
+        str(TMP / "preflight_spaced.json"),
+        "--output-md",
+        str(TMP / "preflight_spaced.md"),
+        "--output-html",
+        str(TMP / "preflight_spaced.html"),
+    )
+    spaced_payload = json.loads(spaced_proc.stdout)
+    quoted_spaced = "'tests/tmp_world_class_preflight/submission kit spaced'"
+    assert quoted_spaced in spaced_payload["submissions"]["commands"]["prepare_submission"], spaced_payload["submissions"]
+    assert quoted_spaced in spaced_payload["submissions"]["commands"]["prepare_prefilled_submission"], spaced_payload["submissions"]
+    assert quoted_spaced in by_key(spaced_payload["items"], "provider-holdout")["commands"]["prepare_submission"], spaced_payload["items"]
+    assert quoted_spaced in by_key(spaced_payload["items"], "provider-holdout")["commands"]["prepare_prefilled_submission"], spaced_payload["items"]
+
+    cli_proc = run_cli(
+        "--output-json",
+        str(TMP / "cli_preflight.json"),
+        "--output-md",
+        str(TMP / "cli_preflight.md"),
+        "--output-html",
+        str(TMP / "cli_preflight.html"),
+        "--generated-at",
+        "2026-06-16",
+    )
+    cli_payload = json.loads(cli_proc.stdout)
+    assert cli_payload["summary"]["decision"] == "collection-preflight-blocked", cli_payload
+    assert cli_payload["summary"]["preflight_counts_as_evidence"] is False, cli_payload
+    assert (TMP / "cli_preflight.md").exists(), cli_payload
+    assert (TMP / "cli_preflight.html").exists(), cli_payload
+
+    print(json.dumps({"ok": True}, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
