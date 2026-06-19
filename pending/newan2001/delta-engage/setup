@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# delta-engage setup — install checks, optional token persistence, and self-update.
+# Usage:
+#   ./setup            install/verify (deps + optional APIFY token)
+#   ./setup update     git pull --ff-only, re-verify, show what changed
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SETTINGS="$HOME/.claude/settings.json"
+say() { printf '%s\n' "$*"; }
+ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+warn(){ printf '  \033[33m!\033[0m %s\n' "$*"; }
+
+# ---- update mode -------------------------------------------------------------
+if [ "${1:-}" = "update" ]; then
+  say "↻ Updating delta-engage…"
+  before="$(git -C "$DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
+  git -C "$DIR" pull --ff-only
+  after="$(git -C "$DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
+  if [ "$before" != "$after" ]; then
+    say ""; say "What changed ($before → $after):"
+    git -C "$DIR" log --oneline "$before..$after" 2>/dev/null | sed 's/^/  • /' || true
+  else
+    ok "Already up to date."
+  fi
+  say ""
+fi
+
+say ""
+say "delta-engage — setup"
+say "===================="
+
+# ---- 1. Python + requests ----------------------------------------------------
+if command -v python3 >/dev/null 2>&1; then
+  ok "python3 ($(python3 -V 2>&1 | awk '{print $2}'))"
+else
+  warn "python3 not found — install it, then re-run ./setup"
+fi
+if python3 -c "import requests" >/dev/null 2>&1; then
+  ok "python 'requests' available"
+else
+  warn "python 'requests' missing — installing for your user…"
+  python3 -m pip install --user --quiet requests && ok "installed requests" \
+    || warn "couldn't auto-install; run:  python3 -m pip install --user requests"
+fi
+
+# ---- 2. Apify token (BYOK) — persist so scheduled runs inherit it ------------
+# Stored in ~/.claude/settings.json under env, never in this repo. Merge-safe.
+if [ -n "${APIFY_API_TOKEN:-}" ]; then
+  ok "APIFY_API_TOKEN already set in this environment"
+elif [ -t 0 ]; then
+  say ""
+  say "delta-engage needs an Apify API token (BYOK) for LinkedIn + Reddit."
+  say "Get one at https://console.apify.com/account/integrations — paste it to store it"
+  say "in $SETTINGS (env), or press Enter to skip and set it later."
+  printf "  APIFY_API_TOKEN (hidden): "
+  stty -echo 2>/dev/null || true
+  read -r TOKEN || TOKEN=""
+  stty echo 2>/dev/null || true
+  printf "\n"
+  if [ -n "$TOKEN" ]; then
+    APIFY_TOKEN="$TOKEN" SETTINGS_PATH="$SETTINGS" python3 - <<'PY'
+import json, os
+p = os.environ["SETTINGS_PATH"]
+os.makedirs(os.path.dirname(p), exist_ok=True)
+try:
+    with open(p) as f: cfg = json.load(f)
+except (FileNotFoundError, ValueError):
+    cfg = {}
+cfg.setdefault("env", {})["APIFY_API_TOKEN"] = os.environ["APIFY_TOKEN"]
+with open(p, "w") as f: json.dump(cfg, f, indent=2)
+print("  \033[32m✓\033[0m saved APIFY_API_TOKEN to settings env (not echoed)")
+PY
+  else
+    warn "skipped — set it later in $SETTINGS under \"env\", or export APIFY_API_TOKEN"
+  fi
+else
+  warn "non-interactive shell — set APIFY_API_TOKEN in $SETTINGS env before scheduled runs"
+fi
+
+# ---- 3. Done -----------------------------------------------------------------
+say ""
+say "Setup complete. Next:"
+say "  • In Claude Code, run:  /delta-engage   (first run walks you through onboarding)"
+say "  • Update anytime:       ./setup update   (or tell Claude \"upgrade delta-engage\")"
+say ""
