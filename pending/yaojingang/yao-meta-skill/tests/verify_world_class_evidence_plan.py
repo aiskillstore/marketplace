@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent.parent
+SCRIPT = ROOT / "scripts" / "render_world_class_evidence_plan.py"
+TMP = ROOT / "tests" / "tmp_world_class_evidence"
+
+
+def main() -> None:
+    shutil.rmtree(TMP, ignore_errors=True)
+    TMP.mkdir(parents=True, exist_ok=True)
+    output_json = TMP / "world_class_evidence_plan.json"
+    output_md = TMP / "world_class_evidence_plan.md"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            str(ROOT),
+            "--output-json",
+            str(output_json),
+            "--output-md",
+            str(output_md),
+            "--generated-at",
+            "2026-06-13",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    payload = json.loads(proc.stdout)
+    assert payload["schema_version"] == "1.0", payload
+    assert payload["ok"] is True, payload
+    assert payload["summary"]["decision"] == "collect-external-evidence", payload
+    assert payload["summary"]["ready_to_claim_world_class"] is False, payload
+    assert payload["summary"]["ledger_completion_required"] is True, payload
+    assert payload["summary"]["evidence_requirement_count"] == 4, payload
+    assert payload["summary"]["task_count"] == 4, payload
+    assert payload["summary"]["human_task_count"] == 1, payload
+    assert payload["summary"]["external_task_count"] == 3, payload
+    assert payload["artifacts"]["ledger"] == "reports/world_class_evidence_ledger.md", payload
+    assert payload["artifacts"]["intake"] == "reports/world_class_evidence_intake.md", payload
+    tasks = {item["key"]: item for item in payload["tasks"]}
+    requirements = {item["key"]: item for item in payload["evidence_requirements"]}
+    assert set(tasks) == {
+        "provider-holdout",
+        "human-adjudication",
+        "native-permission-enforcement",
+        "native-client-telemetry",
+    }, tasks
+    assert set(requirements) == {
+        "provider-holdout",
+        "human-adjudication",
+        "native-permission-enforcement",
+        "native-client-telemetry",
+    }, requirements
+    assert requirements["provider-holdout"]["status"] == "pass", requirements["provider-holdout"]
+    provider_runbook = requirements["provider-holdout"]["runbook"]
+    assert any("--provider-runner openai" in command for command in provider_runbook), requirements["provider-holdout"]
+    assert any("--provider-runner deepseek" in command for command in provider_runbook), requirements["provider-holdout"]
+    assert any(command.startswith("Set one provider API key") for command in provider_runbook), requirements["provider-holdout"]
+    assert any("DEEPSEEK_API_KEY" in command for command in provider_runbook), requirements["provider-holdout"]
+    assert not any("<redacted>" in command or "OPENAI_API_KEY=" in command for command in provider_runbook), requirements["provider-holdout"]
+    assert any("world-class-intake . --submissions-dir evidence/world_class/submissions" in command for command in provider_runbook), requirements["provider-holdout"]
+    assert any("evidence/world_class/templates/provider-holdout.intake.json" in command for command in provider_runbook), requirements["provider-holdout"]
+    assert tasks["provider-holdout"]["status"] == "pass", tasks["provider-holdout"]
+    assert any("--provider-runner deepseek" in command for command in tasks["provider-holdout"]["runbook"]), tasks["provider-holdout"]
+    assert "reports/output_review_decisions.json" in tasks["human-adjudication"]["evidence_artifacts"], tasks["human-adjudication"]
+    assert any("output-review-import" in command for command in tasks["human-adjudication"]["runbook"]), tasks["human-adjudication"]
+    assert any("required reason" in command for command in tasks["human-adjudication"]["runbook"]), tasks["human-adjudication"]
+    assert any("summary.reviewer_metadata_present is true" in check for check in tasks["human-adjudication"]["success_checks"]), tasks["human-adjudication"]
+    assert any("summary.ready_for_human_evidence is true" in check for check in tasks["human-adjudication"]["success_checks"]), tasks["human-adjudication"]
+    assert "scripts/import_output_review_decisions.py" in tasks["human-adjudication"]["evidence_artifacts"], tasks["human-adjudication"]
+    assert any("importer rejects raw prompt" in item for item in tasks["human-adjudication"]["privacy_contract"]), tasks["human-adjudication"]
+    assert any("Reviewer reasons must be rubric-based" in item for item in tasks["human-adjudication"]["privacy_contract"]), tasks["human-adjudication"]
+    assert any("runtime-permissions" in command for command in tasks["native-permission-enforcement"]["runbook"]), tasks["native-permission-enforcement"]
+    assert any("install-simulate" in command for command in tasks["native-permission-enforcement"]["runbook"]), tasks["native-permission-enforcement"]
+    assert any("summary.failure_count == 0" in check for check in tasks["native-permission-enforcement"]["success_checks"]), tasks["native-permission-enforcement"]
+    assert any("installer_enforcement_pass_count" in check for check in tasks["native-permission-enforcement"]["success_checks"]), tasks["native-permission-enforcement"]
+    assert any("telemetry_native_host.py" in command for command in tasks["native-client-telemetry"]["runbook"]), tasks["native-client-telemetry"]
+    for task in tasks.values():
+        assert task["success_checks"], task
+        assert task["evidence_artifacts"], task
+        assert "reports/world_class_evidence_intake.json" in task["evidence_artifacts"], task
+        assert task["privacy_contract"], task
+    markdown = output_md.read_text(encoding="utf-8")
+    assert "World-Class Evidence Plan" in markdown, markdown
+    assert "tasks: `4`" in markdown, markdown
+    assert "ready to claim world-class: `false`" in markdown, markdown
+    assert "ledger completion required: `true`" in markdown, markdown
+    assert "<redacted>" not in markdown, markdown
+    assert "OPENAI_API_KEY=<redacted>" not in markdown, markdown
+    print(json.dumps({"ok": True}, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,552 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+from reference_synthesis_markdown import render_markdown
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover
+    yaml = None
+
+
+CURATED_TRACKS = [
+    {
+        "source_type": "official",
+        "name": "Official skill anatomy and context discipline",
+        "keywords": ["adapter", "portable", "metadata", "description", "references", "context", "entrypoint"],
+        "borrow": "Borrow progressive disclosure: keep the entrypoint lean and move depth into references or scripts.",
+        "avoid": "Do not let packaging or platform concerns swallow the core job boundary.",
+    },
+    {
+        "source_type": "official",
+        "name": "Official workflow product ergonomics",
+        "keywords": ["quickstart", "review", "viewer", "feedback", "operator", "workflow", "guide"],
+        "borrow": "Borrow a first-time operator flow that explains itself before it asks for more structure.",
+        "avoid": "Do not mimic product polish that adds UI bulk without improving clarity.",
+    },
+    {
+        "source_type": "research",
+        "name": "Hypothesis-test-learn loop",
+        "keywords": ["test", "benchmark", "baseline", "compare", "holdout", "optimize", "iteration"],
+        "borrow": "Borrow a small hypothesis-test-learn loop so the first revision is evidence-backed.",
+        "avoid": "Do not create experimental overhead that exceeds the skill's real risk tier.",
+    },
+    {
+        "source_type": "research",
+        "name": "Human-in-the-loop verification",
+        "keywords": ["review", "audit", "govern", "incident", "compliance", "approval"],
+        "borrow": "Borrow a review checkpoint wherever trust matters more than raw speed.",
+        "avoid": "Do not force every skill through heavyweight review when the risk is low.",
+    },
+    {
+        "source_type": "principles",
+        "name": "Boundary-first design",
+        "keywords": ["route", "trigger", "boundary", "exclude", "scope", "near-neighbor"],
+        "borrow": "Borrow the discipline of defining what the skill should not own before growing the package.",
+        "avoid": "Do not expand execution assets until route boundaries stay clean.",
+    },
+    {
+        "source_type": "principles",
+        "name": "Minimum sufficient structure",
+        "keywords": ["lightweight", "lean", "minimal", "small", "context", "scaffold", "focus"],
+        "borrow": "Borrow the smallest structure that makes the skill reliable and explainable.",
+        "avoid": "Do not add files or gates that raise context cost faster than they raise trust.",
+    },
+    {
+        "source_type": "principles",
+        "name": "Outcome-backwards design",
+        "keywords": ["output", "deliverable", "result", "handoff", "keep moving", "packet", "summary"],
+        "borrow": "Borrow the habit of designing from the required hand-back output backwards.",
+        "avoid": "Do not start with architecture terms before the deliverable is concrete.",
+    },
+]
+
+LIGHTWEIGHT_KEYWORDS = ["light", "lean", "minimal", "small", "simple", "fast", "speed", "quick", "scaffold"]
+GOVERNED_KEYWORDS = ["govern", "audit", "review", "approval", "compliance", "risk", "trust", "policy", "cadence"]
+POLISH_KEYWORDS = ["polish", "beautiful", "ui", "ux", "experience", "operator flow", "product", "viewer", "ergonomic"]
+EVAL_HEAVY_KEYWORDS = ["benchmark", "holdout", "regression", "evidence", "test", "compare", "review checkpoint"]
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload if isinstance(payload, dict) else {}
+
+
+def load_manifest(skill_dir: Path) -> dict[str, Any]:
+    return load_json(skill_dir / "manifest.json")
+
+
+def parse_frontmatter(text: str) -> tuple[dict, str]:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, text
+    try:
+        end_index = lines[1:].index("---") + 1
+    except ValueError:
+        return {}, text
+    frontmatter_text = "\n".join(lines[1:end_index])
+    body = "\n".join(lines[end_index + 1 :]).lstrip()
+    if yaml is not None:
+        payload = yaml.safe_load(frontmatter_text) or {}
+        return payload if isinstance(payload, dict) else {}, body
+    data = {}
+    for line in frontmatter_text.splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        data[key.strip()] = value.strip().strip('"')
+    return data, body
+
+
+def anchor_text(skill_dir: Path, benchmark: dict[str, Any], intent: dict[str, Any]) -> str:
+    skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    frontmatter, _ = parse_frontmatter(skill_text)
+    pieces = [
+        frontmatter.get("name", skill_dir.name),
+        frontmatter.get("description", ""),
+        benchmark.get("query", ""),
+        intent.get("anchor_sentence", ""),
+    ]
+    return " ".join(piece for piece in pieces if piece).lower()
+
+
+def match_keywords(text: str, keywords: list[str]) -> list[str]:
+    hits = []
+    for keyword in keywords:
+        if keyword in text:
+            hits.append(keyword)
+    return hits
+
+
+def select_source_tracks(text: str) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for track in CURATED_TRACKS:
+        matched = match_keywords(text, track["keywords"])
+        score = len(matched)
+        payload = {**track, "matched_keywords": matched, "score": score}
+        grouped.setdefault(track["source_type"], []).append(payload)
+
+    selected = []
+    for source_type in ("official", "research", "principles"):
+        candidates = sorted(grouped.get(source_type, []), key=lambda item: item["score"], reverse=True)
+        chosen = candidates[0] if candidates else None
+        if chosen is None:
+            continue
+        if chosen["score"] == 0:
+            chosen = {**chosen, "matched_keywords": ["general fit"]}
+        selected.append(
+            {
+                "source_type": source_type,
+                "name": chosen["name"],
+                "evidence_mode": "curated-pattern-track",
+                "matched_keywords": chosen["matched_keywords"],
+                "borrow": chosen["borrow"],
+                "avoid": chosen["avoid"],
+                "why_relevant": (
+                    f"This track matches: {', '.join(chosen['matched_keywords'])}."
+                    if chosen["matched_keywords"]
+                    else "This track is the best general fit for the current skill shape."
+                ),
+            }
+        )
+    return selected
+
+
+def pattern_gate_threshold(manifest: dict[str, Any]) -> int:
+    tier = str(manifest.get("maturity_tier") or manifest.get("skill_archetype") or "scaffold").lower()
+    if tier in {"governed", "library"}:
+        return 4
+    if tier == "production":
+        return 3
+    return 2
+
+
+def score_pattern(candidate: dict[str, Any], source_count: int) -> dict[str, Any]:
+    text = " ".join(
+        str(candidate.get(key, ""))
+        for key in ("name", "borrow", "avoid", "why_relevant", "source_type", "evidence_mode")
+    ).lower()
+    gates = {
+        "recurrence": source_count > 1
+        or any(token in text for token in ("repeat", "loop", "workflow", "repositories", "benchmark", "cross")),
+        "generativity": any(
+            token in text
+            for token in ("guide", "loop", "workflow", "pattern", "principle", "operator", "boundary", "output")
+        ),
+        "distinctiveness": not any(
+            phrase in text
+            for phrase in ("be clear", "be useful", "good quality", "general fit")
+        ),
+        "boundary": bool(candidate.get("avoid")) or any(token in text for token in ("avoid", "not", "boundary", "cost")),
+    }
+    passed = [name for name, ok in gates.items() if ok]
+    missing = [name for name, ok in gates.items() if not ok]
+    return {
+        "name": candidate.get("name", "Unknown pattern"),
+        "source_type": candidate.get("source_type", "unknown"),
+        "borrow": candidate.get("borrow", ""),
+        "avoid": candidate.get("avoid", ""),
+        "gates": gates,
+        "passed": passed,
+        "missing": missing,
+        "score": len(passed),
+    }
+
+
+def build_pattern_gate(
+    source_tracks: list[dict[str, Any]],
+    benchmark: dict[str, Any],
+    user_refs: list[dict[str, Any]],
+    manifest: dict[str, Any],
+) -> dict[str, Any]:
+    threshold = pattern_gate_threshold(manifest)
+    source_count = len(source_tracks) + len(benchmark.get("repositories", [])) + len(user_refs)
+    candidates = []
+    for track in source_tracks:
+        candidates.append(score_pattern(track, source_count))
+    for repo in benchmark.get("repositories", [])[:3]:
+        candidates.append(
+            score_pattern(
+                {
+                    "name": repo.get("full_name", "GitHub benchmark"),
+                    "source_type": "github",
+                    "borrow": "; ".join(repo.get("borrow", [])[:2]),
+                    "avoid": "; ".join(repo.get("avoid", [])[:1]),
+                    "why_relevant": "Top GitHub benchmark object with concrete package cues.",
+                    "evidence_mode": "github-benchmark",
+                },
+                source_count,
+            )
+        )
+    for reference in user_refs[:3]:
+        candidates.append(
+            score_pattern(
+                {
+                    "name": reference.get("name", "User reference"),
+                    "source_type": "user-reference",
+                    "borrow": reference.get("borrow", ""),
+                    "avoid": reference.get("avoid", ""),
+                    "why_relevant": "User-supplied taste or quality reference.",
+                    "evidence_mode": "user-reference",
+                },
+                source_count,
+            )
+        )
+    accepted = [candidate for candidate in candidates if candidate["score"] >= threshold]
+    deferred = [candidate for candidate in candidates if candidate["score"] < threshold]
+    return {
+        "threshold": threshold,
+        "source_count": source_count,
+        "accepted": accepted,
+        "deferred": deferred,
+        "summary": (
+            f"{len(accepted)} accepted, {len(deferred)} deferred using threshold {threshold}/4."
+        ),
+    }
+
+
+def unique_items(items: list[str], limit: int) -> list[str]:
+    seen = set()
+    output = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        output.append(item)
+        if len(output) == limit:
+            break
+    return output
+
+
+def join_text(parts: list[str]) -> str:
+    return " ".join(part for part in parts if part).lower()
+
+
+def has_any(text: str, keywords: list[str]) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+    tokens = set(normalized.split())
+    for keyword in keywords:
+        normalized_keyword = re.sub(r"[^a-z0-9]+", " ", keyword.lower()).strip()
+        if not normalized_keyword:
+            continue
+        if " " in normalized_keyword:
+            if normalized_keyword in normalized:
+                return True
+        elif normalized_keyword in tokens:
+            return True
+    return False
+
+
+def detect_conflicts(
+    intent_payload: dict[str, Any],
+    user_refs: list[dict[str, Any]],
+    manifest: dict[str, Any],
+    source_tracks: list[dict[str, Any]],
+    borrow_now: list[str],
+    avoid_now: list[str],
+) -> list[dict[str, Any]]:
+    context = intent_payload.get("context", {}) if isinstance(intent_payload, dict) else {}
+    preference_text = join_text(
+        [
+            str(context.get("job", "")),
+            str(context.get("primary_output", "")),
+            str(context.get("description", "")),
+            " ".join(context.get("constraints", []) or []),
+            " ".join(context.get("standards", []) or []),
+            " ".join(context.get("exclusions", []) or []),
+            str(manifest.get("skill_archetype", "")),
+            str(manifest.get("maturity_tier", "")),
+            " ".join(
+                " ".join(
+                    str(ref.get(key, "")) for key in ("name", "borrow", "avoid", "category")
+                )
+                for ref in user_refs
+            ),
+        ]
+    )
+    benchmark_text = join_text(
+        [
+            *borrow_now,
+            *avoid_now,
+            *[
+                " ".join(
+                    [
+                        str(track.get("name", "")),
+                        str(track.get("borrow", "")),
+                        str(track.get("avoid", "")),
+                    ]
+                )
+                for track in source_tracks
+            ],
+        ]
+    )
+
+    conflicts = []
+    wants_lightweight = has_any(preference_text, LIGHTWEIGHT_KEYWORDS)
+    wants_governed = has_any(preference_text, GOVERNED_KEYWORDS)
+    wants_polish = has_any(preference_text, POLISH_KEYWORDS)
+    benchmark_heavy = has_any(benchmark_text, GOVERNED_KEYWORDS + EVAL_HEAVY_KEYWORDS)
+    benchmark_minimal = has_any(benchmark_text, LIGHTWEIGHT_KEYWORDS)
+    benchmark_anti_polish = any("polish" in item.lower() or "ui bulk" in item.lower() for item in avoid_now)
+
+    if wants_lightweight and benchmark_heavy:
+        conflicts.append(
+            {
+                "key": "lightweight_vs_governance",
+                "summary": "The stated preference leans lightweight or speed-first, while the benchmark mix leans toward governance, review, or heavier evaluation structure.",
+                "user_preference": "lightweight or speed-first",
+                "benchmark_pressure": "governance or evaluation-heavy patterns",
+            }
+        )
+    if wants_polish and benchmark_anti_polish:
+        conflicts.append(
+            {
+                "key": "polish_vs_minimal_structure",
+                "summary": "The stated preference leans toward product polish or richer operator experience, while the benchmark recommendation is trying to keep the first pass structurally minimal.",
+                "user_preference": "product polish or richer operator experience",
+                "benchmark_pressure": "minimum-structure first pass",
+            }
+        )
+    if wants_governed and manifest.get("skill_archetype") == "scaffold":
+        conflicts.append(
+            {
+                "key": "governance_vs_scaffold",
+                "summary": "The stated preference leans toward governance or auditability, but the current archetype is still scaffold-level.",
+                "user_preference": "governance or auditability",
+                "benchmark_pressure": "scaffold-first package shape",
+            }
+        )
+    if wants_governed and benchmark_minimal and not benchmark_heavy:
+        conflicts.append(
+            {
+                "key": "governance_vs_minimal_structure",
+                "summary": "The stated preference leans toward governance or auditability, while the benchmark recommendation is still biased toward a lightweight first pass.",
+                "user_preference": "governance or auditability",
+                "benchmark_pressure": "lightweight first-pass structure",
+            }
+        )
+    seen = set()
+    deduped = []
+    for conflict in conflicts:
+        if conflict["key"] in seen:
+            continue
+        seen.add(conflict["key"])
+        deduped.append(conflict)
+    return deduped
+
+
+def build_visibility(intent_payload: dict[str, Any], conflicts: list[dict[str, Any]]) -> dict[str, Any]:
+    reasons = []
+    if not intent_payload.get("gate_passed", False):
+        reasons.append("intent_uncertain")
+    if conflicts:
+        reasons.append("design_conflict")
+    mode = "explicit" if reasons else "silent"
+    return {
+        "mode": mode,
+        "user_decision_required": mode == "explicit",
+        "reasons": reasons,
+        "user_note": (
+            "Surface the recommendation because intent is still settling or there is a real design conflict that needs a user call."
+            if mode == "explicit"
+            else "Apply the synthesis quietly unless uncertainty or a real design conflict appears."
+        ),
+        "reviewer_note": "Keep the full benchmark and synthesis evidence visible for authors and reviewers.",
+    }
+
+
+def build_recommendation(
+    borrow_now: list[str],
+    avoid_now: list[str],
+    intent_payload: dict[str, Any],
+    visibility: dict[str, Any],
+    conflicts: list[dict[str, Any]],
+) -> dict[str, Any]:
+    primary_borrow = borrow_now[0] if borrow_now else "Keep the entrypoint lean and boundary-first."
+    primary_avoid = avoid_now[0] if avoid_now else "Do not add weight that the first pass does not yet need."
+    if conflicts:
+        why = f"There is a real design conflict to resolve: {conflicts[0]['summary']}"
+    elif intent_payload.get("gate_passed", False):
+        why = "Intent is clear enough, so the system should make the first pattern call quietly."
+    else:
+        why = "Intent still has gaps, so the system should surface the recommendation and ask for correction before deepening the package."
+    return {
+        "summary": f"Start by borrowing this pattern: {primary_borrow} Avoid this for the first pass: {primary_avoid}",
+        "borrow_now": borrow_now[:2],
+        "avoid_for_now": avoid_now[:2],
+        "why": why,
+        "user_decision_required": visibility["user_decision_required"],
+    }
+
+
+def build_summary(skill_dir: Path) -> dict[str, Any]:
+    skill_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+    frontmatter, _ = parse_frontmatter(skill_text)
+    benchmark = load_json(skill_dir / "reports" / "github-benchmark-scan.json")
+    intent_payload = load_json(skill_dir / "reports" / "intent-confidence.json")
+    reference_scan = load_json(skill_dir / "reports" / "reference-scan.json")
+    manifest = load_manifest(skill_dir)
+
+    source_tracks = select_source_tracks(anchor_text(skill_dir, benchmark, intent_payload))
+    github_repos = benchmark.get("repositories", [])[:3]
+    github_borrow = benchmark.get("cross_repo", {}).get("borrow", [])
+    github_avoid = benchmark.get("cross_repo", {}).get("avoid", [])
+    track_borrow = [track["borrow"] for track in source_tracks]
+    track_avoid = [track["avoid"] for track in source_tracks]
+    user_refs = reference_scan.get("user_references", [])
+    pattern_gate = build_pattern_gate(source_tracks, benchmark, user_refs, manifest)
+
+    borrow_now = unique_items(
+        [
+            *track_borrow,
+            *github_borrow,
+            *[ref.get("borrow", "") for ref in user_refs],
+        ],
+        5,
+    )
+    avoid_now = unique_items(
+        [
+            *track_avoid,
+            *github_avoid,
+            *[ref.get("avoid", "") for ref in user_refs],
+        ],
+        5,
+    )
+    quality_risers = unique_items(
+        [
+            "Use GitHub repositories for concrete package and workflow patterns.",
+            "Use curated official or commercial tracks for entrypoint and operator ergonomics.",
+            "Use research tracks to justify the smallest evaluation loop that still catches regressions.",
+            "Use principle tracks to keep the package small, boundary-aware, and outcome-driven.",
+        ],
+        4,
+    )
+    conflicts = detect_conflicts(intent_payload, user_refs, manifest, source_tracks, borrow_now, avoid_now)
+    visibility = build_visibility(intent_payload, conflicts)
+    recommendation = build_recommendation(borrow_now, avoid_now, intent_payload, visibility, conflicts)
+
+    return {
+        "skill_name": frontmatter.get("name", skill_dir.name),
+        "description": frontmatter.get("description", "No description found."),
+        "intent_confidence": {
+            "score": intent_payload.get("score", 0),
+            "band": intent_payload.get("band", "low"),
+            "gate_passed": intent_payload.get("gate_passed", False),
+        },
+        "github_benchmarks": [
+            {
+                "name": repo.get("full_name"),
+                "url": repo.get("html_url"),
+                "stars": repo.get("stars"),
+                "borrow": repo.get("borrow", [])[:2],
+            }
+            for repo in github_repos
+        ],
+        "source_tracks": source_tracks,
+        "synthesis": {
+            "borrow_now": borrow_now,
+            "avoid_now": avoid_now,
+            "quality_risers": quality_risers,
+            "pattern_gate": pattern_gate,
+            "conflicts": conflicts,
+            "recommendation": recommendation,
+            "visibility": visibility,
+            "decision_prompt": (
+                "Use the recommendation by default. Only surface the underlying benchmark tradeoffs when intent is uncertain or a real design conflict needs a deliberate call."
+            ),
+            "source_mix": {
+                "github_benchmarks": len(github_repos),
+                "curated_tracks": len(source_tracks),
+                "user_references": len(user_refs),
+            },
+        },
+    }
+
+
+def render_reference_synthesis(
+    skill_dir: Path,
+    output_md: Path | None = None,
+    output_json: Path | None = None,
+) -> dict[str, Any]:
+    skill_dir = skill_dir.resolve()
+    reports_dir = skill_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    output_md = output_md or reports_dir / "reference-synthesis.md"
+    output_json = output_json or reports_dir / "reference-synthesis.json"
+    summary = build_summary(skill_dir)
+    output_md.write_text(render_markdown(summary), encoding="utf-8")
+    output_json.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "ok": True,
+        "skill_dir": str(skill_dir),
+        "artifacts": {
+            "markdown": str(output_md),
+            "json": str(output_json),
+        },
+        "summary": summary,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Render a multi-source reference synthesis report for a skill package.")
+    parser.add_argument("skill_dir", nargs="?", default=".")
+    parser.add_argument("--output-md")
+    parser.add_argument("--output-json")
+    args = parser.parse_args()
+
+    result = render_reference_synthesis(
+        Path(args.skill_dir),
+        output_md=Path(args.output_md).resolve() if args.output_md else None,
+        output_json=Path(args.output_json).resolve() if args.output_json else None,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()
