@@ -94,15 +94,26 @@ jobs:
             --retry-base-seconds 5
           )
 
+          SUPPORTS_SLUGS=0
+          if "$GITHUB_WORKSPACE/skillstore-cli" skill score --help 2>&1 | grep -q -- '--slugs'; then
+            SUPPORTS_SLUGS=1
+          else
+            echo "::warning::Downloaded CLI does not advertise --slugs support; falling back to legacy --recalculate mode."
+          fi
+
           if [ -n "$INPUT_SLUG" ]; then
+            if [ "$SUPPORTS_SLUGS" -ne 1 ]; then
+              echo "::error::Single-skill mode requires a CLI with --slugs support. The downloaded release asset appears older than the resolved tag."
+              exit 2
+            fi
             # Single-skill mode: per-slug wrapper
             WRAPPER_ARGS+=( --slugs "$INPUT_SLUG" )
             echo "Mode: Single skill ($INPUT_SLUG)"
-          else
+          elif [ "$SUPPORTS_SLUGS" -eq 1 ]; then
             # Scheduled/default full recalculation must still use the
-            # per-slug isolation wrapper. Enumerate checked-out skills and
-            # pass explicit slugs instead of the legacy top-level
-            # --recalculate retry path.
+            # per-slug isolation wrapper when the downloaded CLI supports
+            # it. Enumerate checked-out skills and pass explicit slugs
+            # instead of the legacy top-level --recalculate retry path.
             mapfile -t ALL_SLUGS < <(find skills -name "SKILL.md" -print | sed 's|^skills/||; s|/SKILL.md$||' | sort)
             if [ -n "$INPUT_LIMIT" ]; then
               if ! [[ "$INPUT_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
@@ -123,6 +134,22 @@ jobs:
             SLUGS_CSV=$(printf '%s\n' "${ALL_SLUGS[@]}" | paste -sd, -)
             WRAPPER_ARGS+=( --slugs "$SLUGS_CSV" )
             echo "Skills queued: ${#ALL_SLUGS[@]}"
+          else
+            # Compatibility fallback for mislabeled/older CLI release
+            # assets (observed: cli-v1.28.0 asset reporting 1.27.0).
+            # This restores the historical all-skills path instead of
+            # failing before any skill is scored.
+            if [ -n "$INPUT_LIMIT" ]; then
+              if ! [[ "$INPUT_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
+                echo "::error::limit must be a positive integer when provided: $INPUT_LIMIT"
+                exit 2
+              fi
+              WRAPPER_ARGS+=( --limit "$INPUT_LIMIT" )
+              echo "Mode: All skills via legacy CLI (limit $INPUT_LIMIT)"
+            else
+              echo "Mode: All skills via legacy CLI"
+            fi
+            WRAPPER_ARGS+=( --recalculate )
           fi
 
           if [ "$INPUT_CONCURRENCY" != "5" ]; then

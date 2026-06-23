@@ -250,7 +250,8 @@ test('recalculate-scores workflow default all-skills path uses per-slug wrapper'
 	const workflow = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
 	assert.match(workflow, /find skills -name "SKILL\.md"/, 'workflow must enumerate skills from the checkout');
 	assert.match(workflow, /WRAPPER_ARGS\+=\( --slugs "\$SLUGS_CSV" \)/, 'default full run must pass explicit slugs to the wrapper');
-	assert.doesNotMatch(workflow, /WRAPPER_ARGS\+=\(\s*--recalculate/, 'workflow must not use legacy top-level --recalculate path');
+	assert.match(workflow, /SUPPORTS_SLUGS=0/, 'workflow must feature-probe whether the downloaded CLI supports --slugs');
+	assert.match(workflow, /WRAPPER_ARGS\+=\( --recalculate \)/, 'workflow must fall back to legacy --recalculate when the release asset is older than the tag');
 });
 
 test('workflows fail no-success/global scoring failures instead of masking them', () => {
