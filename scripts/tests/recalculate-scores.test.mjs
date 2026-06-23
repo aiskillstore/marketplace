@@ -31,6 +31,7 @@ const WRAPPER = join(REPO_ROOT, 'scripts', 'recalculate-scores.sh');
 const FAKE_CLI = join(REPO_ROOT, 'scripts', 'tests', 'fake-cli.sh');
 const RECALCULATE_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'recalculate-scores.yml');
 const SYNC_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'sync-to-supabase.yml');
+const DOWNLOAD_CLI_ACTION = join(REPO_ROOT, '.github', 'actions', 'download-skillstore-cli', 'action.yml');
 
 function runWrapper({ mode, failSlug, timeoutSlug, recalcFail = false, slugs, maxAttempts = 3, retryBase = 0 }) {
 	const tmp = mkdtempSync(join(tmpdir(), 'recalc-test-'));
@@ -261,4 +262,12 @@ test('workflows fail no-success/global scoring failures instead of masking them'
 	assert.match(sync, /tee score-output\.log/);
 	assert.match(sync, /Quality scoring failed: no synced skills were scored successfully/);
 	assert.match(sync, /exit "\$EXIT_CODE"/);
+});
+
+test('download action invalidates stale local CLI cache entries', () => {
+	const action = readFileSync(DOWNLOAD_CLI_ACTION, 'utf8');
+	assert.match(action, /CACHED_VERSION=/, 'local cache hit must inspect the cached binary version');
+	assert.match(action, /EXPECTED_VERSION=\$\{RELEASE_TAG#cli-v\}/, 'expected version must come from the resolved release tag');
+	assert.match(action, /rm -f "\$CACHE_FILE" "\$GITHUB_WORKSPACE\/skillstore-cli"/, 'stale local cache must be removed so the Download CLI step runs');
+	assert.match(action, /cache-hit=false/, 'stale local cache must flip cache-hit back to false');
 });
