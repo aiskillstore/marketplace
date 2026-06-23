@@ -95,7 +95,8 @@ jobs:
           )
 
           SUPPORTS_SLUGS=0
-          if "$GITHUB_WORKSPACE/skillstore-cli" skill score --help 2>&1 | grep -q -- '--slugs'; then
+          SCORE_HELP=$("$GITHUB_WORKSPACE/skillstore-cli" skill score --help 2>&1 || true)
+          if printf '%s\n' "$SCORE_HELP" | grep -q -- '--slugs'; then
             SUPPORTS_SLUGS=1
           else
             echo "::warning::Downloaded CLI does not advertise --slugs support; falling back to legacy --recalculate mode."
@@ -131,9 +132,11 @@ jobs:
               exit 1
             fi
 
-            SLUGS_CSV=$(printf '%s\n' "${ALL_SLUGS[@]}" | paste -sd, -)
-            WRAPPER_ARGS+=( --slugs "$SLUGS_CSV" )
+            SLUGS_FILE="$RUNNER_TEMP/recalculate-slugs.txt"
+            printf '%s\n' "${ALL_SLUGS[@]}" > "$SLUGS_FILE"
+            WRAPPER_ARGS+=( --slugs-file "$SLUGS_FILE" )
             echo "Skills queued: ${#ALL_SLUGS[@]}"
+            echo "Slug list file: $SLUGS_FILE"
           else
             # Compatibility fallback for mislabeled/older CLI release
             # assets (observed: cli-v1.28.0 asset reporting 1.27.0).
