@@ -31,8 +31,9 @@ const WRAPPER = join(REPO_ROOT, 'scripts', 'recalculate-scores.sh');
 const FAKE_CLI = join(REPO_ROOT, 'scripts', 'tests', 'fake-cli.sh');
 const RECALCULATE_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'recalculate-scores.yml');
 const SYNC_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'sync-to-supabase.yml');
+const DOWNLOAD_CLI_ACTION = join(REPO_ROOT, '.github', 'actions', 'download-skillstore-cli', 'action.yml');
 
-function runWrapper({ mode, failSlug, timeoutSlug, recalcFail = false, slugs, maxAttempts = 3, retryBase = 0 }) {
+function runWrapper({ mode, failSlug, timeoutSlug, recalcFail = false, slugs, slugsFile, maxAttempts = 3, retryBase = 0, dryRun = false }) {
 	const tmp = mkdtempSync(join(tmpdir(), 'recalc-test-'));
 	const fakeCli = join(tmp, 'skillstore-cli');
 	const log = join(tmp, 'fake-cli.log');
@@ -54,7 +55,9 @@ function runWrapper({ mode, failSlug, timeoutSlug, recalcFail = false, slugs, ma
 		'--max-attempts', String(maxAttempts),
 		'--retry-base-seconds', String(retryBase),
 	];
-	if (slugs) {
+	if (slugsFile) {
+		args.push('--slugs-file', slugsFile);
+	} else if (slugs) {
 		args.push('--slugs', slugs);
 	} else if (recalcFail || mode === 'success') {
 		args.push('--recalculate');
@@ -62,6 +65,7 @@ function runWrapper({ mode, failSlug, timeoutSlug, recalcFail = false, slugs, ma
 		// default to a few slugs if nothing else specified
 		args.push('--slugs', 'a,b,c,d,e');
 	}
+	if (dryRun) args.push('--dry-run');
 
 	const result = spawnSync('/bin/bash', args, {
 		env,
@@ -179,6 +183,38 @@ test('all slugs succeed -> exit 0, errors=0', () => {
 	assert.equal(sum.updated, '3');
 });
 
+
+
+test('large no-limit all-skills run reads slugs from file instead of one oversized argv', () => {
+	const tmp = mkdtempSync(join(tmpdir(), 'recalc-large-file-test-'));
+	const slugCount = 300;
+	const pad = 'x'.repeat(900);
+	const slugs = Array.from({ length: slugCount }, (_, i) => `skill-${String(i).padStart(4, '0')}-${pad}`);
+	const slugsFile = join(tmp, 'slugs.txt');
+	writeFileSync(slugsFile, `${slugs.join('\n')}\n`);
+
+	const { result, log } = runWrapper({
+		mode: 'success',
+		slugsFile,
+		dryRun: true,
+		retryBase: 0,
+	});
+
+	assert.equal(result.status, 0, `wrapper should process a no-limit slug file\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+	const sum = lastSummary(result.stdout);
+	assert.equal(sum.processed, String(slugCount));
+	assert.equal(sum.errors, '0');
+
+	const logLines = readFileSync(log, 'utf8').trim().split('\n');
+	assert.equal(logLines.length, slugCount, 'wrapper should still process every slug without a limit');
+	for (const line of logLines) {
+		const match = /slugs=([^ ]+)/.exec(line);
+		assert.ok(match, `fake CLI log line should include one slug: ${line}`);
+		assert.doesNotMatch(match[1], /,/, 'each CLI invocation should receive one slug, never the whole CSV');
+		assert.ok(match[1].length < 1024, 'single-slug argv stays far below ARG_MAX with margin');
+	}
+});
+
 test('legacy --recalculate mode retries the whole CLI call on failure', () => {
 	// In recalc-fail mode the fake CLI always returns non-zero.
 	const { result } = runWrapper({
@@ -248,8 +284,12 @@ test('recalculate-scores workflow checks out wrapper and skill paths', () => {
 test('recalculate-scores workflow default all-skills path uses per-slug wrapper', () => {
 	const workflow = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
 	assert.match(workflow, /find skills -name "SKILL\.md"/, 'workflow must enumerate skills from the checkout');
-	assert.match(workflow, /WRAPPER_ARGS\+=\( --slugs "\$SLUGS_CSV" \)/, 'default full run must pass explicit slugs to the wrapper');
-	assert.doesNotMatch(workflow, /WRAPPER_ARGS\+=\(\s*--recalculate/, 'workflow must not use legacy top-level --recalculate path');
+	assert.match(workflow, /SLUGS_FILE=/, 'workflow must materialize the full no-limit slug list into a file');
+	assert.match(workflow, /WRAPPER_ARGS\+=\( --slugs-file "\$SLUGS_FILE" \)/, 'default full run must pass a slug file, not a giant CSV argv');
+	assert.doesNotMatch(workflow, /WRAPPER_ARGS\+=\( --slugs "\$SLUGS_CSV" \)/, 'default full run must not put all slugs in one argv');
+	assert.doesNotMatch(workflow, /SLUGS_CSV=/, 'workflow must not build an all-skills CSV that can exceed ARG_MAX');
+	assert.match(workflow, /SUPPORTS_SLUGS=0/, 'workflow must feature-probe whether the downloaded CLI supports --slugs');
+	assert.match(workflow, /WRAPPER_ARGS\+=\( --recalculate \)/, 'workflow must fall back to legacy --recalculate when the release asset is older than the tag');
 });
 
 test('workflows fail no-success/global scoring failures instead of masking them', () => {
@@ -261,4 +301,12 @@ test('workflows fail no-success/global scoring failures instead of masking them'
 	assert.match(sync, /tee score-output\.log/);
 	assert.match(sync, /Quality scoring failed: no synced skills were scored successfully/);
 	assert.match(sync, /exit "\$EXIT_CODE"/);
+});
+
+test('download action invalidates stale local CLI cache entries', () => {
+	const action = readFileSync(DOWNLOAD_CLI_ACTION, 'utf8');
+	assert.match(action, /CACHED_VERSION=/, 'local cache hit must inspect the cached binary version');
+	assert.match(action, /EXPECTED_VERSION=\$\{RELEASE_TAG#cli-v\}/, 'expected version must come from the resolved release tag');
+	assert.match(action, /rm -f "\$CACHE_FILE" "\$GITHUB_WORKSPACE\/skillstore-cli"/, 'stale local cache must be removed so the Download CLI step runs');
+	assert.match(action, /cache-hit=false/, 'stale local cache must flip cache-hit back to false');
 });

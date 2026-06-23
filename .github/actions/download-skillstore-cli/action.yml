@@ -67,6 +67,17 @@ runs:
           echo "📋 Cache file size: $(du -h "$CACHE_FILE" | cut -f1)"
           cp "$CACHE_FILE" "$GITHUB_WORKSPACE/skillstore-cli"
           chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
+
+          EXPECTED_VERSION=${RELEASE_TAG#cli-v}
+          CACHED_VERSION=$("$GITHUB_WORKSPACE/skillstore-cli" --version 2>&1 | grep -Eo '[0-9]+([.][0-9]+){1,3}([-+][0-9A-Za-z._-]+)?' | head -n1 || true)
+          if [ "$CACHED_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "::warning::Local CLI cache version mismatch: expected $EXPECTED_VERSION, got ${CACHED_VERSION:-unknown}. Invalidating cache entry."
+            rm -f "$CACHE_FILE" "$GITHUB_WORKSPACE/skillstore-cli"
+            echo "cache-hit=false" >> $GITHUB_OUTPUT
+            echo "cache-file=$CACHE_FILE" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
           echo "cache-hit=true" >> $GITHUB_OUTPUT
         else
           echo "❌ No cached version found for $RELEASE_TAG"
@@ -141,7 +152,10 @@ runs:
         chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
 
     - name: Verify CLI
+      id: verify
       shell: bash
+      env:
+        RELEASE_TAG: ${{ steps.resolve.outputs.release-tag }}
       run: |
         CLI_PATH="$GITHUB_WORKSPACE/skillstore-cli"
 
@@ -153,4 +167,12 @@ runs:
         echo "✅ CLI downloaded successfully"
         echo "CLI path: $CLI_PATH"
         echo "CLI version:"
-        "$CLI_PATH" --version
+        VERSION_OUTPUT=$("$CLI_PATH" --version 2>&1)
+        echo "$VERSION_OUTPUT"
+
+        EXPECTED_VERSION=${RELEASE_TAG#cli-v}
+        ACTUAL_VERSION=$(echo "$VERSION_OUTPUT" | grep -Eo '[0-9]+([.][0-9]+){1,3}([-+][0-9A-Za-z._-]+)?' | head -n1 || true)
+        echo "cli-version=${ACTUAL_VERSION:-unknown}" >> $GITHUB_OUTPUT
+        if [ "$ACTUAL_VERSION" != "$EXPECTED_VERSION" ]; then
+          echo "::warning::CLI version mismatch: expected $EXPECTED_VERSION from $RELEASE_TAG, got ${ACTUAL_VERSION:-unknown}. Continuing so workflows can feature-probe CLI capabilities."
+        fi
