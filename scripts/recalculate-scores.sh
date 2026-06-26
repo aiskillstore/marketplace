@@ -20,7 +20,7 @@
 # Usage:
 #   recalculate-scores.sh \
 #     --cli /path/to/skillstore-cli \
-#     [--slugs slug1,slug2,...] [--limit N] \
+#     [--slugs slug1,slug2,... | --slugs-file PATH] [--limit N] \
 #     [--concurrency N] [--dry-run] \
 #     [--max-attempts N] [--retry-base-seconds N]
 #
@@ -47,6 +47,7 @@ set -o pipefail
 # ---------- argument parsing ----------
 CLI=""
 SLUGS_CSV=""
+SLUGS_FILE=""
 LIMIT=""
 CONCURRENCY=5
 DRY_RUN=0
@@ -61,7 +62,8 @@ Usage: recalculate-scores.sh --cli PATH [options]
 
 Options:
   --cli PATH                  Path to skillstore-cli binary (required)
-  --slugs CSV                 Comma-separated slug list (mutually exclusive with --recalculate)
+  --slugs CSV                 Comma-separated slug list (mutually exclusive with --slugs-file/--recalculate)
+  --slugs-file PATH            Newline-delimited slug list; keeps full runs out of argv
   --limit N                   Optional: limit total slugs (applied before per-slug loop)
   --concurrency N             Pass-through to CLI (default: 5)
   --dry-run                   Pass-through to CLI
@@ -77,6 +79,7 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--cli)               CLI="${2:-}"; shift 2 ;;
 		--slugs)             SLUGS_CSV="${2:-}"; shift 2 ;;
+		--slugs-file)        SLUGS_FILE="${2:-}"; shift 2 ;;
 		--limit)             LIMIT="${2:-}"; shift 2 ;;
 		--concurrency)       CONCURRENCY="${2:-5}"; shift 2 ;;
 		--dry-run)           DRY_RUN=1; shift ;;
@@ -98,8 +101,16 @@ if [ ! -x "$CLI" ]; then
 	echo "::error::CLI not found or not executable: $CLI" >&2
 	exit 2
 fi
-if [ "$RECALCULATE" -eq 1 ] && [ -n "$SLUGS_CSV" ]; then
-	echo "::error::--recalculate and --slugs are mutually exclusive" >&2
+slug_sources=0
+[ -n "$SLUGS_CSV" ] && slug_sources=$((slug_sources + 1))
+[ -n "$SLUGS_FILE" ] && slug_sources=$((slug_sources + 1))
+[ "$RECALCULATE" -eq 1 ] && slug_sources=$((slug_sources + 1))
+if [ "$slug_sources" -gt 1 ]; then
+	echo "::error::--slugs, --slugs-file, and --recalculate are mutually exclusive" >&2
+	exit 2
+fi
+if [ -n "$SLUGS_FILE" ] && [ ! -f "$SLUGS_FILE" ]; then
+	echo "::error::--slugs-file does not exist: $SLUGS_FILE" >&2
 	exit 2
 fi
 if ! [[ "$MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
@@ -270,9 +281,23 @@ if [ "$RECALCULATE" -eq 1 ]; then
 	fi
 	rm -f "$stdout_path" "$stderr_path"
 else
-	# Per-slug path. Split CSV; optionally apply --limit.
+	# Per-slug path. A slug file is preferred for full no-limit runs so
+	# the workflow never places thousands of slugs in a single argv/env
+	# value. Each CLI child process still receives exactly one slug via
+	# --slugs, keeping argv size bounded by the single slug length plus a
+	# small fixed command overhead; this leaves a large margin below the
+	# ~2 MiB Linux ARG_MAX that previously failed when 5k+ slugs were
+	# concatenated into one argument.
 	echo "=== recalculate-scores.sh: per-slug mode (concurrency=$CONCURRENCY, max-attempts=$MAX_ATTEMPTS) ==="
-	IFS=',' read -ra SLUGS_ARR <<< "$SLUGS_CSV"
+	SLUGS_ARR=()
+	if [ -n "$SLUGS_FILE" ]; then
+		# macOS still ships Bash 3.2, so avoid mapfile/readarray in tests.
+		while IFS= read -r slug_line || [ -n "$slug_line" ]; do
+			SLUGS_ARR+=("$slug_line")
+		done < "$SLUGS_FILE"
+	else
+		IFS=',' read -ra SLUGS_ARR <<< "$SLUGS_CSV"
+	fi
 	if [ -n "$LIMIT" ] && [ "$LIMIT" -gt 0 ] 2>/dev/null; then
 		if [ "${#SLUGS_ARR[@]}" -gt "$LIMIT" ]; then
 			SLUGS_ARR=( "${SLUGS_ARR[@]:0:$LIMIT}" )
