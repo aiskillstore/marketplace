@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T12:19:49.444Z",
+    "generated_at": "2026-06-27T18:29:22.214Z",
     "slug": "89jobrien-debugging",
     "source_url": "https://github.com/89jobrien/steve/tree/main/steve/skills/debugging",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "9033181c78632c9aa97c55d5cc823a158a0cab4315de94551af7435c4c6cb453",
-    "tree_hash": "eaa9092ae63fc2dce27bf2c6437c0a3754753dec10c3204897bc7391a9c67d50"
+    "tree_hash": "da106f4d94b8e0de84bbd00d4a9ae3ddbf59ee2af6ee688eded5a01fe7aa4fb4"
   },
   "skill": {
     "name": "debugging",
-    "description": "Comprehensive debugging specialist for errors, test failures, log analysis, and system problems. Use when encountering issues, analyzing error logs, investigating system anomalies, debugging production issues, analyzing stack traces, or identifying root causes. Combines general debugging workflows with error pattern detection and log analysis.",
-    "summary": "Comprehensive debugging specialist for errors, test failures, log analysis, and system problems. Use...",
-    "icon": "🔧",
+    "description": "Structured debugging guidance for errors, test failures, logs, stack traces, production incidents, and root cause analysis.",
+    "summary": "Guides systematic debugging, log analysis, root cause discovery, fixes, verification, and incident postmortems.",
+    "icon": "📦",
     "version": "1.0.1",
     "author": "Joseph OBrien",
     "license": "MIT",
-    "category": "coding",
     "tags": [
       "debugging",
-      "error-analysis",
       "log-analysis",
-      "troubleshooting",
-      "root-cause"
+      "root-cause-analysis",
+      "incident-response",
+      "test-failures"
     ],
     "supported_tools": [
       "claude",
@@ -34,22 +33,29 @@
     ],
     "risk_factors": [
       "scripts",
-      "filesystem"
-    ]
+      "filesystem",
+      "external_commands"
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a documentation-focused debugging skill. The static analyzer flagged 134 findings, but 100% are false positives. All flagged patterns are examples in markdown documentation showing common debugging commands and anti-patterns, not actual executable code. The only executable component is a 125-line Python log parser script that safely reads user-specified files and outputs JSON analysis. No network access, no credential handling, no arbitrary code execution.",
+    "summary": "Static analysis over-reported markdown backticks, example error strings, and template placeholders as command execution, weak crypto, sensitive data, and prompt injection. Human review found no confirmed malicious intent, network exfiltration, or prompt injection, but the bundled log parser reads user-supplied local files and may expose sensitive log content if misused.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
         "evidence": [
           {
+            "file": "SKILL.md",
+            "line_start": 51,
+            "line_end": 57
+          },
+          {
             "file": "scripts/parse-logs.py",
-            "line_start": 1,
-            "line_end": 125
+            "line_start": 96,
+            "line_end": 124
           }
         ]
       },
@@ -60,150 +66,286 @@
             "file": "scripts/parse-logs.py",
             "line_start": 102,
             "line_end": 107
+          },
+          {
+            "file": "scripts/parse-logs.py",
+            "line_start": 113,
+            "line_end": 120
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 119,
+            "line_end": 134
+          },
+          {
+            "file": "references/incident-postmortem.template.md",
+            "line_start": 79,
+            "line_end": 81
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 5,
-    "total_lines": 1746,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T12:19:49.443Z"
+    "medium_findings": [
+      {
+        "title": "Local Log Parser Can Read Sensitive Files",
+        "description": "The helper script accepts a file path argument, reads that local file, and prints matched log lines plus analysis output. This is intended for debugging logs, but users could expose secrets if they point it at sensitive files or logs containing credentials.",
+        "locations": [
+          {
+            "file": "scripts/parse-logs.py",
+            "line_start": 102,
+            "line_end": 107
+          },
+          {
+            "file": "scripts/parse-logs.py",
+            "line_start": 113,
+            "line_end": 120
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "The script clearly reads a caller-supplied path with read_text and includes source file details and extracted line content in output. The behavior is legitimate for log analysis, so risk depends on what file the user supplies."
+      },
+      {
+        "title": "Command-Line Debugging Examples Require User Review",
+        "description": "The skill instructs users to run local Python and grep commands against application logs. These examples are useful, but they can process sensitive logs and should be run only on approved files in trusted environments.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 119,
+            "line_end": 134
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.64,
+        "confidence_reasoning": "The command examples are explicit and intentional, but they are standard diagnostic commands rather than hidden execution. The concern is operational data exposure, not command injection."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "False Positive: Markdown Backticks Reported As Shell Execution",
+        "description": "Most external command alerts are markdown code fences, inline error examples, SQL snippets, or JavaScript examples. I found no Ruby-style shell backtick execution in the reviewed context.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 119,
+            "line_end": 134
+          },
+          {
+            "file": "references/debugging-workflows.md",
+            "line_start": 252,
+            "line_end": 288
+          },
+          {
+            "file": "references/incident-postmortem.template.md",
+            "line_start": 79,
+            "line_end": 81
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.92,
+        "confidence_reasoning": "The cited lines are documentation examples inside markdown fences or templates. They are not executable Ruby backticks and do not show command injection logic."
+      },
+      {
+        "title": "False Positive: Fetch Calls Are Race Condition Examples",
+        "description": "The fetch calls are illustrative JavaScript snippets explaining asynchronous race conditions. They use relative API paths and do not send credentials or data to an external domain.",
+        "locations": [
+          {
+            "file": "references/debugging-workflows.md",
+            "line_start": 384,
+            "line_end": 388
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.91,
+        "confidence_reasoning": "The surrounding section labels the code as a problematic race condition pattern. No external host, credential access, or exfiltration behavior appears in the cited lines."
+      },
+      {
+        "title": "False Positive: Incident Template Placeholders",
+        "description": "The sensitive data, weak crypto, and prompt injection alerts map to incident template placeholders and sample incident identifiers. No prompt override text, Windows SAM path, or weak cryptographic implementation was found there.",
+        "locations": [
+          {
+            "file": "references/incident-postmortem.template.md",
+            "line_start": 136,
+            "line_end": 140
+          },
+          {
+            "file": "references/incident-postmortem.template.md",
+            "line_start": 177,
+            "line_end": 179
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.87,
+        "confidence_reasoning": "The reviewed lines are table placeholders for affected systems and related incidents. They do not contain executable code, cryptographic logic, or instruction text aimed at overriding the evaluator."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "User-Supplied Path File Reading",
+        "description": "The parser reads the path supplied on the command line and emits extracted content. This is acceptable for a debugging tool when users restrict input to approved logs.",
+        "locations": [
+          {
+            "file": "scripts/parse-logs.py",
+            "line_start": 102,
+            "line_end": 107
+          },
+          {
+            "file": "scripts/parse-logs.py",
+            "line_start": 113,
+            "line_end": 120
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.8,
+        "confidence_reasoning": "The file read and output behavior are direct and visible in the helper script. The pattern is risky mainly when sensitive files are selected."
+      },
+      {
+        "title": "Local Shell Command Examples",
+        "description": "The documentation includes local command examples for parsing and searching logs. These should be treated as user-approved diagnostic commands, not autonomous execution.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 119,
+            "line_end": 134
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.62,
+        "confidence_reasoning": "The commands are shown as examples and appear relevant to debugging. Users should still review file paths and redaction needs before running them."
+      }
+    ],
+    "files_scanned": 4,
+    "total_lines": 1514,
+    "audit_model": "codex",
+    "audited_at": "2026-06-27T18:29:22.214Z",
+    "risk_factors": [
+      "scripts",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Debug code errors and analyze logs",
-    "value_statement": "Debugging complex errors and analyzing logs takes significant time and expertise. This skill provides structured workflows for error analysis, log parsing, stack trace investigation, and root cause identification across multiple languages and platforms.",
+    "user_title": "Debug Errors and Incidents Faster",
+    "value_statement": "Bugs and incidents often need structured evidence, logs, and reproduction steps. This skill guides root cause analysis, log review, fixes, and postmortems.",
     "seo_keywords": [
-      "debugging",
-      "error analysis",
-      "log parsing",
-      "stack trace",
-      "troubleshooting",
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "root cause",
-      "bug fixing"
+      "Claude debugging skill",
+      "Codex debugging assistant",
+      "Claude Code error analysis",
+      "log analysis",
+      "root cause analysis",
+      "test failure debugging",
+      "stack trace analysis",
+      "incident postmortem",
+      "production debugging",
+      "debugging workflow"
     ],
     "actual_capabilities": [
-      "Analyzes error messages and stack traces across multiple programming languages",
-      "Parses log files to extract errors, exceptions, and patterns",
-      "Identifies root causes through systematic investigation workflows",
-      "Detects common error patterns including memory leaks, race conditions, and timeouts",
-      "Provides guidance for reproducing and fixing bugs",
-      "Creates incident postmortem documentation"
+      "Analyze error messages, exceptions, and stack traces across common languages.",
+      "Guide systematic reproduction, isolation, hypothesis testing, and verification steps.",
+      "Parse local log files with the included Python helper script.",
+      "Identify common patterns such as timeouts, race conditions, memory leaks, and null reference errors.",
+      "Structure incident postmortems with impact, timeline, root cause, and action items."
     ],
     "limitations": [
-      "Cannot access external systems or databases directly",
-      "Cannot execute code or run tests on user systems",
-      "Cannot modify production systems or deploy fixes",
-      "Analysis is based on provided error information and log content"
+      "Requires relevant logs, error messages, code context, or reproduction steps.",
+      "Cannot prove a root cause without enough runtime evidence.",
+      "The helper script reads local files selected by the user and may expose sensitive log data.",
+      "Examples and templates may need adaptation for each stack and incident process."
     ],
     "use_cases": [
       {
-        "target_user": "Software Developers",
-        "title": "Fix production bugs",
-        "description": "Analyze error logs and stack traces to identify root causes and implement fixes"
+        "title": "Diagnose Application Errors",
+        "description": "Turn an exception, stack trace, and related code into a focused root cause investigation and fix plan.",
+        "target_user": "Application developer"
       },
       {
-        "target_user": "QA Engineers",
-        "title": "Debug test failures",
-        "description": "Investigate why tests are failing and identify the underlying code issues"
+        "title": "Investigate Test Failures",
+        "description": "Compare expected behavior, failing output, fixtures, and recent changes to isolate why a test broke.",
+        "target_user": "QA engineer"
       },
       {
-        "target_user": "SRE Engineers",
-        "title": "Investigate incidents",
-        "description": "Correlate errors across services and conduct postmortem analysis"
+        "title": "Review Production Incidents",
+        "description": "Analyze logs, timelines, impact, mitigations, and follow-up actions for an operational incident.",
+        "target_user": "SRE or on-call engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Analyze error message",
-        "scenario": "Debug a specific error",
-        "prompt": "Debug this error: [paste error message and stack trace]"
+        "title": "Explain This Error",
+        "scenario": "Beginner error analysis",
+        "prompt": "Debug this error message. Explain the likely cause, what evidence to check, and the safest next step: [paste error]."
       },
       {
-        "title": "Parse log file",
-        "scenario": "Extract errors from logs",
-        "prompt": "Analyze the error logs in [file path] and identify the root cause"
+        "title": "Find a Test Failure Cause",
+        "scenario": "Intermediate test debugging",
+        "prompt": "Investigate this failing test. Use the failure output, expected behavior, test setup, and recent code changes to identify the root cause."
       },
       {
-        "title": "Detect patterns",
-        "scenario": "Find recurring issues",
-        "prompt": "Find patterns in these error logs from the past 24 hours"
+        "title": "Analyze Production Logs",
+        "scenario": "Advanced log investigation",
+        "prompt": "Analyze these production logs for recurring errors, timing patterns, affected services, likely root causes, and immediate mitigations."
       },
       {
-        "title": "Fix code issue",
-        "scenario": "Implement solution",
-        "prompt": "Fix the null reference error at [file:line] with minimal changes"
+        "title": "Create an Incident Postmortem",
+        "scenario": "Advanced incident review",
+        "prompt": "Create a postmortem from this incident timeline, impact data, mitigation notes, logs, and action items. Separate evidence from assumptions."
       }
     ],
     "output_examples": [
       {
-        "input": "Debug this error: TypeError: Cannot read property 'name' of undefined",
-        "output": [
-          "Error Type: TypeError",
-          "Location: src/services/user.js:45",
-          "Root Cause: getUser() returns undefined when user not found",
-          "Fix: Add null check before accessing user.name"
-        ]
+        "input": "A developer provides a TypeError and the surrounding service logic.",
+        "output": "The skill identifies the missing null check, explains why the value can be absent, proposes a minimal fix, and lists verification tests."
       },
       {
-        "input": "Analyze the error logs in /var/log/app.log",
-        "output": [
-          "Total Errors: 47",
-          "Most Common: Connection timeout (23 occurrences)",
-          "Pattern: Errors spike during peak hours (14:00-16:00)",
-          "Recommendation: Increase connection pool size"
-        ]
+        "input": "An on-call engineer provides logs with repeated database connection failures.",
+        "output": "The skill groups the errors by time, links the spike to likely connection pool pressure, and recommends mitigation and monitoring checks."
       },
       {
-        "input": "Why are users seeing intermittent 500 errors",
-        "output": [
-          "Likely Cause: Race condition in request handler",
-          "Evidence: Errors correlate with concurrent API calls",
-          "Fix: Add request queuing or use locks for shared resource access"
-        ]
+        "input": "A team provides an incident timeline after a service outage.",
+        "output": "The skill drafts a clear postmortem with impact, timeline, root cause, contributing factors, and owned action items."
       }
     ],
     "best_practices": [
-      "Start with symptoms before proposing solutions",
-      "Test hypotheses systematically rather than guessing",
-      "Implement minimal fixes that address root causes"
+      "Provide exact errors, stack traces, timestamps, recent changes, and expected behavior.",
+      "Redact credentials, tokens, personal data, and customer data before sharing logs.",
+      "Verify each proposed fix with the original reproduction case and regression tests."
     ],
     "anti_patterns": [
-      "Applying fixes without understanding root causes",
-      "Ignoring error patterns across multiple incidents",
-      "Making large changes when a small fix suffices"
+      "Do not paste large logs without timestamps, service names, or a clear symptom.",
+      "Do not accept a root cause that is not tied to evidence.",
+      "Do not run helper scripts on sensitive files unless the output is approved for review."
     ],
     "faq": [
       {
-        "question": "Which programming languages are supported?",
-        "answer": "JavaScript, Node.js, Python, Java, and other languages with standard stack trace formats."
+        "question": "What kinds of issues does this skill help debug?",
+        "answer": "It helps with exceptions, test failures, stack traces, production incidents, logs, performance symptoms, and recurring error patterns."
       },
       {
-        "question": "What log formats can be parsed?",
-        "answer": "Plain text logs, JSON logs, and common log formats with timestamps and error levels."
+        "question": "Does it include executable code?",
+        "answer": "Yes. It includes a Python log parser that reads a local file path provided by the user and prints extracted error data."
       },
       {
-        "question": "How does this integrate with my IDE?",
-        "answer": "The skill works with any text-based error information. Copy-paste errors from your terminal or IDE."
+        "question": "Can it debug without logs or code context?",
+        "answer": "It can suggest likely causes, but reliable diagnosis needs concrete evidence such as logs, stack traces, code, or reproduction steps."
       },
       {
-        "question": "Is my log data processed externally?",
-        "answer": "No. All analysis happens locally. The Python script reads files and outputs JSON locally."
+        "question": "Is it safe for production incident data?",
+        "answer": "Use it only with approved data. Redact secrets, tokens, personal data, and customer information before sharing logs."
       },
       {
-        "question": "Why is my debugging not finding the issue?",
-        "answer": "Ensure you provide the full error message, stack trace, and relevant log context. Some issues require additional logging."
+        "question": "Does it make network requests?",
+        "answer": "No confirmed network behavior was found. The fetch examples are documentation snippets about asynchronous race conditions."
       },
       {
-        "question": "How is this different from standard error messages?",
-        "answer": "This skill provides structured analysis workflows, pattern detection, and systematic root cause identification."
+        "question": "Which AI tools are supported?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },
