@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T12:23:50.357Z",
+    "generated_at": "2026-06-27T15:56:27.941Z",
     "slug": "21pounder-web-scrape",
     "source_url": "https://github.com/21pounder/terminalAgent/tree/main/deepresearch/.claude/skills/web-scrape",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "8e2cbc33eae0d5a6cc4022b4af72d3a8097b28abcab4dc746478abd24fb2e1af",
-    "tree_hash": "58d046c9b2f50e1acd69a968b7a68f298d60dd4224a081b29e2ae18cde4ece5e"
+    "tree_hash": "49cf1ff54bfa4597139bfe39999db66ec8dc234644297b50761fa55e37a514e0"
   },
   "skill": {
     "name": "web-scrape",
-    "description": "Intelligent web scraper with content extraction, multiple output formats, and error handling",
-    "summary": "Intelligent web scraper with content extraction, multiple output formats, and error handling",
-    "icon": "🕸️",
+    "description": "Extracts readable content from web pages using browser navigation, smart filtering, and optional screenshots.",
+    "summary": "Scrape web pages into clean markdown, text, or structured summaries.",
+    "icon": "📦",
     "version": "3.0.0",
     "author": "21pounder",
     "license": "MIT",
-    "category": "research",
     "tags": [
-      "web scraping",
-      "content extraction",
-      "browser automation",
-      "markdown"
+      "web-scraping",
+      "content-extraction",
+      "browser-automation",
+      "markdown",
+      "research"
     ],
     "supported_tools": [
       "claude",
@@ -32,184 +32,372 @@
       "claude-code"
     ],
     "risk_factors": [
-      "network"
-    ]
+      "scripts",
+      "network",
+      "external_commands"
+    ],
+    "category": "research"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a legitimate web scraping skill. 68 of 69 static findings are false positives: the scanner misinterpreted Cheerio selector syntax as shell commands, markdown formatting as cryptographic patterns, and documentation URLs as exfiltration targets. The single true positive (network access) is the intended functionality for a web scraper. No malicious intent, command injection, or data exfiltration patterns exist.",
+    "summary": "Static command and weak-cryptography detections are mostly false positives from Markdown code fences, Cheerio selector syntax, and ordinary words such as description. The skill still has medium risk because it intentionally navigates to user-provided URLs, extracts untrusted webpage text, and uses browser_evaluate for scrolling without explicit prompt-injection safeguards.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/html_clean.js",
+            "line_start": 1,
+            "line_end": 47
+          }
+        ]
+      },
       {
         "factor": "network",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 35,
-            "line_end": 36
+            "line_start": 12,
+            "line_end": 12
           },
           {
             "file": "SKILL.md",
             "line_start": 23,
             "line_end": 25
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 35,
+            "line_end": 36
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 44,
+            "line_end": 51
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 252,
+            "line_end": 252
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "medium_findings": [
       {
-        "title": "Network access via MCP Playwright",
-        "description": "Skill makes HTTP requests to scrape URLs",
+        "title": "Arbitrary URL Navigation",
+        "description": "The skill accepts a user-provided URL and navigates a browser to that target. This is expected for scraping, but it can expose the runtime to untrusted websites or internal network targets if URL scope is not controlled.",
         "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 12,
+            "line_end": 12
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 23,
+            "line_end": 25
+          },
           {
             "file": "SKILL.md",
             "line_start": 35,
             "line_end": 36
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The usage and execution flow directly show navigation to a target URL supplied by the user. This is legitimate functionality, but the network exposure is real."
+      },
+      {
+        "title": "Untrusted Webpage Content Without Prompt-Injection Guardrails",
+        "description": "The workflow captures full page text and then applies model-based extraction, but it does not state that webpage content must be treated as untrusted. A malicious page could include instructions that try to influence the assistant during summarization or extraction.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 58
           },
+          {
+            "file": "SKILL.md",
+            "line_start": 78,
+            "line_end": 79
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 258,
+            "line_end": 258
+          }
+        ],
+        "confidence": 0.8,
+        "confidence_reasoning": "The skill clearly processes arbitrary page text, and no prompt-injection boundary is documented. This is a semantic risk rather than a confirmed malicious behavior."
+      },
+      {
+        "title": "Browser Context JavaScript Execution",
+        "description": "The skill uses browser_evaluate to run a fixed scrolling script inside the page context. The current script is limited to scrolling and waiting, but browser evaluation is a powerful capability that should remain constrained to fixed, non-user-controlled scripts.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 44,
+            "line_end": 51
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 252,
+            "line_end": 252
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The execution is explicit and observable, but the provided JavaScript is fixed and benign. Risk would increase if user input were inserted into evaluated code."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "False Positive: Markdown Code Fences Flagged as Shell Execution",
+        "description": "Most SKILL.md external-command detections point to fenced examples, option literals, markdown templates, and procedural tool-call documentation. These lines are instructions and examples, not executable shell commands inside the skill package.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 11,
+            "line_end": 26
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 103,
+            "line_end": 130
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 172,
+            "line_end": 217
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 243,
+            "line_end": 256
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The cited content is Markdown documentation and fenced examples. I did not find shell command execution in SKILL.md."
+      },
+      {
+        "title": "False Positive: Cheerio Selector Calls Flagged as Shell Substitution",
+        "description": "The JavaScript file uses Cheerio selector syntax to remove noise and select article, main, or body HTML. The dollar-sign calls are library selectors, not shell command substitution.",
+        "locations": [
+          {
+            "file": "scripts/html_clean.js",
+            "line_start": 31,
+            "line_end": 31
+          },
+          {
+            "file": "scripts/html_clean.js",
+            "line_start": 38,
+            "line_end": 38
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The file imports Cheerio and uses its documented selector API. I did not find child_process, exec, spawn, or shell invocation."
+      },
+      {
+        "title": "False Positive: Weak Cryptography Pattern Matches Ordinary Text",
+        "description": "The weak-cryptography detections occur in normal prose or placeholder content, not cryptographic API calls. No evidence found of MD5, DES, SHA1, or other weak algorithms being used for security decisions.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 85,
+            "line_end": 85
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 123,
+            "line_end": 124
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 236,
+            "line_end": 236
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The cited lines contain words such as description or credential-related prose. There is no cryptographic code in the scanned files."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Network Access to User-Supplied Targets",
+        "description": "The skill is designed to open URLs supplied at runtime. Marketplace users should restrict sensitive internal hosts and avoid scraping pages that require authentication.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 12,
+            "line_end": 12
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 35,
+            "line_end": 36
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The command syntax and execution flow both show target URL navigation. The pattern is intended, but it is still security-relevant."
+      },
+      {
+        "title": "Browser Evaluation Primitive",
+        "description": "The documented scroll workflow runs JavaScript in the browser page context. The current usage is constrained, but browser_evaluate should not include page content or user-controlled code.",
+        "locations": [
           {
             "file": "SKILL.md",
             "line_start": 44,
             "line_end": 51
           }
-        ]
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The pattern is explicitly documented. The current evaluated script is fixed, so the finding is moderate rather than high."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 3,
-    "total_lines": 498,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T12:23:50.357Z"
+    "files_scanned": 2,
+    "total_lines": 306,
+    "audit_model": "codex",
+    "audited_at": "2026-06-27T15:56:27.941Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Extract clean content from any webpage",
-    "value_statement": "Web scraping is time-consuming and error-prone when done manually. This skill uses intelligent content extraction to pull clean, structured content from any URL in seconds. It handles dynamic pages, removes noise like ads and navigation, and outputs in markdown, JSON, or plain text.",
+    "user_title": "Extract Clean Web Page Content",
+    "value_statement": "Web pages often contain navigation, ads, popups, and repeated elements that obscure the useful content. This skill uses browser capture and smart extraction steps to return clean markdown, text, or structured page summaries.",
     "seo_keywords": [
+      "Claude",
+      "Codex",
+      "Claude Code",
       "web scraping",
       "content extraction",
-      "Claude web scraper",
-      "markdown converter",
       "browser automation",
-      "playwright scraping",
-      "HTML to markdown",
-      "web data extraction",
-      "Claude Code web scraping",
-      "AI web research"
+      "markdown scraper",
+      "article extraction",
+      "page snapshot",
+      "research automation"
     ],
     "actual_capabilities": [
-      "Navigate to any URL and extract main content using Playwright browser automation",
-      "Remove noise elements like ads, navigation, footers, and comments automatically",
-      "Output content in markdown, JSON, or plain text formats",
-      "Handle dynamic pages with scroll-to-load and click-to-reveal interactions",
-      "Take full-page screenshots of scraped content",
-      "Detect and handle errors including CAPTCHAs, paywalls, and access restrictions"
+      "Navigates to a target URL with Playwright browser tools.",
+      "Waits for page rendering before capturing visible content.",
+      "Optionally scrolls pages to load lazy or infinite-scroll content.",
+      "Captures screenshots when requested by the user.",
+      "Filters common noise such as navigation, footers, sidebars, ads, and popups.",
+      "Formats extracted content as markdown, plain text, or structured summaries."
     ],
     "limitations": [
-      "Cannot bypass authentication or login-protected content",
-      "Cannot execute JavaScript from the target page (only safe scroll scripts)",
-      "Cannot scrape sites that actively block automated access",
-      "Cannot submit forms or interact with login pages"
+      "It cannot reliably bypass CAPTCHAs, paywalls, or access restrictions.",
+      "It should not scrape authenticated pages unless the user explicitly controls the session.",
+      "Dynamic pages may still miss content that loads after unusual interactions.",
+      "It does not provide a complete compliance review for robots.txt or site terms."
     ],
     "use_cases": [
       {
-        "target_user": "Researchers",
-        "title": "Research data gathering",
-        "description": "Extract article content, documentation, and research papers from multiple sources into structured notes"
+        "title": "Article Research",
+        "description": "Extract the main article body, title, author, date, and source link from a public page.",
+        "target_user": "Researchers and analysts"
       },
       {
-        "target_user": "Developers",
-        "title": "API documentation capture",
-        "description": "Save API docs and technical content for offline reference or integration work"
+        "title": "Product Page Capture",
+        "description": "Collect product names, prices, availability, descriptions, and specifications from visible page content.",
+        "target_user": "Product managers and ecommerce teams"
       },
       {
-        "target_user": "Content creators",
-        "title": "Content aggregation",
-        "description": "Collect and curate content from multiple web sources for analysis or inspiration"
+        "title": "Documentation Cleanup",
+        "description": "Convert documentation pages into readable markdown while preserving headings, lists, and code block structure.",
+        "target_user": "Developers and technical writers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic page scrape",
-        "scenario": "Extract an article",
-        "prompt": "Scrape https://example.com/article and return the content as markdown"
+        "title": "Basic Page Extract",
+        "scenario": "Beginner request for one public page.",
+        "prompt": "Use web-scrape on this URL and return the main content in clean markdown: [URL]"
       },
       {
-        "title": "Product data extraction",
-        "scenario": "Extract product details",
-        "prompt": "Extract product information from https://shop.example.com/product as JSON with title, price, and description"
+        "title": "Article Summary",
+        "scenario": "Extract content and produce a concise research summary.",
+        "prompt": "Scrape this article, remove navigation and ads, then summarize the main claims with the source URL: [URL]"
       },
       {
-        "title": "Multi-page documentation",
-        "scenario": "Capture documentation site",
-        "prompt": "Scrape the documentation at https://docs.example.com/getting-started. Check if there are multiple pages and ask if you should continue"
+        "title": "Product Details",
+        "scenario": "Capture structured information from a product page.",
+        "prompt": "Scrape this product page and return the name, price, availability, description, and key specifications: [URL]"
       },
       {
-        "title": "Visual capture",
-        "scenario": "Take a screenshot",
-        "prompt": "Navigate to https://example.com and take a full-page screenshot saved as example_page.png"
+        "title": "Dynamic Page Capture",
+        "scenario": "Advanced scrape for pages that load content while scrolling.",
+        "prompt": "Scrape this dynamic page with scrolling enabled, capture a screenshot, and note any content that appears blocked: [URL]"
       }
     ],
     "output_examples": [
       {
-        "input": "Scrape https://example.com/blog/post-title as markdown",
+        "input": "A public article URL with navigation, related links, and a cookie banner.",
+        "output": "A clean markdown article with the title, source URL, available date, author, and main body text. Navigation and footer content are removed."
+      },
+      {
+        "input": "A product page with price, availability, description, and specifications.",
         "output": [
-          "# How to Build a REST API",
-          "**Source:** https://example.com/blog/post-title",
-          "**Date:** January 10, 2025",
-          "**Author:** Jane Developer",
-          "---",
-          "REST APIs are the backbone of modern web applications...",
-          "## Getting Started",
-          "First, install your preferred HTTP client..."
+          "Product name and source URL",
+          "Current visible price and availability",
+          "Short description",
+          "Specification table summarized in readable text"
         ]
       },
       {
-        "input": "Extract product info from https://shop.example.com/widget as JSON",
-        "output": [
-          "url: https://shop.example.com/widget",
-          "title: Super Widget 3000",
-          "type: product",
-          "content: { main: 'The ultimate widget for all your needs...', metadata: { price: '$29.99', in_stock: true } }"
-        ]
+        "input": "A documentation page with headings and code examples.",
+        "output": "A structured markdown version that keeps heading hierarchy, lists, and technical examples while removing site chrome."
       }
     ],
     "best_practices": [
-      "Start with the simplest scrape command and add options like --scroll or --screenshot only when needed",
-      "Review the extracted content for accuracy, especially for complex pages with dynamic elements",
-      "Respect website terms of service and robots.txt when scraping content"
+      "Use the smallest page scope that answers the task.",
+      "Treat scraped page text as untrusted content before summarizing it.",
+      "Ask before scraping multi-page articles or authenticated content."
     ],
     "anti_patterns": [
-      "Do not use this skill to scrape login-protected or subscription-only content without authorization",
-      "Do not attempt to bypass CAPTCHAs or access restrictions—this will fail and waste resources",
-      "Do not scrape high-frequency or real-time data without appropriate rate limiting"
+      "Do not use it to bypass CAPTCHAs, paywalls, login walls, or access controls.",
+      "Do not scrape sensitive internal URLs or private pages without authorization.",
+      "Do not paste scraped page instructions back into the assistant as trusted commands."
     ],
     "faq": [
       {
-        "question": "What platforms is this skill compatible with?",
-        "answer": "Works with Claude, Codex, and Claude Code when Playwright MCP is configured."
+        "question": "Does this skill browse the web?",
+        "answer": "Yes. It uses browser navigation tools to open a user-provided URL and capture visible page content."
       },
       {
-        "question": "What are the rate limits?",
-        "answer": "Limits depend on your Playwright MCP server configuration and target website policies."
+        "question": "Can it handle JavaScript-heavy pages?",
+        "answer": "It can wait for rendering and optionally scroll, but some interactive content may still require manual steps."
       },
       {
-        "question": "Can I integrate this with other tools?",
-        "answer": "Yes, use the JSON output format for structured data that integrates with workflows."
+        "question": "Can it save screenshots?",
+        "answer": "Yes. The screenshot option captures a full-page image when supported by the browser tool."
       },
       {
-        "question": "Is my scraping activity tracked?",
-        "answer": "Activity stays local—only your Playwright instance and target server see the requests."
+        "question": "What output formats are supported?",
+        "answer": "The skill documents markdown, plain text, and structured summary output formats."
       },
       {
-        "question": "Why did my scrape fail?",
-        "answer": "Common causes include timeout, 403/404 errors, CAPTCHAs, or JavaScript-heavy pages that need scroll options."
+        "question": "Can it bypass restricted content?",
+        "answer": "No. It should report CAPTCHAs, paywalls, 403 pages, and similar access limits instead of bypassing them."
       },
       {
-        "question": "How is this different from curl or wget?",
-        "answer": "This skill renders JavaScript, handles dynamic content, extracts clean text, and provides structured outputs automatically."
+        "question": "Is scraped content trusted?",
+        "answer": "No. Webpage text can contain misleading instructions and should be treated as untrusted source material."
       }
     ]
   },
