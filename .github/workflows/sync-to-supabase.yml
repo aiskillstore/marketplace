@@ -11,6 +11,10 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
+      slugs:
+        description: 'Specific skill slugs to sync (comma or space separated, optional)'
+        type: string
+        default: ''
       full_sync:
         description: 'Force full sync (ignore incremental)'
         type: boolean
@@ -101,7 +105,11 @@ jobs:
             fi
           }
           
-          if [ "${{ inputs.full_sync }}" = "true" ]; then
+          if [ -n "${{ inputs.slugs }}" ]; then
+            echo "Specific slugs requested: ${{ inputs.slugs }}"
+            CHANGED=$(echo "${{ inputs.slugs }}" | tr ',' ' ' | tr '\n' ' ' | tr -s ' ' | xargs -n1 | sed 's|^skills/||' | sort -u | tr '\n' ' ')
+            echo "mode=manual-slugs" >> $GITHUB_OUTPUT
+          elif [ "${{ inputs.full_sync }}" = "true" ]; then
             echo "Full sync requested"
             CHANGED=$(find_all_skills | tr '\n' ' ')
             echo "mode=full" >> $GITHUB_OUTPUT
@@ -160,8 +168,24 @@ jobs:
           # --concurrency 10: Process 10 skills in parallel for faster sync
           # Save full output to file, display to console, then extract result from last line
           # This preserves detailed logs for debugging while capturing the synced slugs
+          if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+            export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+            export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+          fi
+          set -o pipefail
           "$GITHUB_WORKSPACE/skillstore-cli" skill sync --slugs "$SKILL_PATHS" --concurrency 10 2>&1 | tee sync-output.log
           SYNCED_SLUGS=$(tail -1 sync-output.log)
+
+          SUMMARY=$(grep -E 'Sync complete: [0-9]+ synced, [0-9]+ errors' sync-output.log | tail -1 || true)
+          ERROR_COUNT=$(echo "$SUMMARY" | sed -n 's/.*Sync complete: [0-9][0-9]* synced, \([0-9][0-9]*\) errors.*/\1/p')
+          if [ "${ERROR_COUNT:-0}" -gt 0 ]; then
+            echo "::error::skillstore-cli sync reported errors: $SUMMARY"
+            exit 1
+          fi
+          if [ -z "$SYNCED_SLUGS" ] || echo "$SYNCED_SLUGS" | grep -q 'Sync complete:'; then
+            echo "::error::skillstore-cli did not return synced slugs. Last line: $SYNCED_SLUGS"
+            exit 1
+          fi
 
           echo "synced_slugs=$SYNCED_SLUGS" >> $GITHUB_OUTPUT
           echo "::notice::Synced skills: $SYNCED_SLUGS"
