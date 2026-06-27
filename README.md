@@ -1,109 +1,80 @@
-# AI Skillstore - Agent Skills Marketplace
+# Skill Store — Marketplace Repository
 
-The official AI Skills marketplace for Claude Code and Codex. Discover, install, and manage AI agent skills following the [Agent Skills specification](https://agentskills.io/specification).
+This is the open-source content repository behind **[Skill Store](https://skillstore.io)**. It stores every approved [Agent Skill](https://agentskills.io/specification), the records that go with it, and the automated security audits each skill must pass before it ships.
 
-## Quick Start
+> **This repo is a companion to the Skill Store platform, not the place to submit skills.**
+> Skills are added through [skillstore.io](https://skillstore.io) — its review pipeline writes to this repo automatically. Please **do not open a pull request here to add a skill**; PRs adding skills will be closed. See [Contributing a skill](#contributing-a-skill) below.
 
-### Claude Code Installation
+## Installing a skill
 
-#### Method 1: Quick Install (Recommended)
+The recommended way to install any skill is the **`skillstore` CLI** — one command works for both **Claude Code** and **Codex**:
 
-Copy this prompt and paste it into Claude Code:
-
-```
-Download all files from https://github.com/aiskillstore/marketplace/tree/main/skills/<skill-name> and save to ~/.claude/skills/
-```
-
-Claude Code will automatically fetch and install the skill files.
-
-#### Method 2: Manual Install
-
-1. Download the skill ZIP from [skillstore.io](https://skillstore.io)
-2. Extract to your preferred scope directory:
-   - **Project scope**: `.claude/skills/<skill-name>/` (current project only)
-   - **User scope**: `~/.claude/skills/<skill-name>/` (all projects)
-3. Each skill folder must contain a `SKILL.md` file
-
-### Codex Installation
-
-#### Method 1: Use $skill-installer (Recommended)
-
-Run this command inside Codex:
-
-```
-$skill-installer install https://github.com/aiskillstore/marketplace/tree/main/skills/<skill-name>
+```sh
+npx skillstore add author/skill-name
 ```
 
-#### Method 2: Manual Install
+For example:
 
-1. Download the skill ZIP from [skillstore.io](https://skillstore.io)
-2. Extract to your preferred scope directory:
-   - **Repo scope**: `.codex/skills/<skill-name>/` (current project)
-   - **User scope**: `~/.codex/skills/<skill-name>/` (your account)
-   - **System scope**: `/etc/codex/skills/<skill-name>/` (all users)
-3. Restart Codex to load new skills
+```sh
+npx skillstore add aiskillstore/code-review
+```
 
-## For Skill Developers
+It downloads the skill and drops it into the right `skills/` directory for your tool. Claude Code auto-discovers it; for Codex, restart the session.
 
-### Submit Your Skill
+Prefer to do it by hand, or installing via Claude Web? See the full **[Installation Guides](https://skillstore.io/docs/install-guides)** for every method (CLI, manual, and ZIP upload) and the scope directories (`.claude/skills/`, `~/.claude/skills/`, `.codex/skills/`, …).
 
-1. Visit [skillstore.io/submit](https://skillstore.io/submit)
-2. Enter your GitHub repository URL containing a `SKILL.md` file
-3. Wait for automated security analysis
-4. Admin reviews and approves your submission
-5. Your skill becomes available in the marketplace
+## Contributing a skill
 
-### Skill Requirements
+Submit through the platform — not through a pull request:
 
-Your repository should contain:
+1. Go to **[skillstore.io/submit](https://skillstore.io/submit)**.
+2. Enter the GitHub repository URL that contains your `SKILL.md`.
+3. Your submission runs through automated security analysis.
+4. A maintainer reviews and approves it.
+5. On approval, the skill is published here and appears on [skillstore.io](https://skillstore.io).
 
-- `SKILL.md` - The skill definition file (required)
-- Supporting files referenced by the skill (optional)
-- `LICENSE` - License file (recommended)
+### What makes a valid skill
 
-### Security Analysis
+- `SKILL.md` — the skill definition (**required**, per the [Agent Skills spec](https://agentskills.io/specification))
+- Supporting files the skill references (optional)
+- `LICENSE` (recommended)
 
-All submitted skills undergo automated security analysis that checks for:
+### Security audit
 
-- Dangerous code patterns (eval, exec, system commands)
-- File system access outside project scope
-- Network requests to external hosts
+Every submission is scanned automatically before it can be published. The audit flags things like:
+
+- Dangerous code patterns (`eval`, `exec`, raw system commands)
+- File access outside the project scope
+- Network calls to external hosts
 - Obfuscated or minified code
-- Credential/secret handling
+- Credential / secret handling
 
-Skills that fail security checks will not be published.
+Skills that fail are not published.
 
-## Repository Structure
+## Repository layout
 
 ```
 .
-├── skills/                    # Approved skills
-│   └── <skill-name>/
-│       ├── SKILL.md           # Skill definition (required)
-│       ├── scripts/           # Optional executable scripts
-│       ├── references/        # Optional additional docs
-│       └── assets/            # Optional static resources
-├── pending/                   # Skills awaiting review
-├── schemas/                   # JSON validation schemas
-└── .github/workflows/         # Automation workflows
+├── skills/        # Approved, published skills (one folder each, with SKILL.md)
+├── pending/       # Submissions awaiting review
+├── packages/
+│   ├── cli/       # The `skillstore` CLI (npx skillstore add …)
+│   └── skillstore/
+├── schemas/       # JSON schemas for skill records
+├── scripts/       # Maintenance & scoring scripts
+└── .github/workflows/   # Submission, audit, and sync automation
 ```
 
-## Available Skills
-
-Browse all available skills at [skillstore.io](https://skillstore.io).
+The contents of this repo are maintained by Skill Store's automated pipeline. Manual changes are limited to maintainers.
 
 ## Links
 
 - **Website**: [skillstore.io](https://skillstore.io)
-- **Submit Skills**: [skillstore.io/submit](https://skillstore.io/submit)
-- **Documentation**: [skillstore.io/docs](https://skillstore.io/docs)
-- **Agent Skills Spec**: [agentskills.io/specification](https://agentskills.io/specification)
-- **GitHub**: [github.com/aiskillstore](https://github.com/aiskillstore)
+- **Submit a skill**: [skillstore.io/submit](https://skillstore.io/submit)
+- **Install guides**: [skillstore.io/docs/install-guides](https://skillstore.io/docs/install-guides)
+- **Docs**: [skillstore.io/docs](https://skillstore.io/docs)
+- **Agent Skills spec**: [agentskills.io/specification](https://agentskills.io/specification)
 
 ## License
 
-This marketplace catalog is licensed under MIT. Individual skills may have their own licenses - check each skill's LICENSE file.
-
----
-
-**Made with care by the AI Skillstore team**
+The marketplace catalog is MIT-licensed. Individual skills carry their own licenses — check each skill's `LICENSE` file.
