@@ -1,29 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-21T15:51:27.937Z",
+    "generated_at": "2026-06-27T15:43:13.850Z",
     "slug": "2389-research-omakase-off",
     "source_url": "https://github.com/2389-research/claude-plugins/tree/main/test-kitchen/skills/omakase-off",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "c1ac5852c4e75d61bd0ab601e77dce3e121b300c49d2f973ae74837f9f9419aa",
-    "tree_hash": "76cbcda7b7fb9307a6f34c53ac2278c1b7845c225957618e4bcd6bd1ecd8dc31"
+    "tree_hash": "c04127a6c3db3117bb54ef5c520a95e42a7aa7883805422bc26607229ed9212e"
   },
   "skill": {
     "name": "omakase-off",
-    "description": "This skill should be used as the entry gate for build/create/implement requests. Triggers on \"build X\", \"create Y\", \"implement Z\", \"add feature\", \"try both approaches\", \"not sure which approach\". Offers brainstorm-together or omakase (chef's choice parallel exploration) options. Detects indecision during brainstorming to offer parallel exploration.",
-    "summary": "Entry gate for build requests. Offers collaborative brainstorming or parallel exploration of multiple implementation approaches with automated testing.",
-    "icon": "🍱",
+    "description": "Guides build and implementation requests through brainstorming or parallel exploration of multiple architectural approaches, then compares variants with tests and review.",
+    "summary": "Explore uncertain implementation approaches in parallel and choose the best tested result.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "2389-research",
     "license": "MIT",
     "tags": [
-      "workflow",
-      "parallel-exploration",
-      "decision-making",
-      "development-orchestration"
+      "planning",
+      "architecture",
+      "parallel-agents",
+      "testing",
+      "workflow"
     ],
     "supported_tools": [
       "claude",
@@ -31,160 +32,291 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts"
-    ]
+      "filesystem",
+      "external_commands"
+    ],
+    "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All static findings are false positives. External command patterns in documentation are example git commands. High-risk crypto and C2 patterns are regex false positives triggered by benign words. This is a legitimate workflow orchestration skill.",
+    "summary": "Static analysis flagged many external command and weak-crypto patterns, but most are false positives from Markdown backticks, dependency names, and ordinary workflow text. The confirmed risk is operational: the skill instructs agents to create worktrees, write plans, and force-delete loser branches during cleanup. No evidence found of malicious network use, credential access, obfuscation, or prompt injection aimed at bypassing audit rules.",
     "risk_factor_evidence": [
       {
-        "factor": "scripts",
+        "factor": "filesystem",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 1,
-            "line_end": 140
+            "line_start": 63,
+            "line_end": 75
           },
           {
             "file": "references/detailed-workflow.md",
-            "line_start": 1,
-            "line_end": 228
+            "line_start": 101,
+            "line_end": 113
+          },
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 197,
+            "line_end": 213
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 11,
+            "line_end": 11
+          },
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 191,
+            "line_end": 195
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 3,
-    "total_lines": 1345,
-    "audit_model": "claude",
-    "audited_at": "2026-01-21T15:51:27.937Z"
+    "medium_findings": [
+      {
+        "title": "Destructive Git Cleanup Workflow",
+        "description": "The skill workflow tells the agent to always clean up losing variants and provides git commands that remove worktrees and force-delete branches. This is legitimate for variant exploration, but it can delete user work if branches or worktrees contain unmerged changes and the agent proceeds without clear confirmation.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 98,
+            "line_end": 99
+          },
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 191,
+            "line_end": 195
+          },
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 225,
+            "line_end": 227
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The cleanup behavior is explicitly documented, including force branch deletion with git branch -D. The intent is workflow cleanup rather than malware, so the risk is moderate operational data loss rather than confirmed malicious behavior."
+      },
+      {
+        "title": "Broad Filesystem Modification Workflow",
+        "description": "The skill directs agents to create plans, variant directories, worktrees, and result files as part of implementation exploration. These writes are expected for the workflow, but they expand the change surface and require repository isolation and review.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 63,
+            "line_end": 75
+          },
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 101,
+            "line_end": 120
+          },
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 197,
+            "line_end": 213
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The file and worktree paths are clearly specified in the skill documentation. The behavior is consistent with a development workflow, but it has meaningful impact on the repository filesystem."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Command Findings Are Mostly Markdown References",
+        "description": "Most external command detections occur on backticked skill names, file paths, example labels, or prose in Markdown. These are not executable scripts and do not create command injection by themselves.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 101,
+            "line_end": 111
+          },
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 7,
+            "line_end": 20
+          },
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 157,
+            "line_end": 180
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The flagged content is documentation text and table entries, not runnable code. The only concrete shell commands found are git workflow commands documented for worktree setup and cleanup."
+      },
+      {
+        "title": "Weak Cryptography And Network Matches Lack Supporting Evidence",
+        "description": "The static analyzer reported weak cryptography and network reconnaissance indicators, but the reviewed lines contain workflow prose, examples, or dependency references. No evidence found of cryptographic operations, HTTP calls, port scanning, or data exfiltration.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 32,
+            "line_end": 35
+          },
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 182,
+            "line_end": 187
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The cited locations do not contain cryptographic code or network code. Confidence is high because both scanned files are Markdown-only skill instructions."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Force Branch Deletion Command",
+        "description": "The cleanup example includes git branch -D for loser variants. This can discard branch state if used before verifying that work is unneeded and backed up.",
+        "locations": [
+          {
+            "file": "references/detailed-workflow.md",
+            "line_start": 191,
+            "line_end": 195
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The command is explicitly present in a cleanup code block. The danger is accidental data loss, not hidden execution."
+      }
+    ],
+    "files_scanned": 2,
+    "total_lines": 368,
+    "audit_model": "codex",
+    "audited_at": "2026-06-27T15:43:13.850Z",
+    "risk_factors": [
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Explore multiple solutions in parallel",
-    "value_statement": "Users often struggle to choose between implementation approaches. This skill detects indecision and offers parallel exploration of different approaches, letting tests determine the best solution.",
+    "user_title": "Explore Implementation Options in Parallel",
+    "value_statement": "Unclear architecture choices can slow build requests and lead to weak decisions. This skill structures brainstorming, parallel variants, scenario testing, and review so teams can compare real implementations.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "parallel exploration",
-      "implementation alternatives",
-      "omakase development",
-      "decision workflow",
-      "multiple approaches",
-      "development strategy",
-      "solution comparison"
+      "parallel implementation",
+      "architecture planning",
+      "AI coding workflow",
+      "scenario testing",
+      "git worktrees",
+      "software prototyping",
+      "development decision support"
     ],
     "actual_capabilities": [
-      "Detects build/create/implement requests and presents collaboration options",
-      "Identifies indecision during brainstorming through passive analysis",
-      "Generates multiple implementation approaches in parallel",
-      "Orchestrates git worktrees for isolated variant development",
-      "Runs automated scenario tests against all variants",
-      "Compares results and recommends the best approach"
+      "Offers a choice between guided brainstorming and parallel exploration before detailed implementation.",
+      "Detects architectural indecision during planning and proposes variant exploration.",
+      "Defines a directory structure for shared design notes, variant plans, and final results.",
+      "Coordinates multiple implementation variants through parallel agents or fallback workflows.",
+      "Requires scenario testing, fresh review, and a judge-style comparison before selecting a winner.",
+      "Documents results and cleanup steps after a winning approach is selected."
     ],
     "limitations": [
-      "Does not execute code directly; orchestrates other skills",
-      "Relies on external skills for testing and code review",
-      "Cannot make architectural decisions without user input",
-      "Maximum of 5-6 variants to prevent combinatorial explosion"
+      "It is a workflow guide, not an executable automation script.",
+      "It depends on other skills when available and uses fallback behavior when they are absent.",
+      "It can increase repository changes because several variants may be implemented.",
+      "Cleanup commands require careful review to avoid deleting useful branch work."
     ],
     "use_cases": [
       {
-        "title": "New project architecture decisions",
-        "description": "When starting a new project and unsure about technology choices (React vs Vue, SQL vs NoSQL), explore both in parallel with real tests.",
-        "target_user": "Developers starting new projects"
+        "title": "Compare Architecture Choices",
+        "target_user": "Application developers",
+        "description": "Explore options such as storage engines, authentication models, or API styles before committing to one implementation."
       },
       {
-        "title": "Refactoring trade-offs",
-        "description": "Evaluate different refactoring approaches by implementing variants and comparing their test results and code quality.",
-        "target_user": "Engineers modernizing existing codebases"
+        "title": "Reduce Planning Deadlock",
+        "target_user": "Product engineers",
+        "description": "Move forward when several choices seem plausible by testing real variants instead of debating abstract tradeoffs."
       },
       {
-        "title": "Feature implementation alternatives",
-        "description": "Compare different implementation strategies for complex features by running parallel experiments.",
-        "target_user": "Full-stack developers"
+        "title": "Evaluate AI Coding Variants",
+        "target_user": "Technical leads",
+        "description": "Use scenario tests and review checkpoints to compare outputs from multiple implementation agents."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic trigger",
-        "prompt": "I want to build a CLI todo app. Can you help me get started?",
-        "scenario": "User requests to build something new"
+        "title": "Start With A Build Request",
+        "scenario": "Beginner workflow selection",
+        "prompt": "I want to build a small CLI todo app. Help me choose between brainstorming together and exploring several approaches in parallel."
       },
       {
-        "title": "Indecision scenario",
-        "prompt": "Should I use JSON files or SQLite for storage? I'm not sure which is better.",
-        "scenario": "User expresses uncertainty about a technical decision"
+        "title": "Explore One Unclear Decision",
+        "scenario": "Intermediate architecture comparison",
+        "prompt": "I am not sure whether this feature should use JSON files or SQLite. Use omakase-off to compare the approaches with tests."
       },
       {
-        "title": "Parallel exploration request",
-        "prompt": "I need to add authentication. Let's try both JWT and session-based approaches to see which works better.",
-        "scenario": "User explicitly wants to explore multiple approaches"
+        "title": "Plan Parallel Variants",
+        "scenario": "Advanced implementation planning",
+        "prompt": "Create parallel implementation plans for two authentication approaches, define shared scenarios, and prepare a comparison workflow."
       },
       {
-        "title": "Complex project setup",
-        "prompt": "Build me a full-stack React app with a Node backend. I'm open to different approaches for the database and API style.",
-        "scenario": "Complex project with multiple architectural decisions"
+        "title": "Judge Completed Variants",
+        "scenario": "Advanced evaluation and cleanup",
+        "prompt": "Review the completed variants, compare scenario results and code review findings, then recommend the winner and cleanup steps."
       }
     ],
     "output_examples": [
       {
-        "input": "I want to build a URL shortener service.",
-        "output": [
-          "Before we dive into the details, how would you like to approach this?",
-          "1. Brainstorm together - We'll explore requirements and design step by step",
-          "2. Omakase (chef's choice) - I'll generate multiple approaches, implement them in parallel, and let tests pick the winner"
-        ]
+        "input": "Build a dashboard, but I am unsure which frontend state approach to use.",
+        "output": "The assistant offers brainstorming or parallel exploration, identifies state management as the main decision, and proposes two tested variants."
       },
       {
-        "input": "I'm not sure whether to use REST or GraphQL for my API.",
-        "output": [
-          "You seem flexible on the API style. Want to explore both?",
-          "I can implement REST and GraphQL variants in parallel, then run the same scenarios against both to see which performs better."
-        ]
+        "input": "Try both SQLite and JSON storage for this CLI tool.",
+        "output": "The assistant creates separate variant plans, runs the same scenarios against each result, and summarizes which approach fits better."
+      },
+      {
+        "input": "Both implementations are done. Which one should we keep?",
+        "output": "The assistant compares tests, scenario results, review findings, and fitness criteria before recommending a winner."
       }
     ],
     "best_practices": [
-      "Let the skill detect indecision naturally during brainstorming rather than forcing parallel exploration upfront",
-      "Limit to 5-6 variants maximum to avoid combinatorial explosion",
-      "Always use scenario testing rather than manual verification for fair comparison"
+      "Keep variant count small and focus on the decision with the largest architectural impact.",
+      "Run the same scenario tests against every variant before comparing outcomes.",
+      "Confirm cleanup actions before deleting worktrees or branches."
     ],
     "anti_patterns": [
-      "Using omakase for trivial decisions like file naming or directory structure",
-      "Skipping cleanup of failed variant worktrees after selection",
-      "Running too many variants without focusing on the primary architectural axis"
+      "Do not explore every possible combination when one primary decision is enough.",
+      "Do not replace scenario testing with manual inspection alone.",
+      "Do not delete losing branches until useful changes have been reviewed."
     ],
     "faq": [
       {
-        "question": "What triggers omakase-off?",
-        "answer": "The skill triggers on phrases like 'build X', 'create Y', 'implement Z', 'add feature', 'try both approaches', or expressions of uncertainty like 'not sure which approach'."
+        "question": "What does this skill do?",
+        "answer": "It helps an AI assistant explore multiple implementation approaches in parallel and choose a tested winner."
       },
       {
-        "question": "How many variants can I explore?",
-        "answer": "The skill recommends a maximum of 5-6 variants. This prevents combinatorial explosion while still allowing meaningful comparison of different approaches."
+        "question": "When should I use it?",
+        "answer": "Use it when a build request has meaningful architecture uncertainty and several reasonable approaches exist."
       },
       {
-        "question": "How are variants tested?",
-        "answer": "All variants run the same scenario tests. The skill uses the scenario-testing skill to create end-to-end tests that run against all variants equally."
+        "question": "Does it write code by itself?",
+        "answer": "No. It provides a workflow for planning, dispatching, testing, reviewing, and comparing implementation variants."
       },
       {
-        "question": "What happens to the losing variants?",
-        "answer": "Losing variants are cleaned up by removing their git worktrees and branches. The result is documented in result.md for future reference."
+        "question": "Why does it mention git worktrees?",
+        "answer": "Worktrees isolate each variant so separate implementations can be built and tested without mixing changes."
       },
       {
-        "question": "Can I use this for small decisions?",
-        "answer": "No. The skill is designed for architectural decisions like storage engines or frameworks. Trivial decisions like file locations should be made normally."
+        "question": "Is it safe for production repositories?",
+        "answer": "Use caution. Review all generated changes and confirm branch cleanup before deleting any work."
       },
       {
-        "question": "What skills does this orchestrate?",
-        "answer": "It coordinates with brainstorming, writing-plans, git-worktrees, parallel-agents, scenario-testing, fresh-eyes, and finish-branch skills."
+        "question": "Does it require other skills?",
+        "answer": "It can use related brainstorming, testing, review, and branch-finishing skills, but it describes fallback steps."
       }
     ]
   },
