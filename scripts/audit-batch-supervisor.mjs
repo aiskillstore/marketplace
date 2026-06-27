@@ -17,7 +17,7 @@ const cutoffIso = process.env.FRESH_CUTOFF || '2026-06-27T11:00:00Z';
 const cutoffMs = Date.parse(cutoffIso);
 const batchSize = Number(process.env.BATCH_SIZE || getArg('--batch-size', '100'));
 const shardSize = Number(process.env.SHARD_SIZE || getArg('--shard-size', '25'));
-const maxParallel = Number(process.env.MAX_PARALLEL || getArg('--max-parallel', '2'));
+const maxParallel = Number(process.env.MAX_PARALLEL || getArg('--max-parallel', '4'));
 const pollSeconds = Number(process.env.POLL_SECONDS || getArg('--poll-seconds', '180'));
 const maxBatches = Number(process.env.MAX_BATCHES || getArg('--max-batches', '0'));
 const autoMerge = process.env.AUTO_MERGE === '1' || args.has('--auto-merge');
