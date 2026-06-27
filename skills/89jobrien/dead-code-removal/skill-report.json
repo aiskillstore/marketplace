@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T12:17:19.012Z",
+    "generated_at": "2026-06-27T18:25:51.709Z",
     "slug": "89jobrien-dead-code-removal",
     "source_url": "https://github.com/89jobrien/steve/tree/main/steve/skills/dead-code-removal",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "4e4588ad8f57062cc8de6267d0a93b49cb80f28e3005e61aa1769495257b7d50",
-    "tree_hash": "f06632c173a84160e1b5c5e2e1e29778bd4ce1d0aeb3c3cf7abd004eeba88201"
+    "tree_hash": "fac3f390d654abd06c7947b6f7e9e33bb6216b323ab2ad335883b9dfae93f341"
   },
   "skill": {
     "name": "dead-code-removal",
-    "description": "Detects and safely removes unused code (imports, functions, classes) across multiple languages. Use after refactoring, when removing features, or before production deployment. Includes safety checks and validation.",
-    "summary": "Detects and safely removes unused code (imports, functions, classes) across multiple languages. Use ...",
-    "icon": "🧹",
+    "description": "Detects unused imports, functions, and classes across common languages, then guides conservative removal with backups and validation.",
+    "summary": "Finds dead code and guides safe cleanup with dependency checks, backups, and validation.",
+    "icon": "📦",
     "version": "1.0.1",
     "author": "Joseph OBrien",
     "license": "MIT",
-    "category": "coding",
     "tags": [
-      "code cleanup",
+      "dead-code",
+      "code-cleanup",
       "refactoring",
-      "optimization",
-      "static analysis"
+      "static-analysis",
+      "maintenance"
     ],
     "supported_tools": [
       "claude",
@@ -33,22 +33,49 @@
     ],
     "risk_factors": [
       "scripts",
+      "external_commands",
       "filesystem"
-    ]
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate code cleanup tool with safe implementation. The Python helper script uses only AST parsing for static analysis. All static findings are false positives: 'cryptographic algorithm' flags are scanner errors, 'eval()' and 'import()' mentions are documentation about safety checks, and 'shell backtick' findings are markdown code examples. No network calls, no credential access, no dangerous runtime execution.",
+    "summary": "Static analysis flagged many high-risk patterns, but review found most are Markdown examples or safety rules rather than executable malicious logic. The skill still carries medium risk because it directs agents to modify source files, create repository backups, and run local validation commands.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
         "evidence": [
           {
-            "file": "scripts/find-unused-imports.py",
-            "line_start": 1,
-            "line_end": 109
+            "file": "SKILL.md",
+            "line_start": 135,
+            "line_end": 136
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 44
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 105,
+            "line_end": 108
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 165,
+            "line_end": 168
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 179,
+            "line_end": 191
           }
         ]
       },
@@ -56,160 +83,261 @@
         "factor": "filesystem",
         "evidence": [
           {
-            "file": "scripts/find-unused-imports.py",
-            "line_start": 48,
-            "line_end": 51
+            "file": "SKILL.md",
+            "line_start": 167,
+            "line_end": 167
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 3,
-    "total_lines": 648,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T12:17:19.012Z"
+    "medium_findings": [
+      {
+        "title": "Local Command Execution During Cleanup Workflow",
+        "description": "The skill instructs users to run helper, lint, build, and test commands. This is expected for code cleanup, but it can execute project-defined scripts and should be reviewed in untrusted repositories.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 44
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 105,
+            "line_end": 108
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 179,
+            "line_end": 191
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.74,
+        "confidence_reasoning": "The command examples are explicit and are part of the intended workflow. The risk is contextual because the commands are standard development commands, not evidence of malicious intent."
+      },
+      {
+        "title": "Repository Backup May Duplicate Sensitive Files",
+        "description": "The backup example copies the current working tree to a local backup directory. This can duplicate secrets, build artifacts, or large directories if users run it without exclusions.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 165,
+            "line_end": 168
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.68,
+        "confidence_reasoning": "The filesystem-copy command is directly shown in the skill instructions. It is a legitimate safety mechanism, but it can create local exposure or excessive storage use."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Dynamic Code Terms Are Safety Examples",
+        "description": "The eval and dynamic import references tell the agent not to remove code when dynamic usage is detected. They are not executable code in the skill content.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 135,
+            "line_end": 136
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.94,
+        "confidence_reasoning": "The terms appear under a Never Remove If section and describe preservation checks. No evidence found that the skill evaluates user-controlled code."
+      },
+      {
+        "title": "Static Keyword Matches Are Documentation False Positives",
+        "description": "The weak cryptography and network reconnaissance alerts are keyword matches in descriptive Markdown and output examples. No evidence found of cryptographic operations, scanning, or network access.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 5
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 16
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 38,
+            "line_end": 38
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 103,
+            "line_end": 103
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 233,
+            "line_end": 233
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.9,
+        "confidence_reasoning": "The cited lines describe the skill, helper scripts, or validation report text. They do not contain network reconnaissance behavior or weak cryptographic implementation."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Shell Command Substitution in Backup Path",
+        "description": "The backup example uses command substitution to create a timestamped directory name. This is common shell usage, but it is still shell execution in user workflows.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 165,
+            "line_end": 168
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.7,
+        "confidence_reasoning": "The shell pattern is present and intentional. It appears benign, but users should review it before running in sensitive worktrees."
+      },
+      {
+        "title": "Project Test and Build Commands",
+        "description": "The skill recommends running language-specific validation commands. These commands may trigger repository scripts, so users should inspect projects before execution.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 179,
+            "line_end": 191
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.72,
+        "confidence_reasoning": "The commands are visible and standard for development. Their risk depends on the repository being analyzed, especially package scripts and build hooks."
+      }
+    ],
+    "files_scanned": 2,
+    "total_lines": 435,
+    "audit_model": "codex",
+    "audited_at": "2026-06-27T18:25:51.709Z",
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
     "user_title": "Remove Dead Code Safely",
-    "value_statement": "Unused code bloats projects and increases maintenance costs. This skill detects unused imports, functions, and classes across multiple languages with safety checks that preserve critical code.",
+    "value_statement": "Unused code increases maintenance cost and hides defects. This skill guides conservative cleanup with dependency checks, backups, and validation steps.",
     "seo_keywords": [
-      "dead code removal",
-      "unused import detection",
-      "code cleanup",
-      "Claude Code skill",
-      "code refactoring",
-      "static analysis",
-      "code optimization",
-      "bundle size reduction",
-      "code quality",
-      "Claude"
+      "Claude dead code removal",
+      "Codex dead code cleanup",
+      "Claude Code refactoring",
+      "unused imports",
+      "unused functions",
+      "safe code cleanup",
+      "static analysis skill",
+      "repository maintenance",
+      "codebase optimization",
+      "refactoring assistant"
     ],
     "actual_capabilities": [
-      "Detects unused imports in Python files using AST parsing",
-      "Identifies unused functions and classes across codebases",
-      "Builds dependency graphs to map code relationships",
-      "Preserves framework patterns and entry points",
-      "Creates backups before removing code",
-      "Validates changes with syntax checks"
+      "Identifies likely unused imports, functions, and classes across common project structures.",
+      "Maps entry points, dependency paths, framework hooks, and test files before removal.",
+      "Uses a Python AST helper for unused import analysis in Python files.",
+      "Preserves code with dynamic usage patterns, framework registrations, or public API signals.",
+      "Guides incremental removals with backups, syntax checks, tests, and rollback steps.",
+      "Reports removed and preserved items with reasons and impact metrics."
     ],
     "limitations": [
-      "Does not execute code or run tests automatically",
-      "Cannot detect dynamically referenced code in all cases",
-      "Limited to languages with static analysis support",
-      "May miss runtime-only references without full context"
+      "Cannot prove runtime reachability for all dynamic language patterns.",
+      "Requires project tests or build commands for reliable validation.",
+      "May preserve code that appears unused but is loaded by configuration or reflection.",
+      "May require human review before removing exported APIs or generated files."
     ],
     "use_cases": [
       {
-        "target_user": "Software Developers",
-        "title": "Clean Up After Refactoring",
-        "description": "Remove unused code left behind after feature development or refactoring sessions."
+        "title": "Clean Refactored Services",
+        "target_user": "Backend engineer",
+        "description": "Find unused imports and helper functions after service refactoring, then remove only items validated by tests."
       },
       {
-        "target_user": "DevOps Engineers",
-        "title": "Reduce Bundle Size",
-        "description": "Identify and remove dead code before deployment to reduce bundle size and improve performance."
+        "title": "Prepare Release Branches",
+        "target_user": "Release manager",
+        "description": "Review stale code before deployment to reduce maintenance burden and avoid shipping unused paths."
       },
       {
-        "target_user": "Code Reviewers",
-        "title": "Maintain Code Quality",
-        "description": "Find and report unused code during code reviews to keep the codebase lean."
+        "title": "Modernize Legacy Modules",
+        "target_user": "Maintenance team",
+        "description": "Audit older modules for abandoned functions while preserving framework hooks, migrations, and public interfaces."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Cleanup",
-        "scenario": "Remove all unused code",
-        "prompt": "Find and remove all unused imports and functions in this project. Use conservative mode and create a backup first."
+        "title": "Find Unused Imports",
+        "scenario": "Beginner cleanup in a small Python module",
+        "prompt": "Find unused imports in the current Python files. Report what is safe to remove before making changes."
       },
       {
-        "title": "Specific Directory",
-        "scenario": "Clean a specific folder",
-        "prompt": "Clean up dead code in the src/utils/ directory. Identify unused imports and functions but ask before removing."
+        "title": "Clean One Directory",
+        "scenario": "Conservative cleanup in one source folder",
+        "prompt": "Analyze src/ for unused imports and functions. Preserve tests, framework hooks, dynamic references, and exported APIs."
       },
       {
-        "title": "Import Analysis",
-        "scenario": "Find unused imports",
-        "prompt": "Use the find-unused-imports.py script to analyze src/ and find all unused imports. Show me the results."
+        "title": "Refactor Validation Pass",
+        "scenario": "Post-refactor cleanup with tests",
+        "prompt": "After this refactor, identify dead code, remove it incrementally, and run the available syntax checks and tests after each step."
       },
       {
-        "title": "Safety Review",
-        "scenario": "Safe removal with checks",
-        "prompt": "Analyze the codebase for unused code. Apply safety checks for dynamic usage patterns like getattr, eval, and dynamic imports before removing anything."
+        "title": "Full Audit With Risk Review",
+        "scenario": "Advanced repository cleanup before release",
+        "prompt": "Audit the repository for dead code. Build an entry point map, explain preserved items, create a backup plan, and propose validated removals."
       }
     ],
     "output_examples": [
       {
-        "input": "Remove unused imports and functions from src/utils/helpers.py",
-        "output": [
-          "Analysis of src/utils/helpers.py:",
-          "- 8 imports found, 3 unused",
-          "- Unused: os (line 2), json (line 3), timedelta (line 5)",
-          "- 2 functions analyzed, 0 unused",
-          "- Safe to remove: All 3 imports",
-          "Validation: Syntax check passed, no dynamic usage detected"
-        ]
+        "input": "Clean unused imports in a utility module.",
+        "output": "The skill reports total imports, names the unused imports, explains why each is safe, and confirms syntax and tests after removal."
       },
       {
-        "input": "Clean up the entire src/services/ directory",
-        "output": [
-          "Analyzed 12 files in src/services/",
-          "- 45 functions found, 2 unused",
-          "- formatOldDate() is safe to remove (no references)",
-          "- legacyAuth() preserved - referenced in routes",
-          "- Created backup: unused_code_backup_20251215_143022",
-          "Recommend: Remove formatOldDate() only after tests pass"
-        ]
+        "input": "Find unused service functions after a feature removal.",
+        "output": "The skill separates removable functions from preserved framework or route references, then summarizes removed lines and validation status."
       },
       {
-        "input": "Find all unused imports in the Python files",
-        "output": [
-          "Running find-unused-imports.py on 15 files:",
-          "Results: 23 unused imports found",
-          "- utils.py: 4 unused (os, json, re, datetime)",
-          "- auth.py: 2 unused (uuid, hashlib)",
-          "- models.py: 1 unused (typing)",
-          "- Run with --remove to auto-clean or review manually"
-        ]
+        "input": "Audit a release branch for dead code.",
+        "output": "The skill produces a cleanup report with analyzed areas, preserved entry points, recommended removals, and commands used for validation."
       }
     ],
     "best_practices": [
-      "Always run tests after removing code to verify nothing breaks",
-      "Create backups before batch removals to enable quick rollback",
-      "Preserve framework patterns like routes, components, and controllers"
+      "Run dead code removal on a clean branch with version control available.",
+      "Review every proposed removal before applying changes to exported or framework-managed code.",
+      "Run syntax checks, tests, and builds after each small cleanup batch."
     ],
     "anti_patterns": [
-      "Removing code without understanding its purpose or dependencies",
-      "Skipping safety checks for dynamic usage patterns",
-      "Batch removing without incremental validation"
+      "Do not remove code only because it lacks direct text references.",
+      "Do not run project scripts from an untrusted repository without inspection.",
+      "Do not clean generated files, migrations, or public APIs without owner approval."
     ],
     "faq": [
       {
-        "question": "Which languages does this skill support?",
-        "answer": "Python, JavaScript, TypeScript, Java, Go, and Rust with language-specific detection patterns."
+        "question": "Does this skill delete code automatically?",
+        "answer": "It guides incremental removals and validation. Users should approve risky changes before they are applied."
       },
       {
-        "question": "What safety checks are performed before removal?",
-        "answer": "Checks for dynamic imports, reflection usage, framework patterns, and entry point references."
+        "question": "Which languages are covered?",
+        "answer": "The guidance covers Python, JavaScript, TypeScript, Java, Go, and Rust project patterns."
       },
       {
-        "question": "Does this skill modify files directly?",
-        "answer": "The skill recommends changes and creates backups but prompts before applying removals."
+        "question": "Can it detect dynamic runtime usage?",
+        "answer": "It checks common dynamic patterns, but runtime behavior can still require human review."
       },
       {
-        "question": "Is my code data safe?",
-        "answer": "The skill only reads files for analysis. No data is sent externally or stored beyond local backups."
+        "question": "Why does it create backups?",
+        "answer": "Backups support rollback when cleanup breaks tests or removes code that is still needed."
       },
       {
-        "question": "What happens if removal breaks my code?",
-        "answer": "Backups are created before changes. You can restore from the backup directory if issues occur."
+        "question": "Is it safe for untrusted repositories?",
+        "answer": "Use caution. The skill recommends running local commands, and project scripts can execute arbitrary repository code."
       },
       {
-        "question": "How is this different from linters?",
-        "answer": "This skill performs deeper dependency analysis across files, not just local syntax checks."
+        "question": "Will it remove tests or migrations?",
+        "answer": "The skill explicitly preserves test files, migrations, framework hooks, and other high-risk patterns."
       }
     ]
   },

@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T13:02:18.457Z",
+    "generated_at": "2026-06-27T18:10:36.960Z",
     "slug": "92bilal26-quiz-generator",
     "source_url": "https://github.com/92Bilal26/TaskPilotAI/tree/main/.claude/skills/quiz-generator",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "1bf2613824dc6352f6514227135b89006a38108fea040756d19ab9165777bf66",
-    "tree_hash": "b934b0930828ffb3ac6bafa02e534a217dfb2ab36fc3c375003632ef3431b89d"
+    "tree_hash": "3b711352ba1ccb18197bc2dce93f0752e607bfe0220a5db49bbfa1f1bcf01677"
   },
   "skill": {
     "name": "quiz-generator",
-    "description": "Generate 50-question interactive quizzes using the Quiz component with randomized batching.\nUse when creating end-of-chapter assessments. Displays 15-20 questions per session with\nimmediate feedback. NOT for static markdown quizzes.\n",
-    "summary": "Generate 50-question interactive quizzes using the Quiz component with randomized batching.\nUse when...",
-    "icon": "📝",
+    "description": "Generate 50-question interactive quizzes with balanced answer distribution, immediate feedback, source attribution, and validation checklists for chapter assessments.",
+    "summary": "Creates balanced interactive chapter quizzes with feedback and quality checks.",
+    "icon": "📦",
     "version": "5.0.0",
     "author": "92Bilal26",
     "license": "MIT",
-    "category": "documentation",
     "tags": [
-      "quiz",
+      "quiz-generation",
+      "assessment-design",
       "education",
-      "assessment",
-      "testing"
+      "interactive-content",
+      "quality-review"
     ],
     "supported_tools": [
       "claude",
@@ -32,33 +32,29 @@
       "claude-code"
     ],
     "risk_factors": [
-      "external_commands",
+      "scripts",
       "filesystem"
-    ]
+    ],
+    "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a legitimate educational quiz generation skill. All 415 static findings are FALSE POSITIVES caused by the scanner detecting backticks in markdown documentation (code formatting) and generic security terms in educational context. The Python scripts only perform safe file parsing and text manipulation for local quiz files. No network access, credential handling, or system modification capabilities exist.",
+    "summary": "Static analysis produced many high-severity hits, but the Markdown hits are false positives caused by code fences, inline examples, and educational quiz text. The real risk is moderate: bundled Python scripts can rewrite a user-supplied quiz file, and the skill instructs agents to run them with Bash/Write access.",
     "risk_factor_evidence": [
       {
-        "factor": "external_commands",
+        "factor": "scripts",
         "evidence": [
           {
-            "file": "references/answer-distribution.md",
-            "line_start": 19,
-            "line_end": 19
-          },
-          {
-            "file": "references/SKILL.md",
-            "line_start": 16,
-            "line_end": 16
-          },
-          {
-            "file": "references/*.md",
+            "file": "scripts/redistribute_answers.py",
             "line_start": 1,
-            "line_end": 400
+            "line_end": 12
+          },
+          {
+            "file": "scripts/redistribute_answers_v2.py",
+            "line_start": 1,
+            "line_end": 19
           }
         ]
       },
@@ -66,154 +62,280 @@
         "factor": "filesystem",
         "evidence": [
           {
-            "file": "scripts/redistribute_answers_v2.py",
-            "line_start": 419,
-            "line_end": 419
+            "file": "scripts/redistribute_answers.py",
+            "line_start": 123,
+            "line_end": 221
           },
           {
-            "file": "scripts/redistribute_answers.py",
-            "line_start": 220,
-            "line_end": 220
+            "file": "scripts/redistribute_answers_v2.py",
+            "line_start": 293,
+            "line_end": 420
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 12,
-    "total_lines": 4039,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T13:02:18.457Z"
+    "medium_findings": [
+      {
+        "title": "User-Supplied File Rewrite Script",
+        "description": "The bundled redistribution scripts read a path from command-line input and write modified quiz content back to that same path. This is intended behavior for quiz files, but a mistaken or malicious invocation could overwrite another local Markdown-like file because the script does not restrict paths to a project quiz directory.",
+        "locations": [
+          {
+            "file": "scripts/redistribute_answers.py",
+            "line_start": 123,
+            "line_end": 221
+          },
+          {
+            "file": "scripts/redistribute_answers_v2.py",
+            "line_start": 293,
+            "line_end": 420
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "The write operation is direct and uses a command-line file path. The behavior is legitimate for this skill, but the absence of path constraints creates a real local file modification risk."
+      },
+      {
+        "title": "Bash and Write Tooling Required for Normal Use",
+        "description": "The skill declares Bash and Write access and tells the agent to run the redistribution script after quiz generation. This is not malicious, but it expands the impact of bad input or an incorrect path because normal operation includes local command execution and file writes.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 1,
+            "line_end": 7
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 141,
+            "line_end": 143
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 225,
+            "line_end": 225
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.72,
+        "confidence_reasoning": "The declared tools and run instructions are explicit in the skill file. The risk depends on runtime use, so confidence is high for capability exposure but not for malicious intent."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Markdown Backticks Misclassified as Shell Execution",
+        "description": "The external command findings in Markdown files are false positives. The flagged content is fenced code, inline formatting, filenames, checklist examples, or answer-distribution examples rather than Ruby or shell execution.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 25
+          },
+          {
+            "file": "references/answer-distribution.md",
+            "line_start": 19,
+            "line_end": 26
+          },
+          {
+            "file": "references/file-naming.md",
+            "line_start": 9,
+            "line_end": 15
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.96,
+        "confidence_reasoning": "The cited locations are Markdown fences or inline code markers. They are not executable Ruby backticks and do not create a command injection path."
+      },
+      {
+        "title": "Security Keywords in Educational Quiz Text",
+        "description": "The SAM, weak-crypto, C2, and reconnaissance static hits are false positives from educational prose and spreadsheet formulas. No evidence found that these lines access sensitive files, implement cryptography, contact command-and-control infrastructure, or perform reconnaissance.",
+        "locations": [
+          {
+            "file": "references/example-quiz.md",
+            "line_start": 22,
+            "line_end": 33
+          },
+          {
+            "file": "references/example-quiz.md",
+            "line_start": 77,
+            "line_end": 99
+          },
+          {
+            "file": "references/option-length-validation.md",
+            "line_start": 229,
+            "line_end": 229
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.93,
+        "confidence_reasoning": "The lines are sample quiz explanations and a spreadsheet range formula. The scanner appears to match substrings such as SAME or MIN rather than dangerous behavior."
+      },
+      {
+        "title": "Unused Subprocess Import and Comment",
+        "description": "The v2 script imports subprocess and comments about calling Claude from the command line, but no subprocess call is present in the implementation. This should be cleaned up to reduce reviewer concern, but no command execution path was found.",
+        "locations": [
+          {
+            "file": "scripts/redistribute_answers_v2.py",
+            "line_start": 19,
+            "line_end": 19
+          },
+          {
+            "file": "scripts/redistribute_answers_v2.py",
+            "line_start": 167,
+            "line_end": 176
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.58,
+        "confidence_reasoning": "The import and comment are suspicious in isolation, but the inspected code path falls back to local string replacement and does not call subprocess."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Local File Overwrite via Script Argument",
+        "description": "Both redistribution scripts accept a path argument and write rewritten quiz content to that path. Users should review the target path before running the script.",
+        "locations": [
+          {
+            "file": "scripts/redistribute_answers.py",
+            "line_start": 219,
+            "line_end": 221
+          },
+          {
+            "file": "scripts/redistribute_answers_v2.py",
+            "line_start": 418,
+            "line_end": 420
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The write calls are direct and confirmed. The behavior is expected, but it is still a dangerous pattern when combined with arbitrary path input."
+      }
+    ],
+    "files_scanned": 11,
+    "total_lines": 3797,
+    "audit_model": "codex",
+    "audited_at": "2026-06-27T18:10:36.960Z",
+    "risk_factors": [
+      "scripts",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Generate 50-question conceptual quizzes",
-    "value_statement": "Creating assessment questions that test understanding requires significant effort. This skill provides a structured methodology to generate 50 college-level conceptual questions with balanced answer distribution, equal-length options, and immediate feedback explanations.",
+    "user_title": "Create Balanced Interactive Quizzes",
+    "value_statement": "Long chapter quizzes are hard to keep fair, complete, and consistent. This skill guides Claude, Codex, and Claude Code to build interactive quiz banks with balanced answers and review checks.",
     "seo_keywords": [
-      "quiz generator",
-      "assessment questions",
-      "multiple choice quiz",
+      "Claude quiz generator",
+      "Codex quiz generator",
+      "Claude Code quiz generator",
+      "interactive quiz creation",
+      "assessment design",
+      "chapter quiz builder",
+      "answer distribution",
       "educational content",
-      "Claude Code",
-      "Claude",
-      "Codex",
-      "test creation",
-      "quiz maker",
-      "education assessment"
+      "quiz quality checklist",
+      "conceptual questions"
     ],
     "actual_capabilities": [
-      "Generate 50 conceptual questions per chapter at Apply level or higher",
-      "Balance answer distribution across 4 options (12-13 per index)",
-      "Validate option lengths within ±3 words to prevent guessing",
-      "Format quizzes for the Quiz component with JSX syntax",
-      "Redistribute answers using provided Python scripts"
+      "Generates 50-question chapter quiz banks for an existing Quiz component format.",
+      "Prompts for conceptual questions that test application rather than recall.",
+      "Balances correct answers across option indices using documented A-H sequences.",
+      "Requires immediate feedback explanations that address correct and incorrect options.",
+      "Adds source attribution for each question to connect answers back to lessons.",
+      "Provides checklists for option length, naming, formatting, and distribution review."
     ],
     "limitations": [
-      "Does not access lesson content automatically - questions must be authored manually",
-      "Does not validate technical accuracy against source material",
-      "Does not test the Quiz component rendering",
-      "Requires manual word count verification for all options"
+      "Assumes the project already has a compatible Quiz component.",
+      "The redistribution scripts are designed for the documented quiz structure only.",
+      "Option length validation still requires manual counting and review.",
+      "Generated questions need subject-matter review before student use."
     ],
     "use_cases": [
       {
-        "target_user": "Course Developers",
-        "title": "End-of-chapter assessments",
-        "description": "Create comprehensive 50-question quizzes to evaluate student understanding after completing chapter material."
+        "title": "Build a Course Chapter Quiz",
+        "target_user": "Instructional designer",
+        "description": "Create a 50-question quiz from lesson material with conceptual questions, feedback, and lesson source references."
       },
       {
-        "target_user": "Technical Writers",
-        "title": "Documentation quality checks",
-        "description": "Generate quizzes to verify documentation clarity and identify topics needing additional explanation."
+        "title": "Normalize Answer Distribution",
+        "target_user": "Curriculum engineer",
+        "description": "Reorder correct answers so students cannot infer answers from repeated positions or simple patterns."
       },
       {
-        "target_user": "Instructional Designers",
-        "title": "Spaced repetition banks",
-        "description": "Build large question banks enabling repeated practice with different question batches each session."
+        "title": "Review Assessment Quality",
+        "target_user": "Teacher or reviewer",
+        "description": "Check option length parity, explanation quality, component formatting, and file naming before publishing."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic quiz request",
-        "scenario": "Generate a simple quiz",
-        "prompt": "Generate a 50-question conceptual quiz for Chapter [X] on [topic]. Follow the Quiz Generator skill guidelines with 75%+ Apply level questions, balanced answer distribution, and 100-150 word explanations."
+        "title": "Generate a Basic Quiz",
+        "scenario": "Beginner prompt for a single chapter",
+        "prompt": "Create a 50-question interactive quiz for Chapter [number]: [topic]. Use the Quiz component format, four options per question, immediate feedback, and lesson source labels."
       },
       {
-        "title": "Detailed quiz request",
-        "scenario": "Add specific requirements",
-        "prompt": "Create a 50-question quiz for Chapter [X] covering [specific lessons/topics]. Ensure each question tests understanding, not recall. Include source attribution for each question. Verify all options are within ±3 words."
+        "title": "Improve Conceptual Depth",
+        "scenario": "Refine a draft that has too many recall questions",
+        "prompt": "Review this draft quiz and rewrite recall questions into application-based scenarios. Keep the same chapter scope and maintain four balanced options per question."
       },
       {
-        "title": "Quiz with distribution",
-        "scenario": "Specific answer patterns",
-        "prompt": "Generate 50 questions where correct answers follow Sequence [A-H] for even distribution (12-13 per option). Format for Quiz component. Include comprehensive explanations addressing all distractors."
+        "title": "Validate Distribution and Length",
+        "scenario": "Quality check before publishing",
+        "prompt": "Audit this quiz for answer distribution, option length spread, repeated correct-answer positions, source fields, and explanation completeness. List only required fixes."
       },
       {
-        "title": "Validation request",
-        "scenario": "Review existing quiz",
-        "prompt": "Review the attached quiz file against the quality checklist. Verify: 50 questions, correctOption indices 0-3, 12-13 per option, all options within ±3 words, source field on all 50, and 100-150 word explanations."
+        "title": "Finalize a Production Quiz",
+        "scenario": "Advanced prompt for a complete publish-ready pass",
+        "prompt": "Create a final chapter quiz package from these lessons. Generate 50 questions, apply an A-H distribution sequence, verify option parity, and provide a concise handoff checklist."
       }
     ],
     "output_examples": [
       {
-        "input": "Generate a 10-question conceptual quiz on Python variables",
-        "output": [
-          "Q1: After running name = 'Alice'; name = 'Bob', what happens to memory?",
-          "  A: Alice string is deleted immediately",
-          "  B: Both strings remain in memory; name now points to Bob",
-          "  C: Memory location is overwritten in place",
-          "  D: Reference count drops to zero",
-          "  Answer: B - Python creates new string objects; old values persist until garbage collection",
-          "  Source: Lesson 1: Understanding Variables"
-        ]
+        "input": "Chapter on Python variables and data types",
+        "output": "A chapter assessment with scenario-based questions, four plausible options, balanced correct answers, and feedback that explains the concept behind each choice."
       },
       {
-        "input": "Create a quiz on floating-point precision",
-        "output": [
-          "Q1: You write x = 1.1 + 2.2. When printing x, you see 3.3000000000000003. Why?",
-          "  A: Python has a bug in floating-point arithmetic",
-          "  B: Print function adds extra precision",
-          "  C: Use Decimal module for all math",
-          "  D: Binary representation causes rounding errors",
-          "  Answer: D - Floating-point numbers are IEEE 754 binary; some decimals cannot be represented exactly"
-        ]
+        "input": "Draft quiz with too many correct answers in option C",
+        "output": "A revised quiz plan that redistributes correct answers, identifies explanations needing updates, and flags any repeated answer-position patterns."
+      },
+      {
+        "input": "Quiz ready for publication review",
+        "output": "A checklist report covering question count, source labels, option length parity, answer distribution, component format, and filename convention."
       }
     ],
     "best_practices": [
-      "Always verify answer distribution manually (12-13 per option for 50 questions)",
-      "Count words for all options in every question to ensure ±3 word range",
-      "Include source attribution in Lesson N: Title format for every question"
+      "Provide the full chapter lessons so questions cover every major concept.",
+      "Run a manual review after redistribution to confirm explanations still match answers.",
+      "Keep each option similar in length so students cannot guess from wording patterns."
     ],
     "anti_patterns": [
-      "Using 1-4 indices instead of 0-3 for correctOption",
-      "Accepting uneven answer distribution (allows pattern guessing)",
-      "Creating questions that test recall instead of understanding"
+      "Do not use the skill for static Markdown quizzes without the expected Quiz component.",
+      "Do not publish generated questions without expert review for accuracy and fairness.",
+      "Do not run redistribution scripts on files outside the intended quiz path."
     ],
     "faq": [
       {
-        "question": "What question count is required?",
-        "answer": "Exactly 50 questions. This enables batching (15-20 per session) and meaningful retakes with new content each time."
+        "question": "Does this skill create static quizzes?",
+        "answer": "No. It targets interactive quizzes that use the documented Quiz component."
       },
       {
-        "question": "How are answers distributed?",
-        "answer": "Each option (0-3) should appear 12-13 times. No 3+ consecutive same answers. Use redistribution scripts for even patterns."
+        "question": "How many questions does it expect?",
+        "answer": "It is designed for 50-question banks, with 15 to 20 questions shown per session."
       },
       {
-        "question": "What option length rule applies?",
-        "answer": "All 4 options must be within ±3 words of each other. Manually count words for all 50 questions."
+        "question": "Can it balance answer choices?",
+        "answer": "Yes. It includes answer distribution guidance and scripts for A-H sequence balancing."
       },
       {
-        "question": "Is data stored or transmitted?",
-        "answer": "No. This is a prompt-based skill. Quiz content exists only in your conversation and files you create."
+        "question": "Does it verify subject accuracy?",
+        "answer": "No. It structures and reviews quizzes, but subject experts must verify correctness."
       },
       {
-        "question": "Why do my quizzes fail validation?",
-        "answer": "Common issues: wrong index values (use 0-3 not 1-4), missing source fields, uneven distribution, or options exceeding ±3 word range."
+        "question": "Why are option lengths checked?",
+        "answer": "Similar option lengths reduce guessing based on unusually long or short answers."
       },
       {
-        "question": "How is this different from other quiz tools?",
-        "answer": "Focuses on conceptual understanding (Apply/Analyze levels), includes immediate feedback with comprehensive explanations, and enables spaced repetition through batching."
+        "question": "Is it safe to run the included scripts?",
+        "answer": "Use care. The scripts rewrite the file path you provide, so confirm the target file first."
       }
     ]
   },

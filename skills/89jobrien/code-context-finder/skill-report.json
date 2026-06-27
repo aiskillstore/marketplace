@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T12:01:57.192Z",
+    "generated_at": "2026-06-27T18:13:26.132Z",
     "slug": "89jobrien-code-context-finder",
     "source_url": "https://github.com/89jobrien/steve/tree/main/steve/skills/code-context-finder",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "93ea0073290a508d9005e7fd61735cb9ee3fd379672e6f8e6666a2fe2b90c661",
-    "tree_hash": "8b931eea89b41ecb054e7769a705002eabadfaf6cbf8b0ff45f1992c83b5f212"
+    "tree_hash": "3264965e8080e4e857c29a1fcea09ca2c314e10f5dd3b720ed85165dfa5bc9f1"
   },
   "skill": {
     "name": "code-context-finder",
-    "description": "Automatically find relevant context from knowledge graph and code relationships while coding. Detects when context would be helpful (new files, unfamiliar code, architectural decisions) and surfaces related entities, prior decisions, and code dependencies.",
-    "summary": "Automatically find relevant context from knowledge graph and code relationships while coding. Detect...",
-    "icon": "🔍",
+    "description": "Find relevant coding context by combining memory graph lookups with local code relationship analysis for imports, callers, tests, and prior decisions.",
+    "summary": "Surfaces related code, tests, and memory context before edits.",
+    "icon": "📦",
     "version": "1.0.1",
     "author": "Joseph OBrien",
     "license": "MIT",
-    "category": "coding",
     "tags": [
-      "code-analysis",
-      "context",
+      "code-search",
+      "context-discovery",
+      "impact-analysis",
       "knowledge-graph",
-      "relationships"
+      "refactoring"
     ],
     "supported_tools": [
       "claude",
@@ -33,14 +33,17 @@
     ],
     "risk_factors": [
       "scripts",
-      "filesystem"
-    ]
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This skill is a documentation-based prompt system with a local Python analysis script. The static scanner flagged 139 issues, but all are false positives stemming from pattern matching on documentation examples. The Python script (scripts/find-code-relationships.py) uses safe pathlib and regex operations for file analysis, with no subprocess calls, network access, or credential handling. The markdown reference files contain grep command examples (documentation, not code). The critical heuristic flagging 'Code execution + Network + Credential access' is incorrect as none of these capabilities exist in the actual code.",
+    "summary": "Static analysis found many command, network, weak-crypto, and sensitive-file patterns, but most are markdown examples or search strings rather than executable behavior. The confirmed risks are legitimate local file traversal and suggested shell searches that can expose sensitive project context, so publication is acceptable with a medium warning.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
@@ -48,7 +51,12 @@
           {
             "file": "scripts/find-code-relationships.py",
             "line_start": 1,
-            "line_end": 210
+            "line_end": 14
+          },
+          {
+            "file": "scripts/find-code-relationships.py",
+            "line_start": 187,
+            "line_end": 209
           }
         ]
       },
@@ -57,151 +65,314 @@
         "evidence": [
           {
             "file": "scripts/find-code-relationships.py",
+            "line_start": 33,
+            "line_end": 48
+          },
+          {
+            "file": "scripts/find-code-relationships.py",
             "line_start": 62,
-            "line_end": 77
+            "line_end": 76
+          },
+          {
+            "file": "scripts/find-code-relationships.py",
+            "line_start": 106,
+            "line_end": 122
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "references/detection-triggers.md",
+            "line_start": 44,
+            "line_end": 50
+          },
+          {
+            "file": "references/search-patterns.md",
+            "line_start": 101,
+            "line_end": 108
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 80,
+            "line_end": 93
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 130,
+            "line_end": 138
+          },
+          {
+            "file": "references/search-patterns.md",
+            "line_start": 19,
+            "line_end": 52
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 5,
-    "total_lines": 984,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T12:01:57.191Z"
+    "medium_findings": [
+      {
+        "title": "Broad Local File Inspection Can Surface Sensitive Context",
+        "description": "The skill intentionally guides agents to inspect configuration files, environment-file references, and project files. This supports code context discovery, but it can expose secrets or sensitive deployment details to the AI session if used on unrestricted repositories.",
+        "locations": [
+          {
+            "file": "references/detection-triggers.md",
+            "line_start": 44,
+            "line_end": 50
+          },
+          {
+            "file": "references/search-patterns.md",
+            "line_start": 101,
+            "line_end": 108
+          },
+          {
+            "file": "scripts/find-code-relationships.py",
+            "line_start": 62,
+            "line_end": 76
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The referenced lines explicitly target config and .env-style files, and the helper recursively reads files under the selected root. This is a real privacy risk, but it appears tied to legitimate local analysis rather than exfiltration."
+      },
+      {
+        "title": "Agent-Run Shell Search Commands Require User Trust",
+        "description": "The documentation recommends grep, find, and xargs searches across the working tree. The examples are normal code-search operations, but they can read large amounts of local source and should be limited to trusted project directories.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 80,
+            "line_end": 93
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 130,
+            "line_end": 138
+          },
+          {
+            "file": "references/search-patterns.md",
+            "line_start": 19,
+            "line_end": 52
+          }
+        ],
+        "confidence": 0.76,
+        "confidence_reasoning": "The shell commands are documentation examples with placeholder search terms, not hidden execution. The confidence is high enough to warn because the workflow still asks an agent to run broad local searches."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Weak-Crypto and Code-Execution Alerts Are Documentation False Positives",
+        "description": "Several high and medium static alerts appear to match markdown examples, memory search names, and formatted output text rather than executable weak cryptography or dynamic code execution. No evidence found of cryptographic implementation or eval-style behavior in the reviewed files.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 124,
+            "line_end": 128
+          },
+          {
+            "file": "references/search-patterns.md",
+            "line_start": 135,
+            "line_end": 172
+          },
+          {
+            "file": "scripts/find-code-relationships.py",
+            "line_start": 151,
+            "line_end": 205
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The cited content is markdown guidance or output formatting, and the Python helper only parses files with pathlib and regex. I did not find code that performs cryptography or dynamic execution."
+      },
+      {
+        "title": "API Search Pattern Is Not Network Activity",
+        "description": "The network alert maps to a grep pattern for finding API calls in a target codebase. It is not an HTTP request made by the skill itself.",
+        "locations": [
+          {
+            "file": "references/search-patterns.md",
+            "line_start": 113,
+            "line_end": 119
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The line is inside a bash search-pattern block and contains grep text for fetch, axios, and requests. No actual network client is imported or called by the skill script."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Recursive Local File Reads",
+        "description": "The helper recursively walks the selected root and reads matching Python files to find imports, callers, and tests. This is expected behavior for the skill, but it can inspect sensitive local source if the root is too broad.",
+        "locations": [
+          {
+            "file": "scripts/find-code-relationships.py",
+            "line_start": 62,
+            "line_end": 76
+          },
+          {
+            "file": "scripts/find-code-relationships.py",
+            "line_start": 89,
+            "line_end": 101
+          },
+          {
+            "file": "scripts/find-code-relationships.py",
+            "line_start": 111,
+            "line_end": 120
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The filesystem traversal and read_text calls are explicit and central to the helper. The pattern is dangerous only when used outside trusted project scopes."
+      },
+      {
+        "title": "Broad Shell Search Guidance",
+        "description": "The skill gives shell command examples for grep, find, and xargs. These commands are useful for code search, but users should review scope before execution.",
+        "locations": [
+          {
+            "file": "references/search-patterns.md",
+            "line_start": 19,
+            "line_end": 52
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 80,
+            "line_end": 93
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The evidence is documentation rather than executed code, but the workflow can lead an agent to run local shell searches. No command injection vector was found in the provided examples."
+      }
+    ],
+    "files_scanned": 4,
+    "total_lines": 746,
+    "audit_model": "codex",
+    "audited_at": "2026-06-27T18:13:26.132Z",
+    "risk_factors": [
+      "scripts",
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Find code context and dependencies",
-    "value_statement": "Developers often lose context when working with unfamiliar code or making changes. This skill automatically detects when context would help and surfaces relevant knowledge graph entries, code relationships, dependencies, and tests.",
+    "user_title": "Find Code Context Before Editing",
+    "value_statement": "Developers often miss prior decisions, import relationships, and tests before changing unfamiliar code. This skill guides Claude, Codex, and Claude Code to gather memory context and local code impact details first.",
     "seo_keywords": [
-      "code context finder",
-      "code relationships",
-      "dependency analysis",
-      "Claude Code skill",
-      "knowledge graph",
-      "code search",
-      "import analysis",
-      "test discovery",
       "Claude",
-      "OpenAI Codex"
+      "Codex",
+      "Claude Code",
+      "code context finder",
+      "code relationship analysis",
+      "knowledge graph search",
+      "impact analysis",
+      "refactoring support",
+      "test discovery",
+      "developer productivity"
     ],
     "actual_capabilities": [
-      "Detect when code context would help (new files, refactoring, debugging)",
-      "Search knowledge graph for related entities and prior decisions",
-      "Find files that import or depend on a target module",
-      "Locate function callers and class usage patterns",
-      "Discover related test files for any module"
+      "Detects coding situations where extra context is useful, such as debugging, refactoring, or architectural planning.",
+      "Guides memory graph searches for related entities, decisions, project context, and ownership clues.",
+      "Provides command patterns for finding imports, callers, implementations, tests, routes, and configuration references.",
+      "Includes a Python helper that analyzes imports, dependents, callers, and tests for Python targets.",
+      "Recommends concise summaries that combine memory context with code relationship findings."
     ],
     "limitations": [
-      "Only analyzes Python files (other languages via grep patterns in documentation)",
-      "Does not write to knowledge graph (user must update manually)",
-      "Requires MCP memory server for knowledge graph features",
-      "Works within specified root directory only"
+      "The helper focuses on Python files and does not build full semantic call graphs for every language.",
+      "Memory graph quality depends on the available MCP memory data in the user environment.",
+      "Search examples may need adaptation for large monorepos, generated files, or nonstandard project layouts.",
+      "Broad searches can surface sensitive configuration details if used without scoping."
     ],
     "use_cases": [
       {
-        "target_user": "New team members",
-        "title": "Onboarding with context",
-        "description": "Understand unfamiliar code by seeing related entities, decisions, and dependencies before making changes."
+        "title": "Review an unfamiliar module",
+        "description": "Find the module purpose, imports, dependents, and tests before making the first change.",
+        "target_user": "Application developer"
       },
       {
-        "target_user": "Refactoring developers",
-        "title": "Safe refactoring",
-        "description": "Find all callers and dependents before changing shared modules to avoid breaking downstream code."
+        "title": "Assess refactor impact",
+        "description": "Identify callers, importers, and related tests before renaming or moving shared code.",
+        "target_user": "Tech lead"
       },
       {
-        "target_user": "Debugging engineers",
-        "title": "Error investigation",
-        "description": "Trace error patterns through related components using knowledge graph and code relationships."
+        "title": "Recover project rationale",
+        "description": "Search memory graph entries for prior decisions and connect them to current implementation work.",
+        "target_user": "Maintainer joining an existing project"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Quick context check",
-        "scenario": "Open unfamiliar file",
-        "prompt": "Find context for the file I am working on. Check the knowledge graph for related entities and find all files that import this module."
+        "title": "Find basic file context",
+        "scenario": "Beginner check before editing one file",
+        "prompt": "Use code-context-finder to summarize the purpose, imports, dependents, and tests for this file before I edit it."
       },
       {
-        "title": "Impact analysis",
-        "scenario": "Before making changes",
-        "prompt": "Show me all callers, dependents, and tests for [module_name]. What will break if I change this?"
+        "title": "Map a feature area",
+        "scenario": "Understand related code and memory graph context",
+        "prompt": "Use code-context-finder for this feature. Search memory for related decisions, then identify relevant files, callers, routes, and tests."
       },
       {
-        "title": "Debugging help",
-        "scenario": "Investigating errors",
-        "prompt": "Search the knowledge graph for similar errors or past issues. Find the code path to the affected component."
+        "title": "Plan a refactor safely",
+        "scenario": "Prepare impact analysis for shared code",
+        "prompt": "Use code-context-finder to analyze the impact of changing this module. Include direct dependents, likely indirect impacts, tests, and prior design context."
       },
       {
-        "title": "Architectural review",
-        "scenario": "Design decisions",
-        "prompt": "Find all architectural decisions related to [feature]. What patterns were established and why?"
+        "title": "Investigate an architectural change",
+        "scenario": "Advanced planning with historical rationale",
+        "prompt": "Use code-context-finder to compare this proposed architecture with existing patterns. Include memory graph decisions, similar implementations, dependencies, risks, and test gaps."
       }
     ],
     "output_examples": [
       {
-        "input": "Find context for the auth_service module",
-        "output": [
-          "Knowledge Graph: 3 entities found (auth_decision, user_session, security_pattern)",
-          "Imported By: 5 files (auth_handler.py:15, login_view.py:8, etc.)",
-          "Tests: test_auth_service.py (12 tests), integration_auth_test.py (3 tests)",
-          "Related Decision: Use JWT for session tokens (ADR-2024-001)"
-        ]
+        "input": "Find context for an unfamiliar authentication service before editing it.",
+        "output": "The response lists related memory entries, the service imports, files that import it, likely callers, and matching tests. It ends with focused review actions."
       },
       {
-        "input": "What files depend on the user model",
-        "output": [
-          "Direct dependents: 8 files (user_api.py:42, profile_service.py:15, etc.)",
-          "Indirect impact: 3 more files through transitive dependencies",
-          "Tests: test_user_model.py, test_user_api.py, integration_user_test.py"
-        ]
+        "input": "Assess the impact of renaming a shared helper function.",
+        "output": "The response identifies direct callers, dependent modules, relevant test files, and previous design notes that could affect the rename plan."
       },
       {
-        "input": "Find all callers of the process_payment function",
-        "output": [
-          "Function callers: 4 locations",
-          "checkout_handler.py:23 - calls in payment flow",
-          "order_service.py:89 - called for order completion",
-          "Test coverage: test_payment.py has 5 tests covering this function"
-        ]
+        "input": "Investigate a failing checkout flow with unknown ownership.",
+        "output": "The response connects error terms to memory graph entries, highlights related components, and lists files and tests to inspect first."
       }
     ],
     "best_practices": [
-      "Run context check before modifying any shared or core module",
-      "Update the knowledge graph when making architectural decisions",
-      "Review test coverage before refactoring to ensure safety"
+      "Scope searches to the project directory and avoid unrestricted roots.",
+      "Review memory graph context before changing architectural or shared code.",
+      "Summarize only the context needed for the current task to reduce noise."
     ],
     "anti_patterns": [
-      "Making changes without checking for dependent files first",
-      "Ignoring prior architectural decisions documented in knowledge graph",
-      "Modifying code without verifying test coverage exists"
+      "Do not run broad searches across home directories or unrelated repositories.",
+      "Do not paste secrets or full environment files into the AI conversation.",
+      "Do not treat grep results as a complete semantic dependency graph."
     ],
     "faq": [
       {
-        "question": "Which AI tools support this skill?",
-        "answer": "Works with Claude, Codex, and Claude Code. Requires MCP memory server for knowledge graph features."
+        "question": "Does this skill change code by itself?",
+        "answer": "No. It helps gather context before coding and can guide local relationship analysis."
       },
       {
-        "question": "What file types can it analyze?",
-        "answer": "The Python script analyzes Python files. The documentation includes grep patterns for TypeScript and JavaScript."
+        "question": "Which languages does the helper script support?",
+        "answer": "The included helper focuses on Python imports, callers, dependents, and tests."
       },
       {
-        "question": "Does it modify my codebase?",
-        "answer": "No. The skill only reads files and outputs information. It does not write to any files."
+        "question": "Can it use project memory?",
+        "answer": "Yes. It is designed to query MCP memory tools when they are available."
       },
       {
-        "question": "Is my code data safe?",
-        "answer": "Yes. All analysis runs locally. Code is read only and never sent to external services."
+        "question": "Does it make network requests?",
+        "answer": "No evidence found of network requests in the reviewed skill files."
       },
       {
-        "question": "Why is nothing being found?",
-        "answer": "Ensure you are in the project root directory. Check that MCP memory server is running for knowledge graph queries."
+        "question": "Why is the risk level medium?",
+        "answer": "The workflow can inspect local source and configuration references, which may expose sensitive project context."
       },
       {
-        "question": "How is this different from grep?",
-        "answer": "Combines grep-like search with knowledge graph context, automatically surfacing related decisions and tests."
+        "question": "How should teams use it safely?",
+        "answer": "Run it only in trusted project roots and avoid including secrets or unrelated directories in searches."
       }
     ]
   },
