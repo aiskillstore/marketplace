@@ -1,21 +1,21 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-21T14:50:07.616Z",
+    "generated_at": "2026-06-27T11:28:01.939Z",
     "slug": "0x6a77-create-svg-from-prompt",
     "source_url": "https://github.com/0x6a77/pelican-rides-a-bicycle/tree/main/.claude/skills/create-svg-from-prompt",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "30ce897b55c018dadb7c351404f5f7fed5dde538e797530e223dc824cba7f775",
-    "tree_hash": "83c7c6814912efb37572a60aad1dd6f189183c94b8ceac5feba6e3626bb08bcc"
+    "tree_hash": "f71dd4270d2dc8393cff57910febd9404ccab39c4d5293bd031c7b6dde33bd15"
   },
   "skill": {
     "name": "create-svg-from-prompt",
-    "description": "Generate an SVG of a user-requested image or scene",
-    "summary": "Generate SVG images from text prompts using Google Gemini and autotrace",
-    "icon": "🎨",
+    "description": "Creates SVG artwork from a text prompt by generating an image with Gemini and tracing it with autotrace.",
+    "summary": "Generate traced SVG images from text prompts through Gemini and autotrace.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "0x6a77",
     "license": "MIT",
@@ -23,7 +23,7 @@
     "tags": [
       "svg",
       "image-generation",
-      "vector-graphics",
+      "vector-art",
       "gemini",
       "autotrace"
     ],
@@ -33,35 +33,24 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
       "external_commands",
       "network",
       "env_access"
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "All static findings evaluated as false positives. The skill uses legitimate API calls to Google Gemini and standard CLI tools for SVG generation. Sudo commands are for dependency installation only. No malicious behavior detected.",
+    "safe_to_publish": false,
+    "summary": "The static findings for privileged shell commands, network access, and environment key handling are true positives. The weak cryptography findings appear to be false positives caused by base64 decoding, but the skill still presents high risk because it asks agents to install software with sudo, clone and build external source, and send prompts plus an API key to a third-party API.",
     "risk_factor_evidence": [
-      {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 8,
-            "line_end": 19
-          }
-        ]
-      },
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "SKILL.md",
             "line_start": 10,
-            "line_end": 19
+            "line_end": 18
           },
           {
             "file": "SKILL.md",
@@ -90,6 +79,11 @@
         "evidence": [
           {
             "file": "SKILL.md",
+            "line_start": 30,
+            "line_end": 30
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 34,
             "line_end": 34
           }
@@ -99,112 +93,105 @@
     "critical_findings": [],
     "high_findings": [
       {
-        "title": "Sudo command execution",
-        "description": "Sudo commands detected for installing autotrace dependency",
+        "title": "Privileged Source Build And Install",
+        "description": "The setup instructions run apt commands with sudo, clone autotrace from GitHub, build it locally, and run sudo make install. This can modify the host system and execute unreviewed build scripts with elevated privileges.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 11,
-            "line_end": 12
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 18,
+            "line_start": 10,
             "line_end": 18
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "reasoning": "Sudo commands are hardcoded for installing the autotrace dependency. This is legitimate setup behavior, not privilege escalation for malicious purposes."
+        "confidence": 0.93,
+        "confidence_reasoning": "The shell commands and sudo usage are explicit in the setup block. This is a direct operational risk even though it is not proof of malicious intent."
       },
       {
-        "title": "C2 keyword pattern match",
-        "description": "Pattern matching flagged internal JSON fields as C2 keywords",
-        "locations": [
-          {
-            "file": "skill-report.json",
-            "line_start": 12,
-            "line_end": 12
-          }
-        ],
-        "verdict": "FALSE_POSITIVE",
-        "reasoning": "Static scanner incorrectly flagged internal JSON field names and documentation text as C2 communication keywords. No actual command-and-control behavior exists."
-      },
-      {
-        "title": "Weak cryptographic algorithm",
-        "description": "Base64 encoding flagged as weak cryptographic algorithm",
+        "title": "External API Call With Environment API Key",
+        "description": "The workflow sends a generated image prompt to a Google Gemini endpoint using a Gemini API key from the environment. This exposes user prompt content to a third party and requires secret handling in an inline shell command.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 30,
-            "line_end": 30
-          }
-        ],
-        "verdict": "FALSE_POSITIVE",
-        "reasoning": "Base64 is encoding, not encryption. Used for decoding API image response data. Legitimate use case, not cryptographic weakness."
-      },
-      {
-        "title": "Environment variable access",
-        "description": "Accesses GEMINI_API_KEY from environment",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 34,
             "line_end": 34
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "reasoning": "Reads GEMINI_API_KEY for authenticating with Google Gemini API. This is standard OAuth pattern, not credential exfiltration."
+        "confidence": 0.91,
+        "confidence_reasoning": "The curl command, API endpoint, API key header, and environment variable source are explicit. The risk is clear, although using Gemini may be functionally intended."
+      },
+      {
+        "title": "Prompt-Derived Shell Substitution Risk",
+        "description": "The workflow places the user-derived image prompt and output file name into a long shell command. Without explicit quoting or validation rules, crafted prompt text or filenames could break command structure.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 30,
+            "line_end": 36
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The command includes placeholders populated from user request content. The file does not provide escaping, JSON construction, or filename validation safeguards."
       }
     ],
     "medium_findings": [
       {
-        "title": "Shell backtick execution pattern",
-        "description": "Backtick syntax detected in code examples",
+        "title": "Remote Response Piped Into Local Tooling",
+        "description": "The command decodes data from the API response and pipes it directly into autotrace. Malformed or unexpected image data could trigger parser bugs or resource exhaustion in local tooling.",
         "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 8,
-            "line_end": 8
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 10,
-            "line_end": 10
-          },
           {
             "file": "SKILL.md",
             "line_start": 30,
             "line_end": 30
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "reasoning": "Backticks are markdown code fence delimiters, not Ruby/shell execution. The shell command itself uses command substitution within the curl pipeline, which is expected behavior for parsing API responses."
+        "confidence": 0.76,
+        "confidence_reasoning": "The pipeline from network response to base64 decoding and autotrace is explicit. The impact depends on autotrace behavior and sandboxing, so confidence is high but not absolute."
       }
     ],
     "low_findings": [
       {
-        "title": "Hardcoded URLs",
-        "description": "GitHub and API URLs hardcoded in skill",
+        "title": "Weak Cryptography Static Findings Are False Positives",
+        "description": "The static weak cryptography findings appear related to base64 decoding and the Gemini model string, not to cryptographic hashing or encryption. No evidence found of a weak cryptographic algorithm being used for security.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 13,
-            "line_end": 13
-          },
-          {
-            "file": "SKILL.md",
             "line_start": 30,
-            "line_end": 30
+            "line_end": 35
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "reasoning": "Hardcoded URLs for autotrace GitHub repository and Google Gemini API are required for skill functionality. No suspicious external endpoints."
+        "confidence": 0.88,
+        "confidence_reasoning": "The visible file only shows base64 decoding for image data extraction. I did not find security-sensitive cryptographic operations in the skill file."
+      },
+      {
+        "title": "Markdown Backtick Execution Findings Are Partly False Positives",
+        "description": "Some Ruby or shell backtick findings point to Markdown inline code and fenced code formatting. The fenced shell commands are still real operational instructions, but the Markdown syntax itself is not Ruby command execution.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 8,
+            "line_end": 10
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The file is Markdown, not Ruby. The backticks mark code formatting, although the displayed commands remain relevant security evidence."
       }
     ],
     "dangerous_patterns": [
       {
-        "title": "Code execution with network access",
-        "description": "Heuristic flagged combination of shell commands and network requests",
+        "title": "Sudo Package Installation",
+        "description": "The setup block instructs the agent to update packages, install dependencies, and run make install with sudo. This grants broad host modification capability.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 11,
+            "line_end": 18
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The sudo commands are explicit and require elevated privileges. Their impact is inherent to the commands shown."
+      },
+      {
+        "title": "Shell Pipeline Combining Network, Secret, And Local Execution",
+        "description": "A single shell pipeline combines curl, an API key header, text extraction, base64 decoding, and autotrace processing. This creates a broad failure surface for secret exposure and command misuse.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -212,134 +199,135 @@
             "line_end": 30
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "reasoning": "This pattern is standard for API-based image generation tools. The curl command calls Google Gemini API to generate images, then pipes output to autotrace for vectorization. Legitimate use case, not malicious data exfiltration."
+        "confidence": 0.9,
+        "confidence_reasoning": "The combined command is directly visible in the workflow. It matches the static dangerous-combination heuristic with clear semantic support."
       }
     ],
-    "files_scanned": 2,
-    "total_lines": 538,
-    "audit_model": "claude",
-    "audited_at": "2026-01-21T14:50:07.616Z"
+    "files_scanned": 1,
+    "total_lines": 38,
+    "audit_model": "codex",
+    "audited_at": "2026-06-27T11:28:01.939Z",
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "env_access"
+    ]
   },
   "content": {
-    "user_title": "Create SVG Images from Text Prompts",
-    "value_statement": "This skill generates scalable vector graphics from natural language descriptions. Users describe what they want to see, and the skill uses AI to create SVG files.",
+    "user_title": "Create SVG Art From Text Prompts",
+    "value_statement": "Teams often need quick vector artwork without manual tracing. This skill describes a workflow that generates an image from a prompt and converts it into SVG form.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "SVG generator",
       "text to SVG",
-      "vector graphics",
-      "image conversion",
-      "autotrace",
-      "Google Gemini",
-      "AI image generation"
+      "AI vector art",
+      "Gemini image generation",
+      "autotrace workflow",
+      "prompt to image",
+      "design automation"
     ],
     "actual_capabilities": [
-      "Generate SVG images from text prompts using Google Gemini AI",
-      "Convert raster images to SVG format using autotrace",
-      "Transform natural language descriptions into vector graphics",
-      "Handle prompt modifications to optimize for image generation models",
-      "Save SVG output to user-specified filenames"
+      "Guides creation of SVG artwork from a user text prompt.",
+      "Uses Gemini image generation as the raster image source.",
+      "Uses autotrace to convert image output into SVG format.",
+      "Suggests prompt rewriting from SVG language to image language.",
+      "Defines an output filename based on the requested image."
     ],
     "limitations": [
-      "Requires valid GEMINI_API_KEY environment variable for API access",
-      "Requires autotrace CLI tool to be installed on the system",
-      "Output quality depends on Gemini model interpretation of prompts",
-      "Complex images may produce less detailed SVG results"
+      "Requires autotrace and several native build dependencies.",
+      "Requires a Gemini API key available in the environment.",
+      "Sends user prompt content to an external Google API.",
+      "Generated SVG quality depends on the raster image and tracing result."
     ],
     "use_cases": [
       {
-        "title": "Create custom icons and logos",
-        "description": "Generate simple icons and logo concepts from text descriptions. Useful for prototyping or creating starting points for graphic design work.",
-        "target_user": "Designers and developers who need quick vector graphic mockups"
+        "title": "Prototype Interface Icons",
+        "description": "A product designer can request simple SVG concepts for early interface mockups.",
+        "target_user": "Product designer"
       },
       {
-        "title": "Convert images to vector format",
-        "description": "Transform raster images into scalable SVG files. Helpful for simplifying complex images or preparing graphics for different output sizes.",
-        "target_user": "Developers and content creators working with responsive web graphics"
+        "title": "Create Draft Marketing Graphics",
+        "description": "A marketer can generate rough vector illustrations for campaign drafts and creative exploration.",
+        "target_user": "Marketing specialist"
       },
       {
-        "title": "Rapid visual prototyping",
-        "description": "Quickly generate visual representations of ideas described in text. Supports iterative refinement through prompt adjustments.",
-        "target_user": "Product managers and ideation teams doing rapid prototyping"
+        "title": "Prepare Editable Vector Assets",
+        "description": "A developer can create a starting SVG asset for later cleanup in design tools.",
+        "target_user": "Frontend developer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Simple SVG request",
-        "prompt": "Create an SVG of a red apple with a green leaf on a white background.",
-        "scenario": "Generate a basic vector graphic from a simple description"
+        "title": "Basic SVG Request",
+        "prompt": "Create an SVG of a simple blue rocket launching upward.",
+        "scenario": "Use this for a straightforward icon or illustration request."
       },
       {
-        "title": "Detailed scene description",
-        "prompt": "Create an SVG of a sunset over the ocean with orange and purple colors, showing the sun partially setting with waves in the foreground.",
-        "scenario": "Generate a more complex scene with multiple elements"
+        "title": "Style And Subject",
+        "prompt": "Create an SVG of a flat-style coffee cup with steam, using warm colors and clean shapes.",
+        "scenario": "Use this when the subject and visual style both matter."
       },
       {
-        "title": "Icon or symbol request",
-        "prompt": "Create an SVG of a simple house icon with a chimney and smoke coming out.",
-        "scenario": "Generate icons or symbols for UI or documentation"
+        "title": "Brand Asset Draft",
+        "prompt": "Create an SVG mascot concept for a project management app, with friendly geometric shapes and no text.",
+        "scenario": "Use this to explore brand visuals before manual refinement."
       },
       {
-        "title": "Abstract design request",
-        "prompt": "Create an SVG of geometric patterns with blue triangles and circles arranged in a modern abstract composition.",
-        "scenario": "Generate abstract or artistic vector designs"
+        "title": "Detailed Scene Conversion",
+        "prompt": "Create an SVG scene of a compact city garden at sunrise, with simplified buildings, plants, and a clear foreground.",
+        "scenario": "Use this for more complex compositions that still need clean vector output."
       }
     ],
     "output_examples": [
       {
-        "input": "Create an SVG of a simple yellow sun with rays",
-        "output": [
-          "Generated: sun_icon.svg",
-          "The SVG file has been created with a yellow circular sun and radiating rays."
-        ]
+        "input": "Create an SVG of a minimal mountain badge.",
+        "output": "A traced SVG file representing a simple badge with mountains, sky, and clean outer shape."
       },
       {
-        "input": "Create an SVG of a green tree with brown trunk",
-        "output": [
-          "Generated: green_tree.svg",
-          "The SVG file contains a stylized tree with green foliage and brown trunk."
-        ]
+        "input": "Create an SVG of a friendly robot assistant.",
+        "output": "An SVG illustration draft with a robot character, simplified features, and editable vector paths."
+      },
+      {
+        "input": "Create an SVG of a small delivery van icon.",
+        "output": "A vector-style vehicle asset suitable for review and manual cleanup in a design editor."
       }
     ],
     "best_practices": [
-      "Provide clear, specific descriptions of what you want in the image",
-      "Mention specific colors and basic shapes for better results",
-      "Keep descriptions simple for icons and symbols for cleaner SVG output",
-      "Check that GEMINI_API_KEY is set before requesting complex images"
+      "Use short prompts with clear subjects, style, and composition.",
+      "Review generated SVG files before using them in production.",
+      "Run network and tracing commands in a sandboxed environment."
     ],
     "anti_patterns": [
-      "Avoid asking for photorealistic images, as SVG is vector-based",
-      "Do not request extremely complex scenes with many small details",
-      "Avoid descriptions that require precise human faces or text rendering",
-      "Do not expect the skill to install autotrace without sudo access available"
+      "Do not provide secrets directly in the prompt text.",
+      "Do not run privileged setup commands on sensitive hosts.",
+      "Do not expect the traced SVG to be clean production artwork without review."
     ],
     "faq": [
       {
-        "question": "What is required to use this skill?",
-        "answer": "You need a Google Gemini API key set as the GEMINI_API_KEY environment variable, and the autotrace CLI tool must be installed on your system."
+        "question": "Does this skill create SVG files directly?",
+        "answer": "It describes a workflow that generates an image first, then traces that image into SVG format."
       },
       {
-        "question": "Can I generate SVGs without an API key?",
-        "answer": "No. This skill requires a GEMINI_API_KEY to access Google Gemini for image generation. The autotrace tool alone converts existing images, but cannot generate new ones from text."
+        "question": "Does it require an external service?",
+        "answer": "Yes. The workflow calls the Google Gemini image generation API."
       },
       {
-        "question": "What types of images work best?",
-        "answer": "Simple shapes, icons, logos, and abstract designs work best. Complex scenes with many details may produce less clean vector results."
+        "question": "Does it need an API key?",
+        "answer": "Yes. It expects a Gemini API key from the GEMINI_API_KEY environment variable."
       },
       {
-        "question": "How do I install autotrace if it is missing?",
-        "answer": "The SKILL.md includes setup instructions. You will need sudo access to install the required packages including git, build-essential, imagemagick, libmagickcore-dev, pstoedit, and libpstoedit-dev."
+        "question": "Is the output ready for production use?",
+        "answer": "Usually not. Traced SVG output should be inspected and cleaned before production use."
       },
       {
-        "question": "Where are the SVG files saved?",
-        "answer": "SVG files are saved with an 8-30 character filename based on your prompt description, in the current working directory."
+        "question": "Can it work without installing autotrace?",
+        "answer": "No. The documented workflow depends on autotrace for vector conversion."
       },
       {
-        "question": "Can I convert my own images to SVG?",
-        "answer": "This skill focuses on generating SVGs from text prompts. To convert existing images, you would need to provide the image content to Gemini first, then use autotrace for vectorization."
+        "question": "What is the main security concern?",
+        "answer": "The skill combines privileged setup commands, network access, and API key handling in shell workflows."
       }
     ]
   },
