@@ -191,6 +191,80 @@ jobs:
           echo "synced_slugs=$SYNCED_SLUGS" >> $GITHUB_OUTPUT
           echo "::notice::Synced skills: $SYNCED_SLUGS"
 
+      - name: Remove generated report evidence from synced audits
+        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_slugs != ''
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SYNCED_SLUGS: ${{ steps.sync.outputs.synced_slugs }}
+        run: |
+          patch_audit_evidence() {
+            local audit_id="$1"
+            local sanitized="$2"
+
+            jq -n --argjson evidence "$sanitized" '{risk_factor_evidence: $evidence}' > patch-body.json
+            curl -sf -X PATCH "${SUPABASE_URL}/rest/v1/skill_security_audit?id=eq.${audit_id}" \
+              -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+              -H "Content-Type: application/json" \
+              -H "Accept-Profile: skillstore" \
+              -H "Content-Profile: skillstore" \
+              -d @patch-body.json >/dev/null
+          }
+
+          sanitize_slug() {
+            local slug="$1"
+            local encoded_slug
+            local skill_id
+            local audits
+
+            encoded_slug=$(printf '%s' "$slug" | jq -sRr @uri)
+            skill_id=$(curl -sf "${SUPABASE_URL}/rest/v1/skills?select=id&slug=eq.${encoded_slug}" \
+              -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+              -H "Accept-Profile: skillstore" | jq -r '.[0].id // empty')
+
+            if [ -z "$skill_id" ]; then
+              echo "::warning::Skill not found while sanitizing generated report evidence: $slug"
+              return 0
+            fi
+
+            audits=$(curl -sf "${SUPABASE_URL}/rest/v1/skill_security_audit?select=id,risk_factor_evidence&skill_id=eq.${skill_id}" \
+              -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+              -H "Accept-Profile: skillstore")
+
+            echo "$audits" | jq -c '.[]' | while read -r audit; do
+              local audit_id
+              local original
+              local sanitized
+
+              audit_id=$(echo "$audit" | jq -r '.id')
+              original=$(echo "$audit" | jq -c '.risk_factor_evidence // []')
+              sanitized=$(echo "$audit" | jq -c '
+                [
+                  (.risk_factor_evidence // [])[]
+                  | {
+                      factor,
+                      evidence: ((.evidence // []) | map(select(.file != "skill-report.json")))
+                    }
+                  | select((.evidence | length) > 0)
+                ]
+              ')
+
+              if [ "$sanitized" != "$original" ]; then
+                patch_audit_evidence "$audit_id" "$sanitized"
+                echo "Sanitized generated report evidence for ${slug} audit ${audit_id}"
+              fi
+            done
+          }
+
+          echo "$SYNCED_SLUGS" | tr ',' '\n' | while read -r slug; do
+            slug=$(echo "$slug" | sed 's|^skills/||' | xargs)
+            [ -z "$slug" ] && continue
+            sanitize_slug "$slug"
+          done
+
       - name: Report sync status
         run: |
           echo "::notice::Sync completed - Mode: ${{ steps.changes.outputs.mode }}, Skills: ${{ steps.changes.outputs.changed_skills }}"
