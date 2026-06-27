@@ -7,7 +7,12 @@ inputs:
     required: true
   slugs:
     description: 'Space or comma-separated list of slugs to invalidate'
-    required: true
+    required: false
+    default: ''
+  slugs-file:
+    description: 'File containing slugs to invalidate, separated by newline, comma, or whitespace'
+    required: false
+    default: ''
   site-url:
     description: 'Site URL'
     required: false
@@ -27,14 +32,40 @@ runs:
       shell: bash
       env:
         CACHE_SECRET: ${{ inputs.secret }}
-        SITE_URL: ${{ inputs.site-url }}
-        BATCH_SIZE: ${{ inputs.batch-size }}
+        SITE_URL: ${{ inputs['site-url'] }}
+        BATCH_SIZE: ${{ inputs['batch-size'] }}
         CONTENT_TYPE: ${{ inputs.type }}
         SLUGS_STR: ${{ inputs.slugs }}
+        SLUGS_FILE: ${{ inputs['slugs-file'] }}
       run: |
-        # Normalize: support both comma-separated and space-separated input
-        SLUGS_STR="${SLUGS_STR//,/ }"
-        read -ra SLUGS <<< "$SLUGS_STR"
+        set -euo pipefail
+
+        if ! [[ "$BATCH_SIZE" =~ ^[0-9]+$ ]] || [ "$BATCH_SIZE" -lt 1 ]; then
+          echo "::error::batch-size must be a positive integer"
+          exit 1
+        fi
+
+        ITEMS_FILE="$(mktemp)"
+        : > "$ITEMS_FILE"
+
+        normalize_items() {
+          tr ',[:space:]' '\n' | sed '/^$/d'
+        }
+
+        if [ -n "$SLUGS_FILE" ]; then
+          if [ ! -f "$SLUGS_FILE" ]; then
+            echo "::error::slugs-file does not exist: $SLUGS_FILE"
+            exit 1
+          fi
+          normalize_items < "$SLUGS_FILE" >> "$ITEMS_FILE"
+        fi
+
+        if [ -n "$SLUGS_STR" ]; then
+          printf '%s\n' "$SLUGS_STR" | normalize_items >> "$ITEMS_FILE"
+        fi
+
+        sort -u -o "$ITEMS_FILE" "$ITEMS_FILE"
+        mapfile -t SLUGS < "$ITEMS_FILE"
         TOTAL=${#SLUGS[@]}
 
         if [ "$TOTAL" -eq 0 ]; then
@@ -42,16 +73,64 @@ runs:
           exit 0
         fi
 
-        invalidate_batch() {
+        invalidate_batch_once() {
           local batch_slugs=("$@")
-          local json_array=$(printf '%s\n' "${batch_slugs[@]}" | jq -R . | jq -s .)
+          local json_array
+          local body_file
+          local response_file
+          local status
 
-          curl -sf --max-time 30 -X POST "$SITE_URL/api/cache/invalidate" \
+          json_array=$(printf '%s\n' "${batch_slugs[@]}" | jq -R . | jq -s .)
+          body_file="$(mktemp)"
+          response_file="$(mktemp)"
+
+          jq -n \
+            --arg type "$CONTENT_TYPE" \
+            --argjson slugs "$json_array" \
+            '{type: $type, slugs: $slugs}' > "$body_file"
+
+          status=$(curl -sS -o "$response_file" -w "%{http_code}" \
+            --connect-timeout 10 \
+            --max-time 90 \
+            -X POST "$SITE_URL/api/cache/invalidate" \
             -H "Authorization: Bearer $CACHE_SECRET" \
             -H "Content-Type: application/json" \
             -H "User-Agent: GitHub-Actions/SkillstoreBot" \
             -H "X-Skillstore-Callback: true" \
-            -d "{\"type\": \"$CONTENT_TYPE\", \"slugs\": $json_array}"
+            -d @"$body_file" || true)
+
+          rm -f "$body_file"
+
+          if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+            cat "$response_file"
+            rm -f "$response_file"
+            return 0
+          fi
+
+          echo "HTTP $status" >&2
+          sed -n '1,20p' "$response_file" >&2 || true
+          rm -f "$response_file"
+          return 1
+        }
+
+        invalidate_batch() {
+          local batch_slugs=("$@")
+          local attempt
+          local max_attempts=4
+
+          for ((attempt=1; attempt<=max_attempts; attempt++)); do
+            if invalidate_batch_once "${batch_slugs[@]}"; then
+              return 0
+            fi
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              local sleep_seconds=$((attempt * 5))
+              echo "    Attempt $attempt/$max_attempts failed; retrying in ${sleep_seconds}s..." >&2
+              sleep "$sleep_seconds"
+            fi
+          done
+
+          return 1
         }
 
         BATCHES=$(( (TOTAL + BATCH_SIZE - 1) / BATCH_SIZE ))
@@ -59,32 +138,36 @@ runs:
 
         SUCCESS=0
         FAILED=0
+        FAILED_FILE="$(mktemp)"
 
         for ((i=0; i<TOTAL; i+=BATCH_SIZE)); do
           BATCH=("${SLUGS[@]:i:BATCH_SIZE}")
           BATCH_NUM=$(( i / BATCH_SIZE + 1 ))
 
-          echo -n "  Batch $BATCH_NUM/$BATCHES (${#BATCH[@]} items)... "
+          echo "  Batch $BATCH_NUM/$BATCHES (${#BATCH[@]} items)..."
 
           if invalidate_batch "${BATCH[@]}"; then
-            echo "✓"
+            echo "    ✓"
             SUCCESS=$((SUCCESS + ${#BATCH[@]}))
           else
-            echo "✗ (retrying)"
-            sleep 2
-            if invalidate_batch "${BATCH[@]}"; then
-              echo "    Retry ✓"
-              SUCCESS=$((SUCCESS + ${#BATCH[@]}))
-            else
-              echo "    Retry ✗ (skipping)"
-              FAILED=$((FAILED + ${#BATCH[@]}))
-            fi
+            echo "    Batch failed after retries; falling back to single-item invalidation"
+            for slug in "${BATCH[@]}"; do
+              if invalidate_batch "$slug"; then
+                echo "      ✓ $slug"
+                SUCCESS=$((SUCCESS + 1))
+              else
+                echo "      ✗ $slug"
+                echo "$slug" >> "$FAILED_FILE"
+                FAILED=$((FAILED + 1))
+              fi
+            done
           fi
         done
 
         echo "✅ Complete: $SUCCESS succeeded, $FAILED failed"
 
-        # Fail the job if any invalidations failed
         if [ "$FAILED" -gt 0 ]; then
+          echo "::error::Failed to invalidate $FAILED item(s):"
+          sed -n '1,200p' "$FAILED_FILE"
           exit 1
         fi

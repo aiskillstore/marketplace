@@ -45,7 +45,7 @@ env:
   SITE_URL: https://skillstore.io
   LOCALES: 'en zh-hans zh-hant ja ko de fr es pt ru ar'
   CONCURRENCY: 10
-  INVALIDATE_BATCH_SIZE: 30
+  INVALIDATE_BATCH_SIZE: 10
 
 jobs:
   warm:
@@ -65,21 +65,6 @@ jobs:
           run-id: ${{ inputs.source_run_id }}
           github-token: ${{ github.token }}
 
-      - name: Read slugs from artifact
-        if: inputs.source_run_id != ''
-        id: artifact-slugs
-        run: |
-          if [ -f synced-slugs.txt ]; then
-            # Convert newline-separated slugs to space-separated (for compatibility)
-            SLUGS=$(cat synced-slugs.txt | tr '\n' ' ' | sed 's/ $//')
-            SLUG_COUNT=$(cat synced-slugs.txt | grep -c . || echo 0)
-            echo "📥 Loaded $SLUG_COUNT slugs from artifact"
-            echo "slugs=$SLUGS" >> $GITHUB_OUTPUT
-          else
-            echo "::error::synced-slugs.txt not found in artifact"
-            exit 1
-          fi
-
       - name: Fetch all slugs from Supabase
         id: fetch
         env:
@@ -87,59 +72,38 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           CONTENT_TYPE: ${{ inputs.type }}
           INPUT_SLUGS: ${{ inputs.slugs }}
-          ARTIFACT_SLUGS: ${{ steps.artifact-slugs.outputs.slugs }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
         run: |
-          # Priority: artifact slugs > input slugs > fetch from Supabase
-          if [ -n "$ARTIFACT_SLUGS" ]; then
-            echo "Using slugs from artifact"
-            SLUGS_SPACE="$ARTIFACT_SLUGS"
+          set -euo pipefail
 
-            if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
-              echo "skills_slugs=$SLUGS_SPACE" >> $GITHUB_OUTPUT
-              SKILLS_COUNT=$(echo $SLUGS_SPACE | wc -w | tr -d ' ')
-              echo "Found $SKILLS_COUNT skills (from artifact)"
-            fi
-            exit 0
-          fi
+          WORK_DIR="$RUNNER_TEMP/warm-cache"
+          mkdir -p "$WORK_DIR"
 
-          # If specific slugs provided via input, use them instead of fetching from Supabase
-          if [ -n "$INPUT_SLUGS" ]; then
-            echo "Using provided slugs: $INPUT_SLUGS"
-            SLUGS_SPACE=$(echo "$INPUT_SLUGS" | tr ',' ' ')
+          SKILLS_FILE="$WORK_DIR/skills-slugs.txt"
+          WORKFLOWS_FILE="$WORK_DIR/workflows-slugs.txt"
+          RELEASES_FILE="$WORK_DIR/releases-tags.txt"
+          : > "$SKILLS_FILE"
+          : > "$WORKFLOWS_FILE"
+          : > "$RELEASES_FILE"
 
-            if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
-              echo "skills_slugs=$SLUGS_SPACE" >> $GITHUB_OUTPUT
-              SKILLS_COUNT=$(echo $SLUGS_SPACE | wc -w | tr -d ' ')
-              echo "Found $SKILLS_COUNT skills (from input)"
-            fi
+          normalize_items() {
+            tr ',[:space:]' '\n' | sed '/^$/d' | sort -u
+          }
 
-            # For workflows/releases, still need to fetch from Supabase if type=all
-            if [ "$CONTENT_TYPE" = "workflows" ] || ( [ "$CONTENT_TYPE" = "all" ] && [ "$INPUT_SLUGS" = "" ] ); then
-              echo "Fetching workflows from Supabase (input only supports skills)"
-              WORKFLOWS_SLUGS=$(fetch_all_from_supabase "workflows" "slug")
-              echo "workflows_slugs=$WORKFLOWS_SLUGS" >> $GITHUB_OUTPUT
-              WORKFLOWS_COUNT=$(echo $WORKFLOWS_SLUGS | wc -w | tr -d ' ')
-              echo "Found $WORKFLOWS_COUNT workflows"
-            fi
+          write_items_from_string() {
+            local file="$1"
+            local items="$2"
+            printf '%s\n' "$items" | normalize_items > "$file"
+          }
 
-            if [ "$CONTENT_TYPE" = "releases" ] || ( [ "$CONTENT_TYPE" = "all" ] && [ "$INPUT_SLUGS" = "" ] ); then
-              echo "Fetching releases from Supabase (input only supports skills)"
-              RELEASES_TAGS=$(fetch_all_from_supabase "releases" "tag")
-              echo "releases_tags=$RELEASES_TAGS" >> $GITHUB_OUTPUT
-              RELEASES_COUNT=$(echo $RELEASES_TAGS | wc -w | tr -d ' ')
-              echo "Found $RELEASES_COUNT releases"
-            fi
-
-            exit 0
-          fi
-
-          # Otherwise, fetch from Supabase as usual
           fetch_all_from_supabase() {
             local table=$1
             local column=${2:-slug}
+            local output_file=$3
             local offset=0
             local limit=1000
-            local all_items=""
+
+            : > "$output_file"
             
             while true; do
               response=$(curl -sf "${SUPABASE_URL}/rest/v1/${table}?select=${column}&offset=${offset}&limit=${limit}" \
@@ -147,88 +111,119 @@ jobs:
                 -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
                 -H "Accept-Profile: skillstore")
               
-              items=$(echo "$response" | jq -r ".[].${column}" | tr '\n' ' ')
-              count=$(echo "$items" | wc -w | tr -d ' ')
+              items_file=$(mktemp)
+              echo "$response" | jq -r ".[].${column}" | sed '/^$/d' > "$items_file"
+              count=$(grep -c . "$items_file" || true)
               
               if [ "$count" -eq 0 ]; then
+                rm -f "$items_file"
                 break
               fi
               
-              all_items="$all_items $items"
+              cat "$items_file" >> "$output_file"
+              rm -f "$items_file"
               offset=$((offset + limit))
               echo "  Fetched $count items (offset: $((offset - limit)))" >&2
             done
-            
-            echo "$all_items" | tr -s ' '
+
+            sort -u -o "$output_file" "$output_file"
           }
-          
-          SKILLS_SLUGS=""
-          WORKFLOWS_SLUGS=""
-          RELEASES_TAGS=""
-          
+
+          count_file() {
+            grep -c . "$1" 2>/dev/null || true
+          }
+
+          emit_file_output() {
+            local name="$1"
+            local file="$2"
+            local count
+            count=$(count_file "$file")
+            echo "${name}_file=$file" >> "$GITHUB_OUTPUT"
+            echo "${name}_count=$count" >> "$GITHUB_OUTPUT"
+          }
+
+          USING_SPECIFIC_SKILLS=false
+
           if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
-            echo "Fetching all skills from Supabase..."
-            SKILLS_SLUGS=$(fetch_all_from_supabase "skills" "slug")
-            echo "skills_slugs=$SKILLS_SLUGS" >> $GITHUB_OUTPUT
-            SKILLS_COUNT=$(echo $SKILLS_SLUGS | wc -w | tr -d ' ')
+            if [ -n "$SOURCE_RUN_ID" ]; then
+              if [ ! -f synced-slugs.txt ]; then
+                echo "::error::synced-slugs.txt not found in source workflow artifact"
+                exit 1
+              fi
+              echo "Using skill slugs from source workflow artifact"
+              normalize_items < synced-slugs.txt > "$SKILLS_FILE"
+              USING_SPECIFIC_SKILLS=true
+            elif [ -n "$INPUT_SLUGS" ]; then
+              echo "Using provided skill slugs"
+              write_items_from_string "$SKILLS_FILE" "$INPUT_SLUGS"
+              USING_SPECIFIC_SKILLS=true
+            else
+              echo "Fetching all skills from Supabase..."
+              fetch_all_from_supabase "skills" "slug" "$SKILLS_FILE"
+            fi
+
+            SKILLS_COUNT=$(count_file "$SKILLS_FILE")
             echo "Found $SKILLS_COUNT skills"
           fi
           
-          if [ "$CONTENT_TYPE" = "workflows" ] || [ "$CONTENT_TYPE" = "all" ]; then
+          if [ "$CONTENT_TYPE" = "workflows" ] || { [ "$CONTENT_TYPE" = "all" ] && [ "$USING_SPECIFIC_SKILLS" != "true" ]; }; then
             echo "Fetching all workflows from Supabase..."
-            WORKFLOWS_SLUGS=$(fetch_all_from_supabase "workflows" "slug")
-            echo "workflows_slugs=$WORKFLOWS_SLUGS" >> $GITHUB_OUTPUT
-            WORKFLOWS_COUNT=$(echo $WORKFLOWS_SLUGS | wc -w | tr -d ' ')
+            fetch_all_from_supabase "workflows" "slug" "$WORKFLOWS_FILE"
+            WORKFLOWS_COUNT=$(count_file "$WORKFLOWS_FILE")
             echo "Found $WORKFLOWS_COUNT workflows"
           fi
           
-          if [ "$CONTENT_TYPE" = "releases" ] || [ "$CONTENT_TYPE" = "all" ]; then
+          if [ "$CONTENT_TYPE" = "releases" ] || { [ "$CONTENT_TYPE" = "all" ] && [ "$USING_SPECIFIC_SKILLS" != "true" ]; }; then
             echo "Fetching all releases from Supabase..."
-            RELEASES_TAGS=$(fetch_all_from_supabase "releases" "tag")
-            echo "releases_tags=$RELEASES_TAGS" >> $GITHUB_OUTPUT
-            RELEASES_COUNT=$(echo $RELEASES_TAGS | wc -w | tr -d ' ')
+            fetch_all_from_supabase "releases" "tag" "$RELEASES_FILE"
+            RELEASES_COUNT=$(count_file "$RELEASES_FILE")
             echo "Found $RELEASES_COUNT releases"
           fi
 
+          emit_file_output "skills" "$SKILLS_FILE"
+          emit_file_output "workflows" "$WORKFLOWS_FILE"
+          emit_file_output "releases" "$RELEASES_FILE"
+
       - name: Invalidate skills cache (force mode only)
-        if: inputs.mode == 'force' && (inputs.type == 'skills' || inputs.type == 'all') && steps.fetch.outputs.skills_slugs != ''
+        if: inputs.mode == 'force' && (inputs.type == 'skills' || inputs.type == 'all') && steps.fetch.outputs.skills_count != '0'
         uses: ./.github/actions/invalidate-cache
         with:
           type: skills
-          slugs: ${{ steps.fetch.outputs.skills_slugs }}
+          slugs-file: ${{ steps.fetch.outputs.skills_file }}
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           batch-size: ${{ env.INVALIDATE_BATCH_SIZE }}
 
       - name: Invalidate workflows cache (force mode only)
-        if: inputs.mode == 'force' && (inputs.type == 'workflows' || inputs.type == 'all') && steps.fetch.outputs.workflows_slugs != ''
+        if: inputs.mode == 'force' && (inputs.type == 'workflows' || inputs.type == 'all') && steps.fetch.outputs.workflows_count != '0'
         uses: ./.github/actions/invalidate-cache
         with:
           type: workflows
-          slugs: ${{ steps.fetch.outputs.workflows_slugs }}
+          slugs-file: ${{ steps.fetch.outputs.workflows_file }}
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           batch-size: ${{ env.INVALIDATE_BATCH_SIZE }}
 
       - name: Invalidate releases cache (force mode only)
-        if: inputs.mode == 'force' && (inputs.type == 'releases' || inputs.type == 'all') && steps.fetch.outputs.releases_tags != ''
+        if: inputs.mode == 'force' && (inputs.type == 'releases' || inputs.type == 'all') && steps.fetch.outputs.releases_count != '0'
         uses: ./.github/actions/invalidate-cache
         with:
           type: releases
-          slugs: ${{ steps.fetch.outputs.releases_tags }}
+          slugs-file: ${{ steps.fetch.outputs.releases_file }}
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           batch-size: ${{ env.INVALIDATE_BATCH_SIZE }}
 
       - name: Warm skills page cache
         if: inputs.type == 'skills' || inputs.type == 'all'
         env:
-          SLUGS: ${{ steps.fetch.outputs.skills_slugs }}
+          SLUGS_FILE: ${{ steps.fetch.outputs.skills_file }}
+          SKILL_COUNT: ${{ steps.fetch.outputs.skills_count }}
         run: |
-          if [ -z "$SLUGS" ]; then
+          if [ ! -s "$SLUGS_FILE" ]; then
             echo "No skills to warm"
             exit 0
           fi
 
           generate_urls() {
-            for slug in $SLUGS; do
+            while IFS= read -r slug; do
               [ -z "$slug" ] && continue
               for locale in $LOCALES; do
                 if [ "$locale" = "en" ]; then
@@ -237,14 +232,13 @@ jobs:
                   echo "$SITE_URL/$locale/skills/$slug"
                 fi
               done
-            done
+            done < "$SLUGS_FILE"
           }
 
-          URLS=$(generate_urls)
-          URL_COUNT=$(echo "$URLS" | grep -c . || echo 0)
-          SKILL_COUNT=$(echo $SLUGS | wc -w | tr -d ' ')
+          LOCALE_COUNT=$(echo "$LOCALES" | wc -w | tr -d ' ')
+          URL_COUNT=$((SKILL_COUNT * LOCALE_COUNT))
 
-          echo "Warming $URL_COUNT skill URLs ($SKILL_COUNT skills × 11 locales)..."
+          echo "Warming $URL_COUNT skill URLs ($SKILL_COUNT skills × $LOCALE_COUNT locales)..."
           echo "Progress will be reported every 500 URLs..."
           echo ""
 
@@ -253,14 +247,15 @@ jobs:
           FAILED=0
           START_TIME=$(date +%s)
 
-          echo "$URLS" | xargs -P $CONCURRENCY -I {} sh -c '
-            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "{}" 2>/dev/null || echo "000")
+          generate_urls | xargs -r -P "$CONCURRENCY" -n 1 sh -c '
+            url="$1"
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "$url" 2>/dev/null || echo "000")
             if [ "$STATUS" = "200" ]; then
               echo "success"
             else
-              echo "failed:{}" >&2
+              echo "failed:$url"
             fi
-          ' | while read -r result; do
+          ' sh | while read -r result; do
             COUNTER=$((COUNTER + 1))
             if [ "$result" = "success" ]; then
               SUCCESS=$((SUCCESS + 1))
@@ -270,6 +265,7 @@ jobs:
 
             if [ $((COUNTER % 500)) -eq 0 ]; then
               ELAPSED=$(($(date +%s) - START_TIME))
+              [ "$ELAPSED" -gt 0 ] || ELAPSED=1
               RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
               echo "Progress: $COUNTER/$URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} URLs/s"
             fi
@@ -277,6 +273,7 @@ jobs:
 
           END_TIME=$(date +%s)
           TOTAL_TIME=$((END_TIME - START_TIME))
+          [ "$TOTAL_TIME" -gt 0 ] || TOTAL_TIME=1
           AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $URL_COUNT / $TOTAL_TIME}")
 
           echo ""
@@ -286,14 +283,14 @@ jobs:
       - name: Warm skills ZIP download cache
         if: inputs.warm_zip && (inputs.type == 'skills' || inputs.type == 'all')
         env:
-          SLUGS: ${{ steps.fetch.outputs.skills_slugs }}
+          SLUGS_FILE: ${{ steps.fetch.outputs.skills_file }}
+          SLUG_COUNT: ${{ steps.fetch.outputs.skills_count }}
         run: |
-          if [ -z "$SLUGS" ]; then
+          if [ ! -s "$SLUGS_FILE" ]; then
             echo "No skills to warm ZIP cache"
             exit 0
           fi
 
-          SLUG_COUNT=$(echo $SLUGS | wc -w | tr -d ' ')
           echo "Warming ZIP cache for $SLUG_COUNT skills..."
           echo "Progress will be reported every 100 skills..."
           echo ""
@@ -303,7 +300,7 @@ jobs:
           FAILED=0
           START_TIME=$(date +%s)
 
-          for slug in $SLUGS; do
+          while IFS= read -r slug; do
             [ -z "$slug" ] && continue
             URL="$SITE_URL/api/skills/$slug/download"
             STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 120 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "$URL" 2>/dev/null || echo "000")
@@ -317,13 +314,15 @@ jobs:
 
             if [ $((COUNTER % 100)) -eq 0 ]; then
               ELAPSED=$(($(date +%s) - START_TIME))
+              [ "$ELAPSED" -gt 0 ] || ELAPSED=1
               RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
               echo "Progress: $COUNTER/$SLUG_COUNT ZIPs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} ZIPs/s"
             fi
-          done
+          done < "$SLUGS_FILE"
 
           END_TIME=$(date +%s)
           TOTAL_TIME=$((END_TIME - START_TIME))
+          [ "$TOTAL_TIME" -gt 0 ] || TOTAL_TIME=1
           AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $SLUG_COUNT / $TOTAL_TIME}")
 
           echo ""
@@ -333,15 +332,16 @@ jobs:
       - name: Warm workflows cache
         if: inputs.type == 'workflows' || inputs.type == 'all'
         env:
-          SLUGS: ${{ steps.fetch.outputs.workflows_slugs }}
+          SLUGS_FILE: ${{ steps.fetch.outputs.workflows_file }}
+          WORKFLOW_COUNT: ${{ steps.fetch.outputs.workflows_count }}
         run: |
-          if [ -z "$SLUGS" ]; then
+          if [ ! -s "$SLUGS_FILE" ]; then
             echo "No workflows to warm"
             exit 0
           fi
 
           generate_urls() {
-            for slug in $SLUGS; do
+            while IFS= read -r slug; do
               [ -z "$slug" ] && continue
               for locale in $LOCALES; do
                 if [ "$locale" = "en" ]; then
@@ -350,14 +350,13 @@ jobs:
                   echo "$SITE_URL/$locale/workflows/$slug"
                 fi
               done
-            done
+            done < "$SLUGS_FILE"
           }
 
-          URLS=$(generate_urls)
-          URL_COUNT=$(echo "$URLS" | grep -c . || echo 0)
-          WORKFLOW_COUNT=$(echo $SLUGS | wc -w | tr -d ' ')
+          LOCALE_COUNT=$(echo "$LOCALES" | wc -w | tr -d ' ')
+          URL_COUNT=$((WORKFLOW_COUNT * LOCALE_COUNT))
 
-          echo "Warming $URL_COUNT workflow URLs ($WORKFLOW_COUNT workflows × 11 locales)..."
+          echo "Warming $URL_COUNT workflow URLs ($WORKFLOW_COUNT workflows × $LOCALE_COUNT locales)..."
           echo "Progress will be reported every 500 URLs..."
           echo ""
 
@@ -366,14 +365,15 @@ jobs:
           FAILED=0
           START_TIME=$(date +%s)
 
-          echo "$URLS" | xargs -P $CONCURRENCY -I {} sh -c '
-            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "{}" 2>/dev/null || echo "000")
+          generate_urls | xargs -r -P "$CONCURRENCY" -n 1 sh -c '
+            url="$1"
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "$url" 2>/dev/null || echo "000")
             if [ "$STATUS" = "200" ]; then
               echo "success"
             else
-              echo "failed:{}" >&2
+              echo "failed:$url"
             fi
-          ' | while read -r result; do
+          ' sh | while read -r result; do
             COUNTER=$((COUNTER + 1))
             if [ "$result" = "success" ]; then
               SUCCESS=$((SUCCESS + 1))
@@ -383,6 +383,7 @@ jobs:
 
             if [ $((COUNTER % 500)) -eq 0 ]; then
               ELAPSED=$(($(date +%s) - START_TIME))
+              [ "$ELAPSED" -gt 0 ] || ELAPSED=1
               RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
               echo "Progress: $COUNTER/$URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} URLs/s"
             fi
@@ -390,6 +391,7 @@ jobs:
 
           END_TIME=$(date +%s)
           TOTAL_TIME=$((END_TIME - START_TIME))
+          [ "$TOTAL_TIME" -gt 0 ] || TOTAL_TIME=1
           AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $URL_COUNT / $TOTAL_TIME}")
 
           echo ""
@@ -399,15 +401,16 @@ jobs:
       - name: Warm releases cache
         if: inputs.type == 'releases' || inputs.type == 'all'
         env:
-          TAGS: ${{ steps.fetch.outputs.releases_tags }}
+          TAGS_FILE: ${{ steps.fetch.outputs.releases_file }}
+          RELEASE_COUNT: ${{ steps.fetch.outputs.releases_count }}
         run: |
-          if [ -z "$TAGS" ]; then
+          if [ ! -s "$TAGS_FILE" ]; then
             echo "No releases to warm"
             exit 0
           fi
 
           generate_urls() {
-            for tag in $TAGS; do
+            while IFS= read -r tag; do
               [ -z "$tag" ] && continue
               for locale in $LOCALES; do
                 if [ "$locale" = "en" ]; then
@@ -416,14 +419,13 @@ jobs:
                   echo "$SITE_URL/$locale/releases/$tag"
                 fi
               done
-            done
+            done < "$TAGS_FILE"
           }
 
-          URLS=$(generate_urls)
-          URL_COUNT=$(echo "$URLS" | grep -c . || echo 0)
-          RELEASE_COUNT=$(echo $TAGS | wc -w | tr -d ' ')
+          LOCALE_COUNT=$(echo "$LOCALES" | wc -w | tr -d ' ')
+          URL_COUNT=$((RELEASE_COUNT * LOCALE_COUNT))
 
-          echo "Warming $URL_COUNT release URLs ($RELEASE_COUNT releases × 11 locales)..."
+          echo "Warming $URL_COUNT release URLs ($RELEASE_COUNT releases × $LOCALE_COUNT locales)..."
           echo "Progress will be reported every 500 URLs..."
           echo ""
 
@@ -432,14 +434,15 @@ jobs:
           FAILED=0
           START_TIME=$(date +%s)
 
-          echo "$URLS" | xargs -P $CONCURRENCY -I {} sh -c '
-            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "{}" 2>/dev/null || echo "000")
+          generate_urls | xargs -r -P "$CONCURRENCY" -n 1 sh -c '
+            url="$1"
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "$url" 2>/dev/null || echo "000")
             if [ "$STATUS" = "200" ]; then
               echo "success"
             else
-              echo "failed:{}" >&2
+              echo "failed:$url"
             fi
-          ' | while read -r result; do
+          ' sh | while read -r result; do
             COUNTER=$((COUNTER + 1))
             if [ "$result" = "success" ]; then
               SUCCESS=$((SUCCESS + 1))
@@ -449,6 +452,7 @@ jobs:
 
             if [ $((COUNTER % 500)) -eq 0 ]; then
               ELAPSED=$(($(date +%s) - START_TIME))
+              [ "$ELAPSED" -gt 0 ] || ELAPSED=1
               RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
               echo "Progress: $COUNTER/$URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} URLs/s"
             fi
@@ -456,6 +460,7 @@ jobs:
 
           END_TIME=$(date +%s)
           TOTAL_TIME=$((END_TIME - START_TIME))
+          [ "$TOTAL_TIME" -gt 0 ] || TOTAL_TIME=1
           AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $URL_COUNT / $TOTAL_TIME}")
 
           echo ""
@@ -467,13 +472,10 @@ jobs:
           MODE: ${{ inputs.mode }}
           CONTENT_TYPE: ${{ inputs.type }}
           WARM_ZIP: ${{ inputs.warm_zip }}
-          SKILLS_SLUGS: ${{ steps.fetch.outputs.skills_slugs }}
-          WORKFLOWS_SLUGS: ${{ steps.fetch.outputs.workflows_slugs }}
-          RELEASES_TAGS: ${{ steps.fetch.outputs.releases_tags }}
+          SKILLS_COUNT: ${{ steps.fetch.outputs.skills_count }}
+          WORKFLOWS_COUNT: ${{ steps.fetch.outputs.workflows_count }}
+          RELEASES_COUNT: ${{ steps.fetch.outputs.releases_count }}
         run: |
-          SKILLS_COUNT=$(echo $SKILLS_SLUGS | wc -w | tr -d ' ')
-          WORKFLOWS_COUNT=$(echo $WORKFLOWS_SLUGS | wc -w | tr -d ' ')
-          RELEASES_COUNT=$(echo $RELEASES_TAGS | wc -w | tr -d ' ')
           LOCALE_COUNT=11
           
           SKILLS_URLS=$((SKILLS_COUNT * LOCALE_COUNT))
