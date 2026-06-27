@@ -1,0 +1,144 @@
+# Skill fitness verification on self-hosted runners.
+# Installs each skill into a sandbox, runs its canonical task (from
+# skill-report.json content.prompt_templates[0].prompt) with one agent,
+# then has an independent agent judge the output into a 0-10 score.
+# Uses `skillstore-cli skill verify` (CLI >= 1.29.0).
+
+name: Verify Skills
+
+on:
+  workflow_dispatch:
+    inputs:
+      slugs:
+        description: 'Skill slugs to verify (comma-separated, e.g. "zhanlincui-pptx,davila7-markitdown")'
+        type: string
+        required: true
+      model:
+        description: 'Run model/agent (default: sonnet -> Claude Code, where skills load)'
+        type: string
+        default: 'sonnet'
+      judge_model:
+        description: 'Judge model/agent (default: gpt-5.5 -> Codex, independent)'
+        type: string
+        default: 'gpt-5.5'
+      runs:
+        description: 'Run+judge iterations per skill (default: 1)'
+        type: string
+        default: '1'
+      threshold:
+        description: 'Pass threshold for median score 0-10 (default: 7)'
+        type: string
+        default: '7'
+      cli_version:
+        description: 'Skillstore CLI version (default: latest)'
+        type: string
+        default: 'latest'
+
+concurrency:
+  group: verify-skills
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: self-hosted
+    timeout-minutes: 360
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          # skillstore repo access is required to download the CLI release
+          repositories: marketplace,skillstore
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 1
+
+      - name: Download Skillstore CLI
+        id: cli
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ inputs.cli_version }}
+          token: ${{ steps.app-token.outputs.token }}
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Verify skills
+        id: verify
+        env:
+          CLI: ${{ steps.cli.outputs.cli-path }}
+          SLUGS: ${{ inputs.slugs }}
+          MODEL: ${{ inputs.model }}
+          JUDGE_MODEL: ${{ inputs.judge_model }}
+          RUNS: ${{ inputs.runs }}
+          THRESHOLD: ${{ inputs.threshold }}
+          SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
+        run: |
+          set -uo pipefail
+          mkdir -p verify-results
+          SUMMARY=verify-results/summary.jsonl
+          : > "$SUMMARY"
+
+          PASS=0; FAIL=0; ERROR=0
+          IFS=',' read -ra LIST <<< "$SLUGS"
+          for raw in "${LIST[@]}"; do
+            slug=$(echo "$raw" | xargs)            # trim whitespace
+            [ -z "$slug" ] && continue
+
+            # Locate the skill directory by exact slug match in skill-report.json
+            REPORT=$(grep -rl --include=skill-report.json "\"slug\": \"$slug\"" skills 2>/dev/null | head -1)
+            if [ -z "$REPORT" ] || [ ! -f "$(dirname "$REPORT")/SKILL.md" ]; then
+              echo "::warning::skill not found (or missing SKILL.md): $slug"
+              printf '{"slug":"%s","status":"not_found"}\n' "$slug" >> "$SUMMARY"
+              ERROR=$((ERROR+1)); continue
+            fi
+            DIR=$(dirname "$REPORT")
+
+            TASK=$(jq -r '.content.prompt_templates[0].prompt // empty' "$REPORT")
+            if [ -z "$TASK" ]; then
+              echo "::warning::no canonical task (content.prompt_templates) for: $slug"
+              printf '{"slug":"%s","status":"no_task"}\n' "$slug" >> "$SUMMARY"
+              ERROR=$((ERROR+1)); continue
+            fi
+
+            echo "::group::verify $slug ($DIR)"
+            OUT=$("$CLI" skill verify "$DIR" --task "$TASK" \
+                  --model "$MODEL" --judge-model "$JUDGE_MODEL" \
+                  --runs "$RUNS" --threshold "$THRESHOLD" --json 2> "verify-results/${slug}.log")
+            RC=$?
+            echo "$OUT"
+            if echo "$OUT" | jq -e . >/dev/null 2>&1; then
+              echo "$OUT" | jq -c --arg slug "$slug" --argjson exit "$RC" '. + {slug:$slug, exit:$exit}' >> "$SUMMARY"
+              if [ "$RC" -eq 0 ]; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); fi
+            else
+              echo "::warning::verify produced no JSON for $slug (exit $RC); see verify-results/${slug}.log"
+              printf '{"slug":"%s","status":"verify_error","exit":%s}\n' "$slug" "$RC" >> "$SUMMARY"
+              ERROR=$((ERROR+1))
+            fi
+            echo "::endgroup::"
+          done
+
+          echo "pass=$PASS"   >> "$GITHUB_OUTPUT"
+          echo "fail=$FAIL"   >> "$GITHUB_OUTPUT"
+          echo "error=$ERROR" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Skill Verification"
+            echo ""
+            echo "| Skill | Median | Used-skill | Result |"
+            echo "|-------|-------:|-----------:|--------|"
+            jq -r '"| \(.slug) | \(.medianScore // "—") | \(if .usedSkillRate != null then ((.usedSkillRate*100)|floor|tostring)+"%" else "—" end) | \(if .passed == true then "✅ PASS" elif .passed == false then "❌ FAIL" else .status end) |"' "$SUMMARY"
+            echo ""
+            echo "**Pass:** $PASS  **Fail:** $FAIL  **Error:** $ERROR"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-results
+          path: verify-results/
+          retention-days: 7
