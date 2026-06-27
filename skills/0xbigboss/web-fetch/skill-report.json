@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T13:13:48.349Z",
+    "generated_at": "2026-06-27T12:11:05.299Z",
     "slug": "0xbigboss-web-fetch",
     "source_url": "https://github.com/0xBigBoss/claude-code/tree/main/.claude/skills/web-fetch",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "7855d7866db7fbd01ddc89902f77ed39613f4de5fececc6f2eee6bb7de0076c7",
-    "tree_hash": "c2e6eb74b2463eeb0f3b75d0ef60a45da13b5edc9a37a531ba80b9efcdbb05a8"
+    "tree_hash": "54fa08b2b7cc6329988a2c15b92059abe84655be4696d066b125f838b4b1c25e"
   },
   "skill": {
     "name": "web-fetch",
-    "description": "Fetches web content with intelligent content extraction, converting HTML to clean markdown. Use for documentation, articles, and reference pages http/https URLs.",
-    "summary": "Fetches web content with intelligent content extraction, converting HTML to clean markdown. Use for ...",
-    "icon": "🌐",
+    "description": "Fetches HTTP and HTTPS pages, extracts the main content, and converts HTML into cleaner Markdown for reference and documentation workflows.",
+    "summary": "Fetch web pages and convert main HTML content into clean Markdown.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "0xBigBoss",
     "license": "MIT",
-    "category": "research",
     "tags": [
-      "web",
-      "fetch",
+      "web-fetch",
       "markdown",
       "html",
-      "content-extraction"
+      "documentation",
+      "research"
     ],
     "supported_tools": [
       "claude",
@@ -33,170 +32,338 @@
       "claude-code"
     ],
     "risk_factors": [
-      "network"
-    ]
+      "scripts",
+      "network",
+      "filesystem",
+      "external_commands"
+    ],
+    "category": "research"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate web content fetching utility. Makes network requests to URLs provided by users, parses HTML, and converts to markdown. No filesystem access beyond skill directory, no credential access, no persistence mechanisms. All 50 static findings are false positives: template literals were misidentified as shell commands, and documentation references were misidentified as actual crypto/filesystem/network threats. Purpose matches capabilities.",
+    "summary": "The static high-risk weak-crypto findings are false positives caused by Markdown text and an aria-label string check, with no evidence of cryptographic logic. The real risks are intentional arbitrary URL fetching and documented shell command usage, which can expose internal network resources or command-injection hazards if used with untrusted URLs.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "fetch.ts",
+            "line_start": 1,
+            "line_end": 143
+          }
+        ]
+      },
       {
         "factor": "network",
         "evidence": [
           {
             "file": "fetch.ts",
-            "line_start": 11,
-            "line_end": 15
+            "line_start": 4,
+            "line_end": 11
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 14,
+            "line_end": 25
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 64
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 49
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 14,
+            "line_end": 25
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 49
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 64
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 3,
-    "total_lines": 439,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T13:13:48.349Z"
+    "medium_findings": [
+      {
+        "title": "Arbitrary URL Fetch Can Reach Sensitive Network Targets",
+        "description": "The script reads a URL from the command line and passes it directly to fetch without scheme, host, or private-network restrictions. This is core functionality, but it can become SSRF-like access to internal services or metadata endpoints when run in a privileged environment.",
+        "locations": [
+          {
+            "file": "fetch.ts",
+            "line_start": 4,
+            "line_end": 11
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 43
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The data flow from process.argv[2] to fetch(url) is direct and visible. The risk depends on runtime network position, so this is elevated but not evidence of malicious intent."
+      },
+      {
+        "title": "Shell Command Workflow Requires Careful URL Quoting",
+        "description": "The instructions recommend curl pipelines where a URL placeholder is inserted into shell commands. If an agent substitutes an untrusted URL without robust quoting, shell metacharacters in the URL could alter the command.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 14,
+            "line_end": 25
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 64
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The documented commands are legitimate examples, but they are shell workflows with user-controlled URL input. The exploitability depends on how the assistant or user substitutes the URL."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Hidden Claude Skill Path Used For Setup",
+        "description": "The documentation references ~/.claude/skills/web-fetch for running and installing the local skill. This is hidden-directory access, but no evidence shows arbitrary hidden-file reads, secret access, or exfiltration.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 49
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The referenced path is limited to the skill installation directory. The static filesystem warning is real as a capability indicator but low severity in this context."
+      },
+      {
+        "title": "Static Backtick And Weak-Crypto Alerts Are False Positives",
+        "description": "The Ruby backtick execution alerts in fetch.ts are JavaScript template literals that build Markdown code fences or status text. The weak-crypto alert points to a Copy label check, not a cryptographic algorithm.",
+        "locations": [
+          {
+            "file": "fetch.ts",
+            "line_start": 18,
+            "line_end": 18
+          },
+          {
+            "file": "fetch.ts",
+            "line_start": 93,
+            "line_end": 107
+          },
+          {
+            "file": "fetch.ts",
+            "line_start": 116,
+            "line_end": 116
+          },
+          {
+            "file": "fetch.ts",
+            "line_start": 141,
+            "line_end": 141
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 8,
+            "line_end": 26
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "Line review shows Markdown fences, shell examples, or ordinary string interpolation rather than Ruby execution or crypto use. No execution primitive appears in fetch.ts beyond the intended fetch call."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Unrestricted Network Request From CLI Argument",
+        "description": "The script accepts a command-line URL and fetches it directly. Publication should warn users not to fetch untrusted internal, localhost, link-local, or metadata-service URLs.",
+        "locations": [
+          {
+            "file": "fetch.ts",
+            "line_start": 4,
+            "line_end": 11
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The source and sink are both explicit in adjacent lines. The pattern is common in web fetchers but still security-sensitive."
+      },
+      {
+        "title": "Documented Shell Pipelines With URL Placeholders",
+        "description": "The skill teaches curl and pipeline commands for arbitrary URLs. These commands should be generated with strict argument quoting and should not include URL text copied from untrusted pages.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 14,
+            "line_end": 25
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 64
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The shell commands are plainly documented and useful. The danger is contextual, based on how URL values are substituted before execution."
+      }
+    ],
+    "files_scanned": 2,
+    "total_lines": 238,
+    "audit_model": "codex",
+    "audited_at": "2026-06-27T12:11:05.299Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Fetch web content as clean markdown",
-    "value_statement": "Converting web pages to markdown is time-consuming and error-prone. This skill uses intelligent content extraction with CSS selectors to fetch any URL and produce clean, readable markdown output for documentation, articles, and reference pages.",
+    "user_title": "Fetch Web Pages as Clean Markdown",
+    "value_statement": "Web pages often include navigation, scripts, and layout noise that make source material hard to review. This skill fetches page content and converts the useful HTML into cleaner Markdown for Claude, Codex, and Claude Code workflows.",
     "seo_keywords": [
-      "web fetch",
-      "markdown conversion",
-      "html to markdown",
-      "content extraction",
-      "curl html2markdown",
-      "Claude Code",
-      "Codex",
       "Claude",
-      "web scraping",
-      "documentation fetcher"
+      "Codex",
+      "Claude Code",
+      "web fetch",
+      "HTML to Markdown",
+      "documentation research",
+      "content extraction",
+      "web page markdown",
+      "developer docs",
+      "Bun script"
     ],
     "actual_capabilities": [
-      "Fetch any HTTP/HTTPS URL and extract its main content",
-      "Use CSS selectors to target specific page elements",
-      "Convert HTML to clean, readable markdown automatically",
-      "Handle common site patterns like MDN, GitHub docs, and Anthropic docs",
-      "Remove navigation, headers, footers, and other noise",
-      "Preserve code blocks with proper language highlighting"
+      "Fetches HTTP and HTTPS page content from a provided URL.",
+      "Converts selected HTML content into Markdown with fenced code blocks.",
+      "Uses documented CSS selectors for Anthropic docs, MDN, GitHub docs, and generic articles.",
+      "Falls back to a Bun script that selects the richest article, main, or content element.",
+      "Removes common navigation, sidebar, header, footer, script, and style elements.",
+      "Prints the page title and cleaned Markdown output for review."
     ],
     "limitations": [
-      "Cannot extract client-rendered JavaScript content",
-      "Requires URL as input parameter",
-      "May not work with sites requiring authentication",
-      "Depends on site structure for content detection"
+      "Does not render JavaScript-only pages or browser-managed application state.",
+      "May select the wrong content area on pages with several article-like sections.",
+      "Requires curl, html2markdown, or Bun dependencies depending on the chosen workflow.",
+      "Should not be used on private, localhost, link-local, or metadata-service URLs without review."
     ],
     "use_cases": [
       {
-        "target_user": "Documentation writers",
-        "title": "Fetch technical documentation",
-        "description": "Pull documentation from MDN, Anthropic, or GitHub docs and convert to markdown for offline reading or embedding."
+        "title": "Review API Documentation",
+        "description": "Fetch a documentation page and convert the central content into Markdown for faster analysis.",
+        "target_user": "Developers"
       },
       {
-        "target_user": "Researchers",
-        "title": "Extract article content",
-        "description": "Convert blog posts, news articles, and reference pages to clean markdown for summarization and analysis."
+        "title": "Collect Article References",
+        "description": "Extract the main body of an article while removing navigation and footer content.",
+        "target_user": "Researchers"
       },
       {
-        "target_user": "Developers",
-        "title": "Capture code examples",
-        "description": "Extract code blocks from documentation with proper syntax highlighting for use in projects."
+        "title": "Prepare Source Material For Coding Tasks",
+        "description": "Turn web reference pages into clean Markdown that an assistant can summarize or compare.",
+        "target_user": "Claude Code and Codex users"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic fetch",
-        "scenario": "Fetch a simple URL",
-        "prompt": "Use the web-fetch skill to get the content from {URL} and convert it to markdown."
+        "title": "Fetch A Documentation Page",
+        "scenario": "Beginner request for a known documentation URL.",
+        "prompt": "Fetch this documentation page and return the main content as clean Markdown: <url>"
       },
       {
-        "title": "With selector",
-        "scenario": "Target specific content",
-        "prompt": "Fetch {URL} and extract only the main article content using the appropriate CSS selector."
+        "title": "Extract An Article",
+        "scenario": "Article extraction with noise reduction.",
+        "prompt": "Fetch this article, remove navigation and footer content, and summarize the useful Markdown sections: <url>"
       },
       {
-        "title": "Documentation site",
-        "scenario": "Fetch from known sites",
-        "prompt": "Get the documentation from {URL} using the platform.claude.com or docs.anthropic.com selector pattern."
+        "title": "Use A Specific Selector",
+        "scenario": "Intermediate request when the main content selector is known.",
+        "prompt": "Fetch <url> using the selector <selector>, convert it to Markdown, and preserve code blocks."
       },
       {
-        "title": "Unknown site",
-        "scenario": "Auto-detect content",
-        "prompt": "Fetch {URL} using the Bun script to auto-detect the main content area and convert to clean markdown."
+        "title": "Compare Multiple References",
+        "scenario": "Advanced research across several trusted pages.",
+        "prompt": "Fetch these trusted documentation URLs, convert each main content area to Markdown, and compare the API differences: <url list>"
       }
     ],
     "output_examples": [
       {
-        "input": "Fetch https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators and convert to markdown",
-        "output": [
-          "# JavaScript Reference - Operators",
-          "## Assignment Operators",
-          "## Comparison Operators",
-          "## Arithmetic Operators",
-          "..."
-        ]
+        "input": "Fetch an MDN article about a web API.",
+        "output": "A Markdown document with the page title, headings, explanation text, and preserved examples from the article body."
       },
       {
-        "input": "Get the Anthropic docs page about Claude Code from docs.anthropic.com",
-        "output": [
-          "# Claude Code Documentation",
-          "## Getting Started",
-          "## Configuration",
-          "## Best Practices",
-          "## Examples"
-        ]
+        "input": "Fetch a GitHub documentation page with navigation excluded.",
+        "output": "A concise Markdown version of the documentation page without sidebar links or repeated navigation labels."
       },
       {
-        "input": "Fetch a blog article and extract only the main content",
-        "output": [
-          "# Article Title",
-          "## Introduction",
-          "Main article paragraphs...",
-          "## Conclusion",
-          "## References"
-        ]
+        "input": "Fetch an unknown article page with the Bun fallback.",
+        "output": "A cleaned Markdown page selected from the richest article, main, or content container found in the HTML."
       }
     ],
     "best_practices": [
-      "Use site-specific selectors when available for cleaner output",
-      "Verify the selector matches the intended content before full extraction",
-      "Check for authentication requirements on protected sites"
+      "Use trusted HTTP or HTTPS URLs and avoid private network addresses.",
+      "Choose a specific CSS selector when the page structure is known.",
+      "Review the extracted Markdown before relying on it for technical decisions."
     ],
     "anti_patterns": [
-      "Using generic selectors on sites with complex layouts",
-      "Expecting JavaScript-rendered content to appear",
-      "Fetching large pages without targeting specific sections"
+      "Do not fetch URLs copied from untrusted text without checking the full address.",
+      "Do not use this skill for pages that require browser login, JavaScript rendering, or interactive state.",
+      "Do not run shell examples with unquoted or dynamically generated URL strings."
     ],
     "faq": [
       {
-        "question": "What platforms are supported?",
-        "answer": "Works with Claude, Codex, and Claude Code. Run via skill invocation or bun ~/.claude/skills/web-fetch/fetch.ts <url>."
+        "question": "What does this skill fetch?",
+        "answer": "It fetches HTML pages from provided HTTP or HTTPS URLs and converts the useful content into Markdown."
       },
       {
-        "question": "What are the rate limits?",
-        "answer": "No built-in limits. Respect target servers by not making excessive requests in short timeframes."
+        "question": "Does it work with JavaScript-rendered pages?",
+        "answer": "No. It reads the server response and does not run a browser or render client-side JavaScript."
       },
       {
-        "question": "Can I use this with authenticated pages?",
-        "answer": "The skill makes unauthenticated requests. Sites requiring login or tokens will return error pages."
+        "question": "Can it preserve code blocks?",
+        "answer": "Yes. The Bun script includes handling for preformatted code blocks and fenced Markdown output."
       },
       {
-        "question": "Is my data safe?",
-        "answer": "The skill only fetches URLs you provide. No data is stored or sent to third-party servers beyond the target URL."
+        "question": "Why are CSS selectors useful?",
+        "answer": "Selectors limit extraction to the main content area and reduce navigation, sidebar, and footer noise."
       },
       {
-        "question": "Why is the output empty?",
-        "answer": "The CSS selector may not match any elements. Try broader selectors like main or article, or use the Bun script."
+        "question": "Is it safe to fetch any URL?",
+        "answer": "No. Avoid private, localhost, link-local, metadata-service, and untrusted URLs unless you have reviewed the risk."
       },
       {
-        "question": "How is this different from curl?",
-        "answer": "curl fetches raw HTML. This skill parses the HTML, extracts main content, removes noise, and outputs clean markdown."
+        "question": "Which tools can use this skill?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },

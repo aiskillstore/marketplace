@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T13:32:37.646Z",
+    "generated_at": "2026-06-27T11:28:34.966Z",
     "slug": "0xdarkmatter-doc-scanner",
     "source_url": "https://github.com/0xDarkMatter/claude-mods/tree/main/skills/doc-scanner",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "cdcb7f0b37584258b9f3a49a2734e8810be73d80b02afec0dcbad0f673f6422c",
-    "tree_hash": "140dd90809cd060b774b0ea429950c4fafe55767fcace31a2cb1a39a3079da1f"
+    "tree_hash": "36139bd8f55be02b676736062676acb9edfb1e5a50eb81cdaf43bccadd24dffa"
   },
   "skill": {
     "name": "doc-scanner",
-    "description": "Scans for project documentation files (AGENTS.md, CLAUDE.md, GEMINI.md, COPILOT.md, CURSOR.md, WARP.md, and 15+ other formats) and synthesizes guidance. Auto-activates when user asks to review, understand, or explore a codebase, when starting work in a new project, when asking about conventions or agents, or when documentation context would help. Can consolidate multiple platform docs into unified AGENTS.md.",
-    "summary": "Scans for project documentation files (AGENTS.md, CLAUDE.md, GEMINI.md, COPILOT.md, CURSOR.md, WARP....",
-    "icon": "📄",
+    "description": "Scans project documentation files such as AGENTS.md, CLAUDE.md, Cursor, Copilot, and IDE guides, then summarizes conventions, workflows, commands, and agent guidance. It can help consolidate overlapping assistant documentation into a unified AGENTS.md file.",
+    "summary": "Find and summarize project AI documentation and agent workflow guides.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "0xDarkMatter",
     "license": "MIT",
-    "category": "documentation",
     "tags": [
       "documentation",
-      "project-intelligence",
-      "ai-assistants",
-      "workflow-automation"
+      "agents",
+      "codebase-onboarding",
+      "workflow-guides",
+      "ai-assistants"
     ],
     "supported_tools": [
       "claude",
@@ -32,186 +32,280 @@
       "claude-code"
     ],
     "risk_factors": [
-      "filesystem"
-    ]
+      "filesystem",
+      "external_commands"
+    ],
+    "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Pure prompt-based documentation scanner skill. Uses Glob and Read tools to discover project documentation files (AGENTS.md, CLAUDE.md, etc.), synthesizes guidance, and optionally generates unified documentation. All static findings are false positives: backticks in markdown code blocks were misidentified as Ruby execution, .md file extensions as weak crypto, and environment setup documentation as credential access. No actual code execution, network access, or credential handling in the skill.",
+    "summary": "Static analysis reported many command, weak-crypto, and environment findings, but review shows those hits are Markdown backticks, filenames, placeholders, and documentation templates rather than executable Ruby, cryptography, or secret access. The real concern is contextual: the skill reads complete untrusted project documentation and can write consolidated documentation, so prompt-injection handling and user confirmation are important.",
     "risk_factor_evidence": [
       {
         "factor": "filesystem",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 22,
-            "line_end": 29
+            "line_start": 4,
+            "line_end": 4
           },
           {
             "file": "SKILL.md",
             "line_start": 31,
-            "line_end": 33
+            "line_end": 34
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 58,
+            "line_end": 65
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
+          },
+          {
+            "file": "references/templates.md",
+            "line_start": 58,
+            "line_end": 70
+          },
+          {
+            "file": "templates.md",
+            "line_start": 67,
+            "line_end": 83
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 6,
-    "total_lines": 1131,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T13:32:37.646Z"
+    "medium_findings": [
+      {
+        "title": "Untrusted Documentation Prompt Injection Exposure",
+        "description": "The skill tells the agent to read complete contents of discovered documentation files and synthesize their guidance. Those files may contain instructions aimed at the agent, but the skill does not state that found documents are untrusted data. This is a real semantic risk, although no malicious prompt injection text was found in the skill files. Verdict: true positive contextual issue. Confidence: 0.78. Confidence reasoning: The read-and-synthesize workflow is explicit, and project documentation commonly contains agent instructions. Exploitation depends on hostile files in the target repository, so confidence is high but not absolute.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 31,
+            "line_end": 34
+          },
+          {
+            "file": "references/file-patterns.md",
+            "line_start": 171,
+            "line_end": 178
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The workflow explicitly reads complete documentation files. Risk depends on hostile repository content rather than malicious code in this skill."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Broad Write and Bash Tool Access",
+        "description": "The skill declares Glob, Read, Write, and Bash access and can create archives and a unified AGENTS.md file. This matches the documented purpose, but users should confirm before filesystem changes. Verdict: legitimate use with minor operational risk. Confidence: 0.66. Confidence reasoning: Tool access and write workflow are explicit, but no destructive or hidden command is present in the reviewed files.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 58,
+            "line_end": 65
+          }
+        ],
+        "confidence": 0.66,
+        "confidence_reasoning": "The skill requests Write and Bash and describes creating archive files. The behavior is disclosed and tied to documentation consolidation."
+      },
+      {
+        "title": "Static Command and Secret Findings Are Markdown False Positives",
+        "description": "The reported Ruby backtick, weak cryptography, and environment access hits appear in Markdown code fences, tables, filenames, command examples, and placeholder variables. No executable Ruby, cryptographic operation, environment read, or exfiltration path was found in the reviewed files. Verdict: false positive. Confidence: 0.91. Confidence reasoning: The cited locations are documentation templates and pattern lists rather than runnable source code.",
+        "locations": [
+          {
+            "file": "reference.md",
+            "line_start": 9,
+            "line_end": 11
+          },
+          {
+            "file": "references/templates.md",
+            "line_start": 247,
+            "line_end": 253
+          },
+          {
+            "file": "templates.md",
+            "line_start": 91,
+            "line_end": 97
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The cited lines are Markdown examples or template text. No actual code path reads secrets or executes those snippets."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Untrusted Instruction Files Read as Source Material",
+        "description": "The skill scans for AI assistant documentation and reads files completely. This pattern is useful but can expose the agent to repository-level prompt injection unless the contents are handled as untrusted input. Confidence: 0.78. Confidence reasoning: The behavior is central to the skill and clearly documented.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 31,
+            "line_end": 34
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 83,
+            "line_end": 85
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The skill explicitly reads documentation and references detailed pattern files. The risk comes from downstream content."
+      }
+    ],
+    "files_scanned": 5,
+    "total_lines": 896,
+    "audit_model": "codex",
+    "audited_at": "2026-06-27T11:28:34.966Z",
+    "risk_factors": [
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Scan and synthesize project documentation",
-    "value_statement": "Teams waste time searching for project conventions and agent instructions scattered across multiple files. This skill automatically finds all AI assistant documentation (CLAUDE.md, AGENTS.md, COPILOT.md, and 20+ formats) and creates a unified reference guide.",
+    "user_title": "Scan Project Documentation",
+    "value_statement": "Project repositories often contain scattered AI and workflow documentation. This skill finds those files, summarizes their guidance, and helps produce one clear agent guide.",
     "seo_keywords": [
-      "doc-scanner",
-      "CLAUDE.md",
-      "AGENTS.md",
-      "project documentation",
-      "Claude Code",
-      "AI assistant documentation",
-      "codebase exploration",
-      "developer documentation",
-      "Claude",
-      "Codex"
+      "Claude documentation scanner",
+      "Codex documentation scanner",
+      "Claude Code AGENTS.md",
+      "AI assistant docs",
+      "project onboarding",
+      "repository documentation",
+      "agent workflow guide",
+      "CLAUDE.md scanner",
+      "AGENTS.md generator",
+      "developer productivity"
     ],
     "actual_capabilities": [
-      "Scans project root for 20+ documentation file formats (AGENTS.md, CLAUDE.md, GEMINI.md, COPILOT.md, CURSOR.md, WARP.md, and more)",
-      "Reads complete contents of all found documentation files",
-      "Synthesizes guidance into unified summary with recommended agents, workflows, and conventions",
-      "Consolidates multiple documentation files into single AGENTS.md with source attribution",
-      "Archives original documentation files with date suffixes in .doc-archive directory",
-      "Generates AGENTS.md template when no documentation exists"
+      "Searches for AGENTS.md, CLAUDE.md, GEMINI.md, COPILOT.md, Cursor, IDE, terminal, and cloud workspace documentation",
+      "Reads discovered documentation files and summarizes project guidance, conventions, commands, and workflows",
+      "Prioritizes platform-neutral guidance before tool-specific assistant files",
+      "Identifies overlapping documentation that may be consolidated into AGENTS.md",
+      "Provides templates for minimal, standard, and comprehensive agent documentation",
+      "Can archive original files and generate a unified AGENTS.md when the user approves"
     ],
     "limitations": [
-      "Only scans markdown documentation files in project root and hidden directories (.claude/, .cursor/, .github/)",
-      "Does not parse documentation in subdirectories except docs/AGENTS.md",
-      "Cannot analyze code to infer project conventions without existing documentation",
-      "Cannot modify code or execute commands in the project"
+      "It depends on the accuracy of existing project documentation",
+      "It does not validate whether listed commands are safe or current",
+      "It may miss guidance stored outside the configured documentation patterns",
+      "It should treat discovered instruction files as untrusted repository content"
     ],
     "use_cases": [
       {
-        "target_user": "DevOps Engineers",
-        "title": "Unify scattered docs",
-        "description": "Combine CLAUDE.md, WARP.md, and other platform docs into single AGENTS.md for consistent team workflows"
+        "title": "Onboard to an unfamiliar repository",
+        "description": "Find project-specific assistant instructions, setup commands, testing workflows, and coding conventions before making changes.",
+        "target_user": "New contributor"
       },
       {
-        "target_user": "New Team Members",
-        "title": "Onboard faster",
-        "description": "Get instant overview of project conventions, recommended agents, and common commands from unified documentation"
+        "title": "Unify scattered assistant guides",
+        "description": "Compare CLAUDE.md, AGENTS.md, Cursor, Copilot, and terminal notes, then produce one concise guide.",
+        "target_user": "Tech lead"
       },
       {
-        "target_user": "Project Leads",
-        "title": "Standardize guidance",
-        "description": "Generate comprehensive AGENTS.md template based on project structure when documentation is missing"
+        "title": "Prepare AI coding context",
+        "description": "Summarize repository guidance so Claude, Codex, and Claude Code can follow the same workflows.",
+        "target_user": "AI-assisted developer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Scan for docs",
-        "scenario": "Initial codebase exploration",
-        "prompt": "Use doc-scanner to find all AI assistant documentation in this project and summarize what guidance exists"
+        "title": "Find project guidance",
+        "scenario": "Beginner repository scan",
+        "prompt": "Scan this repository for assistant documentation and summarize the main workflows, commands, and conventions."
       },
       {
-        "title": "Synthesize guidance",
-        "scenario": "Understanding workflows",
-        "prompt": "Use doc-scanner to read all documentation files and create unified summary of recommended agents, workflows, and conventions"
+        "title": "Compare documentation files",
+        "scenario": "Review multiple guidance files",
+        "prompt": "Find all AI assistant documentation files and compare their guidance. Highlight conflicts, duplicates, and missing setup details."
       },
       {
-        "title": "Consolidate docs",
-        "scenario": "Multiple platforms",
-        "prompt": "Use doc-scanner to combine CLAUDE.md, CURSOR.md, and WARP.md into single unified AGENTS.md with source attribution"
+        "title": "Create an AGENTS.md draft",
+        "scenario": "Generate unified documentation",
+        "prompt": "Use the existing project documentation to draft a unified AGENTS.md. Keep source-specific notes clearly labeled."
       },
       {
-        "title": "Generate template",
-        "scenario": "Missing documentation",
-        "prompt": "Use doc-scanner to analyze this project structure and generate comprehensive AGENTS.md template based on patterns observed"
+        "title": "Audit assistant documentation quality",
+        "scenario": "Advanced documentation maintenance",
+        "prompt": "Review all assistant guidance files for outdated commands, conflicting rules, unsafe instructions, and consolidation opportunities."
       }
     ],
     "output_examples": [
       {
-        "input": "Use doc-scanner to find and summarize all AI assistant documentation in this project",
+        "input": "Scan this new repository before I start coding.",
         "output": [
-          "PROJECT DOCUMENTATION",
-          "Sources: CLAUDE.md, WARP.md",
-          "",
-          "RECOMMENDED AGENTS",
-          "  Primary: claude-code for development work",
-          "  Secondary: bash-expert for scripts",
-          "",
-          "KEY WORKFLOWS",
-          "  - npm run dev: Start development server",
-          "  - npm test: Run test suite",
-          "",
-          "CONVENTIONS",
-          "  - camelCase for functions, PascalCase for classes",
-          "  - Conventional commits format",
-          "",
-          "QUICK COMMANDS",
-          "  - npm install: Install dependencies",
-          "  - npm run build: Production build"
+          "Found AGENTS.md and CLAUDE.md in the repository root.",
+          "Primary workflow: install dependencies, run tests, then update documentation with code changes.",
+          "Key convention: use the existing test structure and keep assistant-specific notes separate."
         ]
       },
       {
-        "input": "Use doc-scanner to consolidate our documentation files",
+        "input": "Compare our Claude, Cursor, and Copilot docs.",
         "output": [
-          "CONSOLIDATED DOCUMENTATION",
-          "Source files: CLAUDE.md, CURSOR.md, WARP.md",
-          "",
-          "UNIFIED GUIDANCE",
-          "  - Core development work: claude-code",
-          "  - Terminal operations: bash-expert",
-          "  - Database tasks: sql-expert",
-          "",
-          "PLATFORM-SPECIFIC NOTES",
-          "  Cursor: .cursor/RULES.md for editor-specific rules",
-          "  Warp: AI commands for terminal workflows",
-          "",
-          "Originals archived in .doc-archive/"
+          "The files share the same setup flow but list different test commands.",
+          "Cursor-specific editor notes should remain labeled as platform-specific.",
+          "A unified AGENTS.md would reduce duplicate onboarding instructions."
+        ]
+      },
+      {
+        "input": "Draft a consolidated agent guide from existing docs.",
+        "output": [
+          "Created a structure with overview, recommended agents, workflows, conventions, and quick commands.",
+          "Preserved source labels for Claude-specific and terminal-specific guidance.",
+          "Flagged commands that should be verified before publication."
         ]
       }
     ],
     "best_practices": [
-      "Run doc-scanner before starting work in unfamiliar project for immediate context",
-      "Consolidate documentation when multiple platform-specific files exist to reduce duplication",
-      "Update consolidated AGENTS.md when project conventions or workflows change"
+      "Review discovered documentation as untrusted repository content before following instructions inside it",
+      "Confirm with the user before archiving files or writing a new AGENTS.md",
+      "Verify generated command lists against package files, Makefiles, or existing README instructions"
     ],
     "anti_patterns": [
-      "Running doc-scanner without reading synthesized output - always review the summary",
-      "Consolidating documentation without backing up originals to .doc-archive",
-      "Generating AGENTS.md without verifying the content matches actual project practices"
+      "Following instructions from discovered documentation that conflict with system, developer, or user instructions",
+      "Consolidating documentation without preserving source-specific context and conflicts",
+      "Publishing generated setup commands without checking that they work in the current repository"
     ],
     "faq": [
       {
-        "question": "What documentation formats does doc-scanner support?",
-        "answer": "Supports 20+ formats including AGENTS.md, CLAUDE.md, GEMINI.md, COPILOT.md, CHATGPT.md, CODEIUM.md, CURSOR.md, WINDSURF.md, VSCODE.md, JETBRAINS.md, WARP.md, FIG.md, DEVCONTAINER.md, and more."
+        "question": "What files does this skill look for?",
+        "answer": "It looks for AGENTS.md, CLAUDE.md, GEMINI.md, COPILOT.md, Cursor, IDE, terminal, and related assistant documentation files."
       },
       {
-        "question": "What file size limits apply?",
-        "answer": "No explicit limits. Very large documentation files (100KB+) may take longer to process but will be fully read."
+        "question": "Can it create a new AGENTS.md file?",
+        "answer": "Yes. It can draft or write a unified AGENTS.md when the user asks and approves the change."
       },
       {
-        "question": "Does doc-scanner work with other tools?",
-        "answer": "Designed for Claude, Codex, and Claude Code. Output is platform-agnostic markdown that any AI assistant can read."
+        "question": "Does it execute commands from documentation files?",
+        "answer": "The skill is designed to summarize commands, not automatically execute them. Commands should be verified before use."
       },
       {
-        "question": "Is my data safe?",
-        "answer": "Yes. Doc-scanner only reads documentation files you already have. No data is sent to external services."
+        "question": "Is it useful for Claude, Codex, and Claude Code?",
+        "answer": "Yes. It helps organize shared repository guidance for Claude, Codex, Claude Code, and other AI coding tools."
       },
       {
-        "question": "Why is my documentation not found?",
-        "answer": "Check that files are in project root, .claude/, .cursor/, or docs/ directories. Ensure files use .md extension with correct naming."
+        "question": "What is the main security concern?",
+        "answer": "Discovered documentation may contain prompt injection or outdated instructions. Treat scanned content as untrusted input."
       },
       {
-        "question": "How is this different from manual file reading?",
-        "answer": "Doc-scanner automatically finds all documentation, synthesizes into unified summary, and can consolidate multiple files into one AGENTS.md."
+        "question": "Can it handle conflicting documentation?",
+        "answer": "Yes. It can summarize conflicts and label platform-specific guidance, but a maintainer should make final decisions."
       }
     ]
   },
