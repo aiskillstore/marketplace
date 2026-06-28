@@ -1,0 +1,161 @@
+# Generate a curated skill pack on a clean self-hosted runner.
+# Runs the full pipeline: candidate skills (keyword + real search->install
+# behavior) -> best-of-breed verify (PK) -> LLM compose -> whole-pack verify
+# -> optionally write a candidate to Supabase (review_status=generated).
+# Clean runner HOME = accurate used-skill scoring (no personal global skills).
+# Uses `skillstore-cli plugin generate` (CLI >= 1.30.0).
+
+name: Generate Pack
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'End-to-end task the pack must solve (also the PK task)'
+        type: string
+        required: true
+      keywords:
+        description: 'Comma-separated candidate search terms (e.g. "code review,review,reviewer")'
+        type: string
+        required: true
+      max_candidates:
+        description: 'Max skills to PK (default: 5)'
+        type: string
+        default: '5'
+      pick:
+        description: 'Max skills in the final pack (default: 3)'
+        type: string
+        default: '3'
+      model:
+        description: 'Run agent (default: sonnet -> Claude Code, where skills load)'
+        type: string
+        default: 'sonnet'
+      judge_model:
+        description: 'Judge agent (default: gpt-5.5 -> Codex, independent)'
+        type: string
+        default: 'gpt-5.5'
+      runs:
+        description: 'Run+judge iterations per verify (default: 1)'
+        type: string
+        default: '1'
+      threshold:
+        description: 'Pass threshold for the median score 0-10 (default: 7)'
+        type: string
+        default: '7'
+      write:
+        description: 'Write the candidate pack to Supabase (review_status=generated)'
+        type: boolean
+        default: false
+      cli_version:
+        description: 'Skillstore CLI version (default: latest)'
+        type: string
+        default: 'latest'
+
+concurrency:
+  group: generate-pack
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: self-hosted
+    timeout-minutes: 360
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 1
+
+      - name: Download Skillstore CLI
+        id: cli
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ inputs.cli_version }}
+          token: ${{ steps.app-token.outputs.token }}
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Generate pack
+        id: gen
+        env:
+          CLI: ${{ steps.cli.outputs.cli-path }}
+          TASK: ${{ inputs.task }}
+          KEYWORDS: ${{ inputs.keywords }}
+          MAXC: ${{ inputs.max_candidates }}
+          PICK: ${{ inputs.pick }}
+          MODEL: ${{ inputs.model }}
+          JUDGE: ${{ inputs.judge_model }}
+          RUNS: ${{ inputs.runs }}
+          THRESHOLD: ${{ inputs.threshold }}
+          # CLI reads these names; map from the repo's existing Supabase secrets
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
+        run: |
+          set +e  # plugin generate exits non-zero when the pack FAILs verification; that's data, not a job error
+          mkdir -p pack-results
+          WRITE_FLAG=""
+          [ "${{ inputs.write }}" = "true" ] && WRITE_FLAG="--write"
+
+          "$CLI" plugin generate \
+            --task "$TASK" \
+            --keywords "$KEYWORDS" \
+            --skills-dir skills \
+            --max-candidates "$MAXC" \
+            --pick "$PICK" \
+            --model "$MODEL" \
+            --judge-model "$JUDGE" \
+            --runs "$RUNS" \
+            --threshold "$THRESHOLD" \
+            $WRITE_FLAG --json > pack-results/result.json 2> pack-results/run.log
+          RC=$?
+          echo "exit code: $RC"
+          cat pack-results/result.json || true
+
+          R=pack-results/result.json
+          if jq -e . "$R" >/dev/null 2>&1; then
+            NAME=$(jq -r '.manifest.name' "$R")
+            SLUG=$(jq -r '.manifest.slug' "$R")
+            SKILLS=$(jq -r '.manifest.skills | join(", ")' "$R")
+            FIT=$(jq -r '.packFitness.medianScore' "$R")
+            PASS=$(jq -r 'if .packFitness.passed then "✅ PASS" else "❌ FAIL" end' "$R")
+            USED=$(jq -r '(.packFitness.usedSkillRate*100)|floor' "$R")
+            WRITTEN=$(jq -r 'if .written then .written.pluginId + " (review_status=generated)" else "dry-run" end' "$R")
+            {
+              echo "## Pack Generation"
+              echo ""
+              echo "**Pack:** $NAME (\`$SLUG\`)"
+              echo ""
+              echo "**Skills:** $SKILLS"
+              echo ""
+              echo "**Fitness:** $FIT/10 — $PASS  (used-skill ${USED}%)"
+              echo ""
+              echo "**Written:** $WRITTEN"
+              echo ""
+              echo "### Candidates (best-of-breed PK)"
+              echo "| skill | score | used-skill |"
+              echo "|---|--:|--:|"
+              jq -r '.candidates[] | "| \(.slug) | \(.score)/10 | \((.usedSkillRate*100)|floor)% |"' "$R"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## Pack Generation"
+              echo "Pipeline produced no JSON (exit $RC). See the run.log artifact."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pack-results
+          path: pack-results/
+          retention-days: 7
