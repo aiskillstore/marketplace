@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-03-06T08:49:25.142Z",
+    "generated_at": "2026-06-28T08:29:40.992Z",
     "slug": "am-will-llm-council",
     "source_url": "https://github.com/am-will/codex-skills/tree/main/skills/llm-council/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "934d8909ec5a2280f9716a0fd4a01584169693e4c38bc36502a820afc418c505",
-    "tree_hash": "d1b856750d7601e64587bfc2eca362bc42abd5183f3ff2664db1a72e604955bf"
+    "tree_hash": "0f08443afea3a7d1ff8fd651655b7b01cac891e361f805e43e00f726f20af61b"
   },
   "skill": {
     "name": "llm-council",
-    "description": "Orchestrate a configurable, multi-member CLI planning council (Codex, Claude Code, Gemini, OpenCode, or custom) to produce independent implementation plans, anonymize and randomize them, then judge and merge into one final plan. Use when you need a robust, bias-resistant planning workflow, structured JSON outputs, retries, and failure handling across multiple CLI agents.\n",
-    "summary": "Orchestrate a configurable, multi-member CLI planning council (Codex, Claude Code, Gemini, OpenCode,...",
+    "description": "Orchestrates a configurable council of CLI-based AI agents to create, compare, and merge implementation plans. It runs planner agents, anonymizes their Markdown plans, judges the results, and writes a final plan with run artifacts.",
+    "summary": "Run a multi-agent planning council that compares independent AI plans and produces one final implementation plan.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "am-will",
     "license": "MIT",
-    "category": "coding",
     "tags": [
       "multi-agent",
       "planning",
-      "orchestration",
-      "codex",
-      "claude-code"
+      "code-review",
+      "cli-orchestration",
+      "workflow"
     ],
     "supported_tools": [
       "claude",
@@ -33,28 +32,82 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
       "external_commands",
-      "filesystem"
-    ]
+      "network",
+      "filesystem",
+      "env_access"
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Security audit completed. The skill orchestrates multiple AI CLI agents to create implementation plans. All detected patterns (external commands, filesystem, network) are intentional functionality for AI agent orchestration. The 'weak cryptographic algorithm' and 'path traversal' findings are false positives - the scanner misidentified JSON field names and hardcoded resource paths. No prompt injection or malicious behavior detected.",
+    "safe_to_publish": false,
+    "summary": "Static analysis produced many hits, but most Markdown backtick, weak-crypto, path traversal, and C2 keyword detections are false positives. The confirmed risks are high-impact: the skill launches external CLI agents, supports custom commands, uses a permission-bypass CLI flag, writes artifacts, and exposes local UI state. No evidence found of malicious credential theft or command-and-control intent, so this is high risk rather than blocked critical.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 1,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/ui_server.py",
+            "line_start": 1,
+            "line_end": 14
+          },
+          {
+            "file": "setup.sh",
+            "line_start": 1,
+            "line_end": 5
+          }
+        ]
+      },
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "scripts/llm_council.py",
-            "line_start": 294,
-            "line_end": 294
+            "line_start": 215,
+            "line_end": 295
           },
           {
             "file": "scripts/llm_council.py",
-            "line_start": 820,
+            "line_start": 817,
             "line_end": 820
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 54
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/ui_server.py",
+            "line_start": 40,
+            "line_end": 50
+          },
+          {
+            "file": "scripts/ui_server.py",
+            "line_start": 74,
+            "line_end": 76
+          },
+          {
+            "file": "scripts/ui/app.js",
+            "line_start": 267,
+            "line_end": 274
+          },
+          {
+            "file": "scripts/ui/app.js",
+            "line_start": 357,
+            "line_end": 387
           }
         ]
       },
@@ -63,185 +116,427 @@
         "evidence": [
           {
             "file": "scripts/llm_council.py",
-            "line_start": 1295,
-            "line_end": 1300
+            "line_start": 63,
+            "line_end": 70
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 931,
+            "line_end": 936
+          },
+          {
+            "file": "scripts/ui_state.py",
+            "line_start": 56,
+            "line_end": 63
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 1424,
+            "line_end": 1430
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 823,
+            "line_end": 827
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "high_findings": [
       {
-        "title": "External Command Execution",
-        "description": "Skill spawns subprocess.Popen to run AI agent CLI tools (Codex, Claude, Gemini). This is intentional core functionality for multi-agent orchestration.",
+        "title": "User-Configurable Command Execution",
+        "description": "The skill supports custom planner and judge commands from task or config data, then launches them with subprocess.Popen. This is intended for extensibility, but a malicious or careless config can execute arbitrary local commands.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 54
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 282,
+            "line_end": 295
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 980,
+            "line_end": 999
+          },
+          {
+            "file": "references/schemas/task_spec.schema.json",
+            "line_start": 67,
+            "line_end": 72
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The code directly builds subprocess arguments from configurable command and extra_args fields. This is a real execution path, although it appears to be an intended feature rather than hidden behavior."
+      },
+      {
+        "title": "Agent CLI Launched With Permission Bypass Flag",
+        "description": "The Claude CLI command includes a permission bypass option while running model prompts. The command also disables tools, but the bypass flag is still a high-risk execution setting for a marketplace skill.",
         "locations": [
           {
             "file": "scripts/llm_council.py",
-            "line_start": 294,
-            "line_end": 294
+            "line_start": 247,
+            "line_end": 264
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Legitimate AI agent spawning - the skill's purpose is to orchestrate multiple CLI agents. No user input injection risk as commands are built from config."
+        "confidence": 0.88,
+        "confidence_reasoning": "The dangerous permission flag is present in the command list used by the subprocess launcher. The surrounding CLI flags reduce some risk, but the pattern remains security-sensitive."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Repository Context Sent To External AI CLIs",
+        "description": "Planner prompts instruct agents to read the codebase and the orchestrator passes task context to Codex, Claude, Gemini, OpenCode, or custom CLIs. This can disclose repository content to external model providers depending on user configuration.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 23,
+            "line_end": 25
+          },
+          {
+            "file": "references/prompts.md",
+            "line_start": 9,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 215,
+            "line_end": 280
+          }
+        ],
+        "confidence": 0.83,
+        "confidence_reasoning": "The skill purposefully invokes external AI command-line tools with task prompts and repo-reading instructions. This is legitimate for the workflow but creates clear data exposure risk."
       },
       {
-        "title": "Local UI Server Network Access",
-        "description": "Skill runs a local Flask server for visualization. Network access is local-only (127.0.0.1), not for external data exfiltration.",
+        "title": "Local UI State Readable Without Token",
+        "description": "The UI requires a token for events and POST actions, but state endpoints return task brief, planner summaries, judge output, and final plan without token validation. On localhost this is lower risk, but it can expose sensitive planning content to local processes.",
         "locations": [
           {
             "file": "scripts/ui_server.py",
-            "line_start": 50,
-            "line_end": 76
+            "line_start": 109,
+            "line_end": 123
+          },
+          {
+            "file": "scripts/ui_server.py",
+            "line_start": 146,
+            "line_end": 148
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 608,
+            "line_end": 618
+          },
+          {
+            "file": "scripts/ui/app.js",
+            "line_start": 267,
+            "line_end": 274
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "Local-only server bound to 127.0.0.1 - no external network communication detected."
+        "confidence": 0.79,
+        "confidence_reasoning": "The GET handlers for state do not call the token validator, while the state includes plan and task content. Binding to 127.0.0.1 limits exposure but does not eliminate local information disclosure."
       },
       {
-        "title": "Config File Read/Write",
-        "description": "Skill reads agent config from user config directory and writes output plans to local filesystem. Required for skill functionality.",
+        "title": "Long-Lived Session Keepalive Behavior",
+        "description": "The skill instructs the assistant to keep the session open for up to 30 minutes and the UI can remain open while keepalive is enabled. This can consume resources and keep sensitive state available longer than expected.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 30
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 68,
+            "line_end": 68
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 751,
+            "line_end": 758
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 1437,
+            "line_end": 1447
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The behavior is documented and implemented, but it is not evidence of malicious persistence. The risk is operational and privacy-related rather than covert execution."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Expected Filesystem Writes To Config And Run Artifacts",
+        "description": "The skill writes agent configuration, UI snapshots, planner outputs, judge output, and final plans. These writes are core functionality, but users should run it only in trusted workspaces and inspect output paths.",
         "locations": [
           {
             "file": "scripts/llm_council.py",
-            "line_start": 69,
-            "line_end": 69
+            "line_start": 931,
+            "line_end": 936
+          },
+          {
+            "file": "scripts/ui_state.py",
+            "line_start": 56,
+            "line_end": 63
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 1424,
+            "line_end": 1430
           }
         ],
-        "confidence": 0.92,
-        "confidence_reasoning": "Standard config file handling - reads from XDG_CONFIG_HOME, writes output to local runs directory."
+        "confidence": 0.76,
+        "confidence_reasoning": "The file writes are direct and confirmed, but they are transparent artifacts of the planning workflow. No evidence found of hidden destructive file operations."
+      },
+      {
+        "title": "Static Backtick, Weak-Crypto, And Path Findings Mostly False Positive",
+        "description": "Many static hits come from Markdown inline code, JSON schema identifiers, Markdown template text, and fixed relative reference paths. No evidence found of Ruby execution, weak cryptographic operations, command-and-control code, or credential exfiltration in those locations.",
+        "locations": [
+          {
+            "file": "references/prompts.md",
+            "line_start": 5,
+            "line_end": 16
+          },
+          {
+            "file": "references/schemas/task_spec.schema.json",
+            "line_start": 1,
+            "line_end": 3
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 784,
+            "line_end": 786
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 1295,
+            "line_end": 1300
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The cited examples show documentation, schema metadata, or fixed paths rather than dynamic Ruby, crypto, or traversal behavior. This does not dismiss the confirmed subprocess risks elsewhere."
+      },
+      {
+        "title": "Environment Access Limited To Config Location",
+        "description": "The environment access found by static analysis reads XDG_CONFIG_HOME to choose the agent configuration path. No evidence found that environment variables are collected or transmitted.",
+        "locations": [
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 823,
+            "line_end": 827
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The code reads one standard configuration environment variable and falls back to the user config directory. There is no network call or credential handling connected to this access."
       }
     ],
-    "dangerous_patterns": [],
+    "dangerous_patterns": [
+      {
+        "title": "User-Configurable Command Execution",
+        "description": "The skill supports custom planner and judge commands from task or config data, then launches them with subprocess.Popen. This is intended for extensibility, but a malicious or careless config can execute arbitrary local commands.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 54
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 282,
+            "line_end": 295
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 980,
+            "line_end": 999
+          },
+          {
+            "file": "references/schemas/task_spec.schema.json",
+            "line_start": 67,
+            "line_end": 72
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The code directly builds subprocess arguments from configurable command and extra_args fields. This is a real execution path, although it appears to be an intended feature rather than hidden behavior."
+      },
+      {
+        "title": "Agent CLI Launched With Permission Bypass Flag",
+        "description": "The Claude CLI command includes a permission bypass option while running model prompts. The command also disables tools, but the bypass flag is still a high-risk execution setting for a marketplace skill.",
+        "locations": [
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 247,
+            "line_end": 264
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The dangerous permission flag is present in the command list used by the subprocess launcher. The surrounding CLI flags reduce some risk, but the pattern remains security-sensitive."
+      },
+      {
+        "title": "Local UI State Readable Without Token",
+        "description": "The UI requires a token for events and POST actions, but state endpoints return task brief, planner summaries, judge output, and final plan without token validation. On localhost this is lower risk, but it can expose sensitive planning content to local processes.",
+        "locations": [
+          {
+            "file": "scripts/ui_server.py",
+            "line_start": 109,
+            "line_end": 123
+          },
+          {
+            "file": "scripts/ui_server.py",
+            "line_start": 146,
+            "line_end": 148
+          },
+          {
+            "file": "scripts/llm_council.py",
+            "line_start": 608,
+            "line_end": 618
+          },
+          {
+            "file": "scripts/ui/app.js",
+            "line_start": 267,
+            "line_end": 274
+          }
+        ],
+        "confidence": 0.79,
+        "confidence_reasoning": "The GET handlers for state do not call the token validator, while the state includes plan and task content. Binding to 127.0.0.1 limits exposure but does not eliminate local information disclosure."
+      }
+    ],
     "files_scanned": 22,
     "total_lines": 4058,
-    "audit_model": "claude",
-    "audited_at": "2026-03-06T08:49:25.142Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T08:29:40.992Z",
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "network",
+      "filesystem",
+      "env_access"
+    ]
   },
   "content": {
-    "user_title": "Orchestrate Multi-Agent Planning Council",
-    "value_statement": "Coordinate multiple AI agents (Codex, Claude Code, Gemini) to produce independent implementation plans, anonymize and merge them into a bias-resistant final plan.",
+    "user_title": "Coordinate Multi-Model Planning Councils",
+    "value_statement": "Complex coding changes often need more than one planning perspective. This skill runs several AI planner CLIs, compares their plans, and produces one consolidated implementation plan.",
     "seo_keywords": [
-      "multi-agent planning",
-      "Claude Code skill",
-      "Codex skill",
-      "AI orchestration",
-      "implementation planning",
-      "bias-resistant planning",
       "Claude",
       "Codex",
       "Claude Code",
-      "agent council"
+      "multi-agent planning",
+      "AI planning council",
+      "implementation planning",
+      "CLI orchestration",
+      "code planning workflow",
+      "model comparison",
+      "developer productivity"
     ],
     "actual_capabilities": [
-      "Spawn and coordinate multiple CLI AI agents (Codex, Claude, Gemini, OpenCode)",
-      "Run planners in parallel and collect independent implementation plans",
-      "Anonymize and randomize plans to reduce bias before judging",
-      "Execute judge agent to evaluate and merge plans into final recommendation",
-      "Provide live UI dashboard for monitoring council progress",
-      "Handle failures with retries and timeout management"
+      "Configures planner and judge agents for Codex, Claude, Gemini, OpenCode, or custom CLIs.",
+      "Runs multiple planner agents and captures each Markdown plan as an artifact.",
+      "Anonymizes and randomizes valid plans before the judge evaluates them.",
+      "Produces judge output and a final Markdown implementation plan.",
+      "Provides a local UI for monitoring, saving, accepting, and refining final plans.",
+      "Stores run metadata, validation status, warnings, and plan files under a run directory."
     ],
     "limitations": [
-      "Requires configured AI CLI tools (Codex, Claude, or Gemini) to be installed",
-      "Plans are limited to text-based planning, cannot execute code directly",
-      "Depends on external API availability for cloud-based models",
-      "Session must remain open for up to 30 minutes during execution"
+      "Requires the selected AI CLIs to be installed and authenticated before use.",
+      "May send task and repository context to external model providers through those CLIs.",
+      "Plan quality depends on the configured models and the task brief quality.",
+      "Custom commands can execute local programs and should be used only with trusted configs."
     ],
     "use_cases": [
       {
-        "title": "Complex Project Planning",
-        "description": "Get unbiased implementation plans by having multiple AI perspectives evaluate your task, then merge the best ideas into one robust plan.",
-        "target_user": "Software developers working on complex features"
+        "title": "Compare Architecture Plans",
+        "description": "Generate independent implementation plans for a complex feature, then merge the strongest ideas into one plan.",
+        "target_user": "Senior software engineer"
       },
       {
-        "title": "Architecture Decision Making",
-        "description": "Use multiple AI agents to propose different architectural approaches, then have a judge evaluate tradeoffs and recommend the best option.",
-        "target_user": "Technical leads and architects"
+        "title": "Review Risky Refactors",
+        "description": "Ask several models to identify edge cases, test needs, and rollback steps before a large refactor starts.",
+        "target_user": "Engineering lead"
       },
       {
-        "title": "Code Review Planning",
-        "description": "Generate comprehensive change proposals that consider multiple angles before implementation, reducing oversight and blind spots.",
-        "target_user": "Engineering teams seeking thorough planning"
+        "title": "Standardize Planning Artifacts",
+        "description": "Create consistent Markdown plans with validation, judge notes, and saved run history for team review.",
+        "target_user": "Technical project manager"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Planning Request",
-        "prompt": "Use the llm-council skill to create an implementation plan for: [describe your task]",
-        "scenario": "Quick start with default agent configuration"
+        "title": "Plan A Small Change",
+        "scenario": "Beginner workflow for a focused task.",
+        "prompt": "Use llm-council to plan this small code change: [describe change]. Ask me intake questions first, then run the council with default agents."
       },
       {
-        "title": "Custom Agent Setup",
-        "prompt": "Run llm-council with these agents: Codex (planner), Claude (planner), Gemini (judge). Task: [describe]",
-        "scenario": "Specify custom agents for planning"
+        "title": "Compare Refactor Approaches",
+        "scenario": "Intermediate workflow for a shared module refactor.",
+        "prompt": "Use llm-council to compare refactor plans for [module]. Include constraints, affected paths, test expectations, and rollback requirements in the task brief."
       },
       {
-        "title": "Multi-Model Comparison",
-        "prompt": "Configure 4 different planners (Codex, Claude Opus, Claude Sonnet, Gemini) to produce plans for [task], then have judge select and merge the best approach.",
-        "scenario": "Compare multiple AI model perspectives"
+        "title": "Audit A Migration Plan",
+        "scenario": "Advanced workflow for migration planning.",
+        "prompt": "Use llm-council to plan a migration from [current system] to [target system]. Require each planner to cover compatibility, data safety, deployment, monitoring, and rollback."
       },
       {
-        "title": "Deep Analysis Mode",
-        "prompt": "Run llm-council with high-timeout (600s), 3 retries, and include detailed risk analysis in the final merged plan for: [complex task]",
-        "scenario": "Thorough planning for critical features"
+        "title": "Run A Custom Council",
+        "scenario": "Advanced workflow with selected models and judge.",
+        "prompt": "Use llm-council with my configured agents to produce a final plan for [initiative]. Keep custom command use limited to the trusted config I provide."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a user authentication system with OAuth2",
-        "output": [
-          "Council runs 3 planners (Codex, Claude, Gemini) in parallel",
-          "Each produces independent plan with phases, risks, testing strategy",
-          "Plans are anonymized and randomized before judging",
-          "Judge evaluates and produces final merged plan in final-plan.md"
-        ]
+        "input": "Plan a safe redesign of an authentication module with tests and rollback steps.",
+        "output": "A final Markdown plan that summarizes the chosen approach, implementation phases, edge cases, tests, deployment checks, and rollback actions."
       },
       {
-        "input": "Build API rate limiting service",
-        "output": [
-          "Multiple AI perspectives suggest different approaches (token bucket, sliding window, fixed window)",
-          "Judge analyzes tradeoffs and recommends best solution",
-          "Final plan includes comparative analysis and selected approach rationale"
-        ]
+        "input": "Compare options for replacing a background job runner in a production application.",
+        "output": "A judged plan that lists tradeoffs from multiple planner outputs and recommends one practical migration path."
+      },
+      {
+        "input": "Refine an existing final plan after a reviewer adds new constraints.",
+        "output": "An updated final plan saved as a new artifact and synchronized in the local UI."
       }
     ],
     "best_practices": [
-      "Provide detailed task descriptions during intake to improve plan quality",
-      "Configure at least 3 planners for meaningful comparison and diversity",
-      "Keep the session open until the 30-minute timer completes and final-plan.md is saved",
-      "Review anonymized judge output to understand plan tradeoffs before implementation"
+      "Use a clear task brief with constraints, affected paths, success criteria, and required tests.",
+      "Review generated plans before implementation because planner and judge outputs are untrusted content.",
+      "Run custom commands only from trusted configuration files in repositories that can safely use external AI tools."
     ],
     "anti_patterns": [
-      "Starting council without configuring AI agents (must run setup.sh first)",
-      "Providing vague task descriptions that lead to generic plans",
-      "Killing the session before final-plan.md is saved (loses the merged result)",
-      "Using only one planner defeats the purpose of multi-agent bias reduction"
+      "Do not use this skill on confidential repositories unless provider data policies allow the selected CLIs.",
+      "Do not paste secrets, credentials, or production tokens into task briefs or refinement requests.",
+      "Do not configure arbitrary custom commands from untrusted users or copied examples."
     ],
     "faq": [
       {
-        "question": "What AI tools does this skill support?",
-        "answer": "It supports Codex CLI, Claude Code, Gemini CLI, OpenCode, and custom CLI tools. Run ./setup.sh to configure which agents to use."
+        "question": "What does this skill create?",
+        "answer": "It creates planner outputs, judge notes, metadata, and one final Markdown implementation plan."
       },
       {
-        "question": "How does the judge select the best plan?",
-        "answer": "The judge evaluates anonymized plans against a rubric covering completeness, feasibility, risks, and testing strategy. It then merges the best elements into a final recommendation."
+        "question": "Which AI tools can it orchestrate?",
+        "answer": "It supports Codex, Claude, Gemini, OpenCode, and custom command-line agents when configured."
       },
       {
-        "question": "Can I customize the planner agents?",
-        "answer": "Yes, you can specify any number of planners in the task spec JSON, along with model names, reasoning effort, and extra arguments."
+        "question": "Does it modify application source code?",
+        "answer": "No. It writes planning artifacts and configuration files, but the plans may instruct later code changes."
       },
       {
-        "question": "What happens if a planner fails?",
-        "answer": "The skill retries failed planners up to 2 times. If all retries fail, it alerts you to fix the issue before continuing."
+        "question": "Can it expose private code?",
+        "answer": "Yes. Selected external CLIs may receive task and repository context, so users must verify provider policies first."
       },
       {
-        "question": "Where are the output files saved?",
-        "answer": "Plans are saved under ./llm-council/runs/<timestamp>/ including judge.md and final-plan.md for auditability."
+        "question": "Why are plans anonymized before judging?",
+        "answer": "Anonymization and random ordering reduce model and position bias during plan comparison."
       },
       {
-        "question": "Why must I keep the session open for 30 minutes?",
-        "answer": "The council needs time to run multiple AI agents in parallel, collect outputs, anonymize them, run the judge, and produce the final merged plan. Prematurely closing loses all progress."
+        "question": "Should marketplace users run custom commands?",
+        "answer": "Only when the config is trusted. Custom commands are powerful and can execute local programs."
       }
     ]
   },
