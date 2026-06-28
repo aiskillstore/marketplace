@@ -1,34 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T16:53:34.683Z",
+    "generated_at": "2026-06-28T10:08:13.523Z",
     "slug": "ariegoldkin-observability-monitoring",
     "source_url": "https://github.com/ArieGoldkin/ai-agent-hub/tree/main/skills/observability-monitoring",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "cd4106eca8f7935e84a16554124b9bb538ca74537b206a9c431bbc93ba4fcfa0",
-    "tree_hash": "8508f4bca828ecd1e03137ac068299966788b3a5f3330348804a4f574b1bd93c"
+    "tree_hash": "bc2e310fc1700a997d66d84689760f5f7a1508c0ac53a25d88add23a618ca062"
   },
   "skill": {
     "name": "observability-monitoring",
-    "description": "Structured logging, metrics, distributed tracing, and alerting strategies",
-    "summary": "Structured logging, metrics, distributed tracing, and alerting strategies",
-    "icon": "📊",
+    "description": "Implement structured logging, Prometheus metrics, OpenTelemetry tracing, health checks, and alerting for Node.js services.",
+    "summary": "Add production observability patterns for logs, metrics, traces, alerts, and service health checks.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "ArieGoldkin",
     "license": "MIT",
-    "category": "Operations & Reliability",
+    "category": "devops",
     "tags": [
       "observability",
       "monitoring",
       "logging",
       "metrics",
-      "tracing",
-      "alerts",
-      "Prometheus",
-      "OpenTelemetry"
+      "opentelemetry"
     ],
     "supported_tools": [
       "claude",
@@ -36,29 +33,59 @@
       "claude-code"
     ],
     "risk_factors": [
+      "network",
       "env_access",
-      "filesystem",
-      "network"
+      "external_commands"
     ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This skill contains standard observability templates using legitimate libraries (Winston, Prometheus, OpenTelemetry). All static findings are false positives: 'weak cryptographic algorithm' detections are misidentified Prometheus query expressions; 'C2 keywords' and 'system reconnaissance' are legitimate monitoring terms; 'backtick execution' in SKILL.md are markdown code delimiters. All network calls are to configurable OTLP endpoints, all file access is for logging purposes.",
+    "summary": "The static critical finding is dismissed: the apparent command execution and weak cryptography hits are Markdown fences, comments, alert durations, imports, and normal configuration reads. The skill is not malicious, but it includes reusable logging and tracing templates that can collect request metadata, error details, and trace attributes, so publication should include a privacy warning.",
     "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 25,
+            "line_end": 33
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 48,
+            "line_end": 59
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 95,
+            "line_end": 103
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 139,
+            "line_end": 149
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 117,
+            "line_end": 120
+          }
+        ]
+      },
       {
         "factor": "env_access",
         "evidence": [
           {
-            "file": "templates/opentelemetry-tracing.ts",
-            "line_start": 18,
-            "line_end": 23
-          },
-          {
             "file": "templates/structured-logging.ts",
             "line_start": 14,
             "line_end": 35
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 18,
+            "line_end": 23
           },
           {
             "file": "templates/health-checks.ts",
@@ -68,167 +95,392 @@
         ]
       },
       {
-        "factor": "filesystem",
-        "evidence": [
-          {
-            "file": "templates/structured-logging.ts",
-            "line_start": 36,
-            "line_end": 36
-          }
-        ]
-      },
-      {
         "factor": "network",
         "evidence": [
           {
             "file": "templates/opentelemetry-tracing.ts",
             "line_start": 22,
-            "line_end": 24
+            "line_end": 23
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 7,
-    "total_lines": 1058,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T16:53:34.683Z"
+    "medium_findings": [
+      {
+        "title": "Unredacted Request Metadata Logging",
+        "description": "The request logger records query parameters, user agent, and IP address. This is useful for observability, but adopters could accidentally log tokens, personal data, or internal identifiers without redaction.",
+        "locations": [
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 72,
+            "line_end": 78
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "The code directly logs request metadata that commonly contains sensitive values. The behavior is legitimate for monitoring, but it creates a real privacy risk if copied without filtering."
+      },
+      {
+        "title": "Telemetry Export May Send Sensitive Trace Attributes",
+        "description": "The OpenTelemetry template exports traces to an endpoint selected by environment configuration and records order and payment attributes. This is expected observability behavior, but it can transmit sensitive operational data to a collector.",
+        "locations": [
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 22,
+            "line_end": 30
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 64,
+            "line_end": 69
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.64,
+        "confidence_reasoning": "The exporter and attributes are visible in the template, but the endpoint defaults to localhost and real impact depends on deployment configuration. This warrants a warning rather than a block."
+      },
+      {
+        "title": "Health Check Responses Expose Operational Details",
+        "description": "The readiness endpoint returns application version, uptime, dependency names, latency, and raw error messages. These details can help operators, but they can also reveal internal system state if exposed publicly.",
+        "locations": [
+          {
+            "file": "templates/health-checks.ts",
+            "line_start": 44,
+            "line_end": 49
+          },
+          {
+            "file": "templates/health-checks.ts",
+            "line_start": 61,
+            "line_end": 64
+          },
+          {
+            "file": "templates/health-checks.ts",
+            "line_start": 77,
+            "line_end": 80
+          },
+          {
+            "file": "templates/health-checks.ts",
+            "line_start": 87,
+            "line_end": 90
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.72,
+        "confidence_reasoning": "The response fields and raw error message paths are explicit. The finding is medium because health data is normal for internal probes but should not be exposed without access control."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "External Command Findings Are Markdown and Comments",
+        "description": "The static shell execution matches are Markdown code fences, TypeScript template string examples, template references, or a commented bad logging example. No executable Ruby backtick or shell command path was found in these locations.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 25,
+            "line_end": 33
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 48,
+            "line_end": 59
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 74,
+            "line_end": 80
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 95,
+            "line_end": 103
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 139,
+            "line_end": 151
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 117,
+            "line_end": 120
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.96,
+        "confidence_reasoning": "Line review shows documentation fences and commented example text, not runtime command execution. There is no user input reaching a shell in the reviewed files."
+      },
+      {
+        "title": "Weak Cryptography Findings Are Keyword Collisions",
+        "description": "The weak cryptography hits are not cryptographic code. They appear in descriptive text, Prometheus alert expressions, humanized descriptions, imports, and normal control flow comments.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "templates/alerting-rules.yml",
+            "line_start": 19,
+            "line_end": 19
+          },
+          {
+            "file": "templates/alerting-rules.yml",
+            "line_start": 33,
+            "line_end": 33
+          },
+          {
+            "file": "templates/alerting-rules.yml",
+            "line_start": 44,
+            "line_end": 44
+          },
+          {
+            "file": "templates/alerting-rules.yml",
+            "line_start": 60,
+            "line_end": 60
+          },
+          {
+            "file": "templates/alerting-rules.yml",
+            "line_start": 71,
+            "line_end": 71
+          },
+          {
+            "file": "templates/alerting-rules.yml",
+            "line_start": 89,
+            "line_end": 89
+          },
+          {
+            "file": "templates/alerting-rules.yml",
+            "line_start": 103,
+            "line_end": 103
+          },
+          {
+            "file": "templates/health-checks.ts",
+            "line_start": 81,
+            "line_end": 81
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 5,
+            "line_end": 5
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 16,
+            "line_end": 16
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.94,
+        "confidence_reasoning": "The cited lines contain monitoring text or OpenTelemetry setup, not hashing, encryption, or signature verification. No weak crypto API use was found."
+      },
+      {
+        "title": "Environment Access Is Configuration Only",
+        "description": "The environment variable reads configure log level, service metadata, deployment environment, trace exporter endpoint, and application version. No code reads environment files or sends all environment variables elsewhere.",
+        "locations": [
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 14,
+            "line_end": 35
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 18,
+            "line_end": 23
+          },
+          {
+            "file": "templates/health-checks.ts",
+            "line_start": 48,
+            "line_end": 48
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.9,
+        "confidence_reasoning": "Each environment read is a named configuration value. There is no evidence of .env file access, credential harvesting, or bulk environment exfiltration."
+      },
+      {
+        "title": "Hardcoded Network URL Defaults To Local Collector",
+        "description": "The only hardcoded URL is the OpenTelemetry trace exporter default for localhost. It is a standard local collector endpoint, not an external exfiltration destination.",
+        "locations": [
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 22,
+            "line_end": 23
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "The URL is localhost and appears in a normal OTLP exporter configuration. Network risk remains possible only when users set an external endpoint through deployment configuration."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Log Request Data Only After Redaction",
+        "description": "The template logs query parameters and client metadata. Users should redact secrets and avoid logging authentication tokens, session identifiers, or unnecessary personal data.",
+        "locations": [
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 72,
+            "line_end": 78
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.78,
+        "confidence_reasoning": "The data capture is direct and visible, but whether it contains sensitive data depends on the application routes and requests."
+      },
+      {
+        "title": "Protect Telemetry Export Destinations",
+        "description": "The trace exporter sends spans to an OTLP HTTP endpoint. Users should restrict exporter destinations and review span attributes before enabling production tracing.",
+        "locations": [
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 22,
+            "line_end": 30
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.64,
+        "confidence_reasoning": "The exporter is legitimate observability code with a localhost default. The risk depends on production endpoint configuration and the attributes recorded by the application."
+      }
+    ],
+    "files_scanned": 6,
+    "total_lines": 796,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T10:08:13.523Z",
+    "risk_factors": [
+      "network",
+      "env_access",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Add production monitoring and observability",
-    "value_statement": "Applications lack visibility into production issues. This skill provides templates for structured logging, metrics collection, distributed tracing, and alerting to achieve full observability across your stack.",
+    "user_title": "Implement Observability for Node.js Services",
+    "value_statement": "Production services need consistent logs, metrics, traces, alerts, and health probes. This skill provides practical TypeScript and Prometheus templates for adding that visibility.",
     "seo_keywords": [
+      "Claude",
+      "Codex",
+      "Claude Code",
       "observability monitoring",
       "structured logging",
       "Prometheus metrics",
       "OpenTelemetry tracing",
+      "Node.js health checks",
       "alerting rules",
-      "health checks",
-      "distributed tracing",
-      "Claude Code",
-      "Claude",
-      "Codex"
+      "production reliability"
     ],
     "actual_capabilities": [
-      "Configure structured JSON logging with Winston and request correlation",
-      "Set up Prometheus metrics with HTTP, database, and cache instrumentation",
-      "Implement OpenTelemetry distributed tracing with manual spans",
-      "Create health check endpoints for Kubernetes liveness, readiness, and startup probes",
-      "Define Prometheus alerting rules with severity-based thresholds"
+      "Provides Winston structured logging patterns with request correlation IDs.",
+      "Defines Prometheus HTTP, database, cache, and business metric examples.",
+      "Shows OpenTelemetry setup with Node.js auto-instrumentation and manual spans.",
+      "Includes Express health, readiness, and startup probe templates.",
+      "Supplies Prometheus alerting rules for service, error rate, latency, memory, database, and cache signals."
     ],
     "limitations": [
-      "Does not include dashboard configurations or visualization setup",
-      "Requires external observability infrastructure (Prometheus, Jaeger, etc.)",
-      "Does not provide log aggregation or metric storage solutions"
+      "Templates are examples and must be adapted to each application architecture.",
+      "The skill does not deploy monitoring infrastructure or dashboards automatically.",
+      "Security controls such as log redaction and endpoint authentication are not fully implemented.",
+      "Examples focus on Node.js, Express, Prometheus, Winston, and OpenTelemetry."
     ],
     "use_cases": [
       {
-        "target_user": "Backend developers",
-        "title": "Add monitoring to API",
-        "description": "Add structured logging, metrics middleware, and health endpoints to Express API for production visibility."
+        "title": "Add baseline service observability",
+        "description": "Introduce structured request logs, RED metrics, and health probes to a new Node.js service.",
+        "target_user": "Backend engineer"
       },
       {
-        "target_user": "DevOps engineers",
-        "title": "Configure alerting rules",
-        "description": "Create Prometheus alerting rules for service downtime, error rates, latency thresholds, and resource usage."
+        "title": "Prepare production alerting",
+        "description": "Create Prometheus alerts for outages, error spikes, latency, memory pressure, database pool exhaustion, and cache degradation.",
+        "target_user": "Site reliability engineer"
       },
       {
-        "target_user": "SRE teams",
-        "title": "Implement distributed tracing",
-        "description": "Set up OpenTelemetry auto-instrumentation for HTTP, PostgreSQL, and Redis with manual span support."
+        "title": "Improve incident diagnosis",
+        "description": "Connect logs, metrics, and traces so teams can investigate request failures across service boundaries.",
+        "target_user": "Platform team lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Add basic logging",
-        "scenario": "Need structured logging in Express API",
-        "prompt": "Add structured JSON logging to my Express API using the observability-monitoring skill. Include request correlation IDs and log levels configurable via environment variables."
+        "title": "Add basic request logging",
+        "scenario": "Beginner setup for an Express service",
+        "prompt": "Use this skill to add structured request logging to my Express service. Include correlation IDs, useful fields, and safe redaction recommendations."
       },
       {
-        "title": "Create metrics endpoint",
-        "scenario": "Expose Prometheus metrics",
-        "prompt": "Create a /metrics endpoint with Prometheus instrumentation for HTTP request duration, status codes, and database query metrics using the observability-monitoring skill."
+        "title": "Create service metrics",
+        "scenario": "Intermediate Prometheus instrumentation",
+        "prompt": "Use this skill to design Prometheus metrics for HTTP requests, database latency, cache hits, and key business events in my Node.js app."
       },
       {
-        "title": "Set up tracing",
-        "scenario": "Enable distributed tracing",
-        "prompt": "Configure OpenTelemetry distributed tracing for my Node.js service. Auto-instrument Express and PostgreSQL. Export traces to OTLP endpoint configurable via environment variable."
+        "title": "Set up distributed tracing",
+        "scenario": "Advanced OpenTelemetry implementation",
+        "prompt": "Use this skill to add OpenTelemetry tracing to my service. Include auto-instrumentation, manual spans, exporter configuration, and privacy safeguards."
       },
       {
-        "title": "Define alert rules",
-        "scenario": "Create production alerts",
-        "prompt": "Create Prometheus alerting rules for critical issues: service down (up == 0), high error rate (5xx > 5%), high latency (p95 > 2s), and database connection pool exhaustion."
+        "title": "Design an incident-ready monitoring package",
+        "scenario": "Advanced production readiness review",
+        "prompt": "Use this skill to review my service for production observability. Propose logs, metrics, traces, alerts, health checks, dashboards, and rollout steps."
       }
     ],
     "output_examples": [
       {
-        "input": "Add observability to my Node.js Express API",
+        "input": "Add request observability to an Express API.",
         "output": [
-          "Structured logging configured with Winston (JSON format, request IDs)",
-          "Metrics middleware tracking request duration and status codes",
-          "Health check endpoints: /health (liveness), /ready (readiness), /startup",
-          "OpenTelemetry tracing with auto-instrumentation for HTTP and databases",
-          "Prometheus alerting rules for service downtime, error rates, and latency",
-          "Configuration via environment variables: LOG_LEVEL, SERVICE_NAME, OTEL_EXPORTER_OTLP_ENDPOINT"
+          "A structured logging plan with request IDs, route metadata, response status, and latency fields.",
+          "Guidance to redact query values, tokens, session identifiers, and unnecessary personal data.",
+          "A middleware placement recommendation for consistent request and response logging."
         ]
       },
       {
-        "input": "Create alerting rules for my production service",
+        "input": "Define production alerts for a web service.",
         "output": [
-          "ServiceDown alert triggers when up == 0 for 1 minute (Critical)",
-          "HighErrorRate alert triggers when 5xx errors exceed 5% for 5 minutes (Critical)",
-          "HighLatency alert triggers when p95 exceeds 2 seconds for 5 minutes (High)",
-          "LowCacheHitRate alert triggers when cache hit rate drops below 70% for 10 minutes (Medium)"
+          "A prioritized alert set covering service availability, error rate, latency, memory usage, database pool pressure, and cache hit rate.",
+          "Suggested severities and evaluation windows for each alert.",
+          "Notes on reducing alert noise with clear ownership and thresholds."
         ]
       },
       {
-        "input": "Set up distributed tracing across microservices",
+        "input": "Prepare tracing for order processing.",
         "output": [
-          "OpenTelemetry SDK initialized with auto-instrumentation for Express, PostgreSQL, Redis",
-          "Trace exporter configured to send spans to OTLP endpoint",
-          "Request correlation IDs propagated through all services",
-          "Manual span support for custom business operations"
+          "A tracing design with parent spans for order processing and child spans for payment and inventory work.",
+          "Recommended span attributes that avoid storing raw payment details or customer secrets.",
+          "Exporter configuration guidance for local development and controlled production collectors."
         ]
       }
     ],
     "best_practices": [
-      "Use structured JSON logging with correlation IDs to trace requests across services",
-      "Implement the RED method (Rate, Errors, Duration) for service-level metrics",
-      "Configure alert severity levels with appropriate response time targets"
+      "Define redaction rules before enabling production request logging or tracing.",
+      "Start with a small alert set tied to user impact, then tune thresholds from real traffic.",
+      "Use consistent service names, versions, environments, and correlation IDs across all telemetry."
     ],
     "anti_patterns": [
-      "Avoid string interpolation in logs - use structured key-value pairs",
-      "Do not expose sensitive data in log attributes or span attributes",
-      "Avoid alerting on symptoms rather than root causes"
+      "Do not log full request bodies, tokens, passwords, session IDs, or unfiltered query strings.",
+      "Do not expose health, readiness, metrics, or tracing endpoints publicly without access controls.",
+      "Do not create alerts for every metric before defining ownership, severity, and response actions."
     ],
     "faq": [
       {
-        "question": "What observability tools are supported?",
-        "answer": "The skill supports Prometheus for metrics, OpenTelemetry for tracing, and Winston for logging. Works with any OTLP-compatible backend."
+        "question": "Does this skill install a monitoring stack?",
+        "answer": "No. It provides templates and implementation guidance for application observability components."
       },
       {
-        "question": "What are the latency overhead costs?",
-        "answer": "Metrics collection adds minimal overhead. Tracing has 1-3% latency impact with sampling. Logging overhead depends on volume."
+        "question": "Which runtime does the skill focus on?",
+        "answer": "The templates focus on Node.js and Express with TypeScript examples."
       },
       {
-        "question": "How do I integrate with existing monitoring?",
-        "answer": "Configure endpoint URLs via environment variables. The templates use standard libraries that integrate with most observability platforms."
+        "question": "Can it be used with Prometheus?",
+        "answer": "Yes. It includes Prometheus metrics and alerting rule examples."
       },
       {
-        "question": "Is my log data sent to external services?",
-        "answer": "No. Logs write to local files or stdout. Configure transports to send data to your preferred observability backend."
+        "question": "Can it be used with OpenTelemetry?",
+        "answer": "Yes. It includes OpenTelemetry tracing setup, auto-instrumentation, and manual span examples."
       },
       {
-        "question": "How do I troubleshoot missing metrics?",
-        "answer": "Check the /metrics endpoint returns data. Verify metrics middleware is applied to routes. Ensure registry is initialized before collecting."
+        "question": "What security review is needed before production use?",
+        "answer": "Review log fields, trace attributes, telemetry endpoints, health responses, and metrics exposure for sensitive data."
       },
       {
-        "question": "How does this compare to cloud monitoring services?",
-        "answer": "This provides self-hosted observability using open standards. You maintain infrastructure but avoid vendor lock-in and per-metric costs."
+        "question": "Does it replace incident response planning?",
+        "answer": "No. It helps create signals and alerts, but teams still need ownership, runbooks, and escalation paths."
       }
     ]
   },
