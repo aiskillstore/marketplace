@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T18:56:15.193Z",
+    "generated_at": "2026-06-28T12:24:24.793Z",
     "slug": "asmayaseen-nextjs-devtools",
     "source_url": "https://github.com/Asmayaseen/hackathon-2/tree/main/.claude/skills/nextjs-devtools",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "c890548bba06f615f2900e2ec71355ba14cd5d7e6895615ababb39c8d7470261",
-    "tree_hash": "b94c8e7cb0c676d373ace2b96516a096e0797b317326c05e6378de74be1afb95"
+    "tree_hash": "ee68b393c818403b86ff2f5159fbe4476ea5a85babd8efc303d916c0a035f806"
   },
   "skill": {
     "name": "nextjs-devtools",
-    "description": "Next.js development tooling via MCP. Inspect routes, components, build info, and debug Next.js apps.\nUse when working on Next.js applications, debugging routing, or inspecting app structure.\nNOT for general React or non-Next.js projects.\n",
-    "summary": "Next.js development tooling via MCP. Inspect routes, components, build info, and debug Next.js apps....",
-    "icon": "🔧",
+    "description": "Inspect and debug Next.js applications through a Model Context Protocol client. The skill helps list routes, inspect route details, review components, and query build or configuration data.",
+    "summary": "Use MCP tooling to inspect routes, components, build data, and configuration in Next.js projects.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Asmayaseen",
     "license": "MIT",
-    "category": "coding",
     "tags": [
       "nextjs",
-      "development",
-      "debugging",
       "mcp",
-      "routing"
+      "debugging",
+      "routes",
+      "developer-tools"
     ],
     "supported_tools": [
       "claude",
@@ -33,24 +32,54 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
-      "network",
-      "external_commands"
-    ]
+      "external_commands",
+      "network"
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate Next.js development tool. Uses subprocess.Popen to spawn MCP servers (intentional design for stdio transport), HTTP requests to local MCP endpoints (standard MCP protocol), and shell scripts for server startup. All capabilities match the stated purpose. The static analyzer flagged 'weak cryptographic algorithm' on 38 locations - these are false positives from misidentified Python builtins (str, len, list, set, type). The skill-report.json previously audited this as low risk with no confirmed malicious patterns.",
+    "summary": "The static analyzer correctly identified external command execution and network-capable MCP behavior. The subprocess shell execution and unpinned npx latest package are real risks that need user warnings, but I found no evidence of malicious intent, credential exfiltration, or prompt injection. The weak cryptography and many reconnaissance hits appear to be false positives from Markdown formatting, JSON-RPC strings, descriptions, and normal CLI structure.",
     "risk_factor_evidence": [
       {
-        "factor": "scripts",
+        "factor": "external_commands",
         "evidence": [
           {
+            "file": "scripts/mcp-client.py",
+            "line_start": 204,
+            "line_end": 207
+          },
+          {
             "file": "scripts/start-server.sh",
-            "line_start": 1,
-            "line_end": 9
+            "line_start": 8,
+            "line_end": 8
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 22
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 49
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 63
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 69,
+            "line_end": 71
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 91,
+            "line_end": 93
           }
         ]
       },
@@ -61,172 +90,268 @@
             "file": "scripts/mcp-client.py",
             "line_start": 33,
             "line_end": 34
-          }
-        ]
-      },
-      {
-        "factor": "external_commands",
-        "evidence": [
+          },
           {
             "file": "scripts/mcp-client.py",
-            "line_start": 191,
-            "line_end": 212
+            "line_start": 139,
+            "line_end": 146
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 420,
+            "line_end": 424
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 432,
+            "line_end": 438
+          },
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 8,
+            "line_end": 10
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [
+    "high_findings": [],
+    "medium_findings": [
       {
-        "title": "subprocess.Popen for MCP server spawning",
-        "description": "StdioTransport class spawns MCP servers using subprocess.Popen with shell=True. This is intentional design for a universal MCP client that needs to launch servers based on user-provided commands.",
+        "title": "Caller-Supplied Command Executed Through Shell",
+        "description": "The stdio transport starts the user-provided command with subprocess.Popen and shell=True. This is legitimate for launching MCP servers, but unsafe if command text comes from an untrusted source.",
         "locations": [
           {
             "file": "scripts/mcp-client.py",
             "line_start": 204,
-            "line_end": 212
+            "line_end": 207
           }
         ],
-        "verdict": "false_positive",
-        "confidence": "high",
-        "reasoning": "Legitimate MCP connectivity pattern. shell=True required for compound commands. Caller controls the command string, which is expected for MCP client usage."
+        "confidence": 0.88,
+        "confidence_reasoning": "The code directly passes the CLI --stdio value into subprocess.Popen with shell=True. The feature is intentional, but the injection impact is clear if untrusted command text is used."
+      },
+      {
+        "title": "Unpinned Remote Package Execution",
+        "description": "The documentation and helper script run npx next-devtools-mcp@latest. This can execute newly published package versions without review, creating supply-chain risk.",
+        "locations": [
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 8,
+            "line_end": 8
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 22
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 49
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 63
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 69,
+            "line_end": 71
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 91,
+            "line_end": 93
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "Multiple examples and the startup script use an npm package at the latest tag. This is a known supply-chain risk, although no malicious behavior is evident in this repository."
       }
     ],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 4,
-    "total_lines": 847,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T18:56:15.193Z"
+    "low_findings": [
+      {
+        "title": "Network Access to Caller-Selected MCP Endpoint",
+        "description": "The client can connect to an HTTP MCP server chosen with --url and can attach user-supplied headers. This is expected MCP behavior, but users should avoid untrusted endpoints.",
+        "locations": [
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 139,
+            "line_end": 146
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 420,
+            "line_end": 424
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 432,
+            "line_end": 438
+          }
+        ],
+        "confidence": 0.67,
+        "confidence_reasoning": "The network behavior is explicit and user-directed. I did not find evidence of hidden exfiltration, so the residual risk is low and tied to endpoint trust."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "subprocess.Popen with shell=True",
+        "description": "The MCP client launches a user-provided stdio command through the shell. This pattern can enable command injection when inputs are not trusted.",
+        "locations": [
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 204,
+            "line_end": 207
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The risky API and shell=True option are present at the same call site. The command is intentionally supplied by the caller, so this is a confirmed dangerous pattern."
+      },
+      {
+        "title": "npx Package Execution with @latest",
+        "description": "The skill runs a remote npm package using the latest dist tag. Pinning a reviewed version would reduce update and registry compromise risk.",
+        "locations": [
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 8,
+            "line_end": 8
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 22
+          }
+        ],
+        "confidence": 0.83,
+        "confidence_reasoning": "The package invocation is visible in the shell script and quick-start example. The risk is supply-chain exposure rather than confirmed malicious intent."
+      }
+    ],
+    "files_scanned": 3,
+    "total_lines": 602,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T12:24:24.793Z",
+    "risk_factors": [
+      "external_commands",
+      "network"
+    ]
   },
   "content": {
-    "user_title": "Inspect and debug Next.js apps",
-    "value_statement": "Next.js development requires visibility into routes, components, and build configuration. This skill provides MCP-based tools to inspect your Next.js app structure, debug routing issues, and examine build settings directly from your AI assistant.",
+    "user_title": "Inspect Next.js Apps with MCP",
+    "value_statement": "Next.js debugging often requires checking routes, components, build settings, and configuration across the project. This skill gives Claude, Codex, and Claude Code a focused MCP workflow for inspecting that application data.",
     "seo_keywords": [
-      "nextjs devtools",
-      "nextjs mcp",
-      "route inspection",
-      "component discovery",
-      "build debugging",
-      "nextjs development",
-      "claude code",
-      "claude",
-      "codex",
-      "mcp server"
+      "Next.js devtools",
+      "Next.js MCP",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "Next.js routes",
+      "Next.js debugging",
+      "MCP client",
+      "React components",
+      "next.config.js"
     ],
     "actual_capabilities": [
-      "List all app routes in a Next.js project",
-      "Get detailed information about specific routes",
-      "Discover and list React components in the app",
-      "Retrieve build configuration and info",
-      "Read next.config.js settings"
+      "Starts a Next.js DevTools MCP server through a shell helper.",
+      "Calls MCP tools over stdio or HTTP transport.",
+      "Lists Next.js app routes through the MCP server.",
+      "Requests details for a specific route using JSON parameters.",
+      "Lists React components discovered by the MCP server.",
+      "Retrieves build information and Next.js configuration data."
     ],
     "limitations": [
-      "Requires Next.js project structure to function",
-      "Does not modify or edit files",
-      "Cannot run inside non-Next.js projects",
-      "Build info requires running next build first"
+      "Requires a working Next.js project and compatible MCP server.",
+      "Uses npx next-devtools-mcp@latest unless users pin a version themselves.",
+      "Does not fix application code automatically.",
+      "Does not apply to general React projects without Next.js structure."
     ],
     "use_cases": [
       {
-        "target_user": "Full-stack developers",
-        "title": "Debug routing issues",
-        "description": "List all routes and check their configurations when routes are not behaving as expected."
+        "title": "Audit App Routes",
+        "description": "List routes and inspect route metadata before changing navigation or API behavior.",
+        "target_user": "Next.js application developer"
       },
       {
-        "target_user": "Backend API developers",
-        "title": "Inspect API routes",
-        "description": "Review API route handlers and their structure to understand backend endpoint organization."
+        "title": "Debug Build Configuration",
+        "description": "Review build information and next.config.js settings when builds behave differently across environments.",
+        "target_user": "Frontend platform engineer"
       },
       {
-        "target_user": "Frontend engineers",
-        "title": "Component exploration",
-        "description": "Find and catalog React components across the application for refactoring or review."
+        "title": "Explore Project Components",
+        "description": "Discover components in an unfamiliar Next.js codebase before planning refactors or feature work.",
+        "target_user": "Code reviewer or onboarding engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "List all routes",
-        "scenario": "Get route overview",
-        "prompt": "Use list-routes to show me all routes in this Next.js application."
+        "title": "List Project Routes",
+        "scenario": "Beginner route discovery",
+        "prompt": "Use the Next.js DevTools skill to list the routes in this project. Summarize the important pages and API routes."
       },
       {
-        "title": "Check specific route",
-        "scenario": "Inspect route details",
-        "prompt": "Use get-route-info with route parameter to check the /api/users endpoint."
+        "title": "Inspect One Route",
+        "scenario": "Focused route debugging",
+        "prompt": "Use the Next.js DevTools skill to inspect the route /api/auth. Explain its metadata and any relevant parameters."
       },
       {
-        "title": "Debug build config",
-        "scenario": "Build troubleshooting",
-        "prompt": "Use get-build-info and get-config to check my Next.js build settings."
+        "title": "Review Build Settings",
+        "scenario": "Build issue triage",
+        "prompt": "Use the Next.js DevTools skill to get build information and configuration. Identify settings that could affect production builds."
       },
       {
-        "title": "Find components",
-        "scenario": "Component discovery",
-        "prompt": "Use list-components to show me all React components in this application."
+        "title": "Map Routes and Components",
+        "scenario": "Advanced project analysis",
+        "prompt": "Use the Next.js DevTools skill to list routes and components. Create a concise dependency-oriented summary for a refactor plan."
       }
     ],
     "output_examples": [
       {
-        "input": "Use list-routes to show me all routes in this Next.js application.",
-        "output": [
-          "Routes found: 8",
-          "/ (page.tsx) - Static",
-          "/about (page.tsx) - Static",
-          "/api/users (route.ts) - Dynamic API",
-          "/api/posts (route.ts) - Dynamic API",
-          "/dashboard (page.tsx) - Dynamic",
-          "/blog/[slug] (page.tsx) - Dynamic catch-all"
-        ]
+        "input": "List all routes in my Next.js app.",
+        "output": "A route inventory grouped by pages, app routes, and API endpoints, with notes about dynamic segments where available."
       },
       {
-        "input": "Use list-components to show me all React components in this application.",
-        "output": [
-          "Components found: 15",
-          "Button (components/ui/Button.tsx)",
-          "Header (components/layout/Header.tsx)",
-          "Footer (components/layout/Footer.tsx)",
-          "UserCard (components/user/UserCard.tsx)"
-        ]
+        "input": "Check why the build behaves differently in production.",
+        "output": "A short build diagnostics summary covering reported build data, configuration values, and follow-up checks."
+      },
+      {
+        "input": "Find components before I refactor the dashboard.",
+        "output": "A component discovery summary that highlights likely dashboard-related components and areas that need manual confirmation."
       }
     ],
     "best_practices": [
-      "Run from the root directory of your Next.js project",
-      "Execute next build before checking build information",
-      "Use specific route paths with get-route-info for detailed information",
-      "Combine tools like list-routes then get-route-info for comprehensive debugging"
+      "Run the skill from the Next.js project root for accurate route and component discovery.",
+      "Pin the MCP server package version before using it in shared or production workflows.",
+      "Review MCP output before making code changes, especially for dynamic routes and generated build data."
     ],
     "anti_patterns": [
-      "Running in a plain React project without Next.js structure",
-      "Expecting component discovery to work before the app is built",
-      "Using tools without being in a Next.js project directory",
-      "Relying on build info without first running next build"
+      "Do not pass untrusted text into the --stdio command option.",
+      "Do not connect the HTTP client to unknown MCP endpoints with sensitive headers.",
+      "Do not use this skill as a substitute for tests, linting, or a real Next.js build."
     ],
     "faq": [
       {
-        "question": "What is Next.js DevTools?",
-        "answer": "An MCP-based tool that provides visibility into Next.js app structure including routes, components, and build config."
+        "question": "Does this skill modify my Next.js application?",
+        "answer": "No. It queries a Next.js DevTools MCP server and reports information. Code changes require separate user approval."
       },
       {
-        "question": "Which tools support this skill?",
-        "answer": "Works with Claude, Codex, and Claude Code. Requires an MCP-compatible environment."
+        "question": "Which AI tools can use this skill?",
+        "answer": "The report lists Claude, Codex, and Claude Code as supported tools."
       },
       {
-        "question": "What can I inspect?",
-        "answer": "App routes, route details, React components, build configuration, and next.config.js settings."
+        "question": "Does it require network access?",
+        "answer": "Yes. It can use HTTP MCP connections and npx package execution. Treat endpoints and package versions as trusted inputs."
       },
       {
-        "question": "Is my data safe?",
-        "answer": "Yes. The skill only reads project files locally. No data is sent to external servers beyond the MCP protocol."
+        "question": "Why is the security risk medium?",
+        "answer": "The skill intentionally launches shell commands and can run an unpinned npm package. No malicious behavior was found."
       },
       {
-        "question": "Why are no routes found?",
-        "answer": "Ensure you are running from a Next.js project root. Run next build first for complete build information."
+        "question": "Can I use it with a non-Next.js React project?",
+        "answer": "No. The skill is designed for Next.js project structure and Next.js-specific tooling."
       },
       {
-        "question": "How is this different from React DevTools?",
-        "answer": "This tool inspects the project structure and build configuration at the file level, not runtime component state."
+        "question": "How can I reduce supply-chain risk?",
+        "answer": "Use a reviewed, pinned version of next-devtools-mcp instead of the latest tag."
       }
     ]
   },

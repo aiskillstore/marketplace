@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T17:50:43.965Z",
+    "generated_at": "2026-06-28T11:44:03.479Z",
     "slug": "automattic-wp-block-themes",
     "source_url": "https://github.com/Automattic/agent-skills/tree/trunk/skills/wp-block-themes",
     "source_ref": "trunk",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "f17a8417f029cc15454c1036edd96ffccb45e3c1f434890fe99db896106af973",
-    "tree_hash": "e767afacad80cc6984edc3104d83339e6a7c264425c12aedbe10e6b515ae27f4"
+    "tree_hash": "8d3cdc2ded40dbc55a57f85c0a9bbb501f744744ff5e4c62424239d4205dad06"
   },
   "skill": {
     "name": "wp-block-themes",
-    "description": "Use when developing WordPress block themes: theme.json (global settings/styles), templates and template parts, patterns, style variations, and Site Editor troubleshooting (style hierarchy, overrides, caching).",
-    "summary": "Use when developing WordPress block themes: theme.json (global settings/styles), templates and templ...",
-    "icon": "🎨",
+    "description": "Guides development and troubleshooting for WordPress block themes, including theme.json, templates, template parts, patterns, style variations, and Site Editor behavior.",
+    "summary": "Develop and debug WordPress block themes with focused guidance for theme.json, templates, patterns, and style variations.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Automattic",
-    "license": "GPL-2.0-or-later",
-    "category": "development",
+    "license": "MIT",
     "tags": [
       "wordpress",
-      "themes",
-      "block-editor",
-      "theme-json"
+      "block-themes",
+      "theme-json",
+      "site-editor",
+      "gutenberg"
     ],
     "supported_tools": [
       "claude",
@@ -32,186 +32,344 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
+      "external_commands",
+      "network",
       "filesystem"
-    ]
+    ],
+    "category": "coding"
   },
   "security_audit": {
     "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This skill provides documentation and guidance for WordPress block theme development. The only executable script (detect_block_themes.mjs) safely reads theme.json files using bounded filesystem operations with no network access or command execution. All 92 static findings are false positives: markdown backticks are misinterpreted as shell execution, documentation URLs as network calls, and JSON content hashes as C2 indicators.",
+    "summary": "Static analysis reported many high-risk patterns, but review found no malicious intent, no prompt injection, and no confirmed weak cryptography. Most command and crypto matches are Markdown backticks around WordPress terms, file paths, or documentation links. The only real concern is a local Node.js helper that reads the current repository to detect block theme folders.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/detect_block_themes.mjs",
+            "line_start": 1,
+            "line_end": 116
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 32
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 46,
+            "line_end": 46
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "references/creating-new-block-theme.md",
+            "line_start": 20,
+            "line_end": 25
+          },
+          {
+            "file": "references/patterns.md",
+            "line_start": 10,
+            "line_end": 12
+          },
+          {
+            "file": "references/style-variations.md",
+            "line_start": 11,
+            "line_end": 13
+          },
+          {
+            "file": "references/templates-and-parts.md",
+            "line_start": 12,
+            "line_end": 15
+          },
+          {
+            "file": "references/theme-json.md",
+            "line_start": 14,
+            "line_end": 19
+          },
+          {
+            "file": "references/theme-json.md",
+            "line_start": 56,
+            "line_end": 59
+          }
+        ]
+      },
       {
         "factor": "filesystem",
         "evidence": [
           {
             "file": "scripts/detect_block_themes.mjs",
             "line_start": 15,
-            "line_end": 68
+            "line_end": 18
+          },
+          {
+            "file": "scripts/detect_block_themes.mjs",
+            "line_start": 28,
+            "line_end": 30
+          },
+          {
+            "file": "scripts/detect_block_themes.mjs",
+            "line_start": 36,
+            "line_end": 67
+          },
+          {
+            "file": "scripts/detect_block_themes.mjs",
+            "line_start": 95,
+            "line_end": 113
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [
+    "medium_findings": [],
+    "low_findings": [
       {
-        "title": "Filesystem Read Operations for Theme Detection",
-        "description": "Node.js fs operations for reading theme.json files",
+        "title": "Local Repository Filesystem Enumeration",
+        "description": "The helper script walks the current working directory, reads theme.json files, and prints a report that includes the repository root. This is legitimate for theme detection, but it exposes local paths in command output and should only be run in intended project directories.",
         "locations": [
           {
             "file": "scripts/detect_block_themes.mjs",
-            "line_start": 30,
-            "line_end": 47
+            "line_start": 36,
+            "line_end": 67
+          },
+          {
+            "file": "scripts/detect_block_themes.mjs",
+            "line_start": 95,
+            "line_end": 113
           }
-        ]
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The filesystem behavior is directly implemented with fs.statSync, fs.readFileSync, and fs.readdirSync. Confidence is high that this is local enumeration, but context shows no network transmission or destructive writes."
+      },
+      {
+        "title": "Markdown Backtick False Positives",
+        "description": "Many external command detections are false positives. The flagged backticks surround WordPress file names, folders, and theme.json keys in Markdown, not executable Ruby or shell code.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 16
+          },
+          {
+            "file": "references/creating-new-block-theme.md",
+            "line_start": 13,
+            "line_end": 16
+          },
+          {
+            "file": "references/theme-json.md",
+            "line_start": 9,
+            "line_end": 12
+          },
+          {
+            "file": "references/templates-and-parts.md",
+            "line_start": 7,
+            "line_end": 8
+          },
+          {
+            "file": "references/style-variations.md",
+            "line_start": 1,
+            "line_end": 7
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "Line-number review shows Markdown inline code spans and headings, not runtime code execution. The actual Node script contains no child_process, spawn, exec, eval, or shell invocation."
+      },
+      {
+        "title": "Documentation URL False Positives",
+        "description": "The network findings are hardcoded links to WordPress documentation and plugin pages. No file performs fetch, HTTP requests, package installation, or data upload.",
+        "locations": [
+          {
+            "file": "references/creating-new-block-theme.md",
+            "line_start": 20,
+            "line_end": 25
+          },
+          {
+            "file": "references/theme-json.md",
+            "line_start": 14,
+            "line_end": 19
+          },
+          {
+            "file": "references/theme-json.md",
+            "line_start": 56,
+            "line_end": 59
+          },
+          {
+            "file": "references/patterns.md",
+            "line_start": 10,
+            "line_end": 12
+          },
+          {
+            "file": "references/templates-and-parts.md",
+            "line_start": 12,
+            "line_end": 15
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The cited lines are plain reference links in Markdown. There is no executable network client code in the reviewed files."
+      },
+      {
+        "title": "Weak Cryptography False Positives",
+        "description": "The high-severity weak cryptography detections appear to match the text theme.json and URLs containing json. No hashing, encryption, password handling, or cryptographic API use was found.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 99,
+            "line_end": 109
+          },
+          {
+            "file": "references/theme-json.md",
+            "line_start": 12,
+            "line_end": 18
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The cited content discusses WordPress theme.json structure and debugging. Review found no crypto functions, weak algorithms, credential logic, or secret handling."
       }
     ],
-    "low_findings": [],
     "dangerous_patterns": [],
-    "files_scanned": 9,
-    "total_lines": 659,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T17:50:43.965Z"
+    "files_scanned": 8,
+    "total_lines": 409,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T11:44:03.479Z",
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "network",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Develop WordPress block themes with expert guidance",
-    "value_statement": "WordPress block themes use theme.json for global settings and styles. This skill provides expert guidance for theme.json configuration, template creation, pattern management, and debugging styling issues in the Site Editor.",
+    "user_title": "Build WordPress Block Themes",
+    "value_statement": "WordPress block themes require precise theme.json, template, pattern, and style variation structure. This skill gives Claude, Codex, and Claude Code targeted guidance for safe theme edits and debugging.",
     "seo_keywords": [
-      "WordPress block themes",
-      "theme.json",
-      "WordPress development",
-      "block editor",
-      "Site Editor",
-      "WordPress templates",
       "Claude",
       "Codex",
       "Claude Code",
-      "WordPress patterns"
+      "WordPress block themes",
+      "theme.json",
+      "Site Editor",
+      "Gutenberg",
+      "template parts",
+      "style variations",
+      "WordPress theme development"
     ],
     "actual_capabilities": [
-      "Detect block themes and locate theme.json files in repositories",
-      "Guide theme.json configuration for settings and styles",
-      "Create and edit HTML templates and template parts",
-      "Add and manage filesystem-based patterns",
-      "Debug style hierarchy and Site Editor issues"
+      "Identifies block theme roots by locating theme.json and template or part folders.",
+      "Guides safe edits to theme.json settings, presets, styles, and per-block rules.",
+      "Explains template, template part, pattern, and style variation folder conventions.",
+      "Helps debug Site Editor issues caused by user customizations or invalid theme.json shape.",
+      "Points to WordPress handbook references for current block theme behavior."
     ],
     "limitations": [
-      "Does not modify theme files directly; provides guidance only",
-      "Requires access to the theme directory on the filesystem",
-      "Cannot test changes in a live WordPress environment"
+      "Does not create a full WordPress runtime or database for testing.",
+      "May require WP-CLI or a local WordPress site for complete verification.",
+      "Targets WordPress 6.9 and later guidance, so older projects need compatibility checks.",
+      "Does not replace visual review in the Site Editor and frontend."
     ],
     "use_cases": [
       {
-        "target_user": "Theme developers",
-        "title": "Configure theme.json",
-        "description": "Set up global settings, presets, typography, colors, and per-block styles in theme.json"
+        "title": "Create a New Block Theme",
+        "target_user": "WordPress theme developer",
+        "description": "Use the skill to plan the minimum file structure, choose a theme.json version, and verify block theme folders."
       },
       {
-        "target_user": "Frontend developers",
-        "title": "Create block templates",
-        "description": "Build HTML templates and template parts for block-based WordPress themes"
+        "title": "Debug Style Overrides",
+        "target_user": "Site builder",
+        "description": "Use the skill to check whether user customizations, child themes, or invalid theme.json data override expected styles."
       },
       {
-        "target_user": "WordPress developers",
-        "title": "Debug styling issues",
-        "description": "Resolve styles not applying, editor mismatch, and style hierarchy problems"
+        "title": "Maintain Theme Patterns",
+        "target_user": "Agency maintainer",
+        "description": "Use the skill to organize filesystem patterns, templates, parts, and style variations without breaking editor expectations."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Detect block themes",
-        "scenario": "Find theme files in repository",
-        "prompt": "Run detect_block_themes to find all theme.json files in this repository and identify which are block themes"
+        "title": "Find My Block Theme",
+        "scenario": "Beginner project triage",
+        "prompt": "Use the wp-block-themes skill to inspect this repository and identify the active block theme structure."
       },
       {
-        "title": "Review theme.json",
-        "scenario": "Check current theme configuration",
-        "prompt": "Review the theme.json file at [PATH] and suggest improvements for settings and styles"
+        "title": "Add Theme Settings",
+        "scenario": "Basic theme.json change",
+        "prompt": "Use the wp-block-themes skill to add editor-visible color and spacing presets to my theme.json."
       },
       {
-        "title": "Create new template",
-        "scenario": "Add a custom template",
-        "prompt": "Create a new template file at templates/[NAME].html following WordPress block theme conventions"
+        "title": "Fix Site Editor Styles",
+        "scenario": "Intermediate debugging",
+        "prompt": "Use the wp-block-themes skill to explain why my Site Editor styles differ from the frontend and propose checks."
       },
       {
-        "title": "Debug style issues",
-        "scenario": "Styles not applying correctly",
-        "prompt": "Debug why styles from theme.json are not appearing in the Site Editor. Check style hierarchy and user overrides"
+        "title": "Plan a Theme Conversion",
+        "scenario": "Advanced migration",
+        "prompt": "Use the wp-block-themes skill to plan a classic theme to block theme conversion with templates, parts, patterns, and validation steps."
       }
     ],
     "output_examples": [
       {
-        "input": "Find all block themes in this repository",
-        "output": [
-          "Found 2 block themes:",
-          "• TwentyTwentyFive (theme.json at theme-twentytwentyfive/theme.json)",
-          "  - Version: 3",
-          "  - Has templates, parts, patterns, and styles folders",
-          "• CustomTheme (theme.json at themes/custom-theme/theme.json)",
-          "  - Version: 3",
-          "  - Has templates and parts folders"
-        ]
+        "input": "Inspect my theme folders and tell me whether this is a block theme.",
+        "output": "A concise report naming the theme root, whether theme.json exists, and which templates, parts, patterns, and styles folders are present."
       },
       {
-        "input": "Help me configure theme.json settings",
-        "output": [
-          "For WordPress 6.9+, use theme.json version 3.",
-          "Key settings sections:",
-          "  - color: palette, gradients, duotone",
-          "  - typography: fontFamilies, fontSizes, lineHeight",
-          "  - spacing: spacingScale, spacingUnits",
-          "  - layout: contentSize, wideSize",
-          "Add presets for editor-visible controls, use styles for default appearance."
-        ]
+        "input": "My theme.json color changes do not appear in the Site Editor.",
+        "output": "A debugging checklist covering active theme selection, user customizations, style hierarchy, and theme.json structure validation."
       },
       {
-        "input": "Why are my styles not applying",
-        "output": [
-          "Check the style hierarchy:",
-          "  1. Core defaults → 2. theme.json → 3. child theme → 4. user customizations",
-          "Common issues:",
-          "  - Wrong theme edited (check Site Editor → theme)",
-          "  - User customizations override theme defaults",
-          "  - Invalid JSON syntax in theme.json",
-          "  - Style variations stored in database"
-        ]
+        "input": "Add a new style variation for my theme.",
+        "output": "A file placement plan, naming guidance, compatibility notes, and verification steps for Site Editor and frontend behavior."
       }
     ],
     "best_practices": [
-      "Run detect_block_themes to verify the correct theme root before making changes",
-      "Understand style hierarchy: core defaults → theme.json → child theme → user customizations",
-      "Test changes in the Site Editor and frontend to confirm styles apply correctly"
+      "Confirm the target theme root before editing any theme files.",
+      "Validate theme.json structure after changing settings, styles, or block rules.",
+      "Test changes in both the Site Editor and frontend because overrides can differ."
     ],
     "anti_patterns": [
-      "Editing theme.json without understanding the style hierarchy",
-      "Creating templates without checking existing patterns and conventions",
-      "Activating a new theme without verifying theme.json configuration"
+      "Editing an inactive theme and assuming the Site Editor will reflect the change.",
+      "Using custom CSS before checking whether theme.json supports the required style.",
+      "Changing a selected style variation without testing reset or fresh-user behavior."
     ],
     "faq": [
       {
-        "question": "What WordPress versions are supported?",
-        "answer": "Targets WordPress 6.9+ with theme.json schema version 3. Earlier versions use different schema versions."
+        "question": "Does this skill edit WordPress files directly?",
+        "answer": "It can guide edits and run a local detection script. Actual changes depend on the user request and repository state."
       },
       {
-        "question": "What are theme.json versions?",
-        "answer": "theme.json has schema versions. Version 3 requires WordPress 6.9+. Use version 2 for 6.4-6.8."
+        "question": "Does it require a running WordPress site?",
+        "answer": "Repository inspection does not require WordPress. Visual and Site Editor verification usually needs a local or remote WordPress site."
       },
       {
-        "question": "How does this skill integrate with other tools?",
-        "answer": "Works with wp-project-triage for project detection. WP-CLI may be needed for some workflows."
+        "question": "Can it work with classic themes?",
+        "answer": "It can help plan conversion, but its guidance focuses on block theme structure and theme.json behavior."
       },
       {
-        "question": "Does this skill modify my files?",
-        "answer": "No. This skill provides guidance and references. It does not write to files or execute unsafe operations."
+        "question": "Why do theme.json changes sometimes not appear?",
+        "answer": "User customizations, child themes, invalid structure, or editing the wrong theme can override or hide theme defaults."
       },
       {
-        "question": "Why are my theme.json styles not applying?",
-        "answer": "Check: correct theme edited, valid JSON syntax, user customizations not overriding, correct style hierarchy."
+        "question": "Does the skill contact external services?",
+        "answer": "No executable network behavior was found. The files include documentation links to WordPress resources."
       },
       {
-        "question": "How are style variations different from theme.json?",
-        "answer": "Style variations (styles/*.json) are user-selectable presets. Once selected, the choice is stored in the database."
+        "question": "Is the included script safe to run?",
+        "answer": "It reads the current repository and prints a summary. Run it only inside project directories you intend to inspect."
       }
     ]
   },

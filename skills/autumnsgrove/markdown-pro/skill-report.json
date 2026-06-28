@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T18:36:17.012Z",
+    "generated_at": "2026-06-28T12:35:40.149Z",
     "slug": "autumnsgrove-markdown-pro",
     "source_url": "https://github.com/AutumnsGrove/ClaudeSkills/tree/master/markdown-pro",
     "source_ref": "master",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "d2a40dd2a884cf86a2747f1a4a2d471c65e42e7bc8e797c1989378bff2a6d995",
-    "tree_hash": "cf88b8dbfab7fa075b017d266771fcde0ce402338bb5117257884c159ce481bf"
+    "tree_hash": "81a9254222e8d3765e52f0aae2502b124c9b77e157498cdf974d87ad915b6025"
   },
   "skill": {
     "name": "markdown-pro",
-    "description": "Professional Markdown documentation skill for creating polished README files, changelogs, contribution guides, and technical documentation. Use for: (1) README generation with badges and sections, (2) Automated changelog from git history, (3) Table of contents generation, (4) Contribution guidelines, (5) Technical documentation formatting, (6) Code documentation with syntax highlighting",
-    "summary": "Professional Markdown documentation skill for creating polished README files, changelogs, contributi...",
-    "icon": "📝",
+    "description": "Create polished Markdown documentation for projects, including README files, changelogs, contribution guides, tables of contents, badges, and formatting guidance.",
+    "summary": "Create professional Markdown documentation, templates, and helper-generated project docs.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "AutumnsGrove",
     "license": "MIT",
-    "category": "documentation",
     "tags": [
       "markdown",
-      "documentation",
       "readme",
-      "changelog"
+      "changelog",
+      "technical-writing",
+      "documentation"
     ],
     "supported_tools": [
       "claude",
@@ -32,158 +32,334 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts"
-    ]
+      "scripts",
+      "filesystem",
+      "external_commands"
+    ],
+    "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a legitimate documentation skill with no malicious intent. All static scanner findings are false positives triggered by documentation patterns (code examples in markdown, placeholder API keys, shield badge URLs). The single Python script uses subprocess to run git log for changelog generation with hardcoded arguments, which is legitimate and documented behavior.",
+    "summary": "Static analysis reported many high-risk patterns, but most are false positives from Markdown examples, badges, placeholder API keys, and fenced shell commands. The real executable surface is scripts/markdown_helper.py, which runs git log and can write a changelog file. No prompt injection, credential exfiltration, malicious network calls, or confirmed blocker behavior was found.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
         "evidence": [
           {
             "file": "scripts/markdown_helper.py",
-            "line_start": 108,
+            "line_start": 1,
+            "line_end": 12
+          },
+          {
+            "file": "README.md",
+            "line_start": 26,
+            "line_end": 30
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 304,
+            "line_end": 319
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "scripts/markdown_helper.py",
+            "line_start": 99,
             "line_end": 108
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 316,
+            "line_end": 319
+          },
+          {
+            "file": "README.md",
+            "line_start": 359,
+            "line_end": 365
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/markdown_helper.py",
+            "line_start": 230,
+            "line_end": 232
+          },
+          {
+            "file": "scripts/markdown_helper.py",
+            "line_start": 251,
+            "line_end": 274
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 7,
-    "total_lines": 2732,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T18:36:17.012Z"
+    "medium_findings": [
+      {
+        "title": "Git Metadata Collection Through Subprocess",
+        "description": "TRUE POSITIVE with legitimate purpose: the helper runs git log through subprocess.run and captures commit metadata. The command uses a fixed argument list and shell=False by default, so command injection is not evident. It can still expose commit subjects, author names, and author emails in generated changelogs.",
+        "locations": [
+          {
+            "file": "scripts/markdown_helper.py",
+            "line_start": 99,
+            "line_end": 108
+          },
+          {
+            "file": "scripts/markdown_helper.py",
+            "line_start": 117,
+            "line_end": 124
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The subprocess call and parsed commit fields are directly visible in the helper script. Risk is moderated because arguments are structured and no shell execution is used."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "User-Selected File Write for Changelog Output",
+        "description": "TRUE POSITIVE with expected behavior: the changelog command writes generated text to the path provided by the user. This is normal for a documentation helper, but users should avoid passing sensitive or unintended paths.",
+        "locations": [
+          {
+            "file": "scripts/markdown_helper.py",
+            "line_start": 230,
+            "line_end": 232
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The file write is explicit and easy to confirm. The behavior is bounded to generated changelog content and requires a user-provided output option."
+      },
+      {
+        "title": "Static Command Alerts Are Mostly Markdown Examples",
+        "description": "FALSE POSITIVE for most external command alerts: the detected commands are inside Markdown templates and usage examples. They document common project workflows and are not automatically executed by the skill.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 51
+          },
+          {
+            "file": "README.md",
+            "line_start": 43,
+            "line_end": 85
+          },
+          {
+            "file": "examples/CONTRIBUTING.md",
+            "line_start": 57,
+            "line_end": 64
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The cited locations are fenced Markdown or template content, not executable program flow. The separate helper script contains the only confirmed subprocess use."
+      },
+      {
+        "title": "Placeholder Credentials and URLs in Documentation",
+        "description": "FALSE POSITIVE for env_access and network alerts: the API keys and URLs are placeholders in documentation examples. No code path reads environment secrets or sends data to a network endpoint.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 105,
+            "line_end": 110
+          },
+          {
+            "file": "README.md",
+            "line_start": 74,
+            "line_end": 80
+          },
+          {
+            "file": "examples/README_template.md",
+            "line_start": 72,
+            "line_end": 77
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The examples use placeholder strings such as api_key values and badge URLs. No evidence found of process environment access or outbound network requests in executable code."
+      },
+      {
+        "title": "Weak Crypto Alerts Match Documentation Text",
+        "description": "FALSE POSITIVE: weak cryptographic algorithm alerts appear to match ordinary Markdown or documentation terms. No evidence found of cryptographic hashing, encryption, password storage, or security-sensitive crypto code.",
+        "locations": [
+          {
+            "file": "README.md",
+            "line_start": 3,
+            "line_end": 7
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 1,
+            "line_end": 10
+          },
+          {
+            "file": "examples/CHANGELOG_template.md",
+            "line_start": 48,
+            "line_end": 57
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The reviewed lines are prose or changelog text rather than crypto implementation. The scanner produced many blocker labels, but semantic review found no crypto operations."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Subprocess Invocation of Git",
+        "description": "The helper invokes git log with subprocess.run to build changelog entries. This is legitimate for the skill, but it should be treated as local command execution.",
+        "locations": [
+          {
+            "file": "scripts/markdown_helper.py",
+            "line_start": 99,
+            "line_end": 108
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "Direct subprocess.run usage is present, but it uses a structured argument list and no shell=True setting."
+      },
+      {
+        "title": "Generated Documentation File Write",
+        "description": "The helper can write generated changelog content to an output file. This is expected functionality, but it modifies the local filesystem.",
+        "locations": [
+          {
+            "file": "scripts/markdown_helper.py",
+            "line_start": 230,
+            "line_end": 232
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The open call with write mode is explicit and tied to the changelog output option."
+      }
+    ],
+    "files_scanned": 6,
+    "total_lines": 2455,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T12:35:40.149Z",
+    "risk_factors": [
+      "scripts",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
     "user_title": "Create Professional Markdown Documentation",
-    "value_statement": "Generate polished README files, changelogs, and technical documentation with proven templates and formatting patterns. Automate documentation workflows with built-in helper scripts.",
+    "value_statement": "Project documentation is often incomplete, inconsistent, or hard to maintain. This skill helps Claude, Codex, and Claude Code produce structured Markdown documents with reusable templates.",
     "seo_keywords": [
-      "markdown documentation",
-      "readme generator",
-      "changelog automation",
-      "technical writing",
-      "Claude Code documentation",
-      "Markdown formatting",
-      "documentation templates",
-      "API documentation",
-      "CONTRIBUTING guide"
+      "Claude Markdown documentation",
+      "Codex Markdown helper",
+      "Claude Code documentation skill",
+      "README generator",
+      "changelog generator",
+      "Markdown templates",
+      "technical documentation",
+      "contribution guide",
+      "table of contents",
+      "developer docs"
     ],
     "actual_capabilities": [
-      "Generate professional README files with badges, tables of contents, and code examples",
-      "Automatically create changelogs from git commit history using conventional commits format",
-      "Format technical documentation with syntax highlighting, collapsible sections, and alert boxes",
-      "Validate markdown links and generate table of contents from headers",
-      "Create contribution guidelines following open source best practices"
+      "Drafts README structures with badges, installation steps, usage examples, and license sections.",
+      "Creates changelog formats based on Keep a Changelog and semantic versioning conventions.",
+      "Provides contribution guide templates with issue, branch, commit, and pull request workflows.",
+      "Generates table of contents text from Markdown headings through the helper script.",
+      "Validates local Markdown links through the helper script and reports broken references.",
+      "Formats API documentation examples with parameters, return values, errors, and examples."
     ],
     "limitations": [
-      "Does not execute shell commands or modify external systems",
-      "Does not access or store credentials or API keys",
-      "Requires git repository for changelog generation feature",
-      "Helper scripts require Python 3.7+ for advanced automation features"
+      "The helper script only validates local links and skips external URL checks.",
+      "Changelog generation depends on local git history and commit message quality.",
+      "Templates use placeholder project names, URLs, and API examples that require review.",
+      "The skill does not publish documentation or manage release workflows by itself."
     ],
     "use_cases": [
       {
-        "target_user": "Open Source Maintainers",
-        "title": "Professional Project Documentation",
-        "description": "Create polished README files and contribution guides that attract contributors and improve project accessibility."
+        "title": "Launch a New Open Source Project",
+        "description": "Create a complete README and contribution guide before public release.",
+        "target_user": "Open source maintainer"
       },
       {
-        "target_user": "Development Teams",
-        "title": "Automated Changelog Generation",
-        "description": "Generate maintainer-friendly changelogs automatically from git history using semantic versioning standards."
+        "title": "Standardize Internal Developer Docs",
+        "description": "Apply consistent Markdown structure across service READMEs and API references.",
+        "target_user": "Engineering team lead"
       },
       {
-        "target_user": "Technical Writers",
-        "title": "API Documentation Templates",
-        "description": "Build consistent API reference documentation with code examples, parameter tables, and return value formats."
+        "title": "Prepare Release Notes",
+        "description": "Turn git history and conventional commits into organized changelog sections.",
+        "target_user": "Release manager"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Generate README",
-        "scenario": "Create a project README",
-        "prompt": "Use markdown-pro to create a professional README for my project that includes badges, installation instructions, usage examples, and API documentation section."
+        "title": "Create a Basic README",
+        "scenario": "Beginner project documentation",
+        "prompt": "Create a README for this project with overview, installation, usage, configuration, contributing, and license sections."
       },
       {
-        "title": "Create Changelog",
-        "scenario": "Generate changelog from git",
-        "prompt": "Generate a changelog in Keep a Changelog format from our git history since version 1.0.0. Include sections for Added, Changed, Fixed, and Breaking Changes."
+        "title": "Improve Existing Documentation",
+        "scenario": "Rewrite and structure an existing document",
+        "prompt": "Review this Markdown file and improve structure, headings, examples, links, and readability while preserving technical meaning."
       },
       {
-        "title": "Write Contribution Guide",
-        "scenario": "Add contributor guidelines",
-        "prompt": "Create a CONTRIBUTING.md file with code of conduct, development setup instructions, commit message conventions, and pull request process."
+        "title": "Build a Contribution Guide",
+        "scenario": "Contributor onboarding",
+        "prompt": "Create a CONTRIBUTING guide for this repository with setup steps, branch naming, testing, commits, pull requests, and review expectations."
       },
       {
-        "title": "Format API Docs",
-        "scenario": "Document API endpoints",
-        "prompt": "Format our API documentation using markdown-pro patterns with syntax highlighting, parameter tables, response examples, and error handling documentation."
+        "title": "Prepare Release Documentation",
+        "scenario": "Advanced release workflow",
+        "prompt": "Generate a changelog and release notes from these commits. Group changes by type and call out breaking changes clearly."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a professional README for my Python CLI tool",
-        "output": [
-          "Generates header with shield badges for license, version, and build status",
-          "Includes table of contents with anchor links to all sections",
-          "Adds feature list with bold formatting for key benefits",
-          "Provides installation steps with pip and from-source options",
-          "Includes usage examples with syntax-highlighted code blocks",
-          "Adds API reference section with parameter documentation"
-        ]
+        "input": "A small Python package needs its first README.",
+        "output": "A structured README with project overview, badges, installation commands, usage flow, API notes, contribution steps, and license text."
       },
       {
-        "input": "Generate changelog from last release",
-        "output": [
-          "Parses git commits using conventional commits format",
-          "Categorizes changes into Added, Fixed, Changed, and Breaking Changes",
-          "Formats output following Keep a Changelog standard",
-          "Includes PR numbers and author attribution where available"
-        ]
+        "input": "A repository has several releases but no changelog.",
+        "output": "A chronological changelog with Added, Changed, Fixed, Security, and Breaking Changes sections."
+      },
+      {
+        "input": "A team wants consistent contributor instructions.",
+        "output": "A contribution guide covering setup, issue selection, branch workflow, test expectations, pull requests, and conduct standards."
       }
     ],
     "best_practices": [
-      "Use clear, descriptive headers with consistent hierarchy (H1 for title, H2 for sections, H3 for subsections)",
-      "Include code examples with syntax highlighting for every major feature",
-      "Add badges for quick project status overview (license, version, build, coverage)"
+      "Review generated examples and replace every placeholder before publishing documentation.",
+      "Run helper scripts only inside repositories you trust and understand.",
+      "Keep README, changelog, and contribution guide updates part of each release process."
     ],
     "anti_patterns": [
-      "Avoid bare URLs without descriptive link text",
-      "Do not mix heading styles or skip heading levels",
-      "Avoid generic project titles like 'My Project' without clear description"
+      "Do not publish template URLs, package names, or API keys without replacing them.",
+      "Do not generate changelogs from noisy commits without editorial review.",
+      "Do not use the helper script output path for files you do not intend to replace."
     ],
     "faq": [
       {
-        "question": "Does this skill execute code on my system?",
-        "answer": "No. This is a documentation template skill. The helper scripts only generate markdown content and do not execute arbitrary commands."
+        "question": "Can this skill create a complete README?",
+        "answer": "Yes. It provides sections for overview, installation, usage, API reference, contributing, and license details."
       },
       {
-        "question": "Can I use this with any git hosting platform?",
-        "answer": "Yes. Templates follow standard markdown patterns compatible with GitHub, GitLab, Bitbucket, and other platforms."
+        "question": "Does it require external services?",
+        "answer": "No. The documented helper script works locally and does not make network requests."
       },
       {
-        "question": "What programming languages are supported?",
-        "answer": "All languages with markdown code block syntax highlighting. Templates include examples for Python, JavaScript, Bash, and YAML."
+        "question": "Can it generate a changelog from git history?",
+        "answer": "Yes. The helper script reads local git commits and groups entries into changelog categories."
       },
       {
-        "question": "Does the changelog feature work without git?",
-        "answer": "Changelog generation requires a git repository. Other documentation features work without git."
+        "question": "Does it validate external links?",
+        "answer": "No. The helper skips HTTP, HTTPS, mail, and anchor links during validation."
       },
       {
-        "question": "Can I customize the templates?",
-        "answer": "Yes. All templates in the examples folder are starting points. Modify sections to match your project needs."
+        "question": "Is this safe for private repositories?",
+        "answer": "Use care. Changelog generation can include commit subjects, author names, and author emails."
       },
       {
-        "question": "Is this skill safe to use in production environments?",
-        "answer": "Yes. The skill only reads files and generates text output. It does not modify source code or access sensitive data."
+        "question": "Can Claude Code or Codex use this skill?",
+        "answer": "Yes. The report lists support for Claude, Codex, and Claude Code workflows."
       }
     ]
   },
