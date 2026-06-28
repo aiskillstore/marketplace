@@ -1,31 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T17:34:35.354Z",
+    "generated_at": "2026-06-28T13:52:58.052Z",
     "slug": "bae-changhyun-ocr",
     "source_url": "https://github.com/Bae-ChangHyun/cc-plugins-bch/tree/main/plugins/utils/skills/ocr",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "c562fb598cfc7e3cc46fbc76872d3f8a336bf315bfef573d84a19726bd56c858",
-    "tree_hash": "08beb5b6c112f0daefa646276ed9010d98059f4ba2db4bf787b158b329b9c7ea"
+    "tree_hash": "ea14a3de256b633d0367238c5d3aa0ff6f12d80dfb4466929a00b03a8fc566b7"
   },
   "skill": {
     "name": "ocr",
-    "description": "PDF/이미지를 Claude vision으로 OCR하여 마크다운 변환. MUST use this skill when user: (1) asks to convert PDF/image to markdown, (2) asks to OCR any file, (3) sends PDF/image file and asks to extract/read/변환/추출, (4) mentions 'OCR', 'PDF 변환', '이미지 변환', '텍스트 추출'. This skill uses Task agent to protect main context - NEVER process files directly in main context.",
-    "summary": "PDF/이미지를 Claude vision으로 OCR하여 마크다운 변환. MUST use this skill when user: (1) asks to convert PDF/image...",
-    "icon": "📄",
+    "description": "Convert PDF and image files into Markdown using Claude vision OCR, with single-file and batch workflows.",
+    "summary": "Extract text, tables, diagrams, and document structure from PDFs and images into Markdown.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Bae-ChangHyun",
     "license": "MIT",
-    "category": "data",
+    "category": "productivity",
     "tags": [
       "ocr",
       "pdf",
-      "image",
-      "vision",
-      "conversion"
+      "image-to-markdown",
+      "document-conversion",
+      "markdown"
     ],
     "supported_tools": [
       "claude",
@@ -33,180 +33,314 @@
       "claude-code"
     ],
     "risk_factors": [
+      "external_commands",
       "filesystem"
     ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate OCR document processing skill using Claude vision. Static findings are false positives triggered by benign patterns in documentation (file paths, directory names, shell examples). The skill only uses system Read/Write tools, makes no network calls, and uses Task agents for context isolation. No malicious intent detected.",
+    "summary": "The static external command, weak cryptography, and entropy alerts mostly come from Markdown examples, inline backticks, Korean text, and supported file extensions. No malicious intent, network access, credential theft, or executable payload was found. Medium risk remains because the skill instructs agents to inspect user-supplied paths with shell examples, read untrusted documents, and write Markdown outputs without explicit prompt-injection or overwrite safeguards.",
     "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 38,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 180,
+            "line_end": 183
+          }
+        ]
+      },
       {
         "factor": "filesystem",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 86,
-            "line_end": 88
+            "line_start": 85,
+            "line_end": 89
           },
           {
             "file": "SKILL.md",
-            "line_start": 121,
+            "line_start": 120,
             "line_end": 124
           },
           {
             "file": "SKILL.md",
-            "line_start": 148,
+            "line_start": 147,
             "line_end": 154
           },
           {
             "file": "SKILL.md",
-            "line_start": 234,
-            "line_end": 237
+            "line_start": 233,
+            "line_end": 238
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 542,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T17:34:35.354Z"
+    "medium_findings": [
+      {
+        "title": "Unquoted Shell Path Examples",
+        "description": "The workflow shows shell commands using user-supplied path placeholders, including path listing and glob expansion. If an agent substitutes a raw path into these commands, shell metacharacters could be interpreted.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 38,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 180,
+            "line_end": 183
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.72,
+        "confidence_reasoning": "The commands are Markdown examples, not executable source code, but the skill instructs agents to inspect user-provided paths. The risk is credible if the examples are followed with raw shell substitution."
+      },
+      {
+        "title": "Untrusted OCR Content Lacks Prompt-Injection Boundary",
+        "description": "The skill reads PDFs and images and converts their contents without instructing the agent to treat document text as untrusted data. A malicious document could include instructions that try to redirect the OCR workflow.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 77,
+            "line_end": 99
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 111,
+            "line_end": 134
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 138,
+            "line_end": 170
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 215,
+            "line_end": 248
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.68,
+        "confidence_reasoning": "The workflow clearly processes untrusted document content, but no malicious sample is present in the skill file. The missing boundary is a realistic design weakness for OCR agents."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Predictable Output Writes May Overwrite Markdown Files",
+        "description": "The workflow writes generated Markdown beside the source file using predictable names. This is expected OCR behavior, but it may overwrite an existing Markdown file if the agent does not check first.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 85,
+            "line_end": 89
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 120,
+            "line_end": 124
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 147,
+            "line_end": 154
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 233,
+            "line_end": 238
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.64,
+        "confidence_reasoning": "The file writes are explicitly required by the workflow and are legitimate for OCR. The concern is limited to missing overwrite checks rather than malicious file modification."
+      },
+      {
+        "title": "Static Crypto and Entropy Alerts Are False Positives",
+        "description": "The high-severity weak cryptography and entropy alerts do not correspond to cryptographic code, encoded payloads, or binary content. The flagged lines are Markdown front matter, Korean text, option descriptions, and OCR examples.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 1,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 58,
+            "line_end": 60
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 199,
+            "line_end": 201
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.93,
+        "confidence_reasoning": "Manual review found no cryptographic function, encrypted blob, or executable payload at the cited locations. The static signals are explained by natural-language Markdown content."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Shell Commands With User-Controlled Path Placeholders",
+        "description": "Examples use shell commands around file paths supplied by the user. Agents should prefer structured file APIs or quote and validate paths before running commands.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 38,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 180,
+            "line_end": 183
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.72,
+        "confidence_reasoning": "The command examples are directly visible and use path placeholders. Risk depends on the executing agent substituting raw user input."
+      }
+    ],
+    "files_scanned": 1,
+    "total_lines": 339,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T13:52:58.052Z",
+    "risk_factors": [
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Convert PDF and Images to Markdown",
-    "value_statement": "Extracting text from PDF documents and images requires multiple steps and tools. This skill uses Claude vision to accurately convert scanned documents and images into clean markdown format with proper structure preserved.",
+    "user_title": "Convert PDFs and Images to Markdown",
+    "value_statement": "Teams often need readable text from scanned PDFs, screenshots, and image documents. This skill uses Claude vision OCR to extract content and save structured Markdown outputs.",
     "seo_keywords": [
-      "OCR skill",
-      "PDF to markdown",
-      "image OCR",
-      "Claude Code skill",
-      "document conversion",
-      "text extraction",
-      "scanned document",
-      "PDF conversion skill",
       "Claude",
-      "Codex"
+      "Codex",
+      "Claude Code",
+      "Claude OCR",
+      "Codex OCR",
+      "Claude Code OCR",
+      "PDF to Markdown",
+      "image to Markdown",
+      "document conversion",
+      "vision OCR"
     ],
     "actual_capabilities": [
-      "Convert PDF documents to markdown format",
-      "Process image files to editable text",
-      "Batch process multiple PDF and image files in parallel",
-      "Preserve document structure including tables and headings",
-      "Handle custom extraction instructions",
-      "Save as unified file or page-by-page"
+      "Converts supported PDF files into one Markdown file or page-level Markdown files.",
+      "Converts PNG, JPG, JPEG, WEBP, GIF, BMP, and TIFF images into Markdown.",
+      "Uses Claude vision to preserve headings, tables, lists, code blocks, formulas, and diagrams.",
+      "Processes folders by splitting supported files into groups of three for parallel OCR work.",
+      "Accepts custom extraction instructions, such as table-only output or translated summaries.",
+      "Returns status summaries while keeping extracted document content out of the main context."
     ],
     "limitations": [
-      "Does not handle password-protected or encrypted PDF files",
-      "Cannot process files exceeding Claude vision size limits",
-      "Complex layouts may require manual verification",
-      "Does not support audio or video file OCR"
+      "Very large files may fail with size limits before OCR completes.",
+      "OCR quality depends on image clarity, document layout, and readable source text.",
+      "The workflow writes Markdown files beside the original files and may need overwrite checks.",
+      "It does not use external OCR libraries such as PyPDF or Pillow."
     ],
     "use_cases": [
       {
-        "target_user": "Researchers",
-        "title": "Convert Research Papers",
-        "description": "Extract text from academic papers for citation and analysis work."
+        "title": "Archive scanned reports",
+        "description": "Convert scanned reports into Markdown so their text can be searched, reviewed, and summarized.",
+        "target_user": "Operations teams"
       },
       {
-        "target_user": "Administrative Staff",
-        "title": "Digitize Documents",
-        "description": "Convert scanned contracts and forms into searchable text files."
+        "title": "Extract tables from PDFs",
+        "description": "Pull tabular information from PDF pages and save it as Markdown tables for review.",
+        "target_user": "Analysts"
       },
       {
-        "target_user": "Content Creators",
-        "title": "Extract Image Text",
-        "description": "Pull text from screenshots for documentation and blog posts."
+        "title": "Document screenshots",
+        "description": "Turn screenshots of interfaces, receipts, or notes into structured Markdown records.",
+        "target_user": "Researchers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic PDF Conversion",
-        "scenario": "Convert a single PDF file",
-        "prompt": "/ocr /path/to/document.pdf"
+        "title": "Convert one image",
+        "scenario": "Beginner single-file OCR",
+        "prompt": "Convert this image to Markdown and preserve headings, lists, and visible labels: /path/to/image.png"
       },
       {
-        "title": "Extract Tables Only",
-        "scenario": "Extract specific content from PDF",
-        "prompt": "/ocr /path/to/report.pdf \"Extract only the tables\""
+        "title": "Convert one PDF",
+        "scenario": "Standard PDF OCR",
+        "prompt": "Convert this PDF to Markdown. Ask me whether to save one combined file or one file per page: /path/to/document.pdf"
       },
       {
-        "title": "Batch Image Processing",
-        "scenario": "Convert multiple images at once",
-        "prompt": "/ocr /path/to/images/folder/"
+        "title": "Extract only tables",
+        "scenario": "Focused data extraction",
+        "prompt": "OCR this PDF and extract only tables as Markdown tables. Mark unclear cells as unclear: /path/to/report.pdf"
       },
       {
-        "title": "Page-by-Page Output",
-        "scenario": "Separate each PDF page",
-        "prompt": "/ocr /path/to/long-document.pdf"
+        "title": "Batch convert folder",
+        "scenario": "Advanced batch workflow",
+        "prompt": "Convert all supported PDFs and images in this folder to Markdown. Keep each output beside its source file: /path/to/folder/"
       }
     ],
     "output_examples": [
       {
-        "input": "Convert this scanned quarterly report to markdown",
+        "input": "A screenshot that contains a title, two bullet lists, and a small table.",
+        "output": "A Markdown file with a heading, two preserved lists, and a table with the visible rows and columns."
+      },
+      {
+        "input": "A three-page PDF processed with page-level saving.",
         "output": [
-          "OCR processing complete for quarterly_report.pdf",
-          "Output: quarterly_report.md (12 pages)",
-          "Content types detected: Tables, headings, bullet lists, images",
-          "Files saved to: /path/to/quarterly_report.md"
+          "The skill reports that three page files were created.",
+          "Each output file contains the OCR text and structure for one page.",
+          "Unclear parts are marked instead of guessed."
         ]
       },
       {
-        "input": "Extract only the code snippets from this screenshot",
-        "output": [
-          "Extracted 3 code blocks from screenshot.png",
-          "Output: screenshot.md",
-          "Languages detected: Python, JavaScript, SQL"
-        ]
-      },
-      {
-        "input": "Batch process these 50 document scans",
-        "output": [
-          "Processed 47 of 50 files successfully",
-          "3 files skipped (size limits exceeded)",
-          "Output files saved to original folder"
-        ]
+        "input": "A folder with mixed PDF and image files.",
+        "output": "A status summary lists successful conversions, skipped files, and the output folder path."
       }
     ],
     "best_practices": [
-      "Use clear custom instructions to focus extraction on specific content",
-      "For large documents, verify complex tables render correctly",
-      "Keep original files as reference when processing complex layouts"
+      "Review generated Markdown against the source document when accuracy matters.",
+      "Use focused custom instructions for tables, code, formulas, or translations.",
+      "Check for existing Markdown files before running batch conversion."
     ],
     "anti_patterns": [
-      "Do not assume OCR perfectly preserves complex formatting",
-      "Do not process sensitive documents without verifying output accuracy",
-      "Do not use for password-protected or encrypted PDF files"
+      "Do not use it on documents that contain secrets unless the workspace is approved for that data.",
+      "Do not assume unclear text is accurate without checking the original file.",
+      "Do not run batch conversion on broad folders without confirming the file list first."
     ],
     "faq": [
       {
-        "question": "What file sizes are supported?",
-        "answer": "Files must be under Claude vision limits. Large PDFs may trigger 413 errors."
+        "question": "What file types does this skill support?",
+        "answer": "It supports PDF, PNG, JPG, JPEG, WEBP, GIF, BMP, and TIFF files."
       },
       {
-        "question": "Does this work with scanned PDFs?",
-        "answer": "Yes, scanned PDFs with images are processed using Claude vision."
+        "question": "Can it save one Markdown file per PDF page?",
+        "answer": "Yes. For PDFs, it can save one combined Markdown file or separate page-level files."
       },
       {
-        "question": "Can it extract handwritten text?",
-        "answer": "Handwriting accuracy varies. Simple, clear handwriting works best."
+        "question": "Does it use external OCR libraries?",
+        "answer": "No. The workflow relies on Claude vision and explicitly avoids external OCR libraries."
       },
       {
-        "question": "How are complex tables handled?",
-        "answer": "Tables convert to markdown format. Very complex layouts may need manual review."
+        "question": "Can it process many files at once?",
+        "answer": "Yes. Folder mode groups supported files in batches of three for parallel processing."
       },
       {
-        "question": "Is my data sent externally?",
-        "answer": "Processing uses Claude vision only. No data sent to third-party services."
+        "question": "Will it preserve tables and code blocks?",
+        "answer": "It attempts to preserve tables, code blocks, headings, lists, formulas, and diagram descriptions."
       },
       {
-        "question": "Unified vs page-by-page output?",
-        "answer": "Unified combines all pages into one file. Page-by-page creates separate files."
+        "question": "What should I check before publishing outputs?",
+        "answer": "Check unclear text, sensitive information, and whether any existing Markdown files could be overwritten."
       }
     ]
   },
