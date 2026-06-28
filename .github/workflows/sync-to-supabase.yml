@@ -335,18 +335,72 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SYNCED_SLUGS: ${{ steps.sync.outputs.synced_slugs }}
         run: |
+          SANITIZED_COUNT=0
+          SANITIZE_ERRORS=0
+
+          rest_call() {
+            local method="$1"
+            local url="$2"
+            local body_file="$3"
+            local out_file="$4"
+            local description="$5"
+            local tmp_file="${out_file}.tmp"
+            local status
+            local curl_rc
+
+            for attempt in 1 2 3 4; do
+              rm -f "$tmp_file"
+
+              if [ -n "$body_file" ]; then
+                set +e
+                status=$(curl -sS -o "$tmp_file" -w "%{http_code}" -X "$method" "$url" \
+                  -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+                  -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+                  -H "Content-Type: application/json" \
+                  -H "Accept-Profile: skillstore" \
+                  -H "Content-Profile: skillstore" \
+                  --connect-timeout 15 \
+                  --max-time 60 \
+                  -d @"$body_file")
+                curl_rc=$?
+                set -e
+              else
+                set +e
+                status=$(curl -sS -o "$tmp_file" -w "%{http_code}" -X "$method" "$url" \
+                  -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+                  -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+                  -H "Accept-Profile: skillstore" \
+                  --connect-timeout 15 \
+                  --max-time 60)
+                curl_rc=$?
+                set -e
+              fi
+
+              if [ "$curl_rc" -eq 0 ] && [[ "$status" =~ ^2 ]]; then
+                mv "$tmp_file" "$out_file"
+                return 0
+              fi
+
+              echo "::warning::${description} failed (attempt ${attempt}/4, curl=${curl_rc}, http=${status:-000})"
+              if [ -s "$tmp_file" ]; then
+                echo "::warning::Response preview: $(head -c 500 "$tmp_file" | tr '\n' ' ')"
+              fi
+
+              sleep $((attempt * 5))
+            done
+
+            return 1
+          }
+
           patch_audit_evidence() {
             local audit_id="$1"
             local sanitized="$2"
+            local body_file="patch-body-${audit_id}.json"
+            local out_file="patch-response-${audit_id}.json"
 
-            jq -n --argjson evidence "$sanitized" '{risk_factor_evidence: $evidence}' > patch-body.json
-            curl -sf -X PATCH "${SUPABASE_URL}/rest/v1/skill_security_audit?id=eq.${audit_id}" \
-              -H "apikey: ${SUPABASE_SERVICE_KEY}" \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
-              -H "Content-Type: application/json" \
-              -H "Accept-Profile: skillstore" \
-              -H "Content-Profile: skillstore" \
-              -d @patch-body.json >/dev/null
+            jq -n --argjson evidence "$sanitized" '{risk_factor_evidence: $evidence}' > "$body_file"
+            rest_call PATCH "${SUPABASE_URL}/rest/v1/skill_security_audit?id=eq.${audit_id}" \
+              "$body_file" "$out_file" "Patch audit evidence ${audit_id}"
           }
 
           sanitize_slug() {
@@ -354,31 +408,50 @@ jobs:
             local encoded_slug
             local skill_id
             local audits
+            local safe_slug
+            local skills_response
+            local audits_response
 
+            safe_slug=$(printf '%s' "$slug" | tr -c 'A-Za-z0-9_.-' '_')
+            skills_response="skills-${safe_slug}.json"
+            audits_response="audits-${safe_slug}.json"
             encoded_slug=$(printf '%s' "$slug" | jq -sRr @uri)
-            skill_id=$(curl -sf "${SUPABASE_URL}/rest/v1/skills?select=id&slug=eq.${encoded_slug}" \
-              -H "apikey: ${SUPABASE_SERVICE_KEY}" \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
-              -H "Accept-Profile: skillstore" | jq -r '.[0].id // empty')
+            if ! rest_call GET "${SUPABASE_URL}/rest/v1/skills?select=id&slug=eq.${encoded_slug}" \
+              "" "$skills_response" "Fetch skill id for ${slug}"; then
+              SANITIZE_ERRORS=$((SANITIZE_ERRORS + 1))
+              return 0
+            fi
+
+            if ! skill_id=$(jq -r '.[0].id // empty' "$skills_response"); then
+              echo "::warning::Invalid skill lookup response while sanitizing generated report evidence: $slug"
+              SANITIZE_ERRORS=$((SANITIZE_ERRORS + 1))
+              return 0
+            fi
 
             if [ -z "$skill_id" ]; then
               echo "::warning::Skill not found while sanitizing generated report evidence: $slug"
               return 0
             fi
 
-            audits=$(curl -sf "${SUPABASE_URL}/rest/v1/skill_security_audit?select=id,risk_factor_evidence&skill_id=eq.${skill_id}" \
-              -H "apikey: ${SUPABASE_SERVICE_KEY}" \
-              -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
-              -H "Accept-Profile: skillstore")
+            if ! rest_call GET "${SUPABASE_URL}/rest/v1/skill_security_audit?select=id,risk_factor_evidence&skill_id=eq.${skill_id}" \
+              "" "$audits_response" "Fetch audit evidence for ${slug}"; then
+              SANITIZE_ERRORS=$((SANITIZE_ERRORS + 1))
+              return 0
+            fi
 
-            echo "$audits" | jq -c '.[]' | while read -r audit; do
+            if ! audits=$(jq -c '.' "$audits_response"); then
+              echo "::warning::Invalid audit evidence response while sanitizing generated report evidence: $slug"
+              SANITIZE_ERRORS=$((SANITIZE_ERRORS + 1))
+              return 0
+            fi
+            while IFS= read -r audit; do
               local audit_id
               local original
               local sanitized
 
               audit_id=$(echo "$audit" | jq -r '.id')
               original=$(echo "$audit" | jq -c '.risk_factor_evidence // []')
-              sanitized=$(echo "$audit" | jq -c '
+              if ! sanitized=$(echo "$audit" | jq -c '
                 [
                   (.risk_factor_evidence // [])[]
                   | {
@@ -387,20 +460,41 @@ jobs:
                     }
                   | select((.evidence | length) > 0)
                 ]
-              ')
+              '); then
+                SANITIZE_ERRORS=$((SANITIZE_ERRORS + 1))
+                echo "::warning::Could not parse generated report evidence for ${slug} audit ${audit_id}; continuing sync workflow"
+                continue
+              fi
 
               if [ "$sanitized" != "$original" ]; then
-                patch_audit_evidence "$audit_id" "$sanitized"
-                echo "Sanitized generated report evidence for ${slug} audit ${audit_id}"
+                if patch_audit_evidence "$audit_id" "$sanitized"; then
+                  SANITIZED_COUNT=$((SANITIZED_COUNT + 1))
+                  echo "Sanitized generated report evidence for ${slug} audit ${audit_id}"
+                else
+                  SANITIZE_ERRORS=$((SANITIZE_ERRORS + 1))
+                  echo "::warning::Could not sanitize generated report evidence for ${slug} audit ${audit_id}; continuing sync workflow"
+                fi
               fi
-            done
+            done < <(echo "$audits" | jq -c '.[]')
           }
 
-          echo "$SYNCED_SLUGS" | tr ',' '\n' | while read -r slug; do
+          while IFS= read -r slug; do
             slug=$(echo "$slug" | sed 's|^skills/||' | xargs)
             [ -z "$slug" ] && continue
             sanitize_slug "$slug"
-          done
+          done < <(echo "$SYNCED_SLUGS" | tr ',' '\n')
+
+          echo "::notice::Generated report evidence cleanup complete: sanitized=${SANITIZED_COUNT}, errors=${SANITIZE_ERRORS}"
+          if [ "$SANITIZE_ERRORS" -gt 0 ]; then
+            echo "::warning::Generated report evidence cleanup had ${SANITIZE_ERRORS} error(s); sync succeeded and downstream jobs will continue"
+            cat << EOF >> "$GITHUB_STEP_SUMMARY"
+          ## Generated Report Evidence Cleanup Warning
+
+          Sync succeeded, but cleanup of generated \`skill-report.json\` audit evidence had **${SANITIZE_ERRORS}** error(s).
+
+          This cleanup is non-critical for publishing. Downstream scoring, translation, and cache jobs continued.
+          EOF
+          fi
 
       - name: Report sync status
         run: |
