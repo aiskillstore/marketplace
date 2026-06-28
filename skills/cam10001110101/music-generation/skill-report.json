@@ -1,29 +1,28 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T20:20:51.282Z",
+    "generated_at": "2026-06-28T19:27:33.520Z",
     "slug": "cam10001110101-music-generation",
     "source_url": "https://github.com/Cam10001110101/claude-skills-base/tree/main/mnt/skills/examples/music-generation",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "a303d13eaf8346f05041faf180251c67bd86b145940a2a5989a9b006cc885166",
-    "tree_hash": "32ed38b0f1195f69e87f07f18e71d094e09010048ac367d90e48559edcfe24cc"
+    "tree_hash": "44f9486656e3efe7497ed193cefd8bfdaea81ff5bdaeef2128e8634a652ec1c9"
   },
   "skill": {
     "name": "music-generation",
-    "description": "Tools, patterns, and utilities for generating professional music with realistic instrument sounds. Write custom compositions using music21 or learn from existing MIDI files.",
-    "summary": "Tools, patterns, and utilities for generating professional music with realistic instrument sounds. W...",
-    "icon": "🎵",
+    "description": "Generate instrumental music as MP3 or WAV files using music21, MIDI tools, FluidSynth, and electronic synthesis helpers.",
+    "summary": "Create and render original instrumental music from structured composition prompts.",
+    "icon": "📦",
     "version": "2.0.0",
     "author": "Cam10001110101",
     "license": "MIT",
-    "category": "data",
     "tags": [
-      "music",
+      "music-generation",
       "midi",
-      "audio",
+      "audio-rendering",
       "composition",
       "synthesis"
     ],
@@ -34,23 +33,40 @@
     ],
     "risk_factors": [
       "scripts",
+      "network",
       "filesystem",
       "external_commands"
-    ]
+    ],
+    "category": "design"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate music generation skill with no malicious behavior. Static scanner flagged audio synthesis terminology (attack, decay, sustain, oscillator, filter) as C2 keywords and weak crypto - these are false positives. All subprocess calls use hardcoded paths for audio rendering pipelines. Filesystem access is limited to user-specified output directories for MIDI/audio files.",
+    "summary": "Static analysis reported critical combinations, but review found no prompt injection, credential handling, or network exfiltration. Most high-severity hits are false positives from music terms, private skill paths, documentation URLs, and local rendering examples. The remaining real risks are legitimate installer commands and local file operations, so publication is acceptable with warnings.",
     "risk_factor_evidence": [
       {
-        "factor": "scripts",
+        "factor": "external_commands",
         "evidence": [
           {
             "file": "install.sh",
-            "line_start": 1,
-            "line_end": 66
+            "line_start": 10,
+            "line_end": 23
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 146,
+            "line_end": 151
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 202,
+            "line_end": 208
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 1515,
+            "line_end": 1521
           }
         ]
       },
@@ -58,176 +74,344 @@
         "factor": "filesystem",
         "evidence": [
           {
-            "file": "scripts/midi_utils.py",
-            "line_start": 1,
-            "line_end": 120
+            "file": "install.sh",
+            "line_start": 32,
+            "line_end": 48
+          },
+          {
+            "file": "scripts/midi_inventory.py",
+            "line_start": 184,
+            "line_end": 188
+          },
+          {
+            "file": "scripts/midi_render.py",
+            "line_start": 104,
+            "line_end": 130
+          },
+          {
+            "file": "scripts/midi_transform.py",
+            "line_start": 221,
+            "line_end": 224
+          },
+          {
+            "file": "scripts/render_electronic.py",
+            "line_start": 410,
+            "line_end": 451
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 320,
+            "line_end": 328
           }
         ]
       },
       {
-        "factor": "external_commands",
+        "factor": "scripts",
         "evidence": [
           {
+            "file": "scripts/render_electronic.py",
+            "line_start": 21,
+            "line_end": 42
+          },
+          {
+            "file": "scripts/render_electronic.py",
+            "line_start": 149,
+            "line_end": 151
+          },
+          {
+            "file": "scripts/render_electronic.py",
+            "line_start": 498,
+            "line_end": 504
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "install.sh",
+            "line_start": 10,
+            "line_end": 23
+          },
+          {
             "file": "SKILL.md",
-            "line_start": 146,
-            "line_end": 156
+            "line_start": 1645,
+            "line_end": 1648
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "medium_findings": [
       {
-        "title": "Subprocess usage for script execution",
-        "description": "The skill uses subprocess.run() to execute Python scripts for rendering MIDI to audio. This is standard practice for audio processing pipelines. Arguments use hardcoded script paths with user-provided file paths. Path normalization via Path.resolve() mitigates injection risk.",
+        "title": "Installer Runs System Package and Python Package Commands",
+        "description": "The installer updates apt indexes, installs system packages, upgrades pip, and installs requirements. This is expected for audio rendering, but it changes the host environment and retrieves packages from configured repositories.",
+        "locations": [
+          {
+            "file": "install.sh",
+            "line_start": 10,
+            "line_end": 23
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The commands are explicit and not obfuscated, and they match the skill purpose. Risk remains because package manager execution changes the system and depends on external package sources."
+      },
+      {
+        "title": "Documented Local Subprocess Rendering",
+        "description": "The skill documentation tells agents to call render_electronic.py through subprocess.run. The arguments are passed as a list and target a local script, but this still executes a child process during use.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 146,
-            "line_end": 156
+            "line_end": 151
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 202,
+            "line_end": 208
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 1515,
+            "line_end": 1521
           }
-        ]
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The reviewed examples do not use shell=True or concatenate shell strings, which lowers command injection concern. Confidence is high that execution exists, but medium that it is only a controlled local rendering workflow."
+      },
+      {
+        "title": "Local File Writes and Temporary File Cleanup",
+        "description": "The helper scripts create output directories, write MIDI, JSON, WAV, and MP3 files, and remove temporary MIDI and WAV files. This is normal for media generation, but callers should choose output paths carefully.",
+        "locations": [
+          {
+            "file": "scripts/midi_inventory.py",
+            "line_start": 184,
+            "line_end": 188
+          },
+          {
+            "file": "scripts/midi_render.py",
+            "line_start": 104,
+            "line_end": 130
+          },
+          {
+            "file": "scripts/midi_transform.py",
+            "line_start": 221,
+            "line_end": 224
+          },
+          {
+            "file": "scripts/render_electronic.py",
+            "line_start": 410,
+            "line_end": 451
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "The code performs clear local output operations, not hidden file access. Risk is moderate because CLI-provided paths can write files wherever the running user has permission."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 14,
-    "total_lines": 4764,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T20:20:51.282Z"
+    "low_findings": [
+      {
+        "title": "Static High-Severity Token Matches Were Mostly Music Terminology",
+        "description": "Several scanner hits for weak cryptography, key files, and C2 keywords map to music concepts such as key_signature, MIDI files, genre descriptions, and private skill paths. No evidence found of credential collection, cryptography, or command-and-control behavior.",
+        "locations": [
+          {
+            "file": "scripts/midi_inventory.py",
+            "line_start": 63,
+            "line_end": 64
+          },
+          {
+            "file": "scripts/midi_render.py",
+            "line_start": 72,
+            "line_end": 73
+          },
+          {
+            "file": "scripts/synthesis_presets.py",
+            "line_start": 490,
+            "line_end": 498
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 11,
+            "line_end": 17
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The reviewed lines show music metadata, preset names, and file locations rather than sensitive secrets. Confidence is high, though not absolute because only context around flagged areas was reviewed."
+      },
+      {
+        "title": "Documentation Links Are External but Not Runtime Exfiltration",
+        "description": "The skill includes external documentation links for music21, General MIDI, music theory, and IMSLP. These are user-facing references, not code that sends local data over the network.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 1645,
+            "line_end": 1648
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The lines are Markdown resource links, and no requests or urllib runtime call was found in the reviewed code. This supports a false-positive assessment for network exfiltration."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Package Manager Execution",
+        "description": "The installer executes apt-get and pip commands. This should be disclosed because it changes the local environment and may access package repositories.",
+        "locations": [
+          {
+            "file": "install.sh",
+            "line_start": 10,
+            "line_end": 23
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "Direct package manager commands are present in the installer. They are legitimate setup steps but remain a sensitive execution pattern."
+      },
+      {
+        "title": "Child Process Invocation in Usage Examples",
+        "description": "The documentation uses subprocess.run to invoke the electronic renderer. The reviewed calls use argv lists and local script paths.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 146,
+            "line_end": 151
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 1515,
+            "line_end": 1521
+          }
+        ],
+        "confidence": 0.8,
+        "confidence_reasoning": "The pattern is clearly present, but its context is controlled local rendering. No shell string injection evidence was found."
+      }
+    ],
+    "files_scanned": 13,
+    "total_lines": 4443,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T19:27:33.520Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Generate Professional Music with MIDI",
-    "value_statement": "Create original music compositions and convert MIDI files to MP3 or WAV audio files. Uses music21 library for intelligent composition and supports both orchestral and electronic music generation with realistic instrument sounds.",
+    "user_title": "Create Rendered Instrumental Music",
+    "value_statement": "Creating finished audio from text prompts requires composition logic, MIDI handling, and rendering tools. This skill guides Claude, Codex, and Claude Code through structured music creation and MP3 export.",
     "seo_keywords": [
-      "music generation",
+      "Claude music generation",
+      "Codex MIDI composition",
+      "Claude Code audio rendering",
+      "music21 skill",
+      "AI composition workflow",
       "MIDI to MP3",
-      "audio synthesis",
-      "Claude Code",
-      "Claude",
-      "Codex",
-      "music composition",
-      "electronic music",
-      "orchestral music",
-      "audio rendering"
+      "electronic music synthesis",
+      "FluidSynth rendering",
+      "instrumental music AI",
+      "audio generation skill"
     ],
     "actual_capabilities": [
-      "Generate original compositions using music21 library with algorithmic note generation",
-      "Convert MIDI files to downloadable MP3 or WAV audio files",
-      "Create electronic music with real-time synthesis (808-style drums, synth bass, pads, leads)",
-      "Extract and analyze musical structure from existing MIDI files",
-      "Apply transformations to MIDI compositions (transpose, tempo change, instrument swap)",
-      "Validate audio file quality and detect issues like clipping or excessive silence"
+      "Guides custom instrumental composition with music21 patterns.",
+      "Renders MIDI compositions to WAV and MP3 with FluidSynth.",
+      "Provides an electronic rendering pipeline for house, techno, trance, ambient, and acid house styles.",
+      "Analyzes MIDI files into structured JSON with tempo, key, tracks, and notes.",
+      "Transforms MIDI-derived JSON by transposing, changing tempo, looping sections, and swapping instruments.",
+      "Validates rendered audio for clipping, silence, duration, loudness, and dynamic range."
     ],
     "limitations": [
-      "Instrumental music only - cannot generate lyrics or vocals",
-      "MIDI-based synthesis quality depends on SoundFont files used",
-      "Requires installation of system dependencies (FluidSynth, FFmpeg) for full functionality",
-      "No real-time playback - audio must be rendered before listening"
+      "It does not generate vocals or lyrics as sung audio.",
+      "Rendered sound quality depends on installed packages, SoundFonts, and synthesis presets.",
+      "It requires local Python, FFmpeg, FluidSynth, and package dependencies for full rendering.",
+      "It is not a professional mixing, mastering, or real-time playback environment."
     ],
     "use_cases": [
       {
-        "target_user": "Content creators",
-        "title": "Background music for videos",
-        "description": "Generate original royalty-free music for YouTube videos, podcasts, or presentations"
+        "title": "Score Music for Short Videos",
+        "target_user": "Video creators",
+        "description": "Create timed instrumental MP3 tracks with requested mood, length, and instrumentation."
       },
       {
-        "target_user": "Music producers",
-        "title": "MIDI to audio conversion",
-        "description": "Convert MIDI compositions to high-quality MP3 files with realistic instrument sounds"
+        "title": "Prototype Game or App Audio",
+        "target_user": "Game and app developers",
+        "description": "Generate loops, stingers, and background themes that can be exported as audio files."
       },
       {
-        "target_user": "Educators",
-        "title": "Music theory examples",
-        "description": "Create educational examples demonstrating chord progressions, scales, and musical structures"
+        "title": "Study and Rework MIDI Pieces",
+        "target_user": "Music students and composers",
+        "description": "Inspect MIDI structure, change instruments or tempo, and render alternate arrangements."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Simple melody",
-        "scenario": "Create a basic melody",
-        "prompt": "Generate a 16-bar melody in C major at 120 BPM using piano. Save the output as /mnt/user-data/outputs/piano_melody.mp3"
+        "title": "Create a Simple Theme",
+        "scenario": "Beginner request for a short composition.",
+        "prompt": "Create a 30-second instrumental theme in C major for piano and strings. Export it as an MP3 and check for clipping."
       },
       {
-        "title": "Electronic track",
-        "scenario": "Create an electronic house track",
-        "prompt": "Create a 32-bar deep house track with four-on-the-floor drums, synth bass on A1, and atmospheric pads. Render using the electronic pipeline with deep_house preset. Save to /mnt/user-data/outputs/deep_house.mp3"
+        "title": "Match a Video Duration",
+        "scenario": "Intermediate request with timing and mood constraints.",
+        "prompt": "Compose a 75-second hopeful background track for a product video. Use piano, cello, and light percussion, then render an MP3."
       },
       {
-        "title": "Orchestral piece",
-        "scenario": "Compose orchestral music",
-        "prompt": "Compose a 24-bar orchestral piece with violin, cello, and trumpet sections. Use a I-IV-V-I progression. Export to /mnt/user-data/outputs/orchestral.mp3"
+        "title": "Build an Electronic Track",
+        "scenario": "Advanced request using the electronic renderer.",
+        "prompt": "Create a deep house track with drums, sub bass, pads, and a sparse lead. Use the electronic pipeline and export a 192 kbps MP3."
       },
       {
-        "title": "MIDI transformation",
-        "scenario": "Transform existing MIDI",
-        "prompt": "Take the MIDI file at /mnt/user-data/inputs/song.mid, transpose it up by 2 semitones, change tempo to 1.2x, and render the result to /mnt/user-data/outputs/transformed.mp3"
+        "title": "Analyze and Transform MIDI",
+        "scenario": "Advanced request for MIDI inspection and arrangement changes.",
+        "prompt": "Analyze this MIDI file, summarize its tempo and tracks, transpose it up two semitones, change piano to violin, and render the result."
       }
     ],
     "output_examples": [
       {
-        "input": "Generate a 16-bar ambient piece with soft pads and subtle percussion at 80 BPM",
-        "output": [
-          "Created: /mnt/user-data/outputs/ambient_piece.mp3",
-          "Duration: 24 seconds (16 bars at 80 BPM)",
-          "Pipeline: Electronic synthesis with ambient preset",
-          "Instruments: Soft pads (synth), subtle percussion, atmospheric effects"
-        ]
+        "input": "Create a 45-second calm piano and cello cue for a meditation intro.",
+        "output": "A rendered MP3 with a slow tempo, soft piano arpeggios, sustained cello notes, and a validation summary showing no clipping."
       },
       {
-        "input": "Create a 32-bar reggae track with one-drop drum pattern and walking bass",
-        "output": [
-          "Created: /mnt/user-data/outputs/reggae_track.mp3",
-          "Duration: 46 seconds (32 bars at 85 BPM)",
-          "Drums: One-drop pattern with offbeat hats",
-          "Bass: Walking bass pattern with syncopated rhythm"
-        ]
+        "input": "Make a one-minute techno loop with strong drums and a synth lead.",
+        "output": "A downloadable MP3 rendered with the techno preset, plus a short note describing tempo, structure, and any audio warnings."
       },
       {
-        "input": "Compose a jazz piece with ii-V-I progressions and walking bass",
-        "output": [
-          "Created: /mnt/user-data/outputs/jazz_piece.mp3",
-          "Duration: 90 seconds",
-          "Chords: Extended 7th, 9th, and 13th chords",
-          "Instruments: Piano, walking bass, brushed snare"
-        ]
+        "input": "Turn this classical MIDI into a flute and harp arrangement.",
+        "output": "A transformed arrangement rendered as MP3, with a brief summary of detected tracks, instrument changes, and duration."
       }
     ],
     "best_practices": [
-      "Always use .insert() with explicit timing offsets for layered compositions instead of .append()",
-      "Set appropriate MIDI velocities for each instrument role (lead: 90-105, background: 50-65)",
-      "Choose the correct rendering pipeline based on genre (traditional for orchestral, electronic for EDM/house)"
+      "Specify duration, mood, tempo, and target instruments before rendering.",
+      "Render to a dedicated outputs directory and validate the final audio file.",
+      "Use the electronic pipeline for EDM styles and the traditional pipeline for acoustic instruments."
     ],
     "anti_patterns": [
-      "Using .append() for drum patterns - creates sequential rather than layered notes",
-      "Setting all instruments to the same velocity - causes poor mix balance",
-      "Using orchestral SoundFont for electronic music - results in poor quality synthetic sounds"
+      "Do not request vocals or sung lyrics as final audio.",
+      "Do not run the installer without understanding that it uses apt and pip.",
+      "Do not overwrite important files with output paths from experiments."
     ],
     "faq": [
       {
-        "question": "Which rendering pipeline should I use?",
-        "answer": "Use the traditional pipeline (FluidSynth) for orchestral, classical, or acoustic music. Use the electronic pipeline (real-time synthesis) for house, techno, trance, or any synth-heavy music."
+        "question": "Can this skill create downloadable audio files?",
+        "answer": "Yes. It is designed to render instrumental compositions to MP3 or WAV files."
       },
       {
-        "question": "What is the maximum duration for generated music?",
-        "answer": "There is no hard limit, but rendering time increases with duration. Practical limits are around 10-15 minutes for complex compositions."
+        "question": "Does it support electronic music?",
+        "answer": "Yes. It includes a synthesis renderer with presets for deep house, techno, trance, ambient, acid house, and default styles."
       },
       {
-        "question": "How do I set specific instruments in my composition?",
-        "answer": "For orchestral instruments, use music21 instrument classes like instrument.Violin(). For electronic instruments, use mido to insert program_change messages after MIDI export."
+        "question": "Can it analyze an existing MIDI file?",
+        "answer": "Yes. The MIDI inventory script extracts tempo, key, tracks, instruments, and note timing into JSON."
       },
       {
-        "question": "Is my data safe when using this skill?",
-        "answer": "Yes. This skill processes audio locally on your machine. No audio data is sent to external servers. All output files are written to directories you specify."
+        "question": "Does it need system dependencies?",
+        "answer": "Yes. Full rendering needs Python packages, FFmpeg, FluidSynth, and SoundFonts for the traditional pipeline."
       },
       {
-        "question": "Why does the audio sound different from professional productions?",
-        "answer": "MIDI synthesis cannot match studio-quality recordings. Sound quality depends on SoundFont files and synthesis parameters. For best results, use appropriate presets and velocity settings."
+        "question": "Can it make vocals?",
+        "answer": "No. The skill focuses on instrumental MIDI and synthesized audio, not sung vocal generation."
       },
       {
-        "question": "How does this compare to other music generation tools?",
-        "answer": "Unlike AI-based generators that create audio directly, this skill uses MIDI synthesis for controllable, theory-based composition. It gives you precise control over every note and instrument."
+        "question": "Is it safe to publish?",
+        "answer": "Yes, with warnings. Review found no malicious intent, but the installer and rendering scripts execute commands and write files."
       }
     ]
   },

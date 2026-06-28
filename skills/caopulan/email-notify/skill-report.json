@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T20:48:00.945Z",
+    "generated_at": "2026-06-28T20:18:54.474Z",
     "slug": "caopulan-email-notify",
     "source_url": "https://github.com/caopulan/Notification-Skill/tree/main/email-notify",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "67dac25dbe28eabe0b427785ca11ccfc219e161cbf057a2515e05db601a17d72",
-    "tree_hash": "9603d49654235262d8a103b97dbbd270cbcf0dcbf0c50a5111e2323aa4efe8a7"
+    "tree_hash": "8f4abbe7b30c1c99ba25125e6714966dd55461ff2176aad60fc9dd8eecd48d78"
   },
   "skill": {
     "name": "email-notify",
-    "description": "Send SMTP email notifications after Codex completes a task. Use when one Codex or Claude run is finished, or when you need to notify on task completion with device name, project name, status, and summary via email.",
-    "summary": "Send SMTP email notifications after Codex completes a task. Use when one Codex or Claude run is fini...",
-    "icon": "✉️",
+    "description": "Send SMTP email notifications when Codex, Claude, or Claude Code finishes a task. The helper includes device, project, status, and summary details in the message.",
+    "summary": "Send task completion emails through a user configured SMTP account.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "caopulan",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
-      "notifications",
       "email",
+      "notifications",
       "smtp",
-      "alerts",
-      "automation"
+      "task-completion",
+      "codex"
     ],
     "supported_tools": [
       "claude",
@@ -33,23 +32,41 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
       "network",
+      "filesystem",
       "env_access",
-      "filesystem"
-    ]
+      "external_commands"
+    ],
+    "category": "communication"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This skill is a straightforward SMTP email notification utility. It reads environment variables for SMTP configuration, reads AGENTS.md for optional project name extraction, and sends task completion notifications via standard Python smtplib. All detected patterns are expected functionality - email sending is the stated purpose, environment access is for configuration, and filesystem reads are for project name resolution. No malicious behavior confirmed.",
+    "summary": "Static findings for network, environment access, filesystem references, and documented commands are mostly expected for an SMTP notification skill. No prompt injection or malicious intent was found, but the skill can email task summaries and uses SMTP credentials from environment variables, so users need a clear data disclosure warning.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 1,
+            "line_end": 214
+          }
+        ]
+      },
       {
         "factor": "network",
         "evidence": [
           {
+            "file": "SKILL.md",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
             "file": "scripts/send_email_notification.py",
-            "line_start": 188,
+            "line_start": 190,
             "line_end": 202
           }
         ]
@@ -58,9 +75,19 @@
         "factor": "env_access",
         "evidence": [
           {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 27
+          },
+          {
             "file": "scripts/send_email_notification.py",
             "line_start": 102,
             "line_end": 108
+          },
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 200,
+            "line_end": 201
           }
         ]
       },
@@ -68,144 +95,378 @@
         "factor": "filesystem",
         "evidence": [
           {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 16
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 57
+          },
+          {
             "file": "scripts/send_email_notification.py",
             "line_start": 49,
-            "line_end": 67
+            "line_end": 63
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 62
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 3,
-    "total_lines": 521,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T20:48:00.945Z"
+    "medium_findings": [
+      {
+        "title": "Task Summary Can Be Sent Over SMTP",
+        "description": "The helper sends email through smtplib and includes the task title, status, project, device name, and summary. This is the intended feature, but it can disclose sensitive task details if the summary contains secrets or private project information.",
+        "locations": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 162,
+            "line_end": 175
+          },
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 190,
+            "line_end": 202
+          }
+        ],
+        "category": "network",
+        "severity": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "The script directly constructs an email body from task metadata and sends it through SMTP. This confirms network transmission, while the purpose appears legitimate and user configured."
+      },
+      {
+        "title": "SMTP Credentials Are Read From Environment Variables",
+        "description": "The script reads SMTP host, username, password, sender, recipients, and TLS settings from environment variables. This is normal for SMTP configuration, but credentials can be exposed if shell profiles or logs are mishandled.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 27
+          },
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 102,
+            "line_end": 108
+          },
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 200,
+            "line_end": 201
+          }
+        ],
+        "category": "env_access",
+        "severity": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.86,
+        "confidence_reasoning": "The code clearly reads CODEX_EMAIL_PASSWORD and uses it for SMTP login. The behavior is required for authenticated SMTP, but it handles sensitive credentials."
+      },
+      {
+        "title": "Plaintext Email Password Configuration Is Recommended",
+        "description": "The instructions tell users to place CODEX_EMAIL_PASSWORD in shell startup files. This is easy to use but increases exposure to local users, backups, terminal history, and accidental sharing.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 27
+          }
+        ],
+        "category": "filesystem",
+        "severity": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The documentation explicitly recommends persistent environment variables in home shell configuration files. The risk is credential exposure, not malicious behavior."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "AGENTS.md Project Name Read Is Limited",
+        "description": "The script searches upward for AGENTS.md and reads it to extract a project name. This is filesystem access, but it is limited to project metadata and no file contents are emailed except the extracted name.",
+        "locations": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 49,
+            "line_end": 63
+          },
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 160,
+            "line_end": 168
+          }
+        ],
+        "category": "filesystem",
+        "severity": "low",
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "The filesystem access is explicit and narrow. It could reveal a project name in email, but I did not find evidence of broader file exfiltration."
+      },
+      {
+        "title": "Documented Command Is Not Dynamic Shell Execution",
+        "description": "The command in SKILL.md is a user-facing example for running the helper script. I did not find code that builds or executes shell commands dynamically.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 62
+          }
+        ],
+        "category": "external_commands",
+        "severity": "low",
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.93,
+        "confidence_reasoning": "The flagged content is a Markdown command example, not executable code inside the skill. The Python script uses argparse and smtplib, not subprocess or shell evaluation."
+      },
+      {
+        "title": "Weak Cryptography Finding Is Not Supported By Evidence",
+        "description": "The weak cryptography static finding appears to be triggered by SMTP text, not by a weak hash, cipher, or custom cryptographic implementation. The script uses standard SMTP, SMTP_SSL, and STARTTLS controls.",
+        "locations": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 89,
+            "line_end": 89
+          },
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 190,
+            "line_end": 198
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 26,
+            "line_end": 32
+          }
+        ],
+        "category": "blocker",
+        "severity": "low",
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.8,
+        "confidence_reasoning": "No weak algorithm or cryptographic primitive is present at the flagged locations. The remaining concern is configuration quality, especially if users disable TLS and SSL."
+      },
+      {
+        "title": "System Reconnaissance Finding Is Not Supported By Evidence",
+        "description": "The flagged lines validate boolean environment values and tell users to avoid secrets in summaries. I did not find host probing, process listing, network scanning, or system inventory collection.",
+        "locations": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 70,
+            "line_end": 79
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 50,
+            "line_end": 52
+          }
+        ],
+        "category": "blocker",
+        "severity": "low",
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.9,
+        "confidence_reasoning": "The code only parses configured environment flags and formats user-provided task metadata. No reconnaissance behavior is visible in the reviewed files."
+      },
+      {
+        "title": "Hidden Home Path References Are Installation Documentation",
+        "description": "The skill mentions shell startup files and a ~/.codex skill path. These references are expected for local configuration, but users should protect files containing credentials.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 16
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 57
+          }
+        ],
+        "category": "filesystem",
+        "severity": "low",
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.74,
+        "confidence_reasoning": "The references are documentation rather than hidden-file reads by code. They still matter because the documented files may store SMTP credentials."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Network Transmission With User-Supplied Summary",
+        "description": "The summary argument is inserted into the email body and sent to configured recipients. Users must avoid including secrets, credentials, or private records in summaries.",
+        "locations": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 150,
+            "line_end": 168
+          },
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 200,
+            "line_end": 202
+          }
+        ],
+        "category": "network",
+        "severity": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.87,
+        "confidence_reasoning": "The data flow from command-line summary to email body to SMTP send is direct. It is intended behavior but a real disclosure path."
+      },
+      {
+        "title": "Credential Use For Outbound SMTP",
+        "description": "The script reads SMTP credentials from environment variables and logs into the configured server. This should use app passwords or a secret manager where possible.",
+        "locations": [
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 105,
+            "line_end": 107
+          },
+          {
+            "file": "scripts/send_email_notification.py",
+            "line_start": 200,
+            "line_end": 201
+          }
+        ],
+        "category": "env_access",
+        "severity": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.86,
+        "confidence_reasoning": "Credential variables are clearly read and used for SMTP authentication. No evidence shows the password is emailed or printed."
+      }
+    ],
+    "files_scanned": 2,
+    "total_lines": 282,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T20:18:54.474Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Send task completion emails",
-    "value_statement": "You need to know when your AI assistant finishes important tasks. This skill sends email notifications with device name, project name, status, and result summary directly to your inbox.",
+    "user_title": "Send Completion Emails from Codex",
+    "value_statement": "Long-running agent tasks can finish when users are away from the terminal. This skill sends a concise SMTP email with device, project, status, and summary details.",
     "seo_keywords": [
-      "email notifications",
-      "SMTP",
-      "task completion alerts",
-      "Claude Code",
+      "Claude",
       "Codex",
-      "AI automation",
+      "Claude Code",
+      "SMTP notifications",
       "email alerts",
-      "workflow notifications",
-      "background tasks",
-      "status updates"
+      "task completion email",
+      "agent notifications",
+      "Codex email notify",
+      "Claude task alerts",
+      "developer productivity"
     ],
     "actual_capabilities": [
-      "Send SMTP email notifications with task completion status",
-      "Include device name, project name, and summary in emails",
-      "Read project name from AGENTS.md configuration",
-      "Support TLS and SSL email encryption",
-      "Dry-run mode for testing without sending emails",
-      "Handle multiple email recipients"
+      "Sends SMTP email notifications after a task completes.",
+      "Includes device name, project name, status, and summary in the email body.",
+      "Reads the project name from AGENTS.md, a command option, or the current folder.",
+      "Supports multiple recipients separated by commas or semicolons.",
+      "Supports authenticated SMTP, unauthenticated SMTP, STARTTLS, SMTP over SSL, timeouts, and dry runs."
     ],
     "limitations": [
-      "SMTP server credentials must be configured manually",
-      "No real-time interactive responses, only notifications",
-      "Cannot receive or process incoming emails"
+      "Requires a working SMTP server and correct environment variables.",
+      "Does not remove secrets from task summaries automatically.",
+      "Does not provide delivery tracking, retries, or queueing.",
+      "Stores SMTP settings in the user environment unless the user chooses another secret workflow."
     ],
     "use_cases": [
       {
-        "target_user": "DevOps engineers",
-        "title": "Monitor automated pipelines",
-        "description": "Get notified when automated coding tasks complete on remote servers or CI/CD pipelines."
+        "title": "Notify After Long Builds",
+        "description": "Send a completion email when Codex finishes tests, builds, or migrations that take several minutes.",
+        "target_user": "Software engineers"
       },
       {
-        "target_user": "Software developers",
-        "title": "Track long-running builds",
-        "description": "Receive email alerts when complex refactoring or code generation tasks finish on your machine."
+        "title": "Report Agent Run Results",
+        "description": "Email a short status and summary after an agent completes a requested code change.",
+        "target_user": "Team leads"
       },
       {
-        "target_user": "Project managers",
-        "title": "Oversee multiple projects",
-        "description": "Stay informed about task completion across different projects without checking each one manually."
+        "title": "Track Remote Workflows",
+        "description": "Receive task completion alerts from a remote machine without staying connected to the terminal.",
+        "target_user": "DevOps operators"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic notification",
-        "scenario": "Task completion",
-        "prompt": "Use skill email-notify to send an email when this task is finished. Task title: 'Code refactoring complete', Status: success, Summary: 'Refactored 15 files with improved type hints.'"
+        "title": "Basic Completion Email",
+        "scenario": "Beginner notification after one task.",
+        "prompt": "When this task is finished, use email-notify to send me a success or failure email with a short summary."
       },
       {
-        "title": "Failure alert",
-        "scenario": "Build failure",
-        "prompt": "If the build fails, use email-notify to alert the team. Task title: 'Build failed', Status: failed, Summary: 'Compilation errors in 3 modules due to missing dependencies.'"
+        "title": "Custom Status Message",
+        "scenario": "Add a clear status and task title.",
+        "prompt": "After the run, send an email notification titled \"Dependency update\" with the final status and a concise summary."
       },
       {
-        "title": "Multi-recipient",
-        "scenario": "Team notification",
-        "prompt": "Notify the entire team on task completion using email-notify. Task title: 'Weekly report generated', Status: success, Summary: 'Generated 25-page report with performance metrics and recommendations.'"
+        "title": "Dry Run SMTP Check",
+        "scenario": "Confirm settings before sending real email.",
+        "prompt": "Use email-notify in dry-run mode to verify the SMTP host, recipients, subject, and body before sending a real notification."
       },
       {
-        "title": "Dry-run test",
-        "scenario": "Configuration testing",
-        "prompt": "Test the email notification setup by running email-notify in dry-run mode. Task title: 'Test notification', Status: success, Summary: 'This is a test message to verify SMTP configuration.'"
+        "title": "Advanced Workflow Alert",
+        "scenario": "Use explicit project and detailed result context.",
+        "prompt": "When the deployment checks complete, send an email for project \"Billing API\" with status partial if any check fails, and summarize the next required action."
       }
     ],
     "output_examples": [
       {
-        "input": "Send notification with task title 'Code review complete', status 'success', and summary 'Reviewed 12 pull requests, approved 8 with comments, requested changes on 4'",
-        "output": [
-          "Device: Macbook",
-          "Project: my-project",
-          "Status: success",
-          "Summary: Reviewed 12 pull requests, approved 8 with comments, requested changes on 4"
-        ]
+        "input": "Notify after a successful test run for the API project.",
+        "output": "An email is sent with subject \"API tests complete\" and a body listing the device, project, success status, and summary."
       },
       {
-        "input": "Alert the team that the build failed with summary 'Test suite failed: 23 tests failed, 156 passed'",
-        "output": [
-          "Device: CI-Server",
-          "Project: backend-api",
-          "Status: failed",
-          "Summary: Test suite failed: 23 tests failed, 156 passed"
-        ]
+        "input": "Run a dry check before enabling real notifications.",
+        "output": "The terminal shows the SMTP host, port, security mode, sender, recipients, subject, and email body without sending mail."
+      },
+      {
+        "input": "Notify when a task is blocked by missing credentials.",
+        "output": "An email is sent with blocked status and a short summary that excludes passwords, tokens, and private data."
       }
     ],
     "best_practices": [
-      "Configure SMTP settings in shell profile for persistent environment variables",
-      "Use separate email accounts for notifications to protect primary credentials",
-      "Test with dry-run mode before relying on notifications for important tasks"
+      "Use app-specific SMTP passwords and rotate them regularly.",
+      "Keep summaries short and exclude secrets, tokens, customer data, and private logs.",
+      "Test configuration with dry-run before sending real notifications."
     ],
     "anti_patterns": [
-      "Including secrets or sensitive data in the task summary field",
-      "Using personal email credentials for automated notifications",
-      "Skipping the dry-run test when first configuring the skill"
+      "Do not include credentials or private file contents in the summary.",
+      "Do not send notifications to broad mailing lists without review.",
+      "Do not enable both STARTTLS and SMTP over SSL at the same time."
     ],
     "faq": [
       {
-        "question": "Which AI tools support this skill?",
-        "answer": "This skill works with Claude, Codex, and Claude Code. Add the instruction to your AGENTS.md file to enable it."
+        "question": "Does this skill send email automatically?",
+        "answer": "It sends email when the agent follows the skill instructions and runs the helper script."
       },
       {
-        "question": "What SMTP settings are required?",
-        "answer": "You need host, port, from address, and to addresses. Username and password are optional for unauthenticated servers."
+        "question": "What email provider does it support?",
+        "answer": "It supports SMTP providers that accept the configured host, port, username, password, and security mode."
       },
       {
-        "question": "Can I send to multiple recipients?",
-        "answer": "Yes, separate multiple email addresses with commas or semicolons in the CODEX_EMAIL_TO environment variable."
+        "question": "Can it notify multiple recipients?",
+        "answer": "Yes. The recipient variable accepts comma-separated or semicolon-separated addresses."
       },
       {
-        "question": "Is my data sent to third parties?",
-        "answer": "No, emails go directly to your configured SMTP server. No data is collected or stored by this skill."
+        "question": "Can it work without SMTP authentication?",
+        "answer": "Yes. Leave the username and password unset if the SMTP server does not require authentication."
       },
       {
-        "question": "Why is my notification not sending?",
-        "answer": "Check that all required environment variables are set, verify SMTP credentials, and try dry-run mode to debug configuration issues."
+        "question": "Does it protect secrets in summaries?",
+        "answer": "No. Users and agents must avoid placing secrets or private data in task summaries."
       },
       {
-        "question": "How is this different from other notification skills?",
-        "answer": "This skill uses plain SMTP for maximum compatibility with any email provider, requiring no external API keys or cloud services."
+        "question": "Can I preview the notification?",
+        "answer": "Yes. The helper supports dry-run mode to print the message details without sending email."
       }
     ]
   },

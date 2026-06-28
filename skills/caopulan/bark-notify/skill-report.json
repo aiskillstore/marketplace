@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T20:46:38.785Z",
+    "generated_at": "2026-06-28T20:16:07.889Z",
     "slug": "caopulan-bark-notify",
     "source_url": "https://github.com/caopulan/Notification-Skill/tree/main/bark-notify",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "2f1f43336517cfc8ca1986e83a6680c7cc12491701df12004ddf2c7b0fed64c2",
-    "tree_hash": "692ec34eb2f253b0bc97dec42b5e286272b406f66881d3ccd1616987b1dc808c"
+    "tree_hash": "be1022fb84d45ff3442255856bcbb2f77b96ccb33a977a90de7b7d216a3d48bd"
   },
   "skill": {
     "name": "bark-notify",
-    "description": "Send Bark (day.app) push notifications after Codex completes a task. Use when one Codex or Claude run is finished, or when you need to notify on task completion with device name, project name, status, and summary.",
-    "summary": "Send Bark (day.app) push notifications after Codex completes a task. Use when one Codex or Claude ru...",
-    "icon": "🔔",
+    "description": "Send Bark push notifications when Codex, Claude, or Claude Code tasks finish, with project context, status, and a short summary.",
+    "summary": "Send Bark mobile alerts when AI agent tasks complete.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "caopulan",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
+      "bark",
       "notifications",
-      "push",
-      "alerts",
-      "Bark"
+      "codex",
+      "task-completion",
+      "mobile-alerts"
     ],
     "supported_tools": [
       "claude",
@@ -32,17 +32,50 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
+      "network",
       "env_access",
-      "filesystem",
-      "network"
-    ]
+      "external_commands",
+      "filesystem"
+    ],
+    "category": "communication"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All 42 static findings are false positives. The scanner misinterpreted YAML frontmatter fields as 'weak cryptographic algorithms', bash escaping quotes as 'path traversal sequences', and standard config file paths as 'hidden file' access. This is a legitimate notification utility that reads environment variables for API configuration, reads project metadata from AGENTS.md files, and sends push notifications to the official Bark API (api.day.app). The credential access pattern is explicitly documented and required for the skill's intended function.",
+    "summary": "AI review did not confirm malicious intent or prompt injection. The critical static heuristic is explained by the skill purpose: it runs a local helper, reads notification configuration, and sends a Bark push request. Publish with a warning because task summaries and the Bark key can leave the local environment.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 45,
+            "line_end": 51
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 19,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 118,
+            "line_end": 129
+          }
+        ]
+      },
       {
         "factor": "env_access",
         "evidence": [
@@ -54,160 +87,300 @@
         ]
       },
       {
-        "factor": "filesystem",
+        "factor": "external_commands",
         "evidence": [
           {
-            "file": "scripts/send_bark_notification.py",
-            "line_start": 50,
-            "line_end": 68
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 51
           }
         ]
       },
       {
-        "factor": "network",
+        "factor": "filesystem",
         "evidence": [
           {
+            "file": "SKILL.md",
+            "line_start": 46,
+            "line_end": 46
+          },
+          {
             "file": "scripts/send_bark_notification.py",
-            "line_start": 118,
-            "line_end": 137
+            "line_start": 50,
+            "line_end": 64
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 3,
-    "total_lines": 437,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T20:46:38.785Z"
+    "medium_findings": [
+      {
+        "title": "Task Summary Sent to External Push Service",
+        "description": "TRUE POSITIVE. The helper builds a notification body from machine name, project name, status, and summary, then posts it to the Bark endpoint. This is the intended feature, but summaries can leak sensitive task details if the caller includes secrets. Confidence: 0.86.",
+        "locations": [
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 109,
+            "line_end": 119
+          },
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 127,
+            "line_end": 129
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The network request and payload construction are explicit, but the behavior is legitimate for a notification skill when users avoid sensitive content."
+      },
+      {
+        "title": "Dry Run Can Print Bark Key",
+        "description": "TRUE POSITIVE. The Bark key is embedded in the URL path, and dry-run mode prints the full POST URL. Terminal logs or copied output could expose the notification token. Confidence: 0.93.",
+        "locations": [
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 118,
+            "line_end": 123
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The code directly constructs the URL with CODEX_BARK_KEY and prints that URL during dry-run execution."
+      },
+      {
+        "title": "Environment Variables Control Notification Credentials and Endpoint",
+        "description": "TRUE POSITIVE with legitimate context. The script reads CODEX_MACHINE_NAME, CODEX_BARK_KEY, and CODEX_BARK_BASE_URL from the environment. This is normal configuration, but a changed base URL can redirect notification contents. Confidence: 0.78.",
+        "locations": [
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 86,
+            "line_end": 88
+          },
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 118,
+            "line_end": 119
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The environment access is explicit and necessary, while the base URL override creates a bounded but real data-routing risk."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Documented Shell Command Invokes Local Helper Script",
+        "description": "FALSE POSITIVE for command injection. The Markdown shows a fixed python3 command for the installed helper script with placeholder arguments. I did not find evidence of untrusted input being interpolated into a shell command by the skill code. Confidence: 0.95.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 51
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The flagged command text is documentation, and the Python script uses argparse rather than shell evaluation."
+      },
+      {
+        "title": "Local Project Metadata Read From AGENTS.md",
+        "description": "TRUE POSITIVE with low severity. The helper searches the current directory and parent directories for AGENTS.md and reads it to extract a project name. This is limited filesystem access and does not exfiltrate file contents except the derived project name in the notification body. Confidence: 0.82.",
+        "locations": [
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 50,
+            "line_end": 64
+          },
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 107,
+            "line_end": 115
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The file read is explicit and narrowly scoped to AGENTS.md, with only a parsed name included in the notification."
+      },
+      {
+        "title": "Static Heuristic Findings Mostly Dismissed",
+        "description": "FALSE POSITIVE. The weak cryptography detections point to descriptive text, not cryptographic code. The path traversal and hidden-file detections are Markdown examples for ~/.codex and placeholder ellipses, not runtime traversal logic. Confidence: 0.98.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 73,
+            "line_end": 73
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 45,
+            "line_end": 51
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "The cited lines are human-readable descriptions or usage examples, and no weak cryptographic primitive or path traversal operation appears there."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Task Summary Sent to External Push Service",
+        "description": "TRUE POSITIVE. The helper builds a notification body from machine name, project name, status, and summary, then posts it to the Bark endpoint. This is the intended feature, but summaries can leak sensitive task details if the caller includes secrets. Confidence: 0.86.",
+        "locations": [
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 109,
+            "line_end": 119
+          },
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 127,
+            "line_end": 129
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The network request and payload construction are explicit, but the behavior is legitimate for a notification skill when users avoid sensitive content."
+      },
+      {
+        "title": "Dry Run Can Print Bark Key",
+        "description": "TRUE POSITIVE. The Bark key is embedded in the URL path, and dry-run mode prints the full POST URL. Terminal logs or copied output could expose the notification token. Confidence: 0.93.",
+        "locations": [
+          {
+            "file": "scripts/send_bark_notification.py",
+            "line_start": 118,
+            "line_end": 123
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The code directly constructs the URL with CODEX_BARK_KEY and prints that URL during dry-run execution."
+      }
+    ],
+    "files_scanned": 2,
+    "total_lines": 202,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T20:16:07.889Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "env_access",
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Send push notifications when tasks complete",
-    "value_statement": "Stay informed about Codex and Claude task completions on your devices. Receive instant push notifications with task status, project name, and results without checking the terminal.",
+    "user_title": "Send Bark Completion Alerts",
+    "value_statement": "Long AI agent runs can finish while the user is away from the terminal. This skill sends Bark mobile alerts with task status, project context, and a short completion summary.",
     "seo_keywords": [
+      "Claude",
+      "Codex",
+      "Claude Code",
       "Bark notifications",
-      "push notifications",
-      "Claude Code notifications",
-      "Codex alerts",
-      "task completion",
-      "iOS notifications",
-      "day.app",
-      "macOS notifications",
-      "automation alerts",
-      "notification skill"
+      "AI task alerts",
+      "mobile push notifications",
+      "completion notifications",
+      "developer productivity",
+      "agent workflow alerts",
+      "day.app integration"
     ],
     "actual_capabilities": [
-      "Send push notifications to iOS devices via Bark (day.app)",
-      "Include device name, project name, task status, and summary in notifications",
-      "Read project names from AGENTS.md files or use folder names",
-      "Support multiple execution statuses (success, failed, partial, blocked)",
-      "Validate required environment variables before sending",
-      "Dry-run mode to preview notifications without sending"
+      "Sends a Bark push notification after an AI agent task finishes.",
+      "Includes device name, project name, status, and summary in the notification body.",
+      "Reads Bark key, device name, and base URL from environment variables.",
+      "Detects a project name from AGENTS.md frontmatter or labeled project lines.",
+      "Supports dry-run mode and configurable request timeout for testing."
     ],
     "limitations": [
-      "Requires Bark app installed and Bark key configured",
-      "Only reads AGENTS.md files for project name extraction",
-      "Network connectivity required to send notifications",
-      "No support for rich notifications with custom icons or actions"
+      "Requires a valid Bark key and network access to the configured Bark service.",
+      "Notification summaries are sent to an external service and should not contain secrets.",
+      "Does not include retry logic, delivery confirmation, or offline queueing.",
+      "Project name detection is limited to supported AGENTS.md patterns."
     ],
     "use_cases": [
       {
-        "target_user": "Developers running Codex or Claude Code",
-        "title": "Remote task monitoring",
-        "description": "Get notified on your phone when long-running coding tasks finish while you work elsewhere."
+        "title": "Monitor Long Coding Runs",
+        "description": "Receive a mobile alert when a Codex implementation or test run completes.",
+        "target_user": "Software developer"
       },
       {
-        "target_user": "DevOps engineers",
-        "title": "CI/CD completion alerts",
-        "description": "Receive instant alerts when automated builds or deployments complete with status details."
+        "title": "Track Remote Agent Work",
+        "description": "Send task status from a remote workstation to a phone through Bark.",
+        "target_user": "Remote engineer"
       },
       {
-        "target_user": "Productivity-focused users",
-        "title": "Workflow completion tracking",
-        "description": "Track multiple task completions across projects with organized notification summaries."
+        "title": "Coordinate Review Handoffs",
+        "description": "Notify a teammate when an AI-assisted analysis is done and ready for review.",
+        "target_user": "Technical lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic task notification",
-        "scenario": "Notify when a coding task finishes",
-        "prompt": "Use bark-notify to notify me when this task completes. Task title: \"Refactor authentication module\". Status: success. Summary: All tests passed, code refactored successfully."
+        "title": "Basic Completion Alert",
+        "scenario": "Beginner setup for a single task notification.",
+        "prompt": "Use bark-notify when this task is complete. Send status success if all requested work is finished, and include a short summary."
       },
       {
-        "title": "Failure notification",
-        "scenario": "Alert on task failure with details",
-        "prompt": "Use bark-notify to send a notification if this fails. Task title: \"Database migration\". Status: failed. Summary: Migration script encountered constraint violation on users table."
+        "title": "Failure-Aware Alert",
+        "scenario": "Notify with clear status when work is blocked or partially complete.",
+        "prompt": "After the task ends, use bark-notify with status success, partial, failed, or blocked. Keep the summary brief and do not include secrets."
       },
       {
-        "title": "Multi-step workflow",
-        "scenario": "Notify after each workflow step",
-        "prompt": "After completing each step, use bark-notify to update me. Task title: \"Deploy to staging\". Status: partial. Summary: Build succeeded, deployment in progress."
+        "title": "Project-Specific Alert",
+        "scenario": "Override or confirm project naming for clearer mobile notifications.",
+        "prompt": "Use bark-notify after this run. Set the project name to the current repository name unless AGENTS.md defines a project name."
       },
       {
-        "title": "Custom project name",
-        "scenario": "Override project detection",
-        "prompt": "Use bark-notify to notify upon completion. Task title: \"Code review completed\". Status: success. Summary: All 12 files reviewed. Project name: \"Backend API v2\"."
+        "title": "Operational Run Notification",
+        "scenario": "Advanced workflow for long runs with test and deployment context.",
+        "prompt": "When the full workflow completes, send a Bark notification with the final status, project name, and a concise summary of implementation, tests, and remaining blockers."
       }
     ],
     "output_examples": [
       {
-        "input": "Use bark-notify with task title: API endpoint implementation, status: success, summary: Created 5 REST endpoints with full documentation",
-        "output": [
-          "✓ Notification sent successfully",
-          "Device: Macbook Pro",
-          "Project: backend-api",
-          "Status: success",
-          "Summary: Created 5 REST endpoints with full documentation"
-        ]
+        "input": "Notify me when the refactor is complete.",
+        "output": "A mobile Bark alert reports the project name, success status, and a short refactor summary."
       },
       {
-        "input": "Use bark-notify to alert if the build fails, task title: Production build, status: failed, summary: TypeScript compilation errors in 3 files",
-        "output": [
-          "✓ Notification sent",
-          "Device: Development Server",
-          "Project: web-app",
-          "Status: failed",
-          "Summary: TypeScript compilation errors in 3 files"
-        ]
+        "input": "Send an alert if the test run fails.",
+        "output": "A Bark notification marks the run as failed and summarizes the failing step without exposing sensitive output."
+      },
+      {
+        "input": "Use dry run to preview the notification.",
+        "output": "The terminal shows the notification request details so the user can verify title, status, and summary before sending."
       }
     ],
     "best_practices": [
-      "Configure CODEX_MACHINE_NAME with a descriptive identifier to distinguish multiple machines",
-      "Use AGENTS.md with project_name frontmatter for consistent project naming across notifications",
-      "Test notifications with --dry-run before relying on them for important task monitoring"
+      "Keep notification summaries short and free of tokens, passwords, customer data, or private logs.",
+      "Set CODEX_BARK_BASE_URL only to a trusted Bark endpoint before enabling automatic alerts.",
+      "Use dry-run mode during setup, then avoid sharing terminal output that contains the Bark URL."
     ],
     "anti_patterns": [
-      "Including sensitive data like API keys, passwords, or personal information in the summary field",
-      "Using the same machine name across multiple development environments",
-      "Relying on notifications without verifying the Bark key configuration is correct"
+      "Do not include raw error logs, access tokens, or private repository details in summaries.",
+      "Do not point the base URL to an untrusted server or shared test endpoint.",
+      "Do not treat Bark delivery as proof that a task succeeded; verify critical results separately."
     ],
     "faq": [
       {
-        "question": "What platforms support Bark notifications?",
-        "answer": "Bark is an iOS and macOS app. Install it from the App Store, then configure the Bark key from settings."
+        "question": "What does this skill send?",
+        "answer": "It sends a Bark push notification with device name, project name, status, and a short task summary."
       },
       {
-        "question": "How do I find my Bark key?",
-        "answer": "Open Bark app, tap your device name, and copy the full URL. The key is the string after api.day.app/."
+        "question": "Which tools can use it?",
+        "answer": "The report marks it as compatible with Claude, Codex, and Claude Code."
       },
       {
-        "question": "Can I use this with multiple devices?",
-        "answer": "Yes, create separate Bark keys for each device and switch environment variables as needed."
+        "question": "Does it need a Bark account or key?",
+        "answer": "Yes. It requires CODEX_BARK_KEY and CODEX_MACHINE_NAME in the environment."
       },
       {
-        "question": "Is my notification data stored securely?",
-        "answer": "Notifications are sent directly to your device through Apple push service. No third-party servers."
+        "question": "Can it use a self-hosted Bark server?",
+        "answer": "Yes. CODEX_BARK_BASE_URL can point to another trusted Bark-compatible endpoint."
       },
       {
-        "question": "Why is my notification not arriving?",
-        "answer": "Check that CODEX_BARK_KEY is set correctly, network is available, and Bark app has notification permissions."
+        "question": "Does it read project files?",
+        "answer": "It searches for AGENTS.md and reads supported project name fields when no project name is provided."
       },
       {
-        "question": "How is this different from other notification skills?",
-        "answer": "Bark delivers native iOS/macOS push notifications with no app installation required on the sending side."
+        "question": "Is it safe for sensitive work?",
+        "answer": "Use caution. Notification summaries leave the local machine, so sensitive details should be omitted."
       }
     ]
   },
