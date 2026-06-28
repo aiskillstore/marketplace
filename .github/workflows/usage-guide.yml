@@ -1,0 +1,57 @@
+# Generate a plugin's usage guide on a clean self-hosted runner. The guide is a
+# long (~30s) Helm generation that doesn't fit Cloudflare's request window, so the
+# app's /generate flow dispatches this instead of generating it inline.
+# Triggered by `repository_dispatch { event_type: generate-usage-guide }` from
+# skillstore's /api/plugins/review/generate.
+
+name: Generate Usage Guide
+
+on:
+  repository_dispatch:
+    types: [generate-usage-guide]
+
+concurrency:
+  group: usage-guide-${{ github.event.client_payload.slug }}
+  cancel-in-progress: true
+
+jobs:
+  guide:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 1
+
+      - name: Download Skillstore CLI
+        id: cli
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: latest
+          token: ${{ steps.app-token.outputs.token }}
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Generate usage guide
+        env:
+          CLI: ${{ steps.cli.outputs.cli-path }}
+          SLUG: ${{ github.event.client_payload.slug }}
+          ISSUE: ${{ github.event.client_payload.issueNumber }}
+          # CLI reads these names; map from the repo's existing secrets
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          HELM_API_KEY: ${{ secrets.HELM_API_KEY }}
+          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          # lets the CLI post the finished guide back onto the review issue
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          "$CLI" plugin generate-guide --slug "$SLUG" --issue "$ISSUE"
