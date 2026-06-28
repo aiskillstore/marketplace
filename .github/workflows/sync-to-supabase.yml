@@ -165,24 +165,160 @@ jobs:
 
           echo "Skill paths: $SKILL_PATHS"
 
-          # Run skillstore-cli sync command with parallel processing
-          # --concurrency 10: Process 10 skills in parallel for faster sync
-          # Save full output to file, display to console, then extract result from last line
-          # This preserves detailed logs for debugging while capturing the synced slugs
-          if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
-            export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
-            export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-          fi
-          export NODE_OPTIONS="${NODE_OPTIONS:-} --use-openssl-ca"
           set -o pipefail
-          "$GITHUB_WORKSPACE/skillstore-cli" skill sync --slugs "$SKILL_PATHS" --concurrency 10 2>&1 | tee sync-output.log
-          SYNCED_SLUGS=$(tail -1 sync-output.log)
 
-          SUMMARY=$(grep -E 'Sync complete: [0-9]+ synced, [0-9]+ errors' sync-output.log | tail -1 || true)
-          ERROR_COUNT=$(echo "$SUMMARY" | sed -n 's/.*Sync complete: [0-9][0-9]* synced, \([0-9][0-9]*\) errors.*/\1/p')
-          if [ "${ERROR_COUNT:-0}" -gt 0 ]; then
-            echo "::error::skillstore-cli sync reported errors: $SUMMARY"
+          configure_tls() {
+            if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && command -v apt-get >/dev/null 2>&1; then
+              echo "CA bundle missing; attempting to install ca-certificates"
+              if command -v sudo >/dev/null 2>&1; then
+                sudo apt-get update -y && sudo apt-get install -y ca-certificates || true
+              else
+                apt-get update -y && apt-get install -y ca-certificates || true
+              fi
+            fi
+
+            if command -v update-ca-certificates >/dev/null 2>&1; then
+              if command -v sudo >/dev/null 2>&1; then
+                sudo update-ca-certificates || true
+              else
+                update-ca-certificates || true
+              fi
+            fi
+
+            if [ -s /etc/ssl/certs/ca-certificates.crt ]; then
+              export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+              export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+              export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+              export GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt
+            fi
+            export NODE_OPTIONS="${NODE_OPTIONS:-} --use-openssl-ca"
+          }
+
+          is_tls_error() {
+            grep -Eqi 'certificate verification|unable to get local issuer certificate|self-signed certificate|CERT_|TLS|SSL' "$1"
+          }
+
+          sync_error_count() {
+            local output_file="$1"
+            local summary
+            summary=$(grep -E 'Sync complete: [0-9]+ synced, [0-9]+ errors' "$output_file" | tail -1 || true)
+            echo "$summary" | sed -n 's/.*Sync complete: [0-9][0-9]* synced, \([0-9][0-9]*\) errors.*/\1/p'
+          }
+
+          failed_paths_from_output() {
+            local output_file="$1"
+            local candidate_paths="$2"
+            local failed_slugs
+
+            failed_slugs=$(grep -Ei 'certificate verification|unable to get local issuer certificate|self-signed certificate|CERT_|TLS|SSL' "$output_file" \
+              | sed -n -E 's/.*(Error syncing|failed for) ([^:]+):.*/\2/p' \
+              | sort -u | tr '\n' ' ')
+
+            if [ -z "$failed_slugs" ]; then
+              return 0
+            fi
+
+            node - "$failed_slugs" "$candidate_paths" <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const failed = new Set((process.argv[2] || '').split(/\s+/).filter(Boolean));
+          const candidates = (process.argv[3] || '').split(',').filter(Boolean);
+          const out = [];
+
+          for (const candidate of candidates) {
+            const reportPath = path.join(candidate, 'skill-report.json');
+            let slug = candidate.replace(/^skills\//, '').replace(/\//g, '-');
+            try {
+              const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+              slug = report.meta?.slug || slug;
+            } catch {
+              // Keep the path-derived fallback.
+            }
+
+            if (failed.has(slug)) {
+              out.push(candidate);
+            }
+          }
+
+          process.stdout.write(out.join(','));
+          NODE
+          }
+
+          run_sync_once() {
+            local paths="$1"
+            local concurrency="$2"
+            local output_file="$3"
+
+            set +e
+            "$GITHUB_WORKSPACE/skillstore-cli" skill sync --slugs "$paths" --concurrency "$concurrency" 2>&1 | tee "$output_file"
+            local rc=${PIPESTATUS[0]}
+            set -e
+            return "$rc"
+          }
+
+          # Run skillstore-cli sync command with parallel processing. If the
+          # self-hosted runner hits a transient TLS/CA verification problem,
+          # retry only the affected skills with a refreshed CA store and lower
+          # concurrency instead of failing the whole workflow.
+          : > sync-output.log
+          CURRENT_PATHS="$SKILL_PATHS"
+          SYNC_OK=false
+
+          for ATTEMPT in 1 2 3 4; do
+            configure_tls
+
+            OUTPUT_FILE="sync-output-attempt-${ATTEMPT}.log"
+            CONCURRENCY=10
+            if [ "$ATTEMPT" -gt 1 ]; then
+              CONCURRENCY=3
+            fi
+
+            echo "=== Sync attempt ${ATTEMPT}/4 (concurrency=${CONCURRENCY}) ===" | tee -a sync-output.log
+            set +e
+            run_sync_once "$CURRENT_PATHS" "$CONCURRENCY" "$OUTPUT_FILE"
+            SYNC_RC=$?
+            set -e
+            cat "$OUTPUT_FILE" >> sync-output.log
+
+            ERROR_COUNT=$(sync_error_count "$OUTPUT_FILE")
+            ERROR_COUNT=${ERROR_COUNT:-0}
+
+            if [ "$SYNC_RC" -eq 0 ] && [ "$ERROR_COUNT" -eq 0 ] && ! is_tls_error "$OUTPUT_FILE"; then
+              SYNC_OK=true
+              break
+            fi
+
+            if ! is_tls_error "$OUTPUT_FILE"; then
+              echo "::error::skillstore-cli sync failed with non-TLS errors on attempt ${ATTEMPT}"
+              break
+            fi
+
+            RETRY_PATHS=$(failed_paths_from_output "$OUTPUT_FILE" "$CURRENT_PATHS")
+            if [ -z "$RETRY_PATHS" ]; then
+              echo "::error::TLS error detected, but failed skills could not be mapped for retry"
+              break
+            fi
+
+            if [ "$ATTEMPT" -eq 4 ]; then
+              echo "::error::TLS errors remained after ${ATTEMPT} attempts"
+              break
+            fi
+
+            echo "::warning::TLS certificate error during sync; retrying affected skills only: $RETRY_PATHS"
+            CURRENT_PATHS="$RETRY_PATHS"
+            sleep $((ATTEMPT * 15))
+          done
+
+          if [ "$SYNC_OK" != "true" ]; then
+            SUMMARY=$(grep -E 'Sync complete: [0-9]+ synced, [0-9]+ errors' sync-output.log | tail -1 || true)
+            echo "::error::skillstore-cli sync failed after retries: ${SUMMARY:-no summary}"
             exit 1
+          fi
+
+          SYNCED_SLUGS=$(grep -E 'Synced:' sync-output.log | sed -E 's/.*Synced: //' | sort -u | paste -sd, -)
+          if [ -z "$SYNCED_SLUGS" ]; then
+            SYNCED_SLUGS=$(tail -1 sync-output.log)
           fi
           if [ -z "$SYNCED_SLUGS" ] || echo "$SYNCED_SLUGS" | grep -q 'Sync complete:'; then
             echo "::error::skillstore-cli did not return synced slugs. Last line: $SYNCED_SLUGS"
