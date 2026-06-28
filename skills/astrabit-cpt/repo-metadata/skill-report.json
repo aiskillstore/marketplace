@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T17:04:00.854Z",
+    "generated_at": "2026-06-28T11:53:35.985Z",
     "slug": "astrabit-cpt-repo-metadata",
     "source_url": "https://github.com/AstraBit-CPT/astrabit-docs/tree/master/.claude/skills/repo-metadata",
     "source_ref": "master",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "1f6ab4ba58aabecd038d5abe0081f1ce385101e6fa89b3784c146cda5a22df36",
-    "tree_hash": "ab9e35634ed4fc82e1210b27e5b0c95e43981ba8a09b16921bab730620d0d225"
+    "tree_hash": "28159c77ca43af33e174e1e754b7e9383277fcbfd97c373410f5dd5c78e5a1d0"
   },
   "skill": {
     "name": "repo-metadata",
-    "description": "This skill should be used when the user asks to \"generate repository metadata\", \"create catalog-info.yaml\", \"add repo metadata\", \"document repository structure\", or mentions generating structured metadata for service catalog or architecture documentation.",
-    "summary": "This skill should be used when the user asks to \"generate repository metadata\", \"create catalog-info...",
-    "icon": "📋",
+    "description": "Generate Backstage-style catalog-info.yaml metadata by analyzing repository structure, documentation, dependencies, integrations, and service patterns.",
+    "summary": "Create service catalog metadata for repository architecture documentation.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "AstraBit-CPT",
     "license": "MIT",
-    "category": "documentation",
     "tags": [
-      "metadata",
-      "catalog",
-      "service",
-      "architecture",
-      "documentation"
+      "repository-metadata",
+      "service-catalog",
+      "backstage",
+      "architecture-docs",
+      "catalog-info"
     ],
     "supported_tools": [
       "claude",
@@ -35,13 +34,14 @@
     "risk_factors": [
       "scripts",
       "filesystem"
-    ]
+    ],
+    "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All 212 static findings are false positives. The static analyzer misidentifies YAML schema type values (like 'service', 'gateway', 'kafka') as weak cryptographic algorithms and misinterprets markdown backtick formatting as shell command execution. This skill is a legitimate documentation generator that reads local repository files and outputs YAML metadata without network access, credential handling, or code execution beyond Python subprocess calls for git status.",
+    "summary": "Static analysis reported many high-severity weak-cryptography and command-execution patterns, but review found they are false positives in YAML examples, schema documentation, and Markdown code fences. The executable Python script performs intended local repository scanning and metadata generation without subprocess execution or outbound network requests. No prompt injection attempt or malicious intent was found.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
@@ -49,7 +49,12 @@
           {
             "file": "scripts/generate-metadata.py",
             "line_start": 1,
-            "line_end": 483
+            "line_end": 1
+          },
+          {
+            "file": "scripts/generate-metadata.py",
+            "line_start": 456,
+            "line_end": 482
           }
         ]
       },
@@ -59,12 +64,17 @@
           {
             "file": "scripts/generate-metadata.py",
             "line_start": 123,
-            "line_end": 134
+            "line_end": 130
           },
           {
             "file": "scripts/generate-metadata.py",
-            "line_start": 196,
-            "line_end": 202
+            "line_start": 195,
+            "line_end": 198
+          },
+          {
+            "file": "scripts/generate-metadata.py",
+            "line_start": 208,
+            "line_end": 223
           }
         ]
       }
@@ -72,157 +82,216 @@
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [],
-    "low_findings": [],
+    "low_findings": [
+      {
+        "title": "Recursive Local Repository Scanning",
+        "description": "The generator accepts a repository path and recursively reads matching source and metadata files to infer service catalog fields. This is expected behavior for the skill, but users should run it only on repositories they are allowed to inspect because local file contents influence the generated output.",
+        "locations": [
+          {
+            "file": "scripts/generate-metadata.py",
+            "line_start": 123,
+            "line_end": 130
+          },
+          {
+            "file": "scripts/generate-metadata.py",
+            "line_start": 195,
+            "line_end": 198
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The reviewed code clearly reads local repository files, but it does not transmit them or execute them. The risk is limited to local data exposure through generated metadata."
+      },
+      {
+        "title": "Static Weak-Cryptography Detections Are False Positives",
+        "description": "The reported weak-cryptography hits occur in catalog metadata examples and schema reference text. They describe component fields such as APIs, events, schemas, and services, not cryptographic algorithms or security-sensitive hashing.",
+        "locations": [
+          {
+            "file": "examples/catalog-info-gateway.yaml",
+            "line_start": 7,
+            "line_end": 7
+          },
+          {
+            "file": "examples/catalog-info-template.yaml",
+            "line_start": 51,
+            "line_end": 54
+          },
+          {
+            "file": "references/schema.md",
+            "line_start": 74,
+            "line_end": 75
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 32,
+            "line_end": 32
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The cited lines are documentation or YAML field examples. No cryptographic operation, hash validation, cipher selection, or credential handling is present at those locations."
+      },
+      {
+        "title": "Static Command-Execution Detections Are False Positives",
+        "description": "The reported Ruby or shell backtick matches are Markdown inline-code and fenced-code formatting that describe commands or schema fields. The Python script imports subprocess but does not call subprocess, and no reviewed file executes shell commands.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 87,
+            "line_end": 96
+          },
+          {
+            "file": "references/schema.md",
+            "line_start": 3,
+            "line_end": 7
+          },
+          {
+            "file": "scripts/generate-metadata.py",
+            "line_start": 16,
+            "line_end": 16
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "Manual review found formatting backticks and an unused subprocess import, but no command invocation. The executable path prints generated YAML or JSON only."
+      },
+      {
+        "title": "Static Network Detections Are False Positives",
+        "description": "The network pattern is a regular expression used to detect HTTP client libraries in the target repository. It is not an HTTP request made by the skill itself.",
+        "locations": [
+          {
+            "file": "scripts/generate-metadata.py",
+            "line_start": 95,
+            "line_end": 100
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The code defines search patterns for axios, fetch, RestTemplate, and WebClient. No import or call to a network client library was found in the generator."
+      }
+    ],
     "dangerous_patterns": [],
-    "files_scanned": 8,
-    "total_lines": 1385,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T17:04:00.854Z"
+    "files_scanned": 7,
+    "total_lines": 1119,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T11:53:35.985Z",
+    "risk_factors": [
+      "scripts",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Generate Service Catalog Metadata",
-    "value_statement": "Service catalogs require standardized metadata to enable cross-repository architecture analysis and dependency mapping. This skill automatically generates catalog-info.yaml files by analyzing repository structure and code patterns.",
+    "user_title": "Generate Repository Catalog Metadata",
+    "value_statement": "Repository ownership and integration details are often scattered across code and documents. This skill analyzes local repository structure and creates catalog-info.yaml metadata for service catalogs and architecture reviews.",
     "seo_keywords": [
-      "repo metadata",
-      "catalog-info",
-      "service catalog",
-      "Backstage",
-      "architecture documentation",
-      "component metadata",
-      "repository documentation",
-      "Claude Code",
-      "Codex",
-      "Claude"
+      "Claude repository metadata",
+      "Codex catalog-info.yaml",
+      "Claude Code service catalog",
+      "Backstage metadata generator",
+      "repository architecture documentation",
+      "service catalog automation",
+      "catalog-info YAML",
+      "AI repository analysis",
+      "developer documentation skill",
+      "microservice metadata"
     ],
     "actual_capabilities": [
-      "Analyze repository structure to detect language, framework, and integrations",
-      "Generate catalog-info.yaml following Backstage conventions",
-      "Identify service types (gateway, service, worker, library, frontend, database)",
-      "Detect dependencies from code patterns and import statements",
-      "Scan for Kafka producers and consumers",
-      "Extract description from README.md"
+      "Generates catalog-info.yaml content using Backstage-style component metadata.",
+      "Infers runtime and framework from package files and dependency patterns.",
+      "Classifies repositories as services, gateways, workers, libraries, frontends, or databases.",
+      "Detects local integration signals such as HTTP clients, Kafka usage, gRPC clients, and database libraries.",
+      "Reads README, INTEGRATIONS, and ARCHITECTURE documents to improve generated metadata.",
+      "Provides example catalog files for gateways, workers, libraries, and full templates."
     ],
     "limitations": [
-      "Requires access to repository files for analysis",
-      "Cannot auto-detect domain and owner - requires user input",
-      "May miss undocumented dependencies not present in code imports",
-      "Service type detection is heuristic-based and may need manual review"
+      "Domain and owner values may remain unknown without user input.",
+      "Detection depends on recognizable file names, dependencies, and code patterns.",
+      "Generated routes, topics, and dependency names can require manual review.",
+      "The included YAML writer is simple and may not preserve custom formatting."
     ],
     "use_cases": [
       {
-        "target_user": "Platform Engineers",
-        "title": "Service Catalog Setup",
-        "description": "Generate catalog-info.yaml files for all microservices in your organization"
+        "title": "Prepare a Service for Catalog Onboarding",
+        "target_user": "Platform engineer",
+        "description": "Generate initial catalog metadata so a repository can appear in an internal service catalog."
       },
       {
-        "target_user": "DevOps Teams",
-        "title": "Architecture Documentation",
-        "description": "Create standardized metadata for dependency graphs and architecture views"
+        "title": "Document Microservice Dependencies",
+        "target_user": "Backend developer",
+        "description": "Summarize runtime, framework, APIs, events, and upstream dependencies in a standard file."
       },
       {
-        "target_user": "Documentation Specialists",
-        "title": "Repository Onboarding",
-        "description": "Automatically generate metadata for new repositories joining the service catalog"
+        "title": "Review Architecture Coverage",
+        "target_user": "Technical lead",
+        "description": "Compare generated metadata with existing architecture documentation before cross-repository analysis."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Generation",
-        "scenario": "Generate metadata for current repo",
-        "prompt": "Generate repository metadata and create a catalog-info.yaml file for this repository"
+        "title": "Create Basic Metadata",
+        "scenario": "Beginner setup for a single repository",
+        "prompt": "Generate catalog-info.yaml metadata for this repository and show the inferred fields that need my review."
       },
       {
-        "title": "Specific Path",
-        "scenario": "Analyze external repository",
-        "prompt": "Generate catalog-info.yaml metadata for the repository at /path/to/repo"
+        "title": "Classify Repository Type",
+        "scenario": "Check service type before writing metadata",
+        "prompt": "Analyze this repository and explain whether it should be classified as a service, gateway, worker, library, frontend, or database."
       },
       {
-        "title": "With Format",
-        "scenario": "JSON output for inspection",
-        "prompt": "Analyze this repository and output the catalog metadata in JSON format for review before writing the YAML file"
+        "title": "Review Integrations",
+        "scenario": "Validate dependency and API fields",
+        "prompt": "Generate catalog metadata and focus on dependsOn, providesApis, consumesApis, eventProducers, and eventConsumers. Mark uncertain values clearly."
       },
       {
-        "title": "Full Analysis",
-        "scenario": "Complete architecture scan",
-        "prompt": "Perform a full repository analysis including detecting all integration points, dependencies, event producers and consumers, then generate a complete catalog-info.yaml with all detected values"
+        "title": "Update Catalog and Docs",
+        "scenario": "Advanced documentation maintenance",
+        "prompt": "Generate catalog-info.yaml, compare it with README, INTEGRATIONS, and ARCHITECTURE, then suggest documentation updates for consistency."
       }
     ],
     "output_examples": [
       {
-        "input": "Generate catalog-info.yaml for my user-service repository",
-        "output": [
-          "Generated catalog-info.yaml with detected values:",
-          "name: user-service (from package.json)",
-          "type: service (detected: has HTTP routes)",
-          "runtime: nodejs (from package.json)",
-          "framework: nestjs (from @nestjs/core dependency)",
-          "domain: user (detected from name pattern)",
-          "owner: backend-team (detected from name pattern)",
-          "dependsOn: auth-service, user-db",
-          "providesApis: User Service API (REST)",
-          "routes: /api/users/* -> this",
-          "Please review and fill in: domain, owner"
-        ]
+        "input": "A NestJS API gateway repository with downstream user and order services.",
+        "output": "A reviewed metadata summary that identifies the repository as a gateway, lists platform ownership fields, and marks downstream routes for confirmation."
       },
       {
-        "input": "Generate catalog metadata for my background worker service",
-        "output": [
-          "Detected worker characteristics:",
-          "type: worker (only event consumers, no HTTP routes)",
-          "eventConsumers: order-events from kafka topic order.placed",
-          "runtime: python (from pyproject.toml)",
-          "framework: fastapi (used for health checks)",
-          "No APIs provided, no routes defined",
-          "Depends on: kafka message queue"
-        ]
+        "input": "A Python worker repository with Kafka consumers and no HTTP routes.",
+        "output": "A catalog metadata draft that classifies the component as a worker and highlights event consumer details that need exact topic names."
       },
       {
-        "input": "Create catalog-info.yaml for my API gateway",
-        "output": [
-          "Detected gateway characteristics:",
-          "type: gateway (forwards requests, minimal business logic)",
-          "routes: /api/* forwards to unknown services",
-          "runtime: nodejs (from package.json)",
-          "framework: express",
-          "No event producers or consumers",
-          "Configure forwardsTo targets for each route"
-        ]
+        "input": "A shared TypeScript utility package with README documentation.",
+        "output": "A library metadata draft with SDK-style API information and a short checklist for confirming ownership and lifecycle."
       }
     ],
     "best_practices": [
-      "Review auto-detected values for accuracy before committing",
-      "Fill in domain and owner fields to enable proper team ownership",
-      "Keep catalog-info.yaml in sync with actual service architecture"
+      "Review owner, domain, lifecycle, routes, and event topics before committing generated metadata.",
+      "Run the generator from the intended repository root so paths and names resolve correctly.",
+      "Keep README, INTEGRATIONS, and ARCHITECTURE documents current to improve metadata quality."
     ],
     "anti_patterns": [
-      "Using auto-detection without reviewing detected dependencies",
-      "Leaving domain and owner as unknown values",
-      "Generating once and never updating as architecture evolves"
+      "Do not publish generated metadata with unknown owners or domains in production catalogs.",
+      "Do not treat inferred dependencies as authoritative without code owner review.",
+      "Do not run repository scanning on directories that contain unrelated sensitive files."
     ],
     "faq": [
       {
-        "question": "What languages does this skill support?",
-        "answer": "Node.js, Python, Go, Java, Rust, and Ruby. Detection is based on common package and build files."
+        "question": "What file does this skill create?",
+        "answer": "It creates or drafts catalog-info.yaml for repository service catalog metadata."
       },
       {
-        "question": "Can I use this with GitHub Actions workflows?",
-        "answer": "Yes. The skill can generate metadata that syncs with GitHub Actions for consistent repository information."
+        "question": "Does it use the Backstage catalog format?",
+        "answer": "It follows Backstage-style conventions with Astrabit-specific fields for architecture documentation."
       },
       {
-        "question": "What service types can it detect?",
-        "answer": "gateway, service, worker, library, frontend, and database. Detection is based on code patterns like routes, consumers, and API definitions."
+        "question": "Can it detect the repository runtime?",
+        "answer": "Yes. It checks common package files such as package.json, pyproject.toml, go.mod, and build files."
       },
       {
-        "question": "Is my repository data safe?",
-        "answer": "Yes. The skill only reads files within the repository and outputs metadata. No data is sent anywhere."
+        "question": "Can it identify service dependencies automatically?",
+        "answer": "It can infer likely dependencies from local integration patterns, but owners should verify every dependency."
       },
       {
-        "question": "Why are domain and owner unknown?",
-        "answer": "These require organizational knowledge that cannot be auto-detected. The skill marks them for manual input."
+        "question": "Does it make network requests?",
+        "answer": "No evidence of outbound network requests was found in the reviewed generator script."
       },
       {
-        "question": "How accurate is dependency detection?",
-        "answer": "Detection finds dependencies through code imports and patterns. Undocumented or dynamically loaded dependencies may be missed."
+        "question": "What should users review manually?",
+        "answer": "Users should verify owner, domain, lifecycle, route mappings, event topics, API definitions, and dependency names."
       }
     ]
   },

@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T18:11:07.924Z",
+    "generated_at": "2026-06-28T11:57:36.396Z",
     "slug": "automattic-wp-project-triage",
     "source_url": "https://github.com/Automattic/agent-skills/tree/trunk/skills/wp-project-triage",
     "source_ref": "trunk",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "814bb2b341765aaff28d1a4ef440cc8dd494ffcf186a1a005bfbcd466891670e",
-    "tree_hash": "9a8d4c5eb7ff9577ea724cb9f3308ba5e41e96e786e70bbdc34a998220d35e40"
+    "tree_hash": "7dd5757a0eacf47b73ad67e2973ff34e233b4d563629efc8ee61607e8075a1fc"
   },
   "skill": {
     "name": "wp-project-triage",
-    "description": "Use when you need a deterministic inspection of a WordPress repository (plugin/theme/block theme/WP core/Gutenberg/full site) including tooling/tests/version hints, and a structured JSON report to guide workflows and guardrails.",
-    "summary": "Use when you need a deterministic inspection of a WordPress repository (plugin/theme/block theme/WP ...",
-    "icon": "🔍",
+    "description": "Inspect WordPress repositories and produce a structured triage report with project type, tooling, tests, versions, and workflow guardrails.",
+    "summary": "Read-only WordPress repository triage for project type, tooling, tests, and version hints.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Automattic",
     "license": "MIT",
-    "category": "development",
     "tags": [
       "wordpress",
-      "wordpress-development",
-      "project-detection",
-      "plugin",
-      "theme"
+      "repository-triage",
+      "developer-workflow",
+      "tooling",
+      "automation"
     ],
     "supported_tools": [
       "claude",
@@ -33,22 +32,54 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
       "filesystem"
-    ]
+    ],
+    "category": "coding"
   },
   "security_audit": {
     "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Read-only filesystem scanner for WordPress project detection. No network calls, no command execution, no credential access. Static scanner false positives were caused by misidentified template literals as shell backticks, path.extname() as crypto functions, and standard schema URLs as network security issues.",
+    "summary": "The static analyzer reported network, command execution, credential, and weak crypto patterns, but contextual review found these were false positives. The skill is a read-only WordPress repository detector that uses local filesystem reads and prints a structured report, so the remaining risk is limited to local repository inspection.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 1,
+            "line_end": 3
+          }
+        ]
+      },
       {
         "factor": "filesystem",
         "evidence": [
           {
             "file": "scripts/detect_wp_project.mjs",
-            "line_start": 1,
-            "line_end": 593
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 28,
+            "line_end": 28
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 101,
+            "line_end": 101
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 335,
+            "line_end": 335
           }
         ]
       }
@@ -56,140 +87,231 @@
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [],
-    "low_findings": [],
+    "low_findings": [
+      {
+        "title": "Read-Only Repository File Scanning",
+        "description": "The detector recursively reads repository files and scans wp-config.php for selected WordPress constants. It does not print secrets or send data, but users should expect local repository inspection.",
+        "locations": [
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 26,
+            "line_end": 30
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 49,
+            "line_end": 57
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 197,
+            "line_end": 215
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The filesystem reads are direct and intentional, and they support the documented triage behavior. Confidence is not higher because repository contents can vary and may include sensitive local files."
+      },
+      {
+        "title": "Static Network Findings Dismissed",
+        "description": "The hardcoded URLs are JSON Schema identifiers, not outbound requests. No fetch, HTTP client, curl, or wget usage was found in the reviewed files.",
+        "locations": [
+          {
+            "file": "references/triage.schema.json",
+            "line_start": 2,
+            "line_end": 3
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "The lines are schema metadata fields only. There is no code path that uses them for network access."
+      },
+      {
+        "title": "Static Command Execution Findings Dismissed",
+        "description": "Backtick findings are JavaScript template literals used for regular expressions, recommendation strings, and stdout formatting. No child_process import or shell execution was found.",
+        "locations": [
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 212,
+            "line_end": 215
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 270,
+            "line_end": 275
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 589,
+            "line_end": 589
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 37
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The flagged code constructs strings and writes JSON to stdout, and the skill instructions only tell the agent to run the detector. I found no shell interpolation or command execution API in the script."
+      },
+      {
+        "title": "Static Credential and Crypto Findings Dismissed",
+        "description": "The sensitive and weak crypto detections match WordPress API names, Object.keys calls, path checks, and string includes. No certificate handling, key extraction, hashing, or encryption logic was found.",
+        "locations": [
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 44,
+            "line_end": 57
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 141,
+            "line_end": 147
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 299,
+            "line_end": 314
+          },
+          {
+            "file": "scripts/detect_wp_project.mjs",
+            "line_start": 440,
+            "line_end": 443
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 35
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The flagged terms are ordinary WordPress and JavaScript identifiers in context. The script does not parse private keys, open certificate files, or call cryptographic APIs."
+      }
+    ],
     "dangerous_patterns": [],
-    "files_scanned": 4,
-    "total_lines": 994,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T18:11:07.924Z"
+    "files_scanned": 3,
+    "total_lines": 776,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T11:57:36.396Z",
+    "risk_factors": [
+      "scripts",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Detect WordPress Project Type",
-    "value_statement": "A WordPress project inspection tool that identifies plugins, themes, block themes, and WP core from repository structure. Outputs a structured JSON report with recommended commands and available tooling.",
+    "user_title": "Triage WordPress Projects Before Editing",
+    "value_statement": "WordPress repositories can hide project type, tooling, tests, and version requirements. This skill runs a read-only detector and returns a structured report for safer planning.",
     "seo_keywords": [
-      "WordPress project detection",
-      "WordPress plugin detector",
-      "WordPress theme scanner",
-      "Claude WordPress",
-      "Codex WordPress",
-      "Claude Code WordPress",
-      "block theme detection",
-      "WP-CLI project triage",
-      "WordPress tooling detector",
-      "Gutenberg project analyzer"
+      "Claude WordPress triage",
+      "Codex WordPress automation",
+      "Claude Code WordPress workflow",
+      "WordPress repository analysis",
+      "WordPress plugin detection",
+      "WordPress theme detection",
+      "Gutenberg project triage",
+      "WP tooling report",
+      "AI coding assistant WordPress",
+      "developer workflow guardrails"
     ],
     "actual_capabilities": [
-      "Identifies WordPress project type (plugin, theme, block theme, core, Gutenberg)",
-      "Detects PHP and Node.js tooling (Composer, npm, yarn, pnpm, bun)",
-      "Finds test frameworks (PHPUnit, Jest, wp-env, Playwright)",
-      "Scans for WordPress APIs (Interactivity, Abilities, InnerBlocks)",
-      "Extracts version information from wp-includes/version.php",
-      "Outputs structured JSON with commands and recommendations"
+      "Detects WordPress project kinds such as plugins, themes, block themes, WP core, and Gutenberg.",
+      "Finds local tooling signals from package.json, composer.json, WP-CLI files, and test configuration.",
+      "Reports WordPress, Gutenberg, PHP, Node, and dependency version hints when files expose them.",
+      "Identifies selected WordPress features such as Interactivity API, Abilities API, InnerBlocks, and wp-env usage.",
+      "Suggests likely lint, test, build, and setup commands based on detected project files.",
+      "Prints a structured report that can be checked against the included schema."
     ],
     "limitations": [
-      "Only scans files, does not execute any commands",
-      "Does not modify or write to the repository",
-      "Requires running from the repository root",
-      "Does not analyze WordPress database or runtime state"
+      "It only inspects the local filesystem and does not verify runtime behavior.",
+      "It may miss signals outside configured depth and file count limits.",
+      "It does not install dependencies or execute project test suites.",
+      "It cannot guarantee that suggested commands are safe for every repository."
     ],
     "use_cases": [
       {
-        "target_user": "Plugin developers",
-        "title": "Identify plugin type",
-        "description": "Detect if a repository is a standard plugin, block plugin, or mu-plugin for correct workflow"
+        "title": "Start Work in an Unknown WordPress Repository",
+        "description": "Classify the project and identify the safest development commands before editing files.",
+        "target_user": "AI coding assistant user"
       },
       {
-        "target_user": "Theme developers",
-        "title": "Check theme setup",
-        "description": "Identify block themes versus classic themes and find relevant build tooling"
+        "title": "Standardize Triage for Plugin and Theme Reviews",
+        "description": "Collect consistent project metadata before planning fixes, tests, or compatibility checks.",
+        "target_user": "WordPress maintainer"
       },
       {
-        "target_user": "AI assistants",
-        "title": "Configure WordPress tasks",
-        "description": "Get structured project info to select appropriate lint, test, and build commands"
+        "title": "Prepare Automation Guardrails",
+        "description": "Use detected tooling and tests to choose workflow steps for CI, local checks, or agent instructions.",
+        "target_user": "Developer operations engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic detection",
-        "scenario": "What type of WordPress project is this",
-        "prompt": "Run the WordPress project triage skill to detect what kind of project this repository contains. Report the project kind, primary type, and detected signals."
+        "title": "Run Basic Project Triage",
+        "scenario": "Beginner repository inspection",
+        "prompt": "Use wp-project-triage on this repository. Summarize the project type, tooling, tests, versions, and recommended next commands."
       },
       {
-        "title": "Check tooling",
-        "scenario": "Find available development tools",
-        "prompt": "Use the WordPress project triage skill to identify what PHP and Node.js tooling is present. List the package manager, test frameworks, and build tools."
+        "title": "Plan a Safe First Change",
+        "scenario": "Planning before edits",
+        "prompt": "Run the WordPress triage detector, then propose a safe edit plan based on the detected project kind and available tests."
       },
       {
-        "title": "Get commands",
-        "scenario": "Run correct build commands",
-        "prompt": "Run the WordPress project triage skill to get recommended commands for this project. Include lint, test, and build commands if detected."
+        "title": "Compare Tooling Signals",
+        "scenario": "Repository maintenance",
+        "prompt": "Use the triage report to explain the Node, PHP, WP-CLI, wp-env, and test tooling present in this repository."
       },
       {
-        "title": "Full report",
-        "scenario": "Complete project analysis",
-        "prompt": "Run a full WordPress project triage analysis. Include project kind, all signals, tooling, versions, and recommendations in your response."
+        "title": "Create Agent Workflow Guardrails",
+        "scenario": "Advanced automation setup",
+        "prompt": "Run wp-project-triage and convert the results into repository-specific guardrails for build, test, verification, and unsupported actions."
       }
     ],
     "output_examples": [
       {
-        "input": "Run WordPress project triage on this repository",
-        "output": [
-          "Project type: wp-block-plugin (primary)",
-          "Detected signals: block.json files, @wordpress/scripts package",
-          "Tooling: npm, Composer, PHPUnit, Jest",
-          "Tests: phpunit.xml present, @wordpress/jest-preset-default",
-          "APIs: InnerBlocks detected, usesWordpressScripts enabled",
-          "Recommended commands: npm run lint, npm run test, composer install, vendor/bin/phpunit"
-        ]
+        "input": "A repository contains a plugin header, package.json, composer.json, and phpunit.xml.",
+        "output": "The report identifies a WordPress plugin with Node and Composer tooling. It recommends dependency setup and PHPUnit verification."
       },
       {
-        "input": "What build commands should I use for this theme?",
-        "output": [
-          "Project type: wp-block-theme (primary)",
-          "Tooling: npm package manager detected",
-          "Package.json scripts: lint, build, start",
-          "Detected @wordpress/scripts - use wp-scripts standard commands",
-          "Recommended: npm run build"
-        ]
+        "input": "A theme repository includes theme.json, templates, patterns, and @wordpress/scripts.",
+        "output": "The report classifies it as a block theme and notes WordPress scripts support for build, lint, and test workflows."
+      },
+      {
+        "input": "A repository has wp-content, wp-cli.yml, wp-env configuration, and Playwright dependencies.",
+        "output": "The report treats it as a WordPress site and flags WP-CLI, wp-env, and browser testing signals for workflow planning."
       }
     ],
     "best_practices": [
-      "Run the triage skill before starting any WordPress work to understand project structure",
-      "Use the JSON output to programmatically select the correct lint and test commands",
-      "Re-run triage after adding block.json, theme.json, or changing build configuration",
-      "Check the recommendations notes for special setup requirements like wp-env"
+      "Run triage before making repository changes or selecting test commands.",
+      "Review the reported commands before executing them in sensitive environments.",
+      "Re-run triage after adding build, test, theme, plugin, or WordPress configuration files."
     ],
     "anti_patterns": [
-      "Running triage on non-WordPress repositories will return unknown project type",
-      "Do not assume wp-cli commands exist without checking usesWpCli signal",
-      "Do not ignore the scanTruncated flag for large monorepos",
-      "Do not rely solely on file extension for plugin/theme detection"
+      "Do not assume a project type from directory names alone.",
+      "Do not execute recommended commands without reviewing local project scripts first.",
+      "Do not treat the report as a replacement for manual security review."
     ],
     "faq": [
       {
-        "question": "Which WordPress project types can this skill detect?",
-        "answer": "It detects plugins, mu-plugins, themes, block themes, block plugins, WP core checkouts, Gutenberg repos, and full WordPress sites."
+        "question": "Does this skill modify repository files?",
+        "answer": "No. The detector reads local files and prints a report to stdout."
       },
       {
-        "question": "What is the maximum file count and depth for scanning?",
-        "answer": "The scanner limits recursive search to 6000 files with a maximum depth of 8 directories. Large repos may trigger scanTruncated flag."
+        "question": "Does it send repository data to a remote service?",
+        "answer": "No evidence of network requests was found in the reviewed skill files."
       },
       {
-        "question": "Does this skill execute commands in my repository?",
-        "answer": "No. This skill only reads files and outputs JSON. It does not run npm, composer, or any other commands."
+        "question": "Can it detect both plugins and themes?",
+        "answer": "Yes. It checks plugin headers, theme headers, block.json, theme.json, and WordPress directory signals."
       },
       {
-        "question": "Is my project data safe when using this skill?",
-        "answer": "Yes. The skill runs locally, makes no network calls, and only reads files within the repository. It does not transmit any data."
+        "question": "Can it run my tests automatically?",
+        "answer": "No. It reports likely test tooling and suggested commands, but it does not run them."
       },
       {
-        "question": "What should I do if the project is detected as unknown?",
-        "answer": "Verify you are running from the repository root. Check for plugin headers in PHP files or theme headers in style.css. The skill notes may provide guidance."
+        "question": "What tools does it need?",
+        "answer": "It expects a filesystem-based agent with Node. Some follow-up workflows may use WP-CLI."
       },
       {
-        "question": "How is this different from wp-cli doctor or core command?",
-        "answer": "This skill runs without requiring WordPress installation or database connection. It analyzes repository structure only, making it safe for AI use."
+        "question": "When should I re-run it?",
+        "answer": "Run it after changes that affect project structure, build tooling, test setup, or WordPress configuration."
       }
     ]
   },
