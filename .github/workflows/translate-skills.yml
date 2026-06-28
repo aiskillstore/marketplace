@@ -677,6 +677,10 @@ jobs:
     if: always() && needs.translate.result == 'success'
     runs-on: self-hosted
     timeout-minutes: 15
+    outputs:
+      total_count: ${{ steps.invalidate.outputs.total_count }}
+      success_count: ${{ steps.invalidate.outputs.success_count }}
+      failed_count: ${{ steps.invalidate.outputs.failed_count }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -684,12 +688,14 @@ jobs:
           sparse-checkout: .github/actions
 
       - name: Invalidate cache for translated skills
+        id: invalidate
         uses: ./.github/actions/invalidate-cache
         with:
           type: skills
           # Use slugs_csv if provided (partial mode), otherwise use translated_slugs from merge-results (translate-all mode)
           slugs: ${{ needs.detect-and-plan.outputs.slugs_csv || needs.merge-results.outputs.translated_slugs }}
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          fail-on-error: false
 
   notify:
     needs: [detect-and-plan, translate, merge-results, invalidate-cache]
@@ -704,6 +710,9 @@ jobs:
           TRANSLATE_ALL: ${{ needs.detect-and-plan.outputs.translate_all }}
           IS_SHARDED: ${{ needs.detect-and-plan.outputs.is_sharded }}
           SHARD_COUNT: ${{ needs.detect-and-plan.outputs.shard_count }}
+          CACHE_INVALIDATE_TOTAL: ${{ needs.invalidate-cache.outputs.total_count || '0' }}
+          CACHE_INVALIDATE_SUCCESS: ${{ needs.invalidate-cache.outputs.success_count || '0' }}
+          CACHE_INVALIDATE_FAILED: ${{ needs.invalidate-cache.outputs.failed_count || '0' }}
         run: |
           echo "# Translation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -754,7 +763,10 @@ jobs:
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.invalidate-cache.result }}" = "success" ]; then
+          if [ "${{ needs.invalidate-cache.result }}" = "success" ] && [ "$CACHE_INVALIDATE_FAILED" -gt 0 ]; then
+            echo "⚠️ Cache invalidation failed for $CACHE_INVALIDATE_FAILED/$CACHE_INVALIDATE_TOTAL item(s)" >> $GITHUB_STEP_SUMMARY
+            echo "Translations were written, but affected pages may stay stale until cache is fixed or refreshed." >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.invalidate-cache.result }}" = "success" ]; then
             echo "✅ Cache invalidated" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ needs.invalidate-cache.result }}" = "skipped" ]; then
             echo "⏭️ Cache invalidation skipped" >> $GITHUB_STEP_SUMMARY

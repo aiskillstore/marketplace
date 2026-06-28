@@ -177,6 +177,10 @@ jobs:
     if: success() && needs.translate.outputs.has_translations == 'true'
     runs-on: self-hosted
     timeout-minutes: 15
+    outputs:
+      total_count: ${{ steps.invalidate.outputs.total_count }}
+      success_count: ${{ steps.invalidate.outputs.success_count }}
+      failed_count: ${{ steps.invalidate.outputs.failed_count }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -184,11 +188,13 @@ jobs:
           sparse-checkout: .github/actions
 
       - name: Invalidate cache for translated plugins
+        id: invalidate
         uses: ./.github/actions/invalidate-cache
         with:
           type: plugins
           slugs: ${{ needs.translate.outputs.translated_slugs }}
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          fail-on-error: false
 
   notify:
     needs: [translate, invalidate-cache]
@@ -199,6 +205,8 @@ jobs:
       - name: Summary
         env:
           RESULT_JSON: ${{ needs.translate.outputs.result_json }}
+          CACHE_INVALIDATE_TOTAL: ${{ needs.invalidate-cache.outputs.total_count || '0' }}
+          CACHE_INVALIDATE_FAILED: ${{ needs.invalidate-cache.outputs.failed_count || '0' }}
         run: |
           echo "# Plugin Translation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -236,7 +244,10 @@ jobs:
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.invalidate-cache.result }}" = "success" ]; then
+          if [ "${{ needs.invalidate-cache.result }}" = "success" ] && [ "$CACHE_INVALIDATE_FAILED" -gt 0 ]; then
+            echo "Cache invalidation failed for $CACHE_INVALIDATE_FAILED/$CACHE_INVALIDATE_TOTAL item(s)" >> $GITHUB_STEP_SUMMARY
+            echo "Translations were written, but affected pages may stay stale until cache is fixed or refreshed." >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.invalidate-cache.result }}" = "success" ]; then
             echo "Cache invalidated successfully" >> $GITHUB_STEP_SUMMARY
           elif [ "${{ needs.invalidate-cache.result }}" = "skipped" ]; then
             echo "Cache invalidation skipped (no translations)" >> $GITHUB_STEP_SUMMARY

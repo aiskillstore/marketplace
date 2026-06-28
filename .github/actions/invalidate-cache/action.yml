@@ -24,11 +24,27 @@ inputs:
     description: 'Batch size for API calls'
     required: false
     default: '30'
+  fail-on-error:
+    description: 'Fail the action when one or more cache invalidations fail'
+    required: false
+    default: 'true'
+
+outputs:
+  total_count:
+    description: 'Total number of requested cache items'
+    value: ${{ steps.invalidate.outputs.total_count }}
+  success_count:
+    description: 'Number of successfully invalidated cache items'
+    value: ${{ steps.invalidate.outputs.success_count }}
+  failed_count:
+    description: 'Number of cache items that failed invalidation'
+    value: ${{ steps.invalidate.outputs.failed_count }}
 
 runs:
   using: composite
   steps:
     - name: Invalidate cache
+      id: invalidate
       shell: bash
       env:
         CACHE_SECRET: ${{ inputs.secret }}
@@ -37,12 +53,30 @@ runs:
         CONTENT_TYPE: ${{ inputs.type }}
         SLUGS_STR: ${{ inputs.slugs }}
         SLUGS_FILE: ${{ inputs['slugs-file'] }}
+        FAIL_ON_ERROR: ${{ inputs['fail-on-error'] }}
       run: |
         set -euo pipefail
+
+        if [ "$FAIL_ON_ERROR" != "true" ] && [ "$FAIL_ON_ERROR" != "false" ]; then
+          echo "::error::fail-on-error must be true or false"
+          exit 1
+        fi
 
         if ! [[ "$BATCH_SIZE" =~ ^[0-9]+$ ]] || [ "$BATCH_SIZE" -lt 1 ]; then
           echo "::error::batch-size must be a positive integer"
           exit 1
+        fi
+
+        if [ -z "$CACHE_SECRET" ]; then
+          echo "total_count=0" >> "$GITHUB_OUTPUT"
+          echo "success_count=0" >> "$GITHUB_OUTPUT"
+          echo "failed_count=0" >> "$GITHUB_OUTPUT"
+          if [ "$FAIL_ON_ERROR" = "true" ]; then
+            echo "::error::Cache invalidation secret is empty"
+            exit 1
+          fi
+          echo "::warning::Cache invalidation secret is empty; skipping"
+          exit 0
         fi
 
         ITEMS_FILE="$(mktemp)"
@@ -67,9 +101,12 @@ runs:
         sort -u -o "$ITEMS_FILE" "$ITEMS_FILE"
         mapfile -t SLUGS < "$ITEMS_FILE"
         TOTAL=${#SLUGS[@]}
+        echo "total_count=$TOTAL" >> "$GITHUB_OUTPUT"
 
         if [ "$TOTAL" -eq 0 ]; then
           echo "No items to invalidate"
+          echo "success_count=0" >> "$GITHUB_OUTPUT"
+          echo "failed_count=0" >> "$GITHUB_OUTPUT"
           exit 0
         fi
 
@@ -165,9 +202,17 @@ runs:
         done
 
         echo "✅ Complete: $SUCCESS succeeded, $FAILED failed"
+        echo "success_count=$SUCCESS" >> "$GITHUB_OUTPUT"
+        echo "failed_count=$FAILED" >> "$GITHUB_OUTPUT"
 
         if [ "$FAILED" -gt 0 ]; then
-          echo "::error::Failed to invalidate $FAILED item(s):"
+          if [ "$FAIL_ON_ERROR" = "true" ]; then
+            echo "::error::Failed to invalidate $FAILED item(s):"
+          else
+            echo "::warning::Failed to invalidate $FAILED item(s):"
+          fi
           sed -n '1,200p' "$FAILED_FILE"
-          exit 1
+          if [ "$FAIL_ON_ERROR" = "true" ]; then
+            exit 1
+          fi
         fi
