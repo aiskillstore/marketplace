@@ -1,32 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-06T09:02:13.351Z",
+    "generated_at": "2026-06-28T05:40:51.487Z",
     "slug": "agentspace-so-find-skills",
     "source_url": "https://github.com/agentspace-so/skills/tree/main/find-skills/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "c078cdc9d3e43e19a32bc96dba261dfbe394063b63be560f932e8e3cfee338e2",
-    "tree_hash": "f3488235323ac205127732daeae8c030649fcd09e074eeca801878d5e2e5f47d"
+    "tree_hash": "9ea81cf86af9401944ff2b478ce5b20388c46d23680aef60d0c0d6471e484ea8"
   },
   "skill": {
     "name": "find-skills",
-    "description": "Discover, vet, and install agent skills by searching ACROSS every major registry at once — skills.sh, clawhub.ai, and GitHub — presenting each board on its own native metric (installs / stars) with the top entry per board, security-scanning the top candidates' real SKILL.md for risky patterns, and flagging what's already installed. Use when the user asks \"how do I do X\", \"find a skill for X\", \"is there a skill that…\", \"what skill should I install for…\", or wants to extend the agent with a capability that might already exist as a published skill. Unlike single-registry search, this surfaces the best of every platform side by side, so you recommend the genuinely relevant, popular, well-maintained, and SAFE one — not whatever ranked first on one site.",
-    "summary": "Search every agent-skill registry at once and recommend the best, safest match with built-in security scanning.",
+    "description": "Search multiple agent skill registries, compare popularity signals, check installed skills, and run heuristic safety scans on top candidates before recommending a skill.",
+    "summary": "Find relevant agent skills across skills.sh, Clawhub, and GitHub with popularity, install, and safety context.",
     "icon": "🔍",
     "version": "1.0.0",
     "author": "agentspace-so",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
       "skill-discovery",
       "registry-search",
-      "security-scanning",
-      "agent-tools",
-      "codex",
-      "claude-code"
+      "agent-skills",
+      "security-scan",
+      "installation"
     ],
     "supported_tools": [
       "claude",
@@ -34,136 +32,51 @@
       "claude-code"
     ],
     "risk_factors": [
-      "external_commands",
+      "scripts",
       "network",
       "filesystem",
-      "env_access"
-    ]
+      "external_commands"
+    ],
+    "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "After evaluating all 220 static findings, the vast majority are false positives. The CRITICAL 'dangerous combination' heuristic fires because the script has external_commands, network, and env_access patterns — but the env_access hits are grep PATTERNS inside the built-in security scanner (line 164 checks if OTHER skills reference ~/.ssh, ~/.aws, .env, or private keys), not actual credential reads. All network calls are read-only GETs to public registries (skills.sh, clawhub.ai, raw.githubusercontent.com). The 'weak crypto' hits are false positives from keywords like 'hash' and 'key' in scanner regexes. This is a well-designed, defensive discovery tool with no malicious intent.",
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "Security scanner references sensitive path patterns",
-        "description": "Line 164 in scripts/find.sh contains a grep pattern matching '~/.ssh', '~/.aws', '/.env', 'id_rsa', 'AWS_SECRET', 'PRIVATE_KEY'. This is the built-in security scanner that DETECTS if other skills reference these — it does NOT read or transmit any user credentials. False positive: pattern matching, not credential access.",
-        "locations": [
-          {
-            "file": "scripts/find.sh",
-            "line_start": 164,
-            "line_end": 164
-          }
-        ]
-      },
-      {
-        "title": "Shell command substitution patterns",
-        "description": "The script uses $(...) command substitution extensively (e.g., $(now_ms), $(wc -l ...), $(date +...)). These are standard shell scripting patterns. User input is safely URL-encoded via jq before being used in URLs, eliminating command injection risk. No unquoted user input is passed to eval or similar dangerous constructs.",
-        "locations": [
-          {
-            "file": "scripts/find.sh",
-            "line_start": 54,
-            "line_end": 57
-          },
-          {
-            "file": "scripts/find.sh",
-            "line_start": 65,
-            "line_end": 65
-          },
-          {
-            "file": "scripts/find.sh",
-            "line_start": 73,
-            "line_end": 76
-          }
-        ]
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Reads installed skills directories",
-        "description": "The script reads ~/.agents/skills and ~/.claude/skills to detect already-installed skills. This is the explicitly documented purpose of the tool and is read-only.",
-        "locations": [
-          {
-            "file": "scripts/find.sh",
-            "line_start": 61,
-            "line_end": 61
-          }
-        ]
-      },
-      {
-        "title": "Hardcoded registry API URLs",
-        "description": "URLs to skills.sh, clawhub.ai, and raw.githubusercontent.com are hardcoded. This is intentional — the tool queries these specific registries by design.",
-        "locations": [
-          {
-            "file": "scripts/find.sh",
-            "line_start": 74,
-            "line_end": 74
-          },
-          {
-            "file": "scripts/find.sh",
-            "line_start": 87,
-            "line_end": 87
-          },
-          {
-            "file": "scripts/find.sh",
-            "line_start": 177,
-            "line_end": 177
-          }
-        ]
-      }
-    ],
-    "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 434,
-    "audit_model": "claude",
-    "audited_at": "2026-06-06T09:02:13.351Z",
-    "risk_factors": [
-      "external_commands",
-      "network",
-      "filesystem",
-      "env_access"
-    ],
+    "summary": "The static analyzer reported many command, network, filesystem, secret, and weak-crypto patterns. Review found most severe secret and crypto alerts are scanner-rule strings or documentation examples, while the real behavior is a shell script that queries public registries, reads local installed-skill folder names, stores temporary results, and fetches candidate skill bodies for heuristic scanning. No evidence found of prompt injection, credential exfiltration, destructive file writes, or confirmed malicious intent.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/find.sh",
+            "line_start": 1,
+            "line_end": 20
+          }
+        ]
+      },
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "scripts/find.sh",
-            "line_start": 11,
-            "line_end": 11
-          },
-          {
-            "file": "scripts/find.sh",
-            "line_start": 54,
+            "line_start": 51,
             "line_end": 57
           },
           {
             "file": "scripts/find.sh",
-            "line_start": 74,
-            "line_end": 76
+            "line_start": 113,
+            "line_end": 120
           },
           {
             "file": "scripts/find.sh",
-            "line_start": 87,
-            "line_end": 88
+            "line_start": 159,
+            "line_end": 166
           },
           {
-            "file": "scripts/find.sh",
-            "line_start": 101,
-            "line_end": 102
-          },
-          {
-            "file": "scripts/find.sh",
-            "line_start": 121,
-            "line_end": 121
-          },
-          {
-            "file": "scripts/find.sh",
-            "line_start": 142,
-            "line_end": 147
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 58
           }
         ]
       },
@@ -177,33 +90,18 @@
           },
           {
             "file": "scripts/find.sh",
-            "line_start": 80,
-            "line_end": 80
-          },
-          {
-            "file": "scripts/find.sh",
             "line_start": 87,
-            "line_end": 87
-          },
-          {
-            "file": "scripts/find.sh",
-            "line_start": 93,
             "line_end": 93
           },
           {
             "file": "scripts/find.sh",
-            "line_start": 98,
-            "line_end": 98
-          },
-          {
-            "file": "scripts/find.sh",
             "line_start": 177,
-            "line_end": 177
+            "line_end": 181
           },
           {
-            "file": "scripts/find.sh",
-            "line_start": 181,
-            "line_end": 181
+            "file": "SKILL.md",
+            "line_start": 152,
+            "line_end": 158
           }
         ]
       },
@@ -212,163 +110,347 @@
         "evidence": [
           {
             "file": "scripts/find.sh",
-            "line_start": 51,
-            "line_end": 52
+            "line_start": 56,
+            "line_end": 65
           },
           {
             "file": "scripts/find.sh",
-            "line_start": 56,
-            "line_end": 56
+            "line_start": 181,
+            "line_end": 182
           },
+          {
+            "file": "scripts/find.sh",
+            "line_start": 201,
+            "line_end": 206
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 91,
+            "line_end": 93
+          }
+        ]
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Public Registry Network Requests",
+        "risk_level": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "description": "The script sends the user query to public registry endpoints and fetches candidate skill bodies from public services. This is expected for the skill purpose, but it can disclose the search topic and depends on third-party responses.",
+        "locations": [
+          {
+            "file": "scripts/find.sh",
+            "line_start": 74,
+            "line_end": 74
+          },
+          {
+            "file": "scripts/find.sh",
+            "line_start": 87,
+            "line_end": 93
+          },
+          {
+            "file": "scripts/find.sh",
+            "line_start": 177,
+            "line_end": 181
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The network calls are explicit curl requests to public registry and raw-content endpoints. The behavior is documented and purpose-aligned, but query disclosure and external content retrieval are real risks."
+      },
+      {
+        "title": "Local Installed Skill Directory Enumeration",
+        "risk_level": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "description": "The script reads folder names under local agent skill directories to mark already installed skills. It does not read arbitrary file contents, but it exposes local installed-skill names in the generated report.",
+        "locations": [
           {
             "file": "scripts/find.sh",
             "line_start": 61,
-            "line_end": 61
+            "line_end": 65
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 91,
+            "line_end": 93
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The code directly enumerates two hidden home-directory skill folders and stores the names. The scope is narrow and read-only, so the finding is moderate rather than high."
+      },
+      {
+        "title": "Downloaded Skill Body Heuristic Scanning",
+        "risk_level": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "description": "The script downloads candidate skill files or zip content and scans them with grep patterns. This supports the advertised safety check, but processing untrusted remote content can create reliability and review risks.",
+        "locations": [
+          {
+            "file": "scripts/find.sh",
+            "line_start": 159,
+            "line_end": 166
           },
           {
             "file": "scripts/find.sh",
-            "line_start": 64,
-            "line_end": 64
+            "line_start": 177,
+            "line_end": 182
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 122,
+            "line_end": 134
           }
-        ]
+        ],
+        "confidence": 0.79,
+        "confidence_reasoning": "The scanner processes remote candidate content and archives, but only extracts SKILL.md and does not execute it. The risk is credible yet constrained by read-only handling."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "External Command Usage Appears Bounded",
+        "risk_level": "low",
+        "verdict": "FALSE_POSITIVE_FOR_MALICIOUS_EXECUTION",
+        "description": "The many external command findings are mostly normal shell tooling such as jq, curl, gh, grep, wc, sort, unzip, and printf. Arguments are generally quoted or derived from encoded query data, and no direct execution of user-provided shell text was found.",
+        "locations": [
+          {
+            "file": "scripts/find.sh",
+            "line_start": 51,
+            "line_end": 57
+          },
+          {
+            "file": "scripts/find.sh",
+            "line_start": 113,
+            "line_end": 120
+          },
+          {
+            "file": "scripts/find.sh",
+            "line_start": 190,
+            "line_end": 199
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 58
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The script is command-heavy, so the pattern is real, but semantic review did not find shell eval of user input. The remaining concern is operational complexity rather than confirmed injection."
       },
       {
-        "factor": "env_access",
-        "evidence": [
+        "title": "Secret Access Alerts Are Scanner Rule Text",
+        "risk_level": "low",
+        "verdict": "FALSE_POSITIVE",
+        "description": "The reported secret and environment findings come from grep patterns that look for secret references inside downloaded candidate files. No evidence found that the skill reads SSH keys, AWS credentials, private keys, or .env file contents from the user machine.",
+        "locations": [
           {
             "file": "scripts/find.sh",
             "line_start": 164,
             "line_end": 164
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 128,
+            "line_end": 132
           }
-        ]
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The suspicious strings appear inside detection rules and documentation tables, not file-read operations. The only local home-directory access found is installed skill folder enumeration."
+      },
+      {
+        "title": "Weak Crypto Alerts Are Pattern Documentation",
+        "risk_level": "low",
+        "verdict": "FALSE_POSITIVE",
+        "description": "The weak cryptography and base64 findings reflect documented risky patterns searched by the scanner, not cryptographic operations performed by the skill. No evidence found of actual weak cryptographic use.",
+        "locations": [
+          {
+            "file": "scripts/find.sh",
+            "line_start": 160,
+            "line_end": 162
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 128,
+            "line_end": 130
+          }
+        ],
+        "confidence": 0.87,
+        "confidence_reasoning": "The code uses grep to detect curl-pipe, eval-remote, and base64-pipe execution patterns in other skills. It does not decode or execute obfuscated payloads."
       }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Shell Script with Network and Local Filesystem Access",
+        "risk_level": "medium",
+        "verdict": "NEEDS_REVIEW",
+        "description": "The skill relies on a Bash script that combines public network calls, local directory enumeration, temporary files, and command-line tools. This combination deserves marketplace warning even though the observed intent is legitimate discovery and scanning.",
+        "locations": [
+          {
+            "file": "scripts/find.sh",
+            "line_start": 56,
+            "line_end": 65
+          },
+          {
+            "file": "scripts/find.sh",
+            "line_start": 72,
+            "line_end": 125
+          },
+          {
+            "file": "scripts/find.sh",
+            "line_start": 168,
+            "line_end": 182
+          }
+        ],
+        "confidence": 0.83,
+        "confidence_reasoning": "The combination is confirmed in code and matches the static heuristic. Manual review lowers severity because the operations are purpose-aligned and no destructive or exfiltration behavior was found."
+      },
+      {
+        "title": "Heuristic Detection Rules Mention Sensitive Paths",
+        "risk_level": "low",
+        "verdict": "FALSE_POSITIVE_FOR_SECRET_ACCESS",
+        "description": "The skill contains sensitive path strings in scanning rules and documentation so it can warn about risky third-party skills. These strings triggered static alerts but are not evidence that this skill reads those secrets.",
+        "locations": [
+          {
+            "file": "scripts/find.sh",
+            "line_start": 164,
+            "line_end": 164
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 128,
+            "line_end": 132
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The context is a detector for risky candidate skills. I did not find a file-open, cat, upload, or network send operation for those sensitive paths."
+      }
+    ],
+    "files_scanned": 2,
+    "total_lines": 434,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T05:40:51.487Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "external_commands"
     ]
   },
   "content": {
-    "user_title": "Find the best agent skill from any registry",
-    "value_statement": "Searching one skill registry gives a biased answer — the #1 result on one site may have 50 installs while a 1,300-install equivalent sits unranked on another. This skill queries skills.sh, clawhub.ai, and GitHub in parallel, ranks each by its own native metric, and security-scans top candidates so you recommend the genuinely best match.",
+    "user_title": "Find Agent Skills Across Registries",
+    "value_statement": "Finding the right agent skill is hard when each registry shows different results. This skill searches major sources together and adds popularity, install, and safety context.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "skill discovery",
-      "skill registry",
-      "agent skills",
-      "skills.sh",
-      "clawhub",
-      "security scan",
-      "AI tools"
+      "Claude skills",
+      "Codex skills",
+      "Claude Code skills",
+      "agent skill search",
+      "AI skill marketplace",
+      "skills.sh search",
+      "Clawhub skills",
+      "GitHub skill registry",
+      "skill security scan",
+      "agent skill installation"
     ],
     "actual_capabilities": [
-      "Searches skills.sh, clawhub.ai, and GitHub simultaneously in parallel",
-      "Ranks each registry by its own native metric (installs for skills.sh/clawhub, stars+match for GitHub)",
-      "Security-scans top K candidates' actual SKILL.md for risky patterns (curl-pipe-install, eval-remote, secret references)",
-      "Detects already-installed skills from ~/.agents/skills and ~/.claude/skills directories",
-      "Flags cross-posted skills present on multiple registries with normalized name matching",
-      "Outputs both human-readable formatted report and machine-readable JSON"
+      "Searches skills.sh, Clawhub, and GitHub skill topics from one command.",
+      "Ranks each source by its native popularity signals, such as installs or stars.",
+      "Checks local agent skill folders to flag skills already installed.",
+      "Fetches top candidate skill files and scans for risky installation or secret access patterns.",
+      "Produces formatted reports and optional machine-readable results for follow-up analysis.",
+      "Shows source health, latency, result counts, and candidate links."
     ],
     "limitations": [
-      "GitHub section requires the gh CLI to be installed (degrades gracefully if absent)",
-      "Security scan is a heuristic pattern check, not a full security audit",
-      "Cross-registry deduplication uses normalized name matching — renamed slugs can be missed",
-      "Registry APIs may rate-limit or change; results depend on each board's availability"
+      "Search quality depends on registry metadata and keyword matches.",
+      "The safety scan is heuristic and is not a full security audit.",
+      "GitHub results require the GitHub CLI and only cover topic-tagged repositories.",
+      "It does not install skills automatically or verify runtime behavior after installation."
     ],
     "use_cases": [
       {
-        "title": "Discovering existing skills before building from scratch",
-        "description": "Before spending time implementing a common capability, check if a published skill already covers it across all major registries.",
-        "target_user": "AI agent developers"
+        "title": "Pick a Task Skill",
+        "target_user": "Claude user",
+        "description": "Find a published skill for a task before asking the agent to build the workflow from scratch."
       },
       {
-        "title": "Vetting third-party skills for safety",
-        "description": "Use the built-in security scanner to identify skills with dangerous patterns like curl-pipe-install or secret file access before recommending them.",
-        "target_user": "Security-conscious teams"
+        "title": "Compare Marketplace Results",
+        "target_user": "Team lead",
+        "description": "Compare installs, stars, and registry coverage before recommending one skill to a team."
       },
       {
-        "title": "Finding the best-maintained skill for a specific need",
-        "description": "Compare install counts, stars, and maintenance signals across registries to find well-supported skills for deployment, testing, documentation, or domain workflows.",
-        "target_user": "DevOps and platform engineers"
+        "title": "Screen Candidate Skills",
+        "target_user": "Security reviewer",
+        "description": "Run a first-pass scan for risky patterns before manually reviewing a candidate skill."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic skill discovery",
-        "prompt": "Find a skill for React performance optimization",
-        "scenario": "Quick search for a common development need"
+        "title": "Find a Skill",
+        "scenario": "Beginner search for one task",
+        "prompt": "Find a skill that helps with PDF form filling. Show the best option and one backup."
       },
       {
-        "title": "Targeted search with scan limit",
-        "prompt": "Find skills for PDF form filling, show me the top 8 results and scan 5 for security",
-        "scenario": "Focused search with deeper security vetting"
+        "title": "Compare Adjacent Searches",
+        "scenario": "Broaden a search with related terms",
+        "prompt": "Search for skills related to frontend design, UI components, and design systems. Recommend the strongest match."
       },
       {
-        "title": "Multi-term adjacent vocabulary search",
-        "prompt": "Run adjacent searches for 'frontend design', 'design system', and 'tailwind shadcn' to find the best UI/UX skill",
-        "scenario": "Comprehensive search across related terms"
+        "title": "Review Before Install",
+        "scenario": "Evaluate a candidate before adding it",
+        "prompt": "Find deployment skills for Vercel, scan the top candidates, and tell me which one is safest to install."
       },
       {
-        "title": "Machine-readable output for automation",
-        "prompt": "Find skills for video generation and output as JSON with no security scan",
-        "scenario": "Programmatic integration or pipeline use"
+        "title": "Build a Shortlist",
+        "scenario": "Advanced marketplace comparison",
+        "prompt": "Search all registries for Playwright testing skills, compare popularity and fit, and produce a ranked shortlist with risks."
       }
     ],
     "output_examples": [
       {
-        "input": "Find a skill for react performance",
-        "output": [
-          "TOP OF EACH BOARD",
-          "skills.sh: react-perf-toolkit (owner/repo) — 12,400 installs · match 67%",
-          "clawhub: react-perf-toolkit — 8,200 installs · ★ 340 · match 67%",
-          "github: facebook/react (14k★) · match 33%",
-          "ALREADY ON YOUR MACHINE: react-perf-toolkit ✓ INSTALLED",
-          "skills.sh results: [1] react-perf-toolkit ✓ INSTALLED — 12,400 installs · ✓ clean",
-          "[2] perf-react-suite — 3,100 installs · ⚠ caution [reads-secrets]"
-        ]
+        "input": "Find a skill for React performance work.",
+        "output": "A concise recommendation naming the best matching skill, its registry sources, popularity signals, safety badge, and one alternative."
       },
       {
-        "input": "Find skills for pdf form filling --scan 3",
-        "output": [
-          "security scan results:",
-          "[1] pdf-form-filler — ⚠ caution [broad-tool-grant]",
-          "[2] fillpdf-pro — ✓ clean",
-          "[3] pdf-form-helper — ⛔ RISKY [curl-pipe-install, reads-secrets]"
-        ]
+        "input": "Search for video generation skills and scan the top five.",
+        "output": "A source-by-source report showing top results, registry health, risk badges, and links for manual review."
+      },
+      {
+        "input": "Do I already have a useful documentation skill installed?",
+        "output": "A report that highlights matching installed skills and explains whether a new install is needed."
       }
     ],
     "best_practices": [
-      "Run 2-3 adjacent-term searches before concluding — registries index by name, not meaning, so 'frontend design' may surface a 443k-install skill that 'ui ux design' misses",
-      "Always read the actual SKILL.md of the top 2-3 candidates before recommending — metadata alone can be misleading",
-      "Never recommend a ⛔ RISKY skill without explicitly warning the user about the specific dangerous patterns detected"
+      "Run two or three adjacent searches before deciding no good skill exists.",
+      "Read the candidate skill documentation before recommending or installing it.",
+      "Treat caution and risky scan flags as review prompts, not final proof."
     ],
     "anti_patterns": [
-      "Don't trust a single registry's ranking — a skill can rank #1 on one site with 50 installs while a 1,300-install equivalent sits unranked on another",
-      "Don't treat the security scan badge as a guarantee — it is a heuristic pattern check, not a full security audit",
-      "Don't recommend from match% alone — a 100%-keyword-match repo may be off-topic once you read it"
+      "Do not recommend a skill from metadata alone without checking its documented scope.",
+      "Do not treat a clean heuristic scan as a complete security review.",
+      "Do not install a discovered community skill without explicit user approval."
     ],
     "faq": [
       {
-        "question": "What registries does this skill search?",
-        "answer": "It searches skills.sh, clawhub.ai, and GitHub (topic-tagged repos: claude-skills, agent-skills, claude-code-skills) in parallel."
+        "question": "Does this skill install other skills automatically?",
+        "answer": "No. It finds candidates and shows install guidance, but installation remains a separate user-approved action."
       },
       {
-        "question": "Does it require API keys?",
-        "answer": "No. It uses read-only HTTP GETs to public APIs. The gh CLI is optional for the GitHub section and degrades gracefully if absent."
+        "question": "Which registries does it search?",
+        "answer": "It searches skills.sh, Clawhub, and GitHub repositories tagged with common agent skill topics."
       },
       {
-        "question": "How does the security scan work?",
-        "answer": "It fetches the top K candidates' actual SKILL.md files and greps for risky patterns: curl-pipe-install, eval-remote, base64-pipe-exec, broad-tool-grant, reads-secrets, and solicits-credentials."
+        "question": "Does it need API keys?",
+        "answer": "No API keys are required. GitHub results can use the GitHub CLI if it is available."
       },
       {
-        "question": "Is the security scan a full audit?",
-        "answer": "No. It is a heuristic pattern check that catches common dangerous patterns. A clean badge does not guarantee safety — always read the skill yourself before recommending it."
+        "question": "What does the safety scan check?",
+        "answer": "It checks candidate skill files for risky patterns such as remote shell installs, broad tool grants, and secret references."
       },
       {
-        "question": "Does it auto-install skills?",
-        "answer": "No. It only discovers and reports. Installation is always an explicit, user-confirmed step via the Skills CLI or clawhub CLI."
+        "question": "Can it miss useful skills?",
+        "answer": "Yes. Registries rely on names, summaries, and topics, so related search terms can reveal different results."
       },
       {
-        "question": "What does it send to external services?",
-        "answer": "Only the user's query string (URL-encoded) to public registry APIs. It sends no credentials, tokens, or personal data."
+        "question": "Is it suitable for Claude, Codex, and Claude Code users?",
+        "answer": "Yes. The skill is documented for Claude, Codex, and Claude Code compatible workflows."
       }
     ]
   },
