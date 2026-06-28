@@ -6,12 +6,18 @@ on:
 
 jobs:
   process-command:
-    if: contains(github.event.issue.labels.*.name, 'plugin-review')
+    # Only real human slash-commands. Skip bot comments (the callback posts its own
+    # "⏳ Generation started" notice as the App, which would otherwise re-trigger this
+    # job and fail the permission check) and ordinary non-command chatter.
+    if: >-
+      contains(github.event.issue.labels.*.name, 'plugin-review') &&
+      startsWith(github.event.comment.body, '/') &&
+      github.event.comment.user.type != 'Bot'
     runs-on: ubuntu-latest
     steps:
       - name: Check permissions
         id: check-perm
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
@@ -27,7 +33,7 @@ jobs:
 
       - name: Process command
         if: success()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           CALLBACK_URL: ${{ secrets.SKILLSTORE_API_URL }}/api/plugins/review/callback
           CALLBACK_SECRET: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
