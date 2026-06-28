@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T17:32:21.311Z",
+    "generated_at": "2026-06-28T10:41:29.308Z",
     "slug": "asmayaseen-building-chat-widgets",
     "source_url": "https://github.com/Asmayaseen/hackathon-2/tree/main/.claude/skills/building-chat-widgets",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "d39b2a8e0442ed7ecc40d9641f3e3f2d51cf1f87b3e64375b9d01fce7435c74b",
-    "tree_hash": "568180c67092aacdb21467190221e382fab656ba12bc7855e32ef9e20bafcfa3"
+    "tree_hash": "0de068c5c033190fdfbf892bd5f246717a149627549d340938ea4ecd080f1f47"
   },
   "skill": {
     "name": "building-chat-widgets",
-    "description": "Build interactive AI chat widgets with buttons, forms, and bidirectional actions.\nUse when creating agentic UIs with clickable widgets, entity tagging (@mentions),\ncomposer tools, or server-handled widget actions. Covers full widget lifecycle.\nNOT when building simple text-only chat without interactive elements.\n",
-    "summary": "Build interactive AI chat widgets with buttons, forms, and bidirectional actions.\nUse when creating ...",
-    "icon": "💬",
+    "description": "Build interactive AI chat widgets with actions, forms, entity tagging, composer tools, and server-handled widget updates.",
+    "summary": "Guides teams through interactive ChatKit widget patterns for agentic chat interfaces.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Asmayaseen",
     "license": "MIT",
-    "category": "coding",
     "tags": [
-      "chat",
-      "widgets",
-      "frontend",
       "chatkit",
-      "interactive-ui"
+      "chat-widgets",
+      "agent-ui",
+      "server-actions",
+      "entity-tagging"
     ],
     "supported_tools": [
       "claude",
@@ -33,177 +32,379 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
-      "external_commands",
-      "network",
-      "filesystem"
-    ]
+      "network"
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a pure documentation skill containing only markdown files with code examples. The static analyzer incorrectly flagged markdown code fences as shell backticks and documentation examples as dangerous patterns. All findings are false positives. The only executable file (scripts/verify.py) is a benign file-existence checker with no security implications.",
+    "summary": "Static analysis reported many command execution, dynamic import, weak cryptography, and critical combination alerts, but these are mostly Markdown code fence and inline backtick false positives. No prompt injection or malicious intent was found. Medium risk remains because examples show server-side action mutation and token-bearing MCP forwarding patterns that require validation and trusted endpoints.",
     "risk_factor_evidence": [
       {
-        "factor": "scripts",
+        "factor": "network",
         "evidence": [
           {
-            "file": "scripts/verify.py",
-            "line_start": 1,
-            "line_end": 21
+            "file": "SKILL.md",
+            "line_start": 203,
+            "line_end": 203
+          },
+          {
+            "file": "references/widget-patterns.md",
+            "line_start": 124,
+            "line_end": 133
           }
         ]
-      },
-      {
-        "factor": "external_commands",
-        "evidence": []
-      },
-      {
-        "factor": "network",
-        "evidence": []
-      },
-      {
-        "factor": "filesystem",
-        "evidence": []
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 5,
-    "total_lines": 1055,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T17:32:21.311Z"
+    "medium_findings": [
+      {
+        "title": "Server Action Examples Need Payload Authorization",
+        "description": "The server action examples read action.payload values and then update hidden context, confirm database items, or call do_action. These are legitimate widget patterns, but implementations must validate action type, sender, user permissions, and payload ownership before mutation.",
+        "locations": [
+          {
+            "file": "references/server-action-handler.md",
+            "line_start": 41,
+            "line_end": 63
+          },
+          {
+            "file": "references/server-action-handler.md",
+            "line_start": 105,
+            "line_end": 122
+          },
+          {
+            "file": "references/server-action-handler.md",
+            "line_start": 172,
+            "line_end": 182
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 167,
+            "line_end": 190
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "The examples directly connect action payloads to state changes. The code is instructional, so risk depends on how users implement authorization."
+      },
+      {
+        "title": "Token-Bearing MCP Forwarding Requires Trusted Endpoint",
+        "description": "The local wrapper example forwards access_token to agent_ctx.mcp_server_url. This is valid for trusted internal MCP servers, but a user-controlled URL could expose credentials.",
+        "locations": [
+          {
+            "file": "references/widget-patterns.md",
+            "line_start": 124,
+            "line_end": 133
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.66,
+        "confidence_reasoning": "The token and URL are visible in the same call pattern. The source of mcp_server_url is not defined, so legitimate configuration is possible."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Relative Fetch Example Should Encode Search Query",
+        "description": "The entity search example interpolates query directly into a relative URL. It is not exfiltration, but production code should encode the query and enforce server-side validation.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 201,
+            "line_end": 204
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.61,
+        "confidence_reasoning": "The fetch call is a same-origin relative request, which lowers impact. Direct interpolation still creates avoidable request parsing and validation risk."
+      },
+      {
+        "title": "Backtick Command Execution Alerts Are False Positives",
+        "description": "The static Ruby and shell backtick alerts point to Markdown fences, inline component names, and example code delimiters. No shell execution primitive is present in those locations.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 23
+          },
+          {
+            "file": "references/server-action-handler.md",
+            "line_start": 127,
+            "line_end": 134
+          },
+          {
+            "file": "references/widget-patterns.md",
+            "line_start": 172,
+            "line_end": 184
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.97,
+        "confidence_reasoning": "The cited lines are documentation examples or inline Markdown text. They do not execute commands or construct shell strings."
+      },
+      {
+        "title": "Dynamic Import and Weak Crypto Alerts Are False Positives",
+        "description": "The dynamic import alerts identify normal Python import syntax in fenced examples. The weak cryptography alerts point to prose and component reference tables, not hashing or encryption code.",
+        "locations": [
+          {
+            "file": "references/server-action-handler.md",
+            "line_start": 7,
+            "line_end": 20
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 151,
+            "line_end": 155
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 277,
+            "line_end": 298
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.94,
+        "confidence_reasoning": "The lines contain import lists and Markdown tables. I did not find cryptographic operations or JavaScript dynamic import calls there."
+      },
+      {
+        "title": "Critical Combination Heuristic Not Confirmed",
+        "description": "The scanner combined unrelated documentation patterns into a critical alert. I did not find one code path that combines code execution, network transfer, and credential access.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 23
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 203,
+            "line_end": 203
+          },
+          {
+            "file": "references/widget-patterns.md",
+            "line_start": 124,
+            "line_end": 133
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.9,
+        "confidence_reasoning": "The suspicious elements occur in separate instructional snippets. Only the MCP token-forwarding example remains a medium review item."
+      },
+      {
+        "title": "Reconnaissance Alerts Are False Positives",
+        "description": "The system and network reconnaissance alerts point to payload IDs, RequestContext examples, and checklist text. I did not find commands that inspect hosts, users, networks, or interfaces.",
+        "locations": [
+          {
+            "file": "references/server-action-handler.md",
+            "line_start": 41,
+            "line_end": 42
+          },
+          {
+            "file": "references/server-action-handler.md",
+            "line_start": 105,
+            "line_end": 110
+          },
+          {
+            "file": "references/widget-patterns.md",
+            "line_start": 200,
+            "line_end": 215
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 318,
+            "line_end": 325
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.93,
+        "confidence_reasoning": "The cited lines discuss application IDs, context objects, and validation checklists. They do not run reconnaissance tools or collect system metadata."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Server Action Examples Need Payload Authorization",
+        "description": "The server action examples read action.payload values and then update hidden context, confirm database items, or call do_action. These are legitimate widget patterns, but implementations must validate action type, sender, user permissions, and payload ownership before mutation.",
+        "locations": [
+          {
+            "file": "references/server-action-handler.md",
+            "line_start": 41,
+            "line_end": 63
+          },
+          {
+            "file": "references/server-action-handler.md",
+            "line_start": 105,
+            "line_end": 122
+          },
+          {
+            "file": "references/server-action-handler.md",
+            "line_start": 172,
+            "line_end": 182
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 167,
+            "line_end": 190
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "The examples directly connect action payloads to state changes. The code is instructional, so risk depends on how users implement authorization."
+      },
+      {
+        "title": "Token-Bearing MCP Forwarding Requires Trusted Endpoint",
+        "description": "The local wrapper example forwards access_token to agent_ctx.mcp_server_url. This is valid for trusted internal MCP servers, but a user-controlled URL could expose credentials.",
+        "locations": [
+          {
+            "file": "references/widget-patterns.md",
+            "line_start": 124,
+            "line_end": 133
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.66,
+        "confidence_reasoning": "The token and URL are visible in the same call pattern. The source of mcp_server_url is not defined, so legitimate configuration is possible."
+      },
+      {
+        "title": "Relative Fetch Example Should Encode Search Query",
+        "description": "The entity search example interpolates query directly into a relative URL. It is not exfiltration, but production code should encode the query and enforce server-side validation.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 201,
+            "line_end": 204
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.61,
+        "confidence_reasoning": "The fetch call is a same-origin relative request, which lowers impact. Direct interpolation still creates avoidable request parsing and validation risk."
+      }
+    ],
+    "files_scanned": 4,
+    "total_lines": 839,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T10:41:29.308Z",
+    "risk_factors": [
+      "network"
+    ]
   },
   "content": {
-    "user_title": "Build Interactive AI Chat Widgets",
-    "value_statement": "Creating chat widgets with buttons, forms, and actions is complex and undocumented. This skill provides complete patterns for client and server widget handling, entity tagging, and composer tools so you can build interactive AI interfaces faster.",
+    "user_title": "Build Interactive Chat Widgets",
+    "value_statement": "Text-only chat limits product workflows. This skill guides Claude, Codex, and Claude Code to build interactive widgets with actions, forms, mentions, and backend handlers.",
     "seo_keywords": [
-      "chat widgets",
-      "interactive UI",
-      "AI chat interface",
-      "ChatKit",
-      "entity tagging",
-      "Claude Code",
       "Claude",
-      "server actions",
-      "client actions",
-      "composer tools"
+      "Codex",
+      "Claude Code",
+      "ChatKit widgets",
+      "AI chat widgets",
+      "interactive chat UI",
+      "widget action handlers",
+      "entity tagging",
+      "composer tools",
+      "server actions"
     ],
     "actual_capabilities": [
-      "Define widget templates with buttons, lists, and forms",
-      "Handle actions on client side for navigation and state",
-      "Handle actions on server side for data mutations",
-      "Implement @mention entity tagging in messages",
-      "Create composer tool mode selection for AI agents"
+      "Explains reusable widget templates with dynamic data and action payloads.",
+      "Shows client-handled actions for navigation, local state, and follow-up messages.",
+      "Shows server-handled actions that replace widgets and stream assistant responses.",
+      "Covers entity tagging, mention search, and entity click behavior.",
+      "Documents composer tool selection and backend routing by selected mode.",
+      "Lists common ChatKit validation errors and their fixes."
     ],
     "limitations": [
-      "Requires an existing ChatKit or similar widget system integration",
-      "Does not include UI components or styling libraries",
-      "Pattern examples assume Python backend and TypeScript frontend"
+      "It provides implementation guidance, not a complete application scaffold.",
+      "Examples require adaptation to the user's ChatKit version and backend framework.",
+      "Security controls such as authorization and input validation must be added by the implementer.",
+      "It does not include automated tests for generated widget code."
     ],
     "use_cases": [
       {
-        "target_user": "Frontend developers",
-        "title": "Build clickable chat actions",
-        "description": "Create buttons and forms that dispatch actions to backend handlers for data mutations"
+        "title": "Add Actionable Chat Results",
+        "description": "Create result lists, detail buttons, and selection widgets inside an AI chat flow.",
+        "target_user": "Product engineers"
       },
       {
-        "target_user": "AI tool builders",
-        "title": "Design agentic chat interfaces",
-        "description": "Build interactive widgets that let users select, confirm, and navigate within AI conversations"
+        "title": "Connect Chat Actions to Backend Workflows",
+        "description": "Route widget clicks to server handlers that update widgets and continue the conversation.",
+        "target_user": "Backend developers"
       },
       {
-        "target_user": "Full-stack engineers",
-        "title": "Connect widgets to backend",
-        "description": "Implement server action handlers that update widgets, trigger effects, and run agent responses"
+        "title": "Design Agent Modes and Mentions",
+        "description": "Add composer tools and entity mentions so users can steer agent behavior precisely.",
+        "target_user": "AI application designers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic widget",
-        "scenario": "Create a button widget",
-        "prompt": "Create a Button widget that dispatches a server action when clicked. Include a ListView with clickable items that select items."
+        "title": "Create a Basic Widget",
+        "scenario": "Beginner setup for one interactive result list.",
+        "prompt": "Create a ChatKit widget for a list of items. Include labels, icons, and one client-handled action for selecting an item."
       },
       {
-        "title": "Form submission",
-        "scenario": "Handle form submit action",
-        "prompt": "Write a server action handler that processes a form submission, creates a synthetic user message, and triggers the agent response."
+        "title": "Add Client Actions",
+        "scenario": "Intermediate frontend behavior.",
+        "prompt": "Add client-side ChatKit action handling for navigation, local selection state, and a follow-up user message. Explain each action payload."
       },
       {
-        "title": "Entity tagging",
-        "scenario": "Add @mentions support",
-        "prompt": "Implement entity tagging so users can @mention articles. Show the frontend onTagSearch callback and backend entity conversion."
+        "title": "Implement Server Actions",
+        "scenario": "Advanced backend workflow.",
+        "prompt": "Implement a server-handled widget action that validates the payload, checks ownership, replaces the widget, and streams an assistant response."
       },
       {
-        "title": "Composer modes",
-        "scenario": "Tool selection UI",
-        "prompt": "Create a composer with tool mode selection. Show the TOOL_CHOICES configuration and how the backend routes based on tool_choice metadata."
+        "title": "Harden a Widget Flow",
+        "scenario": "Advanced security and reliability review.",
+        "prompt": "Review this chat widget flow for unsafe payload handling, missing authorization, malformed entity search, and unclear client or server ownership."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a button widget that lets users select an item from a list",
-        "output": [
-          "Widget template with ListView and clickable ListViewItem components",
-          "Server action handler that processes item selection and updates the widget state",
-          "Client action callback for local state updates after selection"
-        ]
+        "input": "A user asks for a task picker with clickable rows.",
+        "output": "A widget plan with list rows, selection payloads, a client action handler, and state update guidance."
       },
       {
-        "input": "Build a form that submits data to the backend",
-        "output": [
-          "Form widget with input fields and submit button",
-          "Server action handler that validates and processes form data",
-          "Synthetic user message creation to trigger agent response"
-        ]
+        "input": "A team needs a form submission inside chat.",
+        "output": "A server action workflow that validates form data, updates the widget, and sends a follow-up assistant response."
       },
       {
-        "input": "Add @mention functionality for tagging users",
-        "output": [
-          "Frontend onTagSearch callback for entity search",
-          "Backend entity converter for @mention replacement",
-          "Interactive entities with onClick handlers for navigation"
-        ]
+        "input": "An app needs @mentions for articles and people.",
+        "output": "An entity search design with grouped results, click behavior, and backend conversion notes."
       }
     ],
     "best_practices": [
-      "Keep client and server actions separate for the same action type to avoid conflicts",
-      "Use action.payload for data access, never action.arguments",
-      "Include all required fields when creating UserMessageItem: id, thread_id, created_at, inference_options"
+      "Validate every action payload on the server before changing data or context.",
+      "Keep each action owned by either the client or the server, not both.",
+      "Encode search queries and restrict token forwarding to trusted internal endpoints."
     ],
     "anti_patterns": [
-      "Handling the same action type in both client and server handlers creates race conditions",
-      "Missing required fields in UserMessageItem causes validation errors",
-      "Using type='text' instead of type='input_text' for user message content"
+      "Do not trust widget payloads only because they came from the chat UI.",
+      "Do not wrap RequestContext when the handler already receives a RequestContext object.",
+      "Do not use action.arguments when the ChatKit action data is stored in action.payload."
     ],
     "faq": [
       {
-        "question": "What platforms support this skill?",
-        "answer": "Works with Claude, Codex, and Claude Code. Patterns show Python backend and TypeScript frontend examples."
+        "question": "What does this skill help build?",
+        "answer": "It helps build interactive ChatKit widgets for AI chat, including buttons, lists, forms, mentions, and action handlers."
       },
       {
-        "question": "What are the limits on widget complexity?",
-        "answer": "No hard limits but recommend keeping widgets focused. Complex widgets should dispatch multiple simple actions."
+        "question": "Does it generate a full chat application?",
+        "answer": "No. It provides patterns and examples that must be integrated into an existing ChatKit application."
       },
       {
-        "question": "How do I integrate with my existing chat app?",
-        "answer": "The patterns assume a ChatKit-compatible widget system. Core patterns for actions and entities can adapt to other frameworks."
+        "question": "Can actions run on the client and server?",
+        "answer": "Yes. The skill explains when to use client handlers and when to use server handlers."
       },
       {
-        "question": "Is user data safe when using widgets?",
-        "answer": "Yes. Widgets only transmit action payloads you define. Server handlers process data in your controlled backend."
+        "question": "Does it cover entity tagging?",
+        "answer": "Yes. It includes mention search, entity metadata, click behavior, and backend conversion guidance."
       },
       {
-        "question": "Why do I get 'Action has no attribute arguments' error?",
-        "answer": "Use action.payload instead of action.arguments. The skill documentation shows correct access patterns throughout."
+        "question": "What security checks are needed?",
+        "answer": "Server actions should validate payloads, verify permissions, and only forward tokens to trusted services."
       },
       {
-        "question": "How is this different from standard chat UIs?",
-        "answer": "Widgets enable bidirectional communication. Actions flow from UI to backend, and widgets update dynamically based on server responses."
+        "question": "Which AI tools can use this skill?",
+        "answer": "The report marks it as compatible with Claude, Codex, and Claude Code."
       }
     ]
   },
