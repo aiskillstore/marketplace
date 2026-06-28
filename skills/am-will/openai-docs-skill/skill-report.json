@@ -1,30 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-03-04T08:50:48.719Z",
+    "generated_at": "2026-06-28T08:36:31.172Z",
     "slug": "am-will-openai-docs-skill",
     "source_url": "https://github.com/am-will/codex-skills/tree/main/skills/openai-docs-skill/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "af61fe1851ed54ae7416d966f9cef51dd29dec40b54519ea41aab187dc3f2978",
-    "tree_hash": "df629e7049aab7db6988ce9075729e5e11acba0e8d8b6d9dfa86203f6838b272"
+    "tree_hash": "18b704c8e5f186c7e64bde198e73abf87c64f4e5fb8fca36601f24791907690a"
   },
   "skill": {
     "name": "openai-docs-skill",
     "description": "Query the OpenAI developer documentation via the OpenAI Docs MCP server using CLI (curl/jq). Use whenever a task involves the OpenAI API (Responses, Chat Completions, Realtime, etc.), OpenAI SDKs, ChatGPT Apps SDK, Codex, MCP integrations, endpoint schemas, parameters, limits, or migrations and you need up-to-date official guidance.",
-    "summary": "Query official OpenAI developer docs via MCP server CLI wrapper",
-    "icon": "📚",
+    "summary": "Search and fetch official OpenAI developer documentation from a shell wrapper.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "am-will",
     "license": "MIT",
+    "category": "documentation",
     "tags": [
       "openai",
       "documentation",
-      "api-reference",
       "mcp",
-      "developers"
+      "api-reference",
+      "developer-tools"
     ],
     "supported_tools": [
       "claude",
@@ -38,10 +39,10 @@
     ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a legitimate documentation access skill. Static analyzer flagged 44 potential issues, but evaluation confirms all are false positives. The script uses jq for safe JSON construction, makes read-only HTTP requests to OpenAI's official MCP server, and performs standard filesystem checks. No malicious intent or security vulnerabilities identified.",
+    "summary": "Static analysis flagged many shell command substitutions, network calls, filesystem redirects, and two weak-cryptography alerts. Review found the command substitutions are structured jq/curl usage, the filesystem hits are benign redirects, and the weak-cryptography alerts are false positives. The remaining publication risk is medium because the skill intentionally sends queries and document URLs to a configurable external MCP endpoint.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -269,10 +270,93 @@
         ]
       }
     ],
-    "critical_findings": [
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
       {
-        "title": "False Positive: Weak Cryptographic Algorithm",
-        "description": "Static analyzer incorrectly flagged 'weak cryptographic algorithm' at SKILL.md:3 and SKILL.md:23. Line 3 is YAML frontmatter (description field), line 23 is a bash command example. No cryptographic code exists in this skill.",
+        "title": "Outbound Documentation Queries to Configurable Endpoint",
+        "description": "TRUE_POSITIVE: The shell wrapper posts user queries, requested documentation URLs, anchors, endpoint URLs, and language choices to MCP_URL with curl. The default endpoint is an OpenAI developer domain, but MCP_URL can be overridden by the environment, so users should avoid sensitive queries and review endpoint configuration. Confidence: 0.78. Confidence reasoning: The outbound network behavior and endpoint override are explicit in the script, but the observed intent is documentation retrieval rather than malicious exfiltration.",
+        "locations": [
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 4,
+            "line_end": 4
+          },
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 31,
+            "line_end": 37
+          },
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 137,
+            "line_end": 139
+          },
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 164,
+            "line_end": 168
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The outbound network behavior and endpoint override are explicit in the script, but the observed intent is documentation retrieval rather than malicious exfiltration."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "External Command Findings Are Structured CLI Usage",
+        "description": "FALSE_POSITIVE for command-injection intent: the flagged substitutions invoke fixed tools such as jq and helper functions, with user input passed as jq arguments or validated numeric values. No evidence found of eval, dynamic shell construction, or execution of attacker-controlled command names. Confidence: 0.86. Confidence reasoning: The relevant command names are static and quoted across the reviewed locations, although the script still depends on external binaries.",
+        "locations": [
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 47,
+            "line_end": 49
+          },
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 58,
+            "line_end": 58
+          },
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 108,
+            "line_end": 112
+          },
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 123,
+            "line_end": 126
+          },
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 158,
+            "line_end": 168
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The relevant command names are static and quoted across the reviewed locations, although the script still depends on external binaries."
+      },
+      {
+        "title": "Filesystem Findings Are Benign Redirects",
+        "description": "FALSE_POSITIVE: the static filesystem alerts correspond to standard output redirection to /dev/null while checking command availability and jq error presence. No evidence found of reading user files, writing persistence files, or traversing local directories. Confidence: 0.92. Confidence reasoning: The cited lines only discard command output and do not access sensitive filesystem paths.",
+        "locations": [
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 25,
+            "line_end": 25
+          },
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 64,
+            "line_end": 64
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The cited lines only discard command output and do not access sensitive filesystem paths."
+      },
+      {
+        "title": "Weak Cryptography Alerts Are False Positives",
+        "description": "FALSE_POSITIVE: the flagged SKILL.md lines contain skill metadata and documentation URLs, not cryptographic functions, hashing logic, or deprecated algorithms. No evidence found of MD5, SHA-1, DES, RC4, or similar weak cryptography being used by this skill. Confidence: 0.95. Confidence reasoning: The reviewed lines are plain Markdown instructions and examples with no executable cryptographic code.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -286,63 +370,51 @@
           }
         ],
         "confidence": 0.95,
-        "confidence_reasoning": "Analysis of the actual file content confirms these lines contain documentation and bash examples, not cryptographic algorithms. Scanner appears to have false-positive triggered by 'MCP' keyword."
+        "confidence_reasoning": "The reviewed lines are plain Markdown instructions and examples with no executable cryptographic code."
       }
     ],
-    "high_findings": [],
-    "medium_findings": [
+    "dangerous_patterns": [
       {
-        "title": "Shell Command Execution in Script",
-        "description": "Script uses jq for JSON construction. While this involves shell commands, arguments are properly sanitized using --arg and --argjson flags which prevent injection. This is standard practice for CLI tools.",
+        "title": "Configurable Outbound HTTP Request",
+        "description": "The script uses curl to POST JSON-RPC payloads to MCP_URL, which defaults to an OpenAI developer endpoint but can be changed through the environment. This is expected functionality, but it is a sensitive pattern because query text and requested URLs leave the local machine. Confidence: 0.82. Confidence reasoning: The data flow from command arguments to JSON payloads and curl is visible in the script, with legitimate documentation lookup context.",
         "locations": [
           {
             "file": "scripts/openai-docs-mcp.sh",
-            "line_start": 47,
-            "line_end": 49
+            "line_start": 4,
+            "line_end": 4
           },
           {
             "file": "scripts/openai-docs-mcp.sh",
-            "line_start": 108,
-            "line_end": 112
-          }
-        ],
-        "confidence": 0.15,
-        "confidence_reasoning": "Pattern detected but legitimate use case. jq with --arg flags is safe JSON construction, not command injection vulnerability."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "HTTP Requests to External Endpoint",
-        "description": "Script makes HTTP requests to https://developers.openai.com/mcp which is OpenAI's official documentation MCP server. This is the intended functionality of the skill.",
-        "locations": [
-          {
-            "file": "scripts/openai-docs-mcp.sh",
             "line_start": 31,
-            "line_end": 40
+            "line_end": 37
           }
         ],
-        "confidence": 0.05,
-        "confidence_reasoning": "Legitimate network access to known OpenAI documentation endpoint. Expected behavior for a documentation tool."
+        "confidence": 0.82,
+        "confidence_reasoning": "The data flow from command arguments to JSON payloads and curl is visible in the script, with legitimate documentation lookup context."
       },
       {
-        "title": "Filesystem Command Checks",
-        "description": "Script uses command -v to verify required tools (curl, jq) are installed. Standard shell practice.",
+        "title": "User-Supplied URL Forwarded to Remote Tool",
+        "description": "The fetch and openapi subcommands package user-provided URLs into MCP tool calls. This is part of the intended docs workflow, but users should treat queried URLs as information disclosed to the configured MCP service. Confidence: 0.76. Confidence reasoning: The script clearly forwards URL arguments, but there is no evidence that it fetches arbitrary local files or contacts hidden destinations itself.",
         "locations": [
           {
             "file": "scripts/openai-docs-mcp.sh",
-            "line_start": 24,
-            "line_end": 28
+            "line_start": 131,
+            "line_end": 139
+          },
+          {
+            "file": "scripts/openai-docs-mcp.sh",
+            "line_start": 149,
+            "line_end": 168
           }
         ],
-        "confidence": 0.05,
-        "confidence_reasoning": "Standard filesystem check for command availability, not file access vulnerability."
+        "confidence": 0.76,
+        "confidence_reasoning": "The script clearly forwards URL arguments, but there is no evidence that it fetches arbitrary local files or contacts hidden destinations itself."
       }
     ],
-    "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 224,
-    "audit_model": "claude",
-    "audited_at": "2026-03-04T08:50:48.719Z",
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T08:36:31.172Z",
     "risk_factors": [
       "external_commands",
       "network",
@@ -350,123 +422,120 @@
     ]
   },
   "content": {
-    "user_title": "Access OpenAI Developer Docs",
-    "value_statement": "Get up-to-date OpenAI API documentation directly in your AI workflow. This skill queries the official OpenAI Docs MCP server to fetch accurate, current references for all OpenAI APIs, SDKs, and tools.",
+    "user_title": "Query Official OpenAI Docs",
+    "value_statement": "OpenAI platform details change often, and model memory can become stale. This skill gives Claude, Codex, and Claude Code a shell workflow for searching and fetching official OpenAI documentation.",
     "seo_keywords": [
-      "openai docs",
-      "openai api reference",
-      "openai documentation",
-      "claude code",
-      "codex",
-      "claude",
-      "mcp server",
-      "openai sdk",
-      "api documentation",
-      "developer resources"
+      "OpenAI docs",
+      "OpenAI API",
+      "OpenAI MCP",
+      "developer documentation",
+      "Responses API",
+      "Codex",
+      "Claude",
+      "Claude Code",
+      "API reference",
+      "official documentation"
     ],
     "actual_capabilities": [
-      "Search OpenAI developer documentation via MCP server",
-      "Fetch specific doc pages or sections by URL with optional anchor",
-      "List available documentation topics and categories",
-      "Retrieve OpenAPI specs for OpenAI endpoints",
-      "Get code examples in multiple programming languages",
-      "Query ChatGPT Apps SDK and Codex documentation"
+      "Searches the OpenAI developer documentation through the MCP search tool.",
+      "Fetches markdown content for a selected OpenAI documentation URL or anchor.",
+      "Lists available OpenAI documentation pages and API endpoints.",
+      "Retrieves OpenAPI endpoint schemas and optional code examples.",
+      "Requires curl and jq to build requests and format responses."
     ],
     "limitations": [
-      "Requires curl and jq to be installed on the system",
-      "Needs network access to communicate with OpenAI MCP server",
-      "Cannot modify or write to external systems - read-only documentation access",
-      "Depends on OpenAI MCP server availability"
+      "Requires network access to the configured MCP endpoint.",
+      "Depends on curl and jq being available in the shell environment.",
+      "Only covers content exposed by the OpenAI Docs MCP server.",
+      "May disclose search terms and requested URLs to the configured endpoint."
     ],
     "use_cases": [
       {
-        "title": "API Implementation",
-        "description": "When implementing OpenAI API features, quickly lookup parameter schemas, rate limits, and response formats",
-        "target_user": "Software developers building AI-powered applications"
+        "title": "Verify API Parameters",
+        "description": "Check current OpenAI endpoint parameters before writing or reviewing integration code.",
+        "target_user": "Backend engineers"
       },
       {
-        "title": "Migration Assistance",
-        "description": "Get step-by-step migration guides when moving between OpenAI API versions or endpoints",
-        "target_user": "Engineers updating existing integrations"
+        "title": "Prepare Migration Guidance",
+        "description": "Fetch official migration pages when moving from older OpenAI APIs to newer patterns.",
+        "target_user": "Technical leads"
       },
       {
-        "title": "SDK Reference",
-        "description": "Access SDK-specific documentation for Python, Node.js, and other supported languages",
-        "target_user": "Full-stack developers using OpenAI SDKs"
+        "title": "Answer Documentation Questions",
+        "description": "Ground assistant responses in current OpenAI documentation and include the source URL.",
+        "target_user": "Support and documentation teams"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic API Lookup",
-        "prompt": "Use the openai-docs-skill to find documentation about the [Responses API / Chat Completions API / Realtime API]. Show me the endpoint URL, request parameters, and response format.",
-        "scenario": "Quick reference for specific API"
+        "title": "Find a Documentation Page",
+        "scenario": "Beginner lookup",
+        "prompt": "Use the OpenAI docs skill to search for the official documentation page about the Responses API. Summarize the best result and include the URL."
       },
       {
-        "title": "Parameter Details",
-        "prompt": "Look up the [temperature, max_tokens, stream] parameter in the OpenAI docs. Include the parameter description, valid values, and default settings.",
-        "scenario": "Understanding specific API parameters"
+        "title": "Fetch Current Guidance",
+        "scenario": "Specific page review",
+        "prompt": "Use the OpenAI docs skill to fetch the official page for migrating to the Responses API. Summarize the required code changes in plain language."
       },
       {
-        "title": "Migration Guide",
-        "prompt": "Find the migration guide for moving from [Chat Completions to Responses API]. What are the key differences and what code changes are needed?",
-        "scenario": "API version migration"
+        "title": "Check Endpoint Details",
+        "scenario": "Implementation planning",
+        "prompt": "Use the OpenAI docs skill to list relevant API endpoints for file uploads. Identify the current endpoint names and important request fields."
       },
       {
-        "title": "Code Examples",
-        "prompt": "Get a code example for calling the [ Assistants API ] using the [ Python / Node.js ] SDK. Include authentication setup and basic usage.",
-        "scenario": "Getting started with SDK"
+        "title": "Compare Schema Options",
+        "scenario": "Advanced integration design",
+        "prompt": "Use the OpenAI docs skill to fetch the OpenAPI details for a target endpoint. Compare language examples and note any parameters that affect production reliability."
       }
     ],
     "output_examples": [
       {
-        "input": "search \"Responses API\" 5",
-        "output": "Returns JSON with 5 search results from OpenAI docs, each containing title, URL, and relevance score"
+        "input": "Search for current OpenAI Realtime API documentation.",
+        "output": "A short summary of the most relevant official documentation page, the source URL, and notes about key capabilities."
       },
       {
-        "input": "fetch https://platform.openai.com/docs/guides/migrate-to-responses",
-        "output": "Returns markdown content of the migration guide with step-by-step instructions and code samples"
+        "input": "Fetch a migration guide and explain what changed.",
+        "output": "A concise migration summary with current terminology, affected endpoints, and source-backed next steps."
       },
       {
-        "input": "openapi https://api.openai.com/v1/responses python,javascript code-only",
-        "output": "Returns code samples in Python and JavaScript for calling the Responses API endpoint"
+        "input": "List available API endpoint documentation.",
+        "output": "A grouped overview of endpoint documentation that helps select the right page before implementation."
       }
     ],
     "best_practices": [
-      "Always include the source URL in your response when using docs from this skill",
-      "Use specific search queries to get more relevant results",
-      "Check the doc URL timestamp to confirm you have current information",
-      "Use the anchor parameter to link directly to specific sections"
+      "Use search before fetch when the exact documentation URL is unknown.",
+      "Include the documentation URL in final answers so users can verify the source.",
+      "Avoid sending secrets, private prompts, or customer data in documentation queries."
     ],
     "anti_patterns": [
-      "Relying on memory rather than checking official docs for current parameters",
-      "Using outdated tutorials instead of official documentation",
-      "Ignoring rate limits and error handling documented in the docs",
-      "Not verifying API versions match the documentation you are reading"
+      "Do not rely on memory for OpenAI API details when current docs are required.",
+      "Do not override MCP_URL unless the alternate endpoint is trusted.",
+      "Do not treat fetched examples as production code without reviewing error handling."
     ],
     "faq": [
       {
-        "question": "How do I use this skill?",
-        "answer": "Use the CLI wrapper at scripts/openai-docs-mcp.sh with subcommands like search, fetch, list, or openapi. The skill will automatically query OpenAI's official documentation MCP server."
+        "question": "What does this skill do?",
+        "answer": "It provides a shell workflow for searching and fetching official OpenAI developer documentation through an MCP server."
       },
       {
-        "question": "What documentation sources does this access?",
-        "answer": "This skill connects to OpenAI's official MCP server at developers.openai.com/mcp, providing access to all public OpenAI API documentation, SDK guides, and migration docs."
+        "question": "Which tools can use it?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "Do I need any dependencies?",
-        "answer": "Yes, this skill requires curl and jq to be installed on your system. These are used to make HTTP requests and process JSON responses."
+        "question": "Does it require internet access?",
+        "answer": "Yes. The script sends requests to the configured OpenAI Docs MCP endpoint."
       },
       {
-        "question": "Can this skill make API calls to OpenAI?",
-        "answer": "No, this skill only accesses documentation. It does not make calls to OpenAI's chat or completion APIs. It queries the documentation MCP server only."
+        "question": "Does it execute arbitrary commands?",
+        "answer": "No evidence found. The script calls fixed tools such as curl and jq, and it quotes user input."
       },
       {
-        "question": "How often is the documentation updated?",
-        "answer": "The skill fetches live documentation from OpenAI's servers, so you always get the current version. Check the doc URL or look for version info in the content."
+        "question": "Can I change the MCP endpoint?",
+        "answer": "Yes. The MCP_URL environment variable can override the default endpoint, but only trusted endpoints should be used."
       },
       {
-        "question": "Can I get code examples in specific languages?",
-        "answer": "Yes, use the openapi subcommand with language parameters. For example: openapi <url> python,javascript code-only will return code samples in both languages."
+        "question": "What should not be sent through this skill?",
+        "answer": "Do not send secrets, private customer data, unreleased code names, or confidential prompts in search terms or URLs."
       }
     ]
   },
