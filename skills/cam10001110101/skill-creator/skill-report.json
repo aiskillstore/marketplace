@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T20:27:09.529Z",
+    "generated_at": "2026-06-28T19:37:46.083Z",
     "slug": "cam10001110101-skill-creator",
     "source_url": "https://github.com/Cam10001110101/claude-skills-base/tree/main/mnt/skills/examples/skill-creator",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "d49d1a8c2cef9841614d3d64aff53265f05caa8438ccb32464b0b1a1fbf71bc5",
-    "tree_hash": "328e673e673f81c839440578be693122680fb0c949be673b4b5fb33ddf9f4d03"
+    "tree_hash": "e9936ed46848733b00e9b18c0bf4fac363a8c47d9efee3415b628c498471f05a"
   },
   "skill": {
     "name": "skill-creator",
-    "description": "Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations.",
-    "summary": "Guide for creating effective skills. This skill should be used when users want to create a new skill...",
-    "icon": "🛠️",
+    "description": "Guide and helper scripts for creating, validating, and packaging AI skills with reusable instructions, references, scripts, and assets.",
+    "summary": "Create well-structured AI skills with reusable workflows, resources, validation, and packaging guidance.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Cam10001110101",
     "license": "Complete terms in LICENSE.txt",
-    "category": "productivity",
     "tags": [
-      "skill-development",
-      "ai-tools",
-      "productivity",
-      "claude-skills",
-      "automation"
+      "skill-authoring",
+      "ai-workflows",
+      "documentation",
+      "templates",
+      "validation"
     ],
     "supported_tools": [
       "claude",
@@ -35,32 +34,33 @@
     "risk_factors": [
       "scripts",
       "filesystem",
-      "network"
-    ]
+      "external_commands"
+    ],
+    "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "The skill-creator is a legitimate development utility that creates skill templates, validates YAML frontmatter, and packages skills into zip files. All operations are local file system operations. The 106 static findings are false positives caused by the analyzer misinterpreting: (1) Apache License URLs as network indicators, (2) markdown backtick formatting as shell command execution, (3) SHA256 hashes and content hash identifiers as weak cryptographic algorithms, and (4) standard documentation patterns as C2 indicators. No malicious intent or dangerous patterns exist.",
+    "summary": "Static analysis reported many high-risk matches, but the weak-crypto, license URL, and markdown backtick findings are false positives after context review. The skill does include executable helper scripts that create files, chmod a generated script, read SKILL.md, and package directory contents into zip archives. No malicious intent, credential access, network exfiltration, or prompt injection evidence was found, but publication should note local filesystem and archive-packaging risks.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
         "evidence": [
           {
+            "file": "scripts/init_skill.py",
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
             "file": "scripts/package_skill.py",
             "line_start": 1,
-            "line_end": 111
+            "line_end": 1
           },
           {
             "file": "scripts/quick_validate.py",
             "line_start": 1,
-            "line_end": 65
-          },
-          {
-            "file": "scripts/init_skill.py",
-            "line_start": 1,
-            "line_end": 304
+            "line_end": 1
           }
         ]
       },
@@ -68,25 +68,124 @@
         "factor": "filesystem",
         "evidence": [
           {
+            "file": "scripts/init_skill.py",
+            "line_start": 206,
+            "line_end": 257
+          },
+          {
             "file": "scripts/package_skill.py",
             "line_start": 30,
-            "line_end": 82
+            "line_end": 74
           },
           {
             "file": "scripts/quick_validate.py",
-            "line_start": 11,
-            "line_end": 56
-          },
-          {
-            "file": "scripts/init_skill.py",
-            "line_start": 194,
-            "line_end": 270
+            "line_start": 16,
+            "line_end": 21
           }
         ]
       },
       {
-        "factor": "network",
+        "factor": "external_commands",
         "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 138,
+            "line_end": 144
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 179,
+            "line_end": 187
+          }
+        ]
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Caller-Controlled Filesystem Writes During Skill Initialization",
+        "description": "The initializer builds a destination from user-provided path and skill name values, then creates directories and files and marks the generated example script executable. This is legitimate skill scaffolding, but it can write outside the intended workspace if callers pass unsafe paths or skill names.",
+        "locations": [
+          {
+            "file": "scripts/init_skill.py",
+            "line_start": 206,
+            "line_end": 215
+          },
+          {
+            "file": "scripts/init_skill.py",
+            "line_start": 230,
+            "line_end": 257
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The file creation and chmod behavior is direct and confirmed. Risk depends on whether callers provide trusted path and skill name values."
+      },
+      {
+        "title": "Archive Packaging May Include Unintended Local Files",
+        "description": "The packager recursively includes every file under the selected skill folder in the output zip. This is normal packaging behavior, but users can accidentally include secrets, generated artifacts, or symlinked local files when packaging untrusted folders.",
+        "locations": [
+          {
+            "file": "scripts/package_skill.py",
+            "line_start": 68,
+            "line_end": 74
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "The recursive archive behavior is explicit. The sensitive-file impact depends on the contents of the skill folder being packaged."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Weak-Crypto Findings Are False Positives",
+        "description": "The reported weak cryptographic algorithm matches occur in ordinary prose, markdown examples, and validator text rather than cryptographic operations. No hash, cipher, or password-handling implementation was found in the reviewed files.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 14
+          },
+          {
+            "file": "scripts/init_skill.py",
+            "line_start": 18,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/quick_validate.py",
+            "line_start": 35,
+            "line_end": 54
+          },
+          {
+            "file": "LICENSE.txt",
+            "line_start": 61,
+            "line_end": 61
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "Manual review found documentation and validation strings at the flagged lines, not cryptographic API usage. This strongly supports false-positive classification."
+      },
+      {
+        "title": "Markdown Backtick Command Findings Are Benign Documentation",
+        "description": "The static shell-execution findings in SKILL.md are markdown command examples and inline filenames. The Python initializer lines flagged for backticks are inside generated template strings, not runtime command execution.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 142,
+            "line_end": 187
+          },
+          {
+            "file": "scripts/init_skill.py",
+            "line_start": 69,
+            "line_end": 85
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The flagged content is static documentation or template text. No subprocess, shell, eval, or os.system call was found in the reviewed scripts."
+      },
+      {
+        "title": "Apache License URLs Are Not Runtime Network Activity",
+        "description": "The only hardcoded URLs are Apache License reference links. They are license text, not code that performs network requests or transmits data.",
+        "locations": [
           {
             "file": "LICENSE.txt",
             "line_start": 4,
@@ -96,148 +195,183 @@
             "file": "LICENSE.txt",
             "line_start": 196,
             "line_end": 196
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 6,
-            "line_end": 6
           }
-        ]
+        ],
+        "confidence": 0.99,
+        "confidence_reasoning": "Both URLs are inside standard Apache License text. There is no network library usage associated with these lines."
+      },
+      {
+        "title": "No Prompt Injection Evidence Found",
+        "description": "Review did not find suspicious phrases that claim system authority, request skipped analysis, or instruct the model to ignore existing instructions. The skill content is instructional but does not attempt to override evaluator rules.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 87,
+            "line_end": 90
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "Targeted search and manual review found normal workflow guidance. Confidence is high, though no manual review can prove absence of every possible phrasing."
       }
     ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 6,
-    "total_lines": 1139,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T20:27:09.529Z"
+    "dangerous_patterns": [
+      {
+        "title": "Filesystem Writes From Caller-Provided Paths",
+        "description": "The initializer writes a new skill tree under caller-provided path inputs and creates an executable example script.",
+        "locations": [
+          {
+            "file": "scripts/init_skill.py",
+            "line_start": 206,
+            "line_end": 257
+          }
+        ],
+        "confidence": 0.8,
+        "confidence_reasoning": "The path construction and write calls are explicit. The pattern is useful but requires trusted inputs and workspace awareness."
+      },
+      {
+        "title": "Recursive Zip Packaging",
+        "description": "The packager walks the selected skill directory and adds every file it finds to a distributable zip archive.",
+        "locations": [
+          {
+            "file": "scripts/package_skill.py",
+            "line_start": 68,
+            "line_end": 74
+          }
+        ],
+        "confidence": 0.76,
+        "confidence_reasoning": "The recursive rglob and zip write behavior is direct. Data exposure risk depends on the packaged folder contents."
+      }
+    ],
+    "files_scanned": 5,
+    "total_lines": 892,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T19:37:46.083Z",
+    "risk_factors": [
+      "scripts",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Create Custom AI Skills with Templates",
-    "value_statement": "Building AI skills from scratch requires understanding Claude's skill architecture, YAML frontmatter, and proper file organization. This tool provides templates, validation, and packaging to create professional skills quickly.",
+    "user_title": "Create AI Skills",
+    "value_statement": "Teams need consistent skill packages that are easy for Claude, Codex, and Claude Code to use. This skill provides a repeatable process, templates, validation checks, and packaging steps for reusable AI workflows.",
     "seo_keywords": [
-      "claude skills",
-      "ai skill creation",
-      "claude code skills",
-      "custom ai tools",
-      "skill templates",
-      "claude marketplace",
-      "ai automation",
-      "skill development",
-      "codex skills",
-      "claude skill builder"
+      "Claude skill creator",
+      "Codex skill authoring",
+      "Claude Code",
+      "AI skill templates",
+      "skill packaging",
+      "workflow documentation",
+      "skill validation",
+      "reusable AI workflows",
+      "Claude",
+      "Codex"
     ],
     "actual_capabilities": [
-      "Generates skill templates with proper YAML frontmatter structure",
-      "Validates skill structure and required metadata fields",
-      "Packages skills into distributable zip files",
-      "Creates example scripts, references, and assets directories",
-      "Provides step-by-step skill creation guidance"
+      "Explains the required SKILL.md structure and frontmatter fields.",
+      "Guides authors through examples, planning, initialization, editing, packaging, and iteration.",
+      "Provides an initializer script that creates a template skill folder with example resources.",
+      "Provides a validator that checks basic frontmatter and naming requirements.",
+      "Provides a packaging script that validates a skill before creating a zip archive.",
+      "Describes how to organize scripts, references, and assets for progressive disclosure."
     ],
     "limitations": [
-      "Only creates skill scaffolding - content must be added manually",
-      "Validation checks structure but not content quality or usefulness",
-      "No built-in testing framework for skill functionality",
-      "Requires understanding of skill architecture before use"
+      "Validation is basic and does not prove semantic quality or safety.",
+      "Generated templates still require human editing and review.",
+      "Packaging can include unintended files if the skill folder is not clean.",
+      "The helper scripts assume a local Python environment."
     ],
     "use_cases": [
       {
-        "target_user": "AI developers",
-        "title": "Build Custom Skills",
-        "description": "Create specialized skills for specific domains like finance, healthcare, or engineering with proper structure."
+        "title": "Create a New Team Skill",
+        "description": "Turn repeated team workflows into a reusable skill with clear instructions and supporting resources.",
+        "target_user": "Team lead"
       },
       {
-        "target_user": "Enterprise teams",
-        "title": "Standardize AI Tools",
-        "description": "Develop consistent skill templates for your organization with company-specific workflows."
+        "title": "Standardize Skill Structure",
+        "description": "Use the template and guidance to keep frontmatter, folders, and resource references consistent.",
+        "target_user": "Documentation maintainer"
       },
       {
-        "target_user": "Marketplace contributors",
-        "title": "Package Skills for Distribution",
-        "description": "Prepare skills for sharing on AI marketplaces with proper validation and packaging."
+        "title": "Package Skills for Sharing",
+        "description": "Validate a completed skill and create a distributable archive for review or installation.",
+        "target_user": "Developer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a Finance Skill",
-        "scenario": "Building skills for financial analysis",
-        "prompt": "Help me create a skill for analyzing quarterly earnings reports. It should extract key metrics and generate executive summaries."
+        "title": "Plan a Basic Skill",
+        "scenario": "Beginner authoring",
+        "prompt": "Help me design a skill for a repeated workflow. Ask for the minimum examples needed, then propose the SKILL.md outline and resource folders."
       },
       {
-        "title": "Build a Healthcare Tool",
-        "scenario": "Medical data processing skill",
-        "prompt": "Create a skill that processes patient data exports and creates compliance reports with HIPAA validation."
+        "title": "Initialize a Skill",
+        "scenario": "Template creation",
+        "prompt": "Create a new skill scaffold for my workflow. Use the initializer pattern, then list which generated files I should keep, edit, or remove."
       },
       {
-        "title": "Design a Code Review Skill",
-        "scenario": "Automated code quality checks",
-        "prompt": "Build a skill that analyzes Python code for security vulnerabilities and suggests improvements based on best practices."
+        "title": "Improve an Existing Skill",
+        "scenario": "Skill revision",
+        "prompt": "Review this skill for clarity, trigger quality, progressive disclosure, and unnecessary resources. Suggest focused edits before packaging."
       },
       {
-        "title": "Develop Multi-Step Workflow",
-        "scenario": "Complex business process automation",
-        "prompt": "Create a skill that orchestrates a 5-step approval workflow with email notifications and document generation."
+        "title": "Prepare for Marketplace Review",
+        "scenario": "Advanced release preparation",
+        "prompt": "Audit this skill before release. Check metadata, security-sensitive scripts, resource references, validation output, packaging risk, and user-facing documentation."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a skill for analyzing customer feedback surveys",
+        "input": "I need a skill for monthly finance reporting.",
+        "output": "A proposed skill plan with trigger description, workflow sections, required reference documents, and scripts to automate repeated report checks."
+      },
+      {
+        "input": "Review my draft skill before I package it.",
         "output": [
-          "Generated skill template at: feedback-analyzer/",
-          "Created SKILL.md with YAML frontmatter validation",
-          "Added example scripts directory with placeholder script",
-          "Created references directory with API documentation template",
-          "Packaged skill as: feedback-analyzer.zip"
+          "A concise review of missing metadata and unclear instructions.",
+          "A list of resources to keep, move, or delete.",
+          "Packaging cautions for local files and sensitive data."
         ]
       },
       {
-        "input": "Help me build a skill for generating API documentation",
-        "output": [
-          "Initialized skill: api-docs-generator",
-          "Created three-tier structure: scripts/, references/, assets/",
-          "Added example Python script for doc generation",
-          "Included reference template for endpoint documentation",
-          "Skill validated and ready for packaging"
-        ]
+        "input": "Help me turn this process into a reusable AI workflow.",
+        "output": "A structured authoring workflow that starts with examples, identifies reusable assets, drafts instructions, and defines validation steps."
       }
     ],
     "best_practices": [
-      "Start with concrete examples of how the skill will be used before writing content",
-      "Follow the progressive disclosure principle - keep SKILL.md concise and detailed docs in references/",
-      "Test skills with real tasks before packaging for distribution"
+      "Start from concrete user requests before writing the skill instructions.",
+      "Keep SKILL.md focused and move detailed references into separate files.",
+      "Inspect the skill folder for secrets or extra files before packaging."
     ],
     "anti_patterns": [
-      "Don't include sensitive credentials or API keys in skill files",
-      "Avoid duplicating content between SKILL.md and reference documents",
-      "Don't create overly broad skills - focus on specific, well-defined tasks"
+      "Do not package generated caches, credentials, or unrelated project files.",
+      "Do not rely on vague trigger descriptions that apply to many unrelated tasks.",
+      "Do not keep example scripts or assets that the final skill does not use."
     ],
     "faq": [
       {
-        "question": "What file formats are supported for skills?",
-        "answer": "Skills use YAML frontmatter in SKILL.md files. Scripts can be Python, Bash, or any executable format."
+        "question": "What does this skill help create?",
+        "answer": "It helps create AI skill packages with instructions, metadata, scripts, references, assets, validation, and packaging guidance."
       },
       {
-        "question": "Is there a size limit for skill content?",
-        "answer": "SKILL.md should stay under 5,000 words. Reference files can be larger and are loaded on-demand."
+        "question": "Does it write files?",
+        "answer": "Yes. The initializer creates a local skill folder and example files at the path selected by the caller."
       },
       {
-        "question": "Can skills include external dependencies?",
-        "answer": "Yes, scripts can import standard libraries. For external packages, include installation instructions."
+        "question": "Does it access the network?",
+        "answer": "No runtime network access was found. The only URLs reviewed are Apache License reference links."
       },
       {
-        "question": "How do I validate my skill before packaging?",
-        "answer": "Run the quick_validate.py script to check YAML frontmatter and required fields before packaging."
+        "question": "Can it validate a finished skill?",
+        "answer": "It includes a basic validator for frontmatter, naming format, and description formatting."
       },
       {
-        "question": "What naming conventions should I follow?",
-        "answer": "Use hyphen-case (lowercase with hyphens). Names must match the directory name exactly."
+        "question": "Can it package a skill for distribution?",
+        "answer": "Yes. The packaging script validates the skill, then creates a zip archive from the selected skill folder."
       },
       {
-        "question": "Can I update an existing skill?",
-        "answer": "Yes, edit the SKILL.md file and resource directories, then re-package using the packaging script."
+        "question": "What should users check before packaging?",
+        "answer": "Users should remove secrets, unused generated files, local caches, and any files that should not be shared."
       }
     ]
   },

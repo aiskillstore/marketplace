@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T21:36:14.959Z",
+    "generated_at": "2026-06-28T19:29:59.471Z",
     "slug": "c0ntr0lledcha0s-writing-to-logseq",
     "source_url": "https://github.com/C0ntr0lledCha0s/claude-code-plugin-automations/tree/main/logseq-expert/skills/writing-to-logseq",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "8c2d1f9ae3d86e3705a3c9451eb6d77e8dd1f2dbe1c2c835328384d25f201562",
-    "tree_hash": "975e17c5161d1665577c7339d7eb50cdcb76337d4eaee51b73b91d961458a366"
+    "tree_hash": "f1aae17a8979fd6996f671072d022f2661f590d5d8250c3ae4ac871f6e1a2c78"
   },
   "skill": {
     "name": "writing-to-logseq",
-    "description": "Expert in writing data to Logseq DB graphs via HTTP API. Auto-invokes when users want to create pages, add blocks, update content, set properties, or sync conversation notes to their Logseq graph. Provides CRUD operations with safety guidelines.\n",
-    "summary": "Expert in writing data to Logseq DB graphs via HTTP API. Auto-invokes when users want to create page...",
-    "icon": "📝",
+    "description": "Write structured notes, pages, blocks, properties, and tags to a Logseq graph through the Logseq HTTP API. Includes helper operations, examples, templates, and safety guidance for controlled graph updates.",
+    "summary": "Create and update Logseq pages, blocks, tags, and properties through the local HTTP API.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "C0ntr0lledCha0s",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
       "logseq",
       "knowledge-management",
       "notes",
-      "database",
-      "api"
+      "http-api",
+      "automation"
     ],
     "supported_tools": [
       "claude",
@@ -33,24 +32,66 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
       "network",
-      "env_access",
-      "filesystem"
-    ]
+      "filesystem",
+      "env_access"
+    ],
+    "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate Logseq integration skill for knowledge management. Static analysis flagged 258 patterns but 99% are false positives from markdown documentation being misidentified as code execution. The actual implementation only makes local HTTP API calls to localhost:12315 with user-configured tokens. No external network access, no shell commands, no credential exfiltration.",
+    "summary": "Static analysis reported many external command and weak-crypto patterns, but these are false positives from Markdown code fences, inline API names, and ordinary documentation text. The confirmed risk is expected for this skill: a bundled Python helper reads a Logseq URL and token, sends authenticated HTTP requests, and can create, update, or delete graph content. No prompt injection attempt or confirmed malicious exfiltration was found.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 1,
+            "line_end": 17
+          },
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 483,
+            "line_end": 516
+          }
+        ]
+      },
       {
         "factor": "network",
         "evidence": [
           {
             "file": "scripts/write-operations.py",
+            "line_start": 81,
+            "line_end": 82
+          },
+          {
+            "file": "scripts/write-operations.py",
             "line_start": 114,
-            "line_end": 137
+            "line_end": 124
+          },
+          {
+            "file": "references/write-operations.md",
+            "line_start": 341,
+            "line_end": 356
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 92,
+            "line_end": 96
           }
         ]
       },
@@ -61,157 +102,301 @@
             "file": "scripts/write-operations.py",
             "line_start": 81,
             "line_end": 82
-          }
-        ]
-      },
-      {
-        "factor": "filesystem",
-        "evidence": [
+          },
           {
             "file": "scripts/write-operations.py",
-            "line_start": 92,
-            "line_end": 109
+            "line_start": 98,
+            "line_end": 105
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 6,
-    "total_lines": 1964,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T21:36:14.959Z"
+    "medium_findings": [
+      {
+        "title": "Authenticated Logseq API Write Access",
+        "description": "The helper reads a configurable API URL and token, then sends JSON-RPC style write requests with an Authorization bearer header. This is legitimate for Logseq automation, but a wrong or untrusted URL could receive the token and requested note content.",
+        "locations": [
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 81,
+            "line_end": 82
+          },
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 114,
+            "line_end": 124
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The network call and bearer token header are directly visible in the helper. The default URL is localhost, so the risk depends on user configuration rather than confirmed malicious intent."
+      },
+      {
+        "title": "Destructive Logseq Operations Are Exposed",
+        "description": "The skill exposes page and block deletion methods and documents delete workflows. The code checks that targets exist, but successful calls can still remove user graph data when requested.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 30,
+            "line_end": 36
+          },
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 196,
+            "line_end": 210
+          },
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 258,
+            "line_end": 272
+          },
+          {
+            "file": "references/safety-guidelines.md",
+            "line_start": 47,
+            "line_end": 79
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "Delete methods and safety guidance are explicit. The operations are expected for CRUD support, but the data loss impact is real if used incorrectly."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Environment and Local Config Token Loading",
+        "description": "The helper reads LOGSEQ_API_URL, LOGSEQ_API_TOKEN, and an optional local config file. This is expected configuration handling, but tokens should be treated as sensitive credentials.",
+        "locations": [
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 81,
+            "line_end": 82
+          },
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 92,
+            "line_end": 105
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The environment and config reads are direct and limited to Logseq API configuration. I found no evidence that the token is read for unrelated purposes."
+      },
+      {
+        "title": "Static Command Execution Alerts Are False Positives",
+        "description": "The many external command alerts point to Markdown code fences, inline function names, and Python examples. I did not find shell backtick execution or command construction in the reviewed files.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 56
+          },
+          {
+            "file": "references/write-operations.md",
+            "line_start": 37,
+            "line_end": 62
+          },
+          {
+            "file": "references/safety-guidelines.md",
+            "line_start": 13,
+            "line_end": 21
+          },
+          {
+            "file": "templates/page-template.md",
+            "line_start": 7,
+            "line_end": 12
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The cited locations are documentation examples, not executable shell commands. The actual Python helper uses urllib requests, not subprocess or shell execution."
+      },
+      {
+        "title": "Static Weak Crypto and Sensitive File Alerts Are False Positives",
+        "description": "Weak cryptography and Windows SAM detections do not match the semantic context of the cited content. The reviewed lines are skill descriptions, project templates, or Logseq system property examples.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 8
+          },
+          {
+            "file": "references/safety-guidelines.md",
+            "line_start": 99,
+            "line_end": 110
+          },
+          {
+            "file": "templates/page-template.md",
+            "line_start": 25,
+            "line_end": 44
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The suspicious static labels do not correspond to cryptographic code or Windows credential files in these locations. No related malicious behavior was found nearby."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Bearer Token Sent to Configurable HTTP Endpoint",
+        "description": "The helper posts to the configured Logseq API URL and includes the API token in an Authorization bearer header. Users should keep the default localhost endpoint or verify any custom URL.",
+        "locations": [
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 81,
+            "line_end": 82
+          },
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 114,
+            "line_end": 124
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The code shows the configurable URL and bearer header directly. This is a real pattern, but it supports the intended Logseq API workflow."
+      },
+      {
+        "title": "Graph Content Deletion Methods",
+        "description": "The helper implements page and block deletion through Logseq editor API methods. These methods should require clear user intent because they can remove graph data.",
+        "locations": [
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 196,
+            "line_end": 210
+          },
+          {
+            "file": "scripts/write-operations.py",
+            "line_start": 258,
+            "line_end": 272
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "Deletion methods are explicit and call Logseq delete APIs after checking target existence. Their risk is data loss rather than hidden execution."
+      }
+    ],
+    "files_scanned": 5,
+    "total_lines": 1712,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T19:29:59.471Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "env_access"
+    ]
   },
   "content": {
-    "user_title": "Write to Logseq knowledge graphs",
-    "value_statement": "Manually copying information to Logseq takes time. This skill provides programmatic access to create pages, add blocks, set properties, and sync conversation notes directly to your Logseq graph via the HTTP API.",
+    "user_title": "Write Notes to Logseq",
+    "value_statement": "Manual note transfer into Logseq can lose structure and context. This skill helps Claude, Codex, and Claude Code create organized pages, blocks, tags, and properties through the Logseq HTTP API.",
     "seo_keywords": [
-      "Claude Code Logseq integration",
-      "Logseq API writer",
-      "knowledge base automation",
-      "Claude Code writing skills",
-      "Logseq graph database",
-      "Claude Codex Logseq",
-      "notes automation",
-      "Claude Code productivity",
-      "Logseq API",
-      "Claude Code plugin"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "Logseq automation",
+      "Logseq HTTP API",
+      "knowledge graph writing",
+      "note taking workflow",
+      "page templates",
+      "block properties",
+      "conversation notes"
     ],
     "actual_capabilities": [
-      "Create pages with initial content and properties",
-      "Add blocks as children or siblings of existing content",
-      "Update and delete blocks and pages",
-      "Set typed properties (text, number, date, checkbox)",
-      "Add and remove tags from blocks",
-      "Sync conversation notes with timestamps"
+      "Creates new Logseq pages with optional initial content and page properties.",
+      "Adds, updates, appends, and deletes blocks through Logseq editor API methods.",
+      "Sets or removes block properties, including simple typed values such as numbers and checkboxes.",
+      "Adds and removes tags from existing block content.",
+      "Syncs conversation notes into timestamped pages under a configurable page prefix.",
+      "Provides reusable page templates for meetings, tasks, daily notes, books, and knowledge articles."
     ],
     "limitations": [
-      "Requires Logseq HTTP API to be enabled with API token",
-      "Only connects to local Logseq instance (localhost)",
-      "Cannot query or read data (use separate reading skill)",
-      "Rate limited by Logseq API responsiveness"
+      "Requires the Logseq HTTP API to be enabled and reachable from the local environment.",
+      "Requires a valid Logseq API token from an environment variable, parameter, or local config file.",
+      "Can modify or delete graph data when destructive operations are requested.",
+      "Does not include interactive conflict resolution for duplicate pages or concurrent edits."
     ],
     "use_cases": [
       {
-        "target_user": "Knowledge Workers",
-        "title": "Capture AI conversation insights",
-        "description": "Automatically sync Claude Code conversations to your Logseq knowledge base with timestamps for later reference."
+        "title": "Capture Meeting Notes",
+        "target_user": "Team leads",
+        "description": "Create structured meeting pages with attendees, agenda items, notes, and follow-up sections."
       },
       {
-        "target_user": "Project Managers",
-        "title": "Create structured project pages",
-        "description": "Generate project pages with tasks, properties, and nested blocks following consistent templates."
-      },
-      {
+        "title": "Organize Research Notes",
         "target_user": "Researchers",
-        "title": "Build interconnected knowledge graphs",
-        "description": "Create linked pages, add tags, and build relationships between research notes and sources."
+        "description": "Save summaries, references, tags, and related pages into a Logseq knowledge graph."
+      },
+      {
+        "title": "Sync AI Conversation Summaries",
+        "target_user": "Claude Code and Codex users",
+        "description": "Store important conversation outcomes as timestamped Logseq notes for later review."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create simple page",
-        "scenario": "New page from notes",
-        "prompt": "Create a Logseq page called '{{Page Title}}' with this content: {{content}}"
+        "title": "Create a Simple Page",
+        "scenario": "Beginner page creation",
+        "prompt": "Create a Logseq page named \"Project Notes\" with a short overview and three starter bullet points."
       },
       {
-        "title": "Add task with properties",
-        "scenario": "Task tracking entry",
-        "prompt": "Add a task block to my '{{Project}}' page with content '{{task description}}', priority '{{priority}}', and due date {{date}}"
+        "title": "Append Daily Notes",
+        "scenario": "Add content without replacing existing notes",
+        "prompt": "Append these meeting decisions to my Daily Notes page and keep the content as clear Logseq bullets."
       },
       {
-        "title": "Sync conversation",
-        "scenario": "Save AI conversation",
-        "prompt": "Sync these conversation notes to Logseq under 'Claude Notes/{{topic}}': {{notes}}"
+        "title": "Build a Tagged Task Page",
+        "scenario": "Create structured task content",
+        "prompt": "Create a Logseq task page for the release checklist with status, priority, due date, subtasks, and relevant tags."
       },
       {
-        "title": "Build knowledge structure",
-        "scenario": "Complex knowledge base entry",
-        "prompt": "Create a structured Logseq page for '{{subject}}' in the '{{category}}' namespace with overview, key points, and action items sections"
+        "title": "Sync Conversation Knowledge",
+        "scenario": "Advanced knowledge graph update",
+        "prompt": "Summarize this conversation into a Logseq knowledge page, add properties, link related concepts, and avoid duplicate pages."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a page called 'Meeting Notes 2024-01-15' with content '## Attendees\\n- John\\n- Jane\\n\\n## Action Items\\n- [ ] Review proposal'",
-        "output": [
-          "Created page 'Meeting Notes 2024-01-15'",
-          "Added first block with initial content",
-          "Ready to add more blocks or properties"
-        ]
+        "input": "Create a meeting notes page for the planning call with Alice and Jordan.",
+        "output": "A Logseq meeting page is created with date, attendees, agenda, notes, action items, and follow-up sections."
       },
       {
-        "input": "Add a task to 'Project Alpha' with content 'Complete Q1 review', priority 'High', and due date '2024-03-31'",
-        "output": [
-          "Created task block under 'Project Alpha'",
-          "Set priority property to 'High'",
-          "Set due date property to linked date format"
-        ]
+        "input": "Append these decisions to Daily Notes and tag them as product and review.",
+        "output": "The Daily Notes page receives a new block with the decisions, timestamped context, and the requested tags."
       },
       {
-        "input": "Sync these conversation notes to Logseq under 'Claude Notes/Architecture Review'",
-        "output": [
-          "Created or updated page 'Claude Notes/Architecture Review'",
-          "Added timestamped section with conversation notes"
-        ]
+        "input": "Save this conversation summary under Claude Notes with related page links.",
+        "output": "A timestamped Claude Notes page is updated with a summary, key points, follow-up questions, and Logseq page links."
       }
     ],
     "best_practices": [
-      "Use get_or_create_page() instead of create_page() to avoid duplicate errors",
-      "Verify resources exist before deleting with confirm-before-delete checks",
-      "Add rate limiting (0.1s delay) between batch operations to avoid overwhelming the API"
+      "Use append and get-or-create operations before replacing existing Logseq content.",
+      "Confirm page titles, block UUIDs, and property names before update or delete operations.",
+      "Test bulk writes on a test graph and keep batch sizes small."
     ],
     "anti_patterns": [
-      "Don't use create_page() multiple times with the same title (causes DuplicateError)",
-      "Avoid bulk delete operations without size limits (prevents accidental data loss)",
-      "Do not modify system properties like uuid, created-at, or block/parent directly"
+      "Do not delete pages or blocks without explicit user confirmation.",
+      "Do not point the API URL at an untrusted server because the token is sent as a bearer credential.",
+      "Do not use broad automated writes when duplicate pages or conflicting edits are possible."
     ],
     "faq": [
       {
-        "question": "Is Logseq API required?",
-        "answer": "Yes, Logseq must have HTTP API enabled in settings with an API token configured."
+        "question": "Does this skill require Logseq to be running?",
+        "answer": "Yes. The Logseq HTTP API must be enabled and reachable before write operations can work."
       },
       {
-        "question": "Can this read Logseq data?",
-        "answer": "No, this skill only handles write operations. Use the 'reading-logseq' skill for data retrieval."
+        "question": "Where does the API token come from?",
+        "answer": "The helper can use a token parameter, LOGSEQ_API_TOKEN, or a local Logseq expert config file."
       },
       {
-        "question": "What data types are supported?",
-        "answer": "Strings, numbers, dates (linked format), checkboxes, and tags are fully supported."
+        "question": "Can it delete Logseq data?",
+        "answer": "Yes. The included operations support page and block deletion, so destructive requests need confirmation."
       },
       {
-        "question": "Is my data safe?",
-        "answer": "Yes, all operations target your local Logseq instance only. No data leaves your machine."
+        "question": "Can it create reusable page structures?",
+        "answer": "Yes. The skill includes templates for meetings, tasks, daily notes, books, and knowledge base articles."
       },
       {
-        "question": "Why do I get DuplicateError?",
-        "answer": "The page already exists. Use get_or_create_page() for idempotent operations."
+        "question": "Does it send data to cloud services?",
+        "answer": "No cloud endpoint is hardcoded. It posts to the configured Logseq API URL, which defaults to localhost."
       },
       {
-        "question": "How is this different from other skills?",
-        "answer": "This provides direct HTTP API access for programmatic control. Other methods may use file-based syncing."
+        "question": "Is it safe for shared graphs?",
+        "answer": "Use caution. Shared graphs can have naming conflicts and concurrent edits, so verify targets before writing."
       }
     ]
   },

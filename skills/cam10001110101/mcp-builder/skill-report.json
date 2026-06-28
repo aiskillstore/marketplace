@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T20:16:35.850Z",
+    "generated_at": "2026-06-28T20:38:27.543Z",
     "slug": "cam10001110101-mcp-builder",
     "source_url": "https://github.com/Cam10001110101/claude-skills-base/tree/main/mnt/skills/examples/mcp-builder",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "cc36ccd15ba6c19c02fabfcc485493b26c142976ccb99c49f90cb488208d1bfc",
-    "tree_hash": "db26fd4e961d4b54b3ff6b98d776706e9497a378f610f9c2b8836e4af2dd4075"
+    "tree_hash": "5c70d34f756ac61c56238e5981de92bf780d1419aab24ea4ef61e4bc19761538"
   },
   "skill": {
     "name": "mcp-builder",
-    "description": "Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact with external services through well-designed tools. Use when building MCP servers to integrate external APIs or services, whether in Python (FastMCP) or Node/TypeScript (MCP SDK).",
-    "summary": "Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact wi...",
-    "icon": "🔧",
+    "description": "Guide for designing, implementing, and evaluating MCP servers for external APIs using Python FastMCP or the TypeScript MCP SDK.",
+    "summary": "Build MCP servers with agent-focused tools, validation, documentation, and evaluation workflows.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Cam10001110101",
     "license": "Complete terms in LICENSE.txt",
-    "category": "coding",
     "tags": [
       "mcp",
       "api-integration",
       "python",
       "typescript",
-      "llm"
+      "evaluation"
     ],
     "supported_tools": [
       "claude",
@@ -34,27 +33,51 @@
     ],
     "risk_factors": [
       "scripts",
-      "network"
-    ]
+      "network",
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a documentation/guide skill for building MCP servers. The 596 static findings are FALSE POSITIVES: 'weak cryptographic algorithm' patterns appear in LICENSE.txt (Apache 2.0 license text), 'backtick execution' patterns are markdown code formatting in documentation files, and 'hardcoded URLs' point to legitimate MCP documentation. The two Python scripts (connections.py, evaluation.py) are legitimate evaluation tools that use the official mcp package and Anthropic API. No malicious behavior detected.",
+    "summary": "Static analysis reported many high and critical patterns, but review found most weak-crypto, backtick, and URL hits are documentation examples or license text rather than malicious code. Real risk remains because the included evaluation harness can launch user-specified MCP server commands, connect to remote MCP endpoints with headers, pass environment variables, read or write evaluation files, and send tool outputs to Anthropic for scoring.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
         "evidence": [
           {
+            "file": "scripts/evaluation.py",
+            "line_start": 1,
+            "line_end": 3
+          },
+          {
             "file": "scripts/connections.py",
             "line_start": 1,
-            "line_end": 152
+            "line_end": 10
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 327,
+            "line_end": 329
           },
           {
             "file": "scripts/evaluation.py",
-            "line_start": 1,
-            "line_end": 374
+            "line_start": 347,
+            "line_end": 354
+          },
+          {
+            "file": "scripts/connections.py",
+            "line_start": 76,
+            "line_end": 84
           }
         ]
       },
@@ -62,144 +85,469 @@
         "factor": "network",
         "evidence": [
           {
+            "file": "scripts/connections.py",
+            "line_start": 88,
+            "line_end": 109
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 96,
+            "line_end": 103
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 137,
+            "line_end": 144
+          },
+          {
             "file": "SKILL.md",
-            "line_start": 60,
-            "line_end": 71
+            "line_start": 58,
+            "line_end": 75
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 290,
+            "line_end": 302
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 343,
+            "line_end": 354
+          },
+          {
+            "file": "reference/evaluation.md",
+            "line_start": 395,
+            "line_end": 399
+          },
+          {
+            "file": "reference/evaluation.md",
+            "line_start": 553,
+            "line_end": 568
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 322,
+            "line_end": 335
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 339,
+            "line_end": 340
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 365,
+            "line_end": 366
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 11,
-    "total_lines": 4545,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T20:16:35.850Z"
+    "medium_findings": [
+      {
+        "title": "User-Specified Command Launch in Evaluation Harness",
+        "description": "The evaluation harness accepts a command and argument list from the CLI, then passes them to the MCP stdio client. This is expected for local MCP testing, but running untrusted command values would execute local code under the user account.",
+        "locations": [
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 327,
+            "line_end": 329
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 347,
+            "line_end": 354
+          },
+          {
+            "file": "scripts/connections.py",
+            "line_start": 76,
+            "line_end": 84
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The command path is directly user-controlled through CLI arguments and is used to create stdio server parameters. The behavior is legitimate for this skill, so the risk depends on whether users supply trusted server commands."
+      },
+      {
+        "title": "Remote MCP Connections With User-Supplied Headers",
+        "description": "The harness supports SSE and streamable HTTP transports and accepts arbitrary URLs and headers. This can expose bearer tokens or other headers to a configured endpoint if users connect to an untrusted MCP server.",
+        "locations": [
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 331,
+            "line_end": 333
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 343,
+            "line_end": 354
+          },
+          {
+            "file": "scripts/connections.py",
+            "line_start": 91,
+            "line_end": 109
+          },
+          {
+            "file": "reference/evaluation.md",
+            "line_start": 453,
+            "line_end": 470
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The network behavior is explicit and documented, and headers are passed through to MCP clients. No malicious endpoint is hardcoded, but users must verify the endpoint before supplying credentials."
+      },
+      {
+        "title": "Tool Results Sent to Anthropic During Evaluation",
+        "description": "The evaluation loop sends user questions, tool schemas, tool results, and conversation history to Anthropic Messages API calls. This is necessary for LLM-based evaluation, but sensitive tool outputs could leave the local environment.",
+        "locations": [
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 96,
+            "line_end": 103
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 116,
+            "line_end": 120
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 128,
+            "line_end": 144
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 220,
+            "line_end": 239
+          }
+        ],
+        "confidence": 0.83,
+        "confidence_reasoning": "The code clearly forwards messages and tool results to the Anthropic client. The privacy impact is real when evaluated MCP tools return confidential data, although the behavior is aligned with the stated evaluation function."
+      },
+      {
+        "title": "Environment Variables Passed to Child MCP Servers",
+        "description": "The CLI accepts KEY=VALUE environment variables and forwards them into stdio MCP server execution. This is useful for test credentials, but it can expose secrets to any MCP server command selected by the user.",
+        "locations": [
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 290,
+            "line_end": 302
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 327,
+            "line_end": 329
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 343,
+            "line_end": 354
+          },
+          {
+            "file": "scripts/connections.py",
+            "line_start": 76,
+            "line_end": 84
+          }
+        ],
+        "confidence": 0.8,
+        "confidence_reasoning": "Environment variables are parsed from user input and passed into the subprocess connection settings. This is a clear credential-handling risk if the target server is not trusted."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Weak-Crypto and Backtick Hits Are Mostly Documentation False Positives",
+        "description": "Many high and medium static detections occur inside Markdown examples, XML examples, checklist text, or license wording. These files explain MCP server development and do not automatically execute those examples when the skill is loaded.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 213,
+            "line_end": 231
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 271,
+            "line_end": 283
+          },
+          {
+            "file": "reference/evaluation.md",
+            "line_start": 386,
+            "line_end": 399
+          },
+          {
+            "file": "reference/node_mcp_server.md",
+            "line_start": 97,
+            "line_end": 126
+          },
+          {
+            "file": "reference/python_mcp_server.md",
+            "line_start": 72,
+            "line_end": 118
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "Targeted review showed the cited areas are fenced examples or instructional prose. There is no evidence that these Markdown snippets execute by themselves."
+      },
+      {
+        "title": "Placeholder API Keys and Tokens in Examples",
+        "description": "Reference documentation includes placeholder API keys, bearer tokens, and GitHub token examples. These are not embedded real secrets, but marketplace users should treat them as examples and avoid copying real secrets into shared evaluation files.",
+        "locations": [
+          {
+            "file": "reference/evaluation.md",
+            "line_start": 395,
+            "line_end": 399
+          },
+          {
+            "file": "reference/evaluation.md",
+            "line_start": 438,
+            "line_end": 446
+          },
+          {
+            "file": "reference/evaluation.md",
+            "line_start": 553,
+            "line_end": 568
+          },
+          {
+            "file": "reference/node_mcp_server.md",
+            "line_start": 697,
+            "line_end": 702
+          },
+          {
+            "file": "reference/python_mcp_server.md",
+            "line_start": 537,
+            "line_end": 544
+          }
+        ],
+        "confidence": 0.76,
+        "confidence_reasoning": "The strings are clearly placeholders in documentation and CLI examples. The pattern is safe as shipped, but it documents workflows that handle real credentials."
+      },
+      {
+        "title": "No Prompt Injection Attempt Found in Reviewed Files",
+        "description": "Searches for explicit override, ignore-instructions, pre-approval, and administrator-authority phrases found no evidence of prompt injection attempts in the skill files reviewed.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 1,
+            "line_end": 11
+          },
+          {
+            "file": "reference/evaluation.md",
+            "line_start": 1,
+            "line_end": 5
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 1,
+            "line_end": 4
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "Targeted phrase search across SKILL.md, reference files, scripts, and LICENSE.txt returned no matches for the required prompt-injection indicators."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Subprocess-Style MCP Stdio Startup",
+        "description": "The stdio connection path starts an MCP server from a user-provided command and arguments. This pattern should only be used with trusted local server commands.",
+        "locations": [
+          {
+            "file": "scripts/connections.py",
+            "line_start": 76,
+            "line_end": 84
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 327,
+            "line_end": 329
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The pattern is present in executable Python code and has direct local execution impact. It is part of the intended harness, not hidden behavior."
+      },
+      {
+        "title": "Arbitrary Remote MCP Endpoint Configuration",
+        "description": "The SSE and HTTP connection paths accept user-provided URLs and optional headers. This can transmit headers or tool traffic to remote MCP endpoints selected at runtime.",
+        "locations": [
+          {
+            "file": "scripts/connections.py",
+            "line_start": 91,
+            "line_end": 109
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 331,
+            "line_end": 333
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The endpoint and headers are controlled by CLI inputs and are passed into network MCP clients. The risk is contextual because no destination is hardcoded."
+      },
+      {
+        "title": "LLM Evaluation Sends Tool Outputs Off-Process",
+        "description": "The harness forwards tool results back into Anthropic Messages API requests while evaluating tasks. Users should avoid evaluating tools that expose secrets or private records unless their data policy permits this.",
+        "locations": [
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 96,
+            "line_end": 103
+          },
+          {
+            "file": "scripts/evaluation.py",
+            "line_start": 128,
+            "line_end": 144
+          }
+        ],
+        "confidence": 0.83,
+        "confidence_reasoning": "The data flow is visible in the message loop and uses the Anthropic client. The finding is highly relevant for privacy, but it supports the stated evaluation design."
+      }
+    ],
+    "files_scanned": 10,
+    "total_lines": 4269,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T20:38:27.543Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Build Model Context Protocol servers",
-    "value_statement": "Creating MCP servers requires understanding protocol specifications, tool design patterns, and evaluation techniques. This skill provides comprehensive guidance for building high-quality MCP servers in Python and TypeScript with working code examples and testing tools.",
+    "user_title": "Build Better MCP Servers",
+    "value_statement": "MCP server projects often fail because tools mirror APIs instead of supporting agent workflows. This skill guides design, implementation, testing, and evaluation for Python and TypeScript MCP servers.",
     "seo_keywords": [
-      "mcp server",
-      "model context protocol",
-      "claude integration",
-      "api integration",
-      "fastmcp",
-      "mcp sdk",
-      "python mcp",
-      "typescript mcp",
-      "llm tools",
-      "claude code"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "MCP server builder",
+      "Model Context Protocol",
+      "FastMCP",
+      "TypeScript MCP SDK",
+      "API integration",
+      "MCP evaluation",
+      "agent tools"
     ],
     "actual_capabilities": [
-      "Follow a 4-phase process for MCP server development",
-      "Implement tools using Python FastMCP or TypeScript MCP SDK",
-      "Apply best practices for tool naming, pagination, and error handling",
-      "Create comprehensive evaluations to test MCP server effectiveness",
-      "Use multiple transport options (stdio, HTTP, SSE) for different deployment scenarios",
-      "Validate inputs with Pydantic models (Python) or Zod schemas (TypeScript)"
+      "Guides planning for agent-focused MCP tools and workflows.",
+      "Provides Python FastMCP implementation patterns with Pydantic validation.",
+      "Provides TypeScript MCP SDK patterns with Zod validation.",
+      "Includes reference guidance for naming, pagination, error handling, and response formats.",
+      "Includes a Python evaluation harness for stdio, SSE, and HTTP MCP servers.",
+      "Explains how to create XML evaluation questions with stable answers."
     ],
     "limitations": [
-      "This is a guide skill - it does not execute code or make actual API calls",
-      "Users must have Python or Node.js development experience",
-      "Evaluation script requires an Anthropic API key for testing"
+      "Does not generate a complete MCP server without user-specific API documentation.",
+      "Requires users to verify current MCP SDK documentation before implementation.",
+      "The evaluation harness requires Anthropic API access and compatible MCP server transports.",
+      "Running evaluations against untrusted servers can expose local commands, headers, or data."
     ],
     "use_cases": [
       {
-        "target_user": "AI Engineers",
-        "title": "Build API Integrations",
-        "description": "Create MCP servers that expose external APIs as tools for Claude and other LLMs to use safely."
+        "title": "Design a New MCP Integration",
+        "target_user": "Backend engineers",
+        "description": "Plan tools, schemas, errors, pagination, and response formats before implementing an external API integration."
       },
       {
-        "target_user": "Platform Developers",
-        "title": "Enable LLM Tool Access",
-        "description": "Design and implement tools that allow LLMs to interact with your platform through a standardized protocol."
+        "title": "Improve Existing MCP Tools",
+        "target_user": "AI platform teams",
+        "description": "Review an existing server for agent usability, context efficiency, validation quality, and clear tool descriptions."
       },
       {
-        "target_user": "DevOps Teams",
-        "title": "Test Server Quality",
-        "description": "Use the evaluation harness to create tests that measure how effectively LLMs can use your MCP server tools."
+        "title": "Evaluate Server Quality",
+        "target_user": "Developer experience teams",
+        "description": "Create read-only evaluation questions and run an LLM-based harness to measure whether tools solve realistic tasks."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Get Started",
-        "scenario": "First MCP server",
-        "prompt": "Guide me through building my first MCP server. What are the four main phases of development and what should I focus on in each phase?"
+        "title": "Plan an MCP Server",
+        "scenario": "Beginner planning for a new integration",
+        "prompt": "Help me plan an MCP server for [service]. Identify the most valuable user workflows, proposed tools, required authentication, and response formats."
       },
       {
-        "title": "Python Implementation",
-        "scenario": "Building with Python",
-        "prompt": "Create a Python MCP server for a REST API using FastMCP. Show me the project structure, tool registration pattern, and how to validate inputs with Pydantic models."
+        "title": "Implement Core Tools",
+        "scenario": "Build a first Python or TypeScript implementation",
+        "prompt": "Using this skill, implement the initial MCP server for [service] in [Python or TypeScript]. Include validation, error handling, pagination, and clear tool descriptions."
       },
       {
-        "title": "TypeScript Implementation",
-        "scenario": "Building with Node.js",
-        "prompt": "Write a complete TypeScript MCP server using the MCP SDK. Include proper Zod schema validation, error handling, and explain how to structure a multi-file project."
+        "title": "Review Tool Design",
+        "scenario": "Audit an existing MCP server for agent usability",
+        "prompt": "Review my MCP server for workflow coverage, naming, schemas, annotations, response size, and error messages. Suggest focused changes before adding new tools."
       },
       {
-        "title": "Create Evaluations",
-        "scenario": "Testing MCP servers",
-        "prompt": "I need to create 10 evaluation questions for my MCP server. What makes a good evaluation question? Show me the XML format and give me examples."
+        "title": "Create and Run Evaluations",
+        "scenario": "Advanced quality measurement",
+        "prompt": "Create ten read-only evaluation questions for this MCP server, verify the expected answers, then run the evaluation harness and summarize tool quality improvements."
       }
     ],
     "output_examples": [
       {
-        "input": "Build an MCP server for a GitHub API integration",
+        "input": "Plan an MCP server for a project management API.",
         "output": [
-          "Phase 1: Research - Study GitHub API docs, identify high-value workflows",
-          "Phase 2: Implementation - Set up FastMCP project, create shared API client, implement tools",
-          "Phase 3: Review - Verify naming conventions, pagination, error messages",
-          "Phase 4: Evaluation - Create 10 realistic questions, run evaluation harness"
+          "A prioritized workflow map for projects, tasks, users, and comments.",
+          "A proposed tool list with read-only and write operation boundaries.",
+          "Validation, pagination, and error-handling notes for each core tool."
         ]
       },
       {
-        "input": "How should I design tools for limited context windows?",
+        "input": "Review my TypeScript MCP server implementation.",
         "output": [
-          "Return high-signal information, not exhaustive data",
-          "Provide concise vs detailed response format options",
-          "Use human-readable identifiers over technical codes",
-          "Implement pagination and character limits (25,000 tokens)"
+          "Findings about tool names, Zod schemas, annotations, response formats, and build configuration.",
+          "Concrete fixes for unclear descriptions, loose schemas, and oversized responses."
+        ]
+      },
+      {
+        "input": "Create evaluations for my GitHub MCP server.",
+        "output": [
+          "Ten independent read-only questions with stable expected answers.",
+          "A recommendation to remove questions that require writes or time-sensitive data."
         ]
       }
     ],
     "best_practices": [
-      "Design tools for complete workflows, not individual API endpoints - consolidate related operations into powerful tools",
-      "Use human-readable identifiers and provide concise vs detailed response format options to save context",
-      "Implement proper pagination and character limits to prevent overwhelming LLM context windows"
+      "Start with real user workflows, then design tools that complete those workflows with minimal calls.",
+      "Use strict input validation, clear annotations, bounded pagination, and concise default responses.",
+      "Evaluate only trusted MCP servers and avoid sending private tool results to external model APIs."
     ],
     "anti_patterns": [
-      "Simply wrapping existing API endpoints as tools - this forces LLMs to make many calls and understand API specifics",
-      "Returning exhaustive data dumps instead of high-signal information relevant to the task",
-      "Using technical codes or IDs without human-readable labels that help LLMs understand the data"
+      "Do not wrap every API endpoint as a separate tool without workflow design.",
+      "Do not run the evaluation harness with untrusted commands, URLs, headers, or environment variables.",
+      "Do not create evaluation questions that require destructive actions or unstable answers."
     ],
     "faq": [
       {
-        "question": "What programming languages are supported for MCP servers?",
-        "answer": "Python with the official MCP Python SDK (FastMCP) and TypeScript with the MCP TypeScript SDK. Both provide similar functionality with language-appropriate patterns."
+        "question": "What does this skill help build?",
+        "answer": "It helps build MCP servers that expose external services through well-designed tools for AI agents."
       },
       {
-        "question": "What transport options are available for MCP servers?",
-        "answer": "Three main options: stdio for local subprocess integration, HTTP for web services, and SSE for real-time updates. Choose based on your deployment needs."
+        "question": "Does it support Python and TypeScript?",
+        "answer": "Yes. It includes guidance for Python FastMCP and the TypeScript MCP SDK."
       },
       {
-        "question": "How do I test my MCP server works correctly?",
-        "answer": "Use the included evaluation harness to create test questions. Run python scripts/evaluation.py with your server and an evaluation XML file to measure LLM tool usage effectiveness."
+        "question": "Does it include runnable code?",
+        "answer": "Yes. It includes a Python evaluation harness and connection helper scripts for MCP server testing."
       },
       {
-        "question": "Is my data safe when using the evaluation script?",
-        "answer": "The evaluation script calls Anthropic API, so evaluation questions are sent to Anthropic. For sensitive data, create evaluations using only read-only operations or test against mock services."
+        "question": "Is it safe to run evaluations on any MCP server?",
+        "answer": "No. Use trusted commands and endpoints because evaluations can pass credentials, headers, and tool outputs."
       },
       {
-        "question": "Why are my LLM calls timing out or failing?",
-        "answer": "MCP servers are long-running processes. When testing locally, run the server in tmux or use the evaluation harness which manages the server lifecycle automatically."
+        "question": "Can it generate evaluation questions?",
+        "answer": "It explains how to create read-only XML evaluation questions with stable expected answers."
       },
       {
-        "question": "How is this different from building REST API clients?",
-        "answer": "MCP servers expose tools designed for LLM consumption - they must account for limited context, provide actionable errors, and enable complete tasks in few calls."
+        "question": "Does it replace official MCP documentation?",
+        "answer": "No. It directs users to current MCP protocol and SDK documentation for implementation details."
       }
     ]
   },
