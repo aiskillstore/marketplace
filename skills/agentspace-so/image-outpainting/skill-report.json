@@ -1,20 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-05-18T09:24:41.152Z",
+    "generated_at": "2026-06-28T06:02:40.566Z",
     "slug": "agentspace-so-image-outpainting",
     "source_url": "https://github.com/agentspace-so/runcomfy-agent-skills/tree/main/image-outpainting/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "9c19ad9977b57cefe342aef1e756ac2ee27cea0aa87627a6e473153512b00f7a",
-    "tree_hash": "0eb8aa09d8764968da5787488bee8567bea66cd64cd6c4bd235c8ca354c3610f"
+    "tree_hash": "c839152e37a9c51ba62856af1d3bb2836012ba6ad5ea95e8d782c8e36d424643"
   },
   "skill": {
     "name": "image-outpainting",
-    "description": "Image outpainting on RunComfy via the `runcomfy` CLI. Extends a still beyond its original canvas, fills in what the camera did not capture, and changes aspect ratio. Routes across multiple AI edit endpoints based on whether the outpaint is prose-driven, reference-driven, or brand-locked.",
-    "summary": "Extend images beyond their original canvas using RunComfy CLI. Change aspect ratios, uncrop portraits, and fill in missing areas with AI-powered outpainting.",
+    "description": "Extend, uncrop, and resize still images with RunComfy outpainting models through the runcomfy CLI.",
+    "summary": "Routes image outpainting requests to RunComfy edit models for canvas extension and aspect ratio changes.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "agentspace-so",
@@ -24,8 +24,8 @@
       "image-editing",
       "outpainting",
       "runcomfy",
-      "aspect-ratio",
-      "ai-image"
+      "generative-ai",
+      "aspect-ratio"
     ],
     "supported_tools": [
       "claude",
@@ -39,10 +39,10 @@
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All 88 static analysis findings are FALSE POSITIVES when evaluated in context. The SKILL.md file is documentation for a legitimate image outpainting skill using the RunComfy CLI. The detected 'backtick execution' patterns are markdown fenced code blocks showing CLI usage examples. The 'hardcoded URLs' point to legitimate RunComfy and skills.sh domains. The 'hidden file access' at line 178 is documentation explaining token storage security practices. The 'weak cryptographic algorithm' and 'system reconnaissance' patterns are false triggers on model names and documentation text. The skill is well-documented with a dedicated security section and proper input handling guidelines.",
+    "summary": "The static analyzer reported many command, URL, filesystem, weak-crypto, and reconnaissance patterns. Review confirmed expected RunComfy CLI execution, third-party network use, and token storage, while the weak-crypto, Ruby backtick, and reconnaissance hits are Markdown or text false positives. No malicious intent, credential exfiltration, or prompt injection attempt was found.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -444,192 +444,278 @@
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "External Command Execution via runcomfy CLI",
-        "description": "The skill invokes `runcomfy run` to perform image outpainting. This is the intended function of the skill. Confidence: 0.95. Confidence reasoning: The commands are explicitly documented in markdown code blocks with clear descriptions of what they do. The skill has a scoped Bash(runcomfy *) tool permission and documents shell injection prevention measures.",
+        "title": "Authenticated Third-Party CLI Execution",
+        "description": "The skill authorizes Bash(runcomfy *) and instructs agents to run the RunComfy CLI for image outpainting. This is expected functionality, but it executes an external command and depends on the installed CLI, user authentication, and correct handling of user-provided prompts and image URLs.",
         "locations": [
           {
             "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 32,
-            "line_end": 43
+            "line_end": 42
           },
           {
             "file": "SKILL.md",
-            "line_start": 82,
-            "line_end": 90
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 94,
-            "line_end": 101
+            "line_start": 173,
+            "line_end": 185
           }
-        ]
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The allowed tool declaration and example invocations directly show permitted CLI execution. The scope is limited to runcomfy commands, so this is operational risk rather than confirmed malicious behavior.",
+        "verdict": "TRUE_POSITIVE"
       },
       {
-        "title": "Network Requests to External API",
-        "description": "The skill sends HTTP requests to runcomfy.net and runcomfy.com APIs. This is required for the image outpainting functionality. Confidence: 0.90. Confidence reasoning: Network requests are the core function of the skill - sending images to AI models for processing. All endpoints are documented and allowlisted.",
+        "title": "Image and Prompt Data Sent to RunComfy",
+        "description": "The skill sends prompts and image references to RunComfy model endpoints and states that the CLI posts to the Model API. This is necessary for the service, but users should understand that image URLs, prompts, and generated outputs leave the local environment.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 42
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 86
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 173,
+            "line_end": 183
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The documentation explicitly describes a POST to the RunComfy Model API and includes image URL input examples. This confirms outbound data transfer, but the endpoints match the skill purpose.",
+        "verdict": "TRUE_POSITIVE"
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Local API Token Storage",
+        "description": "The skill documents that runcomfy login stores an API token under the user's home configuration directory with file mode 0600. This is normal credential storage, but the hidden file path and token lifetime should be disclosed to users.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 177,
+            "line_end": 178
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The storage path and permissions are explicitly documented. Mode 0600 reduces exposure, so the issue is a disclosure and local secret-handling concern rather than evidence of misuse.",
+        "verdict": "TRUE_POSITIVE"
+      },
+      {
+        "title": "Markdown and Text Scanner False Positives",
+        "description": "The Ruby backtick, weak cryptography, and system reconnaissance alerts were triggered by Markdown code formatting, model names, JSON examples, exit code documentation, or general prose. I found no Ruby execution, cryptographic implementation, or host reconnaissance logic in the reviewed skill file.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 5,
+            "line_end": 6
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 64
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 158,
+            "line_end": 169
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The cited lines are documentation text or Markdown examples, not executable Ruby or cryptographic code. Confidence is high because the only scanned file is SKILL.md and no separate script files exist in the report.",
+        "verdict": "FALSE_POSITIVE"
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "External Command Pattern",
+        "description": "The skill uses Bash(runcomfy *) and example runcomfy commands. This pattern is dangerous if command arguments are built from untrusted text without structured quoting, though the skill instructs use of JSON input and limits Bash scope to runcomfy.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 42
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 179,
+            "line_end": 185
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "Command execution is directly allowed and documented. The risk is bounded by the command allowlist and explicit shell-injection guidance.",
+        "verdict": "TRUE_POSITIVE"
+      },
+      {
+        "title": "Outbound Network Pattern",
+        "description": "The skill links to RunComfy services and describes CLI calls to RunComfy model APIs. This requires network access to third-party infrastructure and may transmit user image data.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 20,
-            "line_end": 20
+            "line_end": 28
           },
           {
             "file": "SKILL.md",
-            "line_start": 28,
-            "line_end": 28
+            "line_start": 173,
+            "line_end": 183
           }
-        ]
+        ],
+        "confidence": 0.89,
+        "confidence_reasoning": "The external service URLs and API behavior are explicit. They align with the advertised function, so this is a known data-flow risk rather than suspicious hidden traffic.",
+        "verdict": "TRUE_POSITIVE"
       },
       {
-        "title": "Filesystem Access for Token Storage",
-        "description": "The skill documents that the runcomfy CLI stores API tokens at ~/.config/runcomfy/token.json. This is standard CLI authentication, not unauthorized file access. Confidence: 0.85. Confidence reasoning: The token storage path is documented in the Security section as a transparency measure, not an access instruction.",
+        "title": "Hidden Configuration File Pattern",
+        "description": "The skill documents token storage in a hidden configuration path. Hidden credential files are sensitive and should be protected by permissions, rotation, and user awareness.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 178,
             "line_end": 178
           }
-        ]
+        ],
+        "confidence": 0.87,
+        "confidence_reasoning": "The hidden token path is explicitly named. The documented 0600 mode is a mitigating control, so the issue is not high severity.",
+        "verdict": "TRUE_POSITIVE"
       }
     ],
-    "low_findings": [
-      {
-        "title": "Hardcoded URL in Example Code",
-        "description": "Example code block at line 86 contains a placeholder URL `https://your-cdn.example/portrait-1to1.jpg`. This is a documentation placeholder, not an actual data exfiltration target. Confidence: 0.95. Confidence reasoning: The URL format clearly indicates it is a placeholder example using standard documentation conventions.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 86,
-            "line_end": 86
-          }
-        ]
-      }
-    ],
-    "dangerous_patterns": [],
     "files_scanned": 1,
     "total_lines": 194,
-    "audit_model": "claude",
-    "audited_at": "2026-05-18T09:24:41.152Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T06:02:40.566Z",
+    "risk_factors": [
+      "network",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Extend and uncrop images beyond their original canvas",
-    "value_statement": "Images are often cropped to the wrong aspect ratio, losing context. This skill extends any image beyond its original boundaries by adding AI-generated content that matches the existing scene, lighting, and style.",
+    "user_title": "Extend Image Canvases with RunComfy",
+    "value_statement": "Cropped images often need more space for banners, product pages, and social formats. This skill routes outpainting requests to RunComfy edit models and helps preserve the original subject.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "image outpainting",
+      "RunComfy CLI",
+      "canvas extension",
       "uncrop image",
-      "change aspect ratio",
-      "extend canvas",
-      "RunComfy",
+      "aspect ratio editing",
       "AI image editing",
-      "expand photo"
+      "Nano Banana edit",
+      "Flux Kontext"
     ],
     "actual_capabilities": [
-      "Extend image canvas in any direction to change aspect ratio",
-      "Uncrop portraits to reveal more of the subject and background",
-      "Convert between aspect ratios such as 1:1, 16:9, 9:16, and 21:9",
-      "Route between multiple AI models for best outpainting quality",
-      "Preserve original image content while adding new surrounding areas"
+      "Extends a still image beyond its original canvas using RunComfy edit endpoints.",
+      "Changes square, portrait, or landscape images into new aspect ratios.",
+      "Provides model routing guidance for Nano Banana 2 Edit, GPT Image 2 Edit, and FLUX Kontext Pro.",
+      "Supplies prompt patterns for preserving the original subject and visible area.",
+      "Documents CLI invocation, output directory use, and RunComfy troubleshooting references."
     ],
     "limitations": [
-      "Cannot perform mask-driven inpaint edits inside the existing canvas area",
-      "Does not support video outpainting or extending video frames",
-      "May produce visible seams in complex boundary regions for some models",
-      "Requires the runcomfy CLI to be installed and authenticated"
+      "Requires the runcomfy CLI and a valid RunComfy account or token.",
+      "Sends image references and prompts to RunComfy model services.",
+      "Does not perform mask-driven local inpainting inside the existing canvas.",
+      "Dedicated ComfyUI outpainting workflows are referenced but not invoked through the CLI."
     ],
     "use_cases": [
       {
-        "title": "Social media content creator",
-        "description": "Convert square product photos to 9:16 vertical format for Instagram Reels and TikTok without losing image quality.",
-        "target_user": "Social media manager or content creator"
+        "title": "Create Marketing Banners",
+        "description": "Extend a portrait or square product image into a wide hero image while keeping the product centered.",
+        "target_user": "Marketing designer"
       },
       {
-        "title": "Web designer",
-        "description": "Extend portrait-oriented photos to 21:9 widescreen format for hero banners and website headers.",
-        "target_user": "Web or graphic designer"
+        "title": "Prepare Social Media Formats",
+        "description": "Convert one approved image into vertical, square, or widescreen formats for different channels.",
+        "target_user": "Social media manager"
       },
       {
-        "title": "Photo restorer",
-        "description": "Restore cropped historical photos by extending the canvas with period-appropriate environment references.",
-        "target_user": "Photo editor or digital archivist"
+        "title": "Recover Cropped Photo Context",
+        "description": "Uncrop a photo by adding plausible background, body, or scene context around the original frame.",
+        "target_user": "Content editor"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic aspect ratio change",
-        "prompt": "Extend this image to a 16:9 aspect ratio by adding matching environment on the left and right sides. Keep the original subject exactly as in the input.",
-        "scenario": "Beginner user changing a square photo to widescreen"
+        "title": "Basic Canvas Extension",
+        "scenario": "Beginner request for a simple wider image.",
+        "prompt": "Outpaint this image to 16:9. Extend the left and right sides with matching background, lighting, and camera distance."
       },
       {
-        "title": "Uncrop a portrait",
-        "prompt": "Extend the canvas downward to show the subjects full upper body and arms. Continue the existing clothing style, lighting, and background. Keep the face and current visible area exactly as in the input.",
-        "scenario": "User needs to reveal more of a tightly cropped portrait"
+        "title": "Portrait Uncrop",
+        "scenario": "Reveal more of a cropped person while preserving the face.",
+        "prompt": "Extend this portrait downward to show the upper body. Keep the face, pose, clothing style, lighting, and visible background unchanged."
       },
       {
-        "title": "Reference-based outpainting",
-        "prompt": "Extend this image to a 16:9 aspect ratio. Use the provided reference images to match the surrounding style. Add matching sky and architecture continuing from the existing scene.",
-        "scenario": "Advanced user with style reference images for accurate extension"
+        "title": "Reference-Matched Expansion",
+        "scenario": "Use a reference style when the new area must match a specific scene.",
+        "prompt": "Outpaint the original image into a wide banner. Match the surrounding style from the reference image and preserve the original subject exactly."
       },
       {
-        "title": "Multi-step banner creation",
-        "prompt": "Perform sequential outpainting passes. First extend the canvas to the right by 30 percent. Use the result as input and extend to the left by 30 percent. Each pass should maintain quality and consistency.",
-        "scenario": "User creating a wide banner image through multiple extension steps"
+        "title": "Multi-Step Large Outpaint",
+        "scenario": "Advanced workflow for a large expansion with quality checks.",
+        "prompt": "Extend the canvas by about 40 percent per pass. After each pass, inspect seams and continue only from the best result."
       }
     ],
     "output_examples": [
       {
-        "input": "User provides a square 1:1 portrait photo of a person in front of a building and asks to change it to 16:9 widescreen.",
-        "output": [
-          "The skill generates a wider version of the image with the building continuing to the left and right",
-          "Additional sky and architectural details are added that match the original",
-          "The person and the original center portion remain exactly the same as the input"
-        ]
+        "input": "A square product photo needs a wide website hero image.",
+        "output": "A 16:9 image with the product preserved and matching space added on both sides."
       },
       {
-        "input": "User provides a tightly cropped headshot and asks to uncrop it to show more body.",
-        "output": [
-          "The image is extended downward to reveal the subjects shoulders and upper body",
-          "Clothing style and color are continued from what is visible in the original",
-          "Background is extended downward to match the original environment"
-        ]
+        "input": "A cropped portrait needs more body and background for an editorial layout.",
+        "output": "A taller portrait with added clothing, arms, and background that match the original lighting."
+      },
+      {
+        "input": "A landscape image needs a vertical social story version.",
+        "output": "A 9:16 image with extended sky, ground, or environment while retaining the original subject."
       }
     ],
     "best_practices": [
-      "Always include preservation language in prompts: state what must stay unchanged alongside what should be added",
-      "Set aspect_ratio explicitly in the JSON input to lock the output canvas dimensions",
-      "For multi-step outpainting, limit each pass to 30-50 percent extension to avoid quality degradation"
+      "Use user-provided image URLs only, and confirm that the user has rights to edit them.",
+      "State the target aspect ratio and the direction of expansion in the first sentence.",
+      "Ask the model to preserve the original subject and visible area exactly."
     ],
     "anti_patterns": [
-      "Omitting preservation instructions in the prompt, which may cause the model to regenerate original content",
-      "Relying on the AI model to guess the aspect ratio from text alone instead of setting it explicitly",
-      "Trying to perform detailed local inpaint edits that require masks instead of using a dedicated inpainting skill"
+      "Do not outpaint private or regulated images unless the user accepts third-party processing.",
+      "Do not rely on vague prompts such as make it bigger without describing the added area.",
+      "Do not use one very large expansion when several smaller passes would preserve quality better."
     ],
     "faq": [
       {
-        "question": "What is image outpainting?",
-        "answer": "Image outpainting extends an image beyond its original boundaries by generating new content that matches the existing scene."
+        "question": "What does this skill do?",
+        "answer": "It helps extend still images beyond their original canvas using RunComfy image editing models."
       },
       {
-        "question": "Does this skill change the original image content?",
-        "answer": "No. The skill is designed to preserve the original image content while adding new areas around it."
+        "question": "Does it need a RunComfy account?",
+        "answer": "Yes. The runcomfy CLI must be installed and authenticated before model runs can succeed."
       },
       {
-        "question": "What aspect ratios can I convert to?",
-        "answer": "You can convert to any aspect ratio. Common options include 16:9, 9:16, 21:9, and 4:3."
+        "question": "Can it change an image from square to widescreen?",
+        "answer": "Yes. The skill includes prompt patterns for square to 16:9 and other aspect ratio changes."
       },
       {
-        "question": "Do I need to install anything?",
-        "answer": "Yes. The runcomfy CLI must be installed. Install with npm i -g @runcomfy/cli and sign in with runcomfy login."
+        "question": "Does it edit videos?",
+        "answer": "No. It is for still images. The skill links to a separate video outpainting resource."
       },
       {
-        "question": "What is the difference between outpainting and inpainting?",
-        "answer": "Outpainting adds content outside the original canvas. Inpainting fills or replaces content inside the existing image."
+        "question": "Are images processed locally?",
+        "answer": "No. The CLI sends prompts and image references to RunComfy model services."
       },
       {
-        "question": "Can I use my own reference images?",
-        "answer": "Yes. Advanced models like GPT Image 2 Edit support reference images to match the extension style to your references."
+        "question": "Can it remove objects inside the current image?",
+        "answer": "No. That is mask-driven inpainting, which is outside this skill's main workflow."
       }
     ]
   },
