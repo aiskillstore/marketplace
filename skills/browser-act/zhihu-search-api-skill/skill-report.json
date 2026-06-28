@@ -1,20 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-05-21T08:27:08.525Z",
+    "generated_at": "2026-06-28T17:38:46.130Z",
     "slug": "browser-act-zhihu-search-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/social-listening/zhihu-search-api-skill",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "c7beeb61b51febfec1ccfe6f0fd284735742f2212ae8f75e908c1e431245aeed",
-    "tree_hash": "3bea97e630975681856779feb0558d234c75f215e5975ca6e324ca9ac540d4c1"
+    "tree_hash": "fe2e2a361a0667e5eae42d59c7415731ada784a1f81ff74ab1e0bcc51c58ece6"
   },
   "skill": {
     "name": "zhihu-search-api-skill",
-    "description": "Search and extract structured Zhihu article data via the BrowserAct API with keyword and date filters.",
-    "summary": "Automated Zhihu article search and content extraction tool for market research and social listening.",
+    "description": "Search Zhihu articles through the BrowserAct API and return structured article details, links, authors, publication dates, images, and full body text.",
+    "summary": "Extract structured Zhihu article results with BrowserAct workflow automation.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "browser-act",
@@ -22,10 +22,10 @@
     "category": "research",
     "tags": [
       "zhihu",
+      "browseract",
       "social-listening",
-      "content-extraction",
       "market-research",
-      "chinese-social-media"
+      "article-extraction"
     ],
     "supported_tools": [
       "claude",
@@ -33,32 +33,217 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
       "network",
-      "env_access"
+      "env_access",
+      "external_commands"
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Evaluated 52 static findings: 46 are false positives (Markdown formatting misidentified as Ruby backtick execution, type specifiers misidentified as weak crypto, documentation URLs and error handling misidentified as reconnaissance). 6 confirmed findings are low-risk and expected for this skill type: the Python script makes authorized HTTP requests to api.browseract.com for Zhihu article search and extraction, and reads BROWSERACT_API_KEY from environment variables for authentication. No obfuscation, data exfiltration, command injection, or malicious intent detected.",
-    "risk_factors": [
-      "scripts",
-      "network",
-      "env_access"
-    ],
-    "risk_factor_evidence": [
+    "summary": "Static analysis found network calls, environment-variable access, markdown command examples, and a critical combined-risk heuristic. Review confirms expected BrowserAct API use and no prompt injection or malicious exfiltration evidence, but the skill still sends user queries and an API key to a third-party service.",
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
       {
-        "factor": "scripts",
-        "evidence": [
+        "title": "Third-Party API Key and Query Transmission",
+        "description": "The script reads BROWSERACT_API_KEY and sends authorization headers plus user search parameters to BrowserAct workflow endpoints. This is expected for the skill, but users must understand that keywords and API credentials are handled by a third-party service.",
+        "locations": [
           {
             "file": "scripts/zhihu_search_api.py",
-            "line_start": 1,
-            "line_end": 108
+            "line_start": 18,
+            "line_end": 24
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 31,
+            "line_end": 31
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 88,
+            "line_end": 88
           }
-        ]
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The code directly builds a Bearer authorization header and sends the payload to BrowserAct. The use appears legitimate for the skill purpose, but the privacy and credential exposure risk is real."
       },
+      {
+        "title": "Polling and Result Retrieval from External Workflow API",
+        "description": "The script starts a BrowserAct workflow, polls task status, and retrieves task output over the network. This broadens trust to BrowserAct responses and can expose returned Zhihu content through terminal output.",
+        "locations": [
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 48,
+            "line_end": 48
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 71,
+            "line_end": 81
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The network polling and result retrieval are explicit and required by the workflow. There is no evidence of hidden destinations, but the external response is trusted and printed."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Markdown Backticks Misclassified as Shell Execution",
+        "description": "Static analysis flagged many SKILL.md lines as Ruby or shell backtick execution. These are markdown inline code spans and fenced examples, not executable code inside the skill runtime.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 51,
+            "line_end": 54
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 65,
+            "line_end": 70
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 77
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The cited lines are markdown documentation and examples. No Ruby backtick execution or dynamic shell interpolation exists in those lines."
+      },
+      {
+        "title": "Weak Cryptography Heuristic Is Unsupported",
+        "description": "Static analysis flagged several SKILL.md lines as weak cryptography, but the cited content describes API parameters and output fields. No hashing, encryption, or cryptographic primitive is present.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 34
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 45,
+            "line_end": 45
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 64,
+            "line_end": 64
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The reviewed lines contain natural-language descriptions and markdown field names. I found no evidence of MD5, SHA1, DES, RC4, or similar weak algorithms."
+      },
+      {
+        "title": "System Reconnaissance Heuristic Is Unsupported",
+        "description": "Static analysis flagged system reconnaissance, but the cited code stores a returned BrowserAct task id and the documentation discusses CAPTCHA and IP restrictions. No host, network, or filesystem reconnaissance behavior is present.",
+        "locations": [
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 40,
+            "line_end": 40
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 15
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 77
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The lines do not call system inventory commands or inspect local environment details beyond the expected API key check. The scanner likely matched keywords without execution context."
+      },
+      {
+        "title": "Hardcoded BrowserAct URLs Are Expected Configuration",
+        "description": "The hardcoded URLs point to BrowserAct API and console endpoints documented by the skill. They are not hidden or suspicious destinations, but users should know requests leave the local environment.",
+        "locations": [
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 15,
+            "line_end": 15
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 97,
+            "line_end": 97
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 22,
+            "line_end": 22
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The URLs are visible, consistent with the skill description, and limited to BrowserAct. This supports legitimate configuration rather than covert exfiltration."
+      },
+      {
+        "title": "Critical Combined-Risk Heuristic Dismissed",
+        "description": "The static heuristic combined network use, credential access, and documented script execution. Context shows these behaviors support the stated BrowserAct workflow, and no malicious destination, prompt injection, or credential theft evidence was found.",
+        "locations": [
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 17,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 31,
+            "line_end": 31
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 54
+          }
+        ],
+        "confidence": 0.81,
+        "confidence_reasoning": "The combined pattern is real, but semantic review aligns it with the declared third-party API workflow. Confidence is slightly lower because community skills with API keys still need user trust."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Environment API Key Access",
+        "description": "The script reads BROWSERACT_API_KEY from the environment and uses it as a Bearer token. This is necessary for the service but should be disclosed as sensitive credential handling.",
+        "locations": [
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 88,
+            "line_end": 99
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The exact environment variable and authorization flow are visible. The pattern is sensitive but expected."
+      },
+      {
+        "title": "External HTTP Requests",
+        "description": "The script performs POST and GET requests to the BrowserAct workflow API. This creates third-party network dependency and sends user-selected search parameters outside the local environment.",
+        "locations": [
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 31,
+            "line_end": 31
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 48,
+            "line_end": 48
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 71,
+            "line_end": 71
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The requests calls are explicit and all target the configured BrowserAct base URL. No additional hidden endpoint was found."
+      }
+    ],
+    "risk_factor_evidence": [
       {
         "factor": "network",
         "evidence": [
@@ -81,6 +266,16 @@
             "file": "scripts/zhihu_search_api.py",
             "line_start": 15,
             "line_end": 15
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 97,
+            "line_end": 97
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 22,
+            "line_end": 22
           }
         ]
       },
@@ -94,8 +289,28 @@
           },
           {
             "file": "scripts/zhihu_search_api.py",
+            "line_start": 88,
+            "line_end": 88
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
             "line_start": 17,
+            "line_end": 17
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 18,
             "line_end": 18
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 88,
+            "line_end": 88
+          },
+          {
+            "file": "scripts/zhihu_search_api.py",
+            "line_start": 88,
+            "line_end": 88
           },
           {
             "file": "scripts/zhihu_search_api.py",
@@ -116,215 +331,266 @@
             "file": "SKILL.md",
             "line_start": 4,
             "line_end": 4
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
-      {
-        "title": "Environment Variable Used for API Credentials",
-        "description": "The skill reads BROWSERACT_API_KEY from environment variables via os.getenv. This is standard practice for API authentication. Credentials should be kept secure and not logged or exposed.",
-        "locations": [
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 88,
-            "line_end": 88
-          }
-        ]
-      },
-      {
-        "title": "API Credentials Sent in HTTP Authorization Header",
-        "description": "The skill passes the API key as a Bearer token in Authorization headers to api.browseract.com. This is the intended authentication mechanism for the BrowserAct API.",
-        "locations": [
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 17,
-            "line_end": 18
-          }
-        ]
-      },
-      {
-        "title": "External Network Requests to Third-Party API",
-        "description": "The skill makes HTTP requests to api.browseract.com for task creation, status polling, and result retrieval. All URLs are hardcoded to the legitimate BrowserAct API endpoint.",
-        "locations": [
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 31,
-            "line_end": 31
           },
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 48,
-            "line_end": 48
-          },
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 71,
-            "line_end": 71
-          }
-        ]
-      },
-      {
-        "title": "Multiple SKILL.md Findings Dismissed as False Positives",
-        "description": "46 of 52 static findings are dismissed. Markdown code blocks and inline backtick formatting were misidentified as Ruby shell execution (24 findings) and weak crypto (5 findings). Documentation URLs and error handling text were misidentified as system reconnaissance (3 findings) and hardcoded URLs (2 findings). All SKILL.md content is documentation only.",
-        "locations": [
           {
             "file": "SKILL.md",
             "line_start": 20,
-            "line_end": 77
-          }
-        ]
-      }
-    ],
-    "dangerous_patterns": [
-      {
-        "title": "API Key Authentication via External Service",
-        "description": "The skill combines network access with credential access - it reads an API key from environment variables and sends it to an external API. This pattern is expected for API client skills but means users must trust both the skill and the third-party BrowserAct service with their credentials.",
-        "locations": [
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 17,
-            "line_end": 18
-          },
-          {
-            "file": "scripts/zhihu_search_api.py",
-            "line_start": 88,
-            "line_end": 88
+            "line_end": 20
           }
         ]
       },
       {
-        "title": "Prompt Injection Risk Via Dynamic Input",
-        "description": "The skill accepts user-provided keywords that are passed as input parameters to the BrowserAct API workflow. While the API call itself is not vulnerable, the SKILL.md instructs the agent to proactively apply itself when users express certain needs, which creates a prompt injection surface if malicious users craft inputs designed to manipulate agent behavior.",
-        "locations": [
+        "factor": "external_commands",
+        "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 28,
+            "line_end": 28
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 30,
+            "line_end": 30
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 30,
+            "line_end": 30
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 33,
+            "line_end": 33
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 36,
+            "line_end": 36
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 37,
+            "line_end": 37
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 38,
+            "line_end": 38
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 39
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 40
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 44,
+            "line_end": 44
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 46,
+            "line_end": 46
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 51,
+            "line_end": 54
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 57
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 65
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 65,
+            "line_end": 66
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 66,
+            "line_end": 67
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 68
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 68,
+            "line_end": 69
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 69,
+            "line_end": 70
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 70,
+            "line_end": 76
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 77
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 77,
+            "line_end": 77
           }
         ]
       }
     ],
     "files_scanned": 2,
     "total_lines": 200,
-    "audit_model": "claude",
-    "audited_at": "2026-05-21T08:27:08.525Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T17:38:46.130Z",
+    "risk_factors": [
+      "network",
+      "env_access",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Search and Extract Zhihu Articles Automatically",
-    "value_statement": "Manually searching and extracting Zhihu article data is time-consuming and error-prone. This skill automates the process through the BrowserAct API, returning structured article details and full content with just a keyword.",
+    "user_title": "Search Zhihu Articles with BrowserAct",
+    "value_statement": "Zhihu research often requires repeated searches, article opening, and manual extraction. This skill uses BrowserAct to return structured article details and full text from keyword-based Zhihu searches.",
     "seo_keywords": [
-      "Zhihu search",
-      "article extraction",
-      "social listening",
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "market research",
-      "content monitoring",
+      "Claude Zhihu search",
+      "Codex Zhihu research",
+      "Claude Code BrowserAct",
       "BrowserAct API",
-      "Chinese social media"
+      "Zhihu article extraction",
+      "social listening",
+      "market research automation",
+      "Chinese content research",
+      "AI research workflow",
+      "competitor monitoring"
     ],
     "actual_capabilities": [
-      "Search Zhihu articles by keyword with configurable date range filters (7d, 30d, 90d, 1y, all)",
-      "Extract article title, body content, author, publication date, image URL, and original link",
-      "Set extraction limits to control the number of articles returned per search",
-      "Monitor task progress with timestamped status logs during execution",
-      "Handle errors gracefully with automatic retry logic for transient failures",
-      "Detect invalid or expired API keys and provide clear guidance to the user"
+      "Runs a Python script that starts a BrowserAct Zhihu search workflow.",
+      "Accepts a keyword, publication date range, and article limit.",
+      "Polls BrowserAct task status until completion or timeout.",
+      "Returns article titles, authors, dates, links, images, and body content when available.",
+      "Prints clear status messages and API-key setup guidance.",
+      "Supports one automatic retry when the task fails for non-authorization reasons."
     ],
     "limitations": [
-      "Requires a valid BROWSERACT_API_KEY environment variable to be set before use",
-      "Article extraction tasks may take several minutes due to automated browser operations",
-      "Limited to Zhihu content accessible through the BrowserAct workflow API",
-      "Automatic retry is limited to one attempt per failed execution"
+      "Requires a valid BROWSERACT_API_KEY before use.",
+      "Sends search parameters and authorization to BrowserAct external APIs.",
+      "Depends on BrowserAct workflow availability and Zhihu result accessibility.",
+      "Does not perform sentiment analysis or deduplication by itself."
     ],
     "use_cases": [
       {
-        "title": "Industry Trend Tracking",
-        "description": "Search for the latest articles on specific industry topics like AI agents or generative AI to stay current with market developments.",
-        "target_user": "Market researchers and analysts"
+        "title": "Track Industry Topics",
+        "description": "Find recent Zhihu articles about a market, technology, or policy topic and collect full article content for review.",
+        "target_user": "Market researcher"
       },
       {
-        "title": "Brand and PR Monitoring",
-        "description": "Monitor how a specific brand or company is discussed on Zhihu over custom time periods to track media exposure and public sentiment.",
-        "target_user": "PR and communications professionals"
+        "title": "Monitor Brand Mentions",
+        "description": "Search recent Zhihu content for a company, product, or campaign and gather article metadata for follow-up analysis.",
+        "target_user": "Public relations analyst"
       },
       {
-        "title": "Competitor Intelligence Gathering",
-        "description": "Collect structured data about competitor product announcements and market activities published on Zhihu for competitive analysis.",
-        "target_user": "Business strategists and product managers"
+        "title": "Collect Competitor Updates",
+        "description": "Retrieve Zhihu posts about competitors across a defined date range to support product and strategy research.",
+        "target_user": "Product strategist"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Keyword Search",
-        "prompt": "Search for recent Zhihu articles about [topic] using the zhihu search API skill. Return the article titles and key findings.",
-        "scenario": "User wants a quick search on a single topic"
+        "title": "Basic Topic Search",
+        "scenario": "Beginner search for recent articles.",
+        "prompt": "Search Zhihu for articles about generative AI from the past 7 days. Return up to 10 results with titles, authors, dates, and links."
       },
       {
-        "title": "Filtered Search with Date Range",
-        "prompt": "Search Zhihu for articles about [topic] published in the last [7d/30d/90d/1y]. Extract up to [number] results and summarize the key information from each article.",
-        "scenario": "User needs results from a specific time window"
+        "title": "Brand Monitoring",
+        "scenario": "Collect recent brand exposure.",
+        "prompt": "Use the Zhihu search skill to find articles mentioning our brand from the past 30 days. Include full article text when available."
       },
       {
-        "title": "Search with Error Handling",
-        "prompt": "Run a Zhihu search for [topic] using a 7-day window. If the result shows an error that is not Invalid authorization, retry once automatically. If the second attempt also fails, report the specific error to the user.",
-        "scenario": "User wants robust execution with automatic retry"
+        "title": "Competitor Research",
+        "scenario": "Compare activity across several companies.",
+        "prompt": "Search Zhihu for recent articles about these competitors: Company A, Company B, and Company C. Use the 90 day range and summarize recurring themes."
       },
       {
-        "title": "Multi-Keyword Research Collection",
-        "prompt": "Run Zhihu searches for each of these keywords: [keyword1], [keyword2], [keyword3]. Use a 30-day window and limit to 5 articles per search. Compile all results into a research summary organized by topic with article titles, authors, and key takeaways.",
-        "scenario": "Researcher needs to collect data across multiple topics"
+        "title": "Advanced Research Brief",
+        "scenario": "Create a structured research brief from extracted results.",
+        "prompt": "Search Zhihu for low-altitude economy articles from the past year. Extract up to 20 results, group them by theme, and identify useful source links."
       }
     ],
     "output_examples": [
       {
-        "input": "Search for articles about low-altitude economy on Zhihu from the past 7 days",
-        "output": "Returns a list of article titles (such as 'Low-Altitude Economy Market Report 2025'), author names, publication dates, cover image URLs, and direct links. Each result includes the full article body content for reading and analysis."
+        "input": "Search Zhihu for AI agent articles from the past 7 days.",
+        "output": "A list of recent Zhihu articles with each title, author, publication date, original link, and available body text."
       },
       {
-        "input": "Monitor brand mentions for a specific company on Zhihu over the past 30 days",
-        "output": "Structured results showing article headlines, author profiles, exact publication timestamps, main image URLs, and complete article body text for each relevant Zhihu article mentioning the brand."
+        "input": "Find recent Zhihu coverage for a product launch.",
+        "output": "A concise research summary supported by extracted article details, source links, and publication dates."
+      },
+      {
+        "input": "Collect competitor mentions from the past 90 days.",
+        "output": "Grouped findings showing relevant Zhihu articles, key authors, dates, and links for each competitor term."
       }
     ],
     "best_practices": [
-      "Set the BROWSERACT_API_KEY environment variable before running the skill to ensure successful API authentication.",
-      "Monitor the timestamped status output during execution to confirm the task is progressing normally rather than stalled.",
-      "Choose the appropriate date range filter to balance result freshness against search breadth for your use case."
+      "Confirm the BrowserAct API key is available before running the script.",
+      "Use specific keywords and date ranges to reduce irrelevant results.",
+      "Review returned article links before using extracted content in reports."
     ],
     "anti_patterns": [
-      "Do not hardcode API keys in scripts or commands. Always use the BROWSERACT_API_KEY environment variable.",
-      "Do not ignore Invalid authorization errors. These indicate the API key is expired or incorrect and retries will not help.",
-      "Do not assume results are instant. The automated browser workflow may take several minutes to complete execution."
+      "Do not use sensitive personal data as search keywords unless authorized.",
+      "Do not assume BrowserAct output is complete without checking source links.",
+      "Do not retry repeatedly after an invalid authorization error."
     ],
     "faq": [
       {
-        "question": "What is BrowserAct and how does it work with this skill?",
-        "answer": "BrowserAct is a third-party service that provides automated browser workflows. This skill uses its Zhihu search API template to find and extract article data without manual browsing."
+        "question": "Does this skill require an API key?",
+        "answer": "Yes. It requires BROWSERACT_API_KEY to start and poll BrowserAct workflow tasks."
       },
       {
-        "question": "Do I need an API key to use this skill?",
-        "answer": "Yes. You must set the BROWSERACT_API_KEY environment variable with a valid BrowserAct API key before using this skill."
+        "question": "What date filters are supported?",
+        "answer": "The skill documents 7d, 30d, 90d, 1y, and all as publication date options."
       },
       {
-        "question": "How long does article extraction take?",
-        "answer": "Extraction tasks may take several minutes. The script displays timestamped status logs so you can monitor progress."
+        "question": "Can it return full article text?",
+        "answer": "Yes, it returns body content when BrowserAct provides it in the workflow result."
       },
       {
-        "question": "What data fields are extracted from each article?",
-        "answer": "Each article result includes title, body content, image URL, author name, publication date, and the original article URL."
+        "question": "Does it run only inside Zhihu?",
+        "answer": "No. It calls BrowserAct APIs, which perform the Zhihu search workflow."
       },
       {
-        "question": "Can I filter articles by publication date?",
-        "answer": "Yes. You can filter by past 7 days, 30 days, 90 days, 1 year, or retrieve all articles regardless of date."
+        "question": "Is it safe for private research topics?",
+        "answer": "Use caution. Search terms are sent to BrowserAct, so avoid confidential or regulated topics unless approved."
       },
       {
-        "question": "What happens if the API key is invalid or expired?",
-        "answer": "The script will detect the Invalid authorization error and stop, guiding you to check and update your API key. It will not retry automatically for authorization errors."
+        "question": "What happens when authorization fails?",
+        "answer": "The skill tells the user to check the BrowserAct API key and should not retry automatically."
       }
     ]
   },
