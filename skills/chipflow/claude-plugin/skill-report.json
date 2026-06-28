@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T19:58:05.524Z",
+    "generated_at": "2026-06-28T22:20:58.906Z",
     "slug": "chipflow-claude-plugin",
     "source_url": "https://github.com/ChipFlow/claude-context-tools/tree/main/.claude-plugin",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "39c6a3dd5b09fa2f1ab96b911052e480003912ef46bd753446925f16ca71883b",
-    "tree_hash": "a25f0c7658a8cb9bbf314d81203d746176e761e6ba62316a906c2c8f44be0302"
+    "tree_hash": "c3b9ae478d9005ad423007d7e458e3c45a70090f9f584fdc5bbccd8ab31bb5dd"
   },
   "skill": {
     "name": "claude-plugin",
-    "description": "**Use MCP repo-map tools when:** - Searching for symbols by name pattern (faster than Grep) - Getting all symbols in a file (faster than Read + parsing)",
-    "summary": "**Use MCP repo-map tools when:** - Searching for symbols by name pattern (faster than Grep) - Gettin...",
-    "icon": "🗺️",
-    "version": "0.8.13",
+    "description": "Adds repo-map MCP guidance for Claude Code, including symbol search, file symbol lookup, repository indexing, and project context files.",
+    "summary": "Use repo-map MCP tools to search code symbols and inspect project structure faster.",
+    "icon": "📦",
+    "version": "1.0.0",
     "author": "ChipFlow",
     "license": "MIT",
-    "category": "documentation",
     "tags": [
-      "context",
-      "documentation",
       "repo-map",
-      "duplicate-detection",
-      "learnings"
+      "symbol-search",
+      "mcp",
+      "code-navigation",
+      "claude-code"
     ],
     "supported_tools": [
       "claude",
@@ -33,183 +32,307 @@
       "claude-code"
     ],
     "risk_factors": [
-      "filesystem",
-      "scripts",
-      "external_commands"
-    ]
+      "external_commands",
+      "filesystem"
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "This is a documentation/help skill for the Context Tools MCP plugin. All 89 static findings are FALSE_POSITIVE. The skill contains only markdown documentation describing CLI tools and file paths. No actual code execution, network calls, or data exfiltration. File operations are scoped to the .claude/ directory within user projects.",
+    "safe_to_publish": false,
+    "summary": "Static command-execution findings in SKILL.md are mostly Markdown examples and inline code, so those are false positives. However, plugin.json configures Claude Code to launch a local MCP server with the current project root, and SKILL.md documents indexing and querying project files through a local SQLite repo map. No prompt injection or confirmed data exfiltration was found, but the executable MCP server and project-wide filesystem access make this high risk for a community package.",
     "risk_factor_evidence": [
-      {
-        "factor": "filesystem",
-        "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 174,
-            "line_end": 190
-          }
-        ]
-      },
-      {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "plugin.json",
-            "line_start": 12,
-            "line_end": 17
-          }
-        ]
-      },
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "plugin.json",
-            "line_start": 12,
-            "line_end": 13
+            "line_start": 10,
+            "line_end": 16
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 21,
+            "line_end": 24
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 90,
+            "line_end": 100
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 123,
+            "line_end": 190
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 4,
-    "total_lines": 462,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T19:58:05.524Z"
+    "high_findings": [
+      {
+        "title": "MCP Server Launches Local Executable",
+        "description": "plugin.json configures an MCP server that runs uv with a repo-map server path and passes the current working directory as PROJECT_ROOT. This is expected for an MCP plugin, but it means installing the community package grants executable code a view of the active project.",
+        "locations": [
+          {
+            "file": "plugin.json",
+            "line_start": 10,
+            "line_end": 16
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The mcpServers command and args are explicit in plugin.json, and PROJECT_ROOT is set from the current working directory. The risk is clear even though the referenced server implementation is not present in the scanned three-file package."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Project Filesystem Indexing and Source Retrieval",
+        "description": "SKILL.md documents automatic use of .claude/repo-map.db, repository indexing, symbol lookup, and source retrieval through MCP tools. This is core functionality, but it can expose project structure and source snippets to the MCP server and logs.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 21,
+            "line_end": 24
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 90,
+            "line_end": 100
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 123,
+            "line_end": 190
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The documentation directly states that the tools query or create .claude/repo-map.db and retrieve symbol content. This appears intentional, so the concern is data exposure and least-privilege scope rather than confirmed abuse."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Repository URL Findings Are Metadata Only",
+        "description": "The hardcoded URL findings in plugin.json and marketplace.json are repository metadata. No evidence found that these URLs are used for runtime network requests or data exfiltration.",
+        "locations": [
+          {
+            "file": "plugin.json",
+            "line_start": 9,
+            "line_end": 9
+          },
+          {
+            "file": "marketplace.json",
+            "line_start": 16,
+            "line_end": 16
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "Both locations are JSON repository fields, not executable request code. The files contain no fetch, curl, webhook, or outbound transmission behavior."
+      },
+      {
+        "title": "Weak Cryptography Findings Are False Positives",
+        "description": "The static weak-cryptography findings point to descriptive text, not cryptographic APIs or hashing logic. No evidence found of MD5, SHA1, weak ciphers, or password hashing implementation in the cited files.",
+        "locations": [
+          {
+            "file": "plugin.json",
+            "line_start": 4,
+            "line_end": 4
+          },
+          {
+            "file": "marketplace.json",
+            "line_start": 11,
+            "line_end": 11
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The cited lines are descriptions for context tools and do not contain cryptographic operations. This makes the scanner labels highly likely to be keyword-based false positives."
+      },
+      {
+        "title": "Markdown Backtick Command Findings Are False Positives",
+        "description": "The SKILL.md backtick findings are Markdown code fences, inline parameter names, examples, and schema labels. No evidence found of Ruby shell backtick execution in executable source code.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 19
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 70,
+            "line_end": 82
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 123,
+            "line_end": 145
+          }
+        ],
+        "confidence": 0.89,
+        "confidence_reasoning": "The file is documentation, and the cited patterns are Markdown formatting rather than runtime Ruby code. This still required review because the plugin separately configures MCP execution in plugin.json."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Executable MCP Server Configuration",
+        "description": "The plugin declares an MCP server command that runs uv against a Python server path. Marketplace review should require the referenced server code before publication.",
+        "locations": [
+          {
+            "file": "plugin.json",
+            "line_start": 10,
+            "line_end": 16
+          }
+        ],
+        "confidence": 0.87,
+        "confidence_reasoning": "The command configuration is explicit and will run when the MCP server starts. The security impact depends on server code that is not available in the scanned package."
+      },
+      {
+        "title": "Local Project Index Database",
+        "description": "The skill stores or reads project index data under .claude/repo-map.db and logs MCP activity under .claude/logs. These hidden project files may contain sensitive project metadata.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 179,
+            "line_end": 190
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The documented paths and log contents are explicit. The data appears local, but it can still expose repository structure and tool activity to anyone with project access."
+      }
+    ],
+    "files_scanned": 3,
+    "total_lines": 238,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T22:20:58.906Z",
+    "risk_factors": [
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Index code symbols for faster navigation",
-    "value_statement": "This skill adds MCP tools for fast symbol search across Python, C++, and Rust codebases. It automatically indexes functions, classes, and methods into a local SQLite database, enabling quick lookups without full codebase scans.",
+    "user_title": "Map Code Symbols with Claude",
+    "value_statement": "Large repositories make symbol navigation slow and repetitive. This skill guides Claude Code to use repo-map MCP tools for faster code search and project context.",
     "seo_keywords": [
-      "Claude Code context tools",
-      "code symbol search",
-      "repo map",
-      "MCP tools",
-      "duplicate detection",
-      "project manifest",
-      "code navigation",
-      "symbol indexing",
+      "Claude",
+      "Codex",
       "Claude Code",
-      "codebase exploration"
+      "MCP repo map",
+      "symbol search",
+      "code navigation",
+      "repository indexing",
+      "project context",
+      "developer productivity",
+      "codebase analysis"
     ],
     "actual_capabilities": [
-      "Fast symbol search for functions, classes, and methods using pre-built SQLite index",
-      "Get all symbols defined in a specific file with one query",
-      "Retrieve exact source code for any symbol by name",
-      "Automatic background indexing with status monitoring tools",
-      "Project manifest generation showing structure and build commands",
-      "Duplicate code detection in repo map documentation"
+      "Explains when to use repo-map MCP tools instead of text search.",
+      "Documents symbol search by name pattern, kind, and result limit.",
+      "Documents file-level symbol lookup for a relative project path.",
+      "Documents exact symbol content retrieval for functions, classes, and methods.",
+      "Describes repo-map indexing status, waiting behavior, and manual reindexing."
     ],
     "limitations": [
-      "Only supports Python, C++, and Rust file symbol indexing",
-      "Symbol search requires explicit pattern matching, not natural language",
-      "Learnings file must be created manually if needed",
-      "Session restart required after plugin installation for MCP tools"
+      "Requires the repo-map MCP server to be installed and restarted before use.",
+      "Only documents Python, C++, and Rust symbol indexing support.",
+      "Does not include the MCP server implementation in the scanned package.",
+      "Creates or reads local .claude project files that may contain repository metadata."
     ],
     "use_cases": [
       {
-        "target_user": "Large codebase developers",
-        "title": "Navigate complex codebases",
-        "description": "Quickly find and jump to specific functions, classes, or methods without scanning entire project directories."
+        "title": "Find Symbols Quickly",
+        "target_user": "Application developers",
+        "description": "Search for functions, classes, and methods by pattern without scanning entire files manually."
       },
       {
+        "title": "Review File Structure",
         "target_user": "Code reviewers",
-        "title": "Identify duplicate code",
-        "description": "Detect duplicated functions and classes across the codebase to reduce maintenance burden and improve code quality."
+        "description": "List symbols defined in a file before reviewing implementation details or related changes."
       },
       {
-        "target_user": "New team members",
-        "title": "Understand project structure",
-        "description": "Generate project manifest and repo map to quickly grasp architecture, build commands, and code organization."
+        "title": "Maintain Repository Context",
+        "target_user": "Engineering leads",
+        "description": "Use generated project manifests and repo maps to keep Claude Code aware of repository structure."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Find function",
-        "scenario": "Search for a function by name pattern",
-        "prompt": "Search for all functions matching the pattern 'handle_*' in the codebase using the repo-map MCP tool."
+        "title": "Search for a Symbol",
+        "scenario": "Beginner symbol lookup",
+        "prompt": "Use the repo-map tools to find functions matching parse_* in this repository. Summarize the likely entry points."
       },
       {
-        "title": "Get class methods",
-        "scenario": "List all methods in a class",
-        "prompt": "Get all symbols defined in the file 'src/api/handlers/user_handler.py' using the repo-map MCP tool."
+        "title": "Inspect a File",
+        "scenario": "File-level navigation",
+        "prompt": "Use get_file_symbols for src/models/user.py and explain the main classes and functions before reading the file."
       },
       {
-        "title": "View function source",
-        "scenario": "View exact source code of a symbol",
-        "prompt": "Get the source code for the function 'parse_user_config' so I can see its implementation details."
+        "title": "Trace an Implementation",
+        "scenario": "Focused code analysis",
+        "prompt": "Find the exact User.save symbol, retrieve its content, and identify validation, database, and error-handling behavior."
       },
       {
-        "title": "Check indexing status",
-        "scenario": "Monitor indexing progress",
-        "prompt": "Check the repo map status and show me how many symbols have been indexed in this project."
+        "title": "Refresh Project Index",
+        "scenario": "Advanced repository maintenance",
+        "prompt": "Check repo-map status, reindex if stale, wait for completion, and then compare handler symbols across Python and Rust files."
       }
     ],
     "output_examples": [
       {
-        "input": "Search for all functions matching 'validate_*' in the codebase",
-        "output": [
-          "Found 5 functions matching 'validate_*':",
-          "• validate_email (src/utils/validation.py:42)",
-          "• validate_password (src/utils/validation.py:78)",
-          "• validate_input (src/core/handlers.py:15)",
-          "• validate_config (src/config/loader.py:23)",
-          "• validate_schema (src/api/middleware.py:112)"
-        ]
+        "input": "Find handlers related to authentication.",
+        "output": "A concise list of matching handler symbols, their files, and a short note about which ones appear to control login flow."
       },
       {
-        "input": "Show me all classes in the project",
-        "output": [
-          "Found 12 classes in the project:",
-          "• User (src/models/user.py:10)",
-          "• Session (src/models/session.py:5)",
-          "• APIHandler (src/api/handler.py:8)",
-          "• Database (src/db/core.py:15)"
-        ]
+        "input": "Explain what symbols are defined in the user model file.",
+        "output": "A structured summary of classes, methods, functions, and their line locations, followed by suggested next files to inspect."
+      },
+      {
+        "input": "Check whether the repo-map index is ready.",
+        "output": "A status summary showing whether indexing is idle, running, complete, failed, or stale, with the recommended next action."
       }
     ],
     "best_practices": [
-      "Use symbol search patterns like '*Handler' or 'get_*' to find related functions quickly",
-      "Run reindex after adding new files to keep the symbol database current",
-      "Check repo_map_status when tools return errors to diagnose indexing issues"
+      "Restart Claude Code after plugin installation or update so MCP tools become available.",
+      "Use repo-map tools for symbol names, then read full files only when deeper context is needed.",
+      "Review generated .claude files before sharing a project workspace."
     ],
     "anti_patterns": [
-      "Using symbol search for content-based searches instead of Grep tool",
-      "Expecting natural language queries like 'find the login function' instead of using patterns",
-      "Forgetting to restart the session after plugin installation, then wondering why tools are unavailable"
+      "Do not use symbol search for comments, strings, or non-code text patterns.",
+      "Do not assume unsupported languages are indexed with complete symbol coverage.",
+      "Do not publish repositories with sensitive generated .claude files included."
     ],
     "faq": [
       {
-        "question": "Which programming languages are supported for symbol indexing?",
-        "answer": "Python, C++, and Rust files are supported. The indexer extracts functions, classes, and methods."
+        "question": "What does this skill help Claude Code do?",
+        "answer": "It guides Claude Code to use repo-map MCP tools for symbol search, file symbol lookup, source retrieval, and index status checks."
       },
       {
-        "question": "How does the dynamic directory support work?",
-        "answer": "MCP tools automatically adapt to the current working directory. Each project gets its own .claude/repo-map.db file."
+        "question": "Does it replace normal file reading?",
+        "answer": "No. It helps locate relevant symbols first, then normal file reading can provide full context."
       },
       {
-        "question": "Is my code data sent to external servers?",
-        "answer": "No. All indexing and search happens locally on your machine. No data is transmitted externally."
+        "question": "Why must Claude Code restart after installation?",
+        "answer": "Claude Code starts MCP servers when a session starts, so new plugin server settings require a new session."
       },
       {
-        "question": "Why do I need to restart after installing?",
-        "answer": "MCP servers start when Claude Code launches. Plugin changes only take effect on the next session startup."
+        "question": "Which languages are documented?",
+        "answer": "The skill documentation lists Python, C++, and Rust as supported symbol languages."
       },
       {
-        "question": "What happens if indexing gets stuck?",
-        "answer": "The watchdog detects hung processes after 10 minutes and automatically resets status. Use reindex_repo_map to recover."
+        "question": "Where does the repo map store project data?",
+        "answer": "The documentation references local .claude files, including repo-map.db, repo-map.md, project-manifest.json, and logs."
       },
       {
-        "question": "How is this different from using Grep or Search tools?",
-        "answer": "Symbol search uses a pre-built SQLite index for faster lookups. Use symbol search for names, Grep for file content."
+        "question": "Is it safe for private repositories?",
+        "answer": "Use caution. The skill indexes local project structure and may record metadata in hidden .claude files and logs."
       }
     ]
   },
