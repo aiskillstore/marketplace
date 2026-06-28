@@ -1,21 +1,22 @@
-# Generate a plugin's usage guide on a clean self-hosted runner. The guide is a
-# long (~30s) Helm generation that doesn't fit Cloudflare's request window, so the
-# app's /generate flow dispatches this instead of generating it inline.
-# Triggered by `repository_dispatch { event_type: generate-usage-guide }` from
-# skillstore's /api/plugins/review/generate.
+# Generate a plugin's review content — cover image, description and usage guide —
+# on a clean self-hosted runner. The cover (~15s) and guide (~30s) Helm calls are
+# far too slow for Cloudflare's request window, so the app's /generate flow
+# dispatches this instead of generating anything on the edge.
+# Triggered by `repository_dispatch { event_type: generate-content }` from
+# skillstore's /api/plugins/review/callback.
 
-name: Generate Usage Guide
+name: Generate Plugin Content
 
 on:
   repository_dispatch:
-    types: [generate-usage-guide]
+    types: [generate-content]
 
 concurrency:
-  group: usage-guide-${{ github.event.client_payload.slug }}
+  group: generate-content-${{ github.event.client_payload.slug }}
   cancel-in-progress: true
 
 jobs:
-  guide:
+  content:
     runs-on: self-hosted
     timeout-minutes: 15
     steps:
@@ -41,7 +42,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
-      - name: Generate usage guide
+      - name: Generate content
         env:
           CLI: ${{ steps.cli.outputs.cli-path }}
           SLUG: ${{ github.event.client_payload.slug }}
@@ -51,7 +52,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           HELM_API_KEY: ${{ secrets.HELM_API_KEY }}
           CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
-          # lets the CLI post the finished guide back onto the review issue
+          # lets the CLI post the finished content back onto the review issue
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          "$CLI" plugin generate-guide --slug "$SLUG" --issue "$ISSUE"
+          "$CLI" plugin generate-content --slug "$SLUG" --issue "$ISSUE"
