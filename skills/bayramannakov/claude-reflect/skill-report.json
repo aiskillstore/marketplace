@@ -1,60 +1,68 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T18:00:18.373Z",
+    "generated_at": "2026-06-28T13:58:35.762Z",
     "slug": "bayramannakov-claude-reflect",
     "source_url": "https://github.com/BayramAnnakov/claude-reflect/tree/main/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "5ddc4aa3f9c8973645b90fd3a8a976600de64ea523b53da4e51fa69188fca38e",
-    "tree_hash": "437f878176be14066db5a71ee1e1b52092fe02bfd61d7aa55ff740f252586a5e"
+    "tree_hash": "b16d32586e78c5f4fbd7b8470f7768b0aa35433913676fdf11f3f893fda41255"
   },
   "skill": {
     "name": "claude-reflect",
-    "description": "Self-learning system that captures corrections during sessions and reminds users to run /reflect to update CLAUDE.md. Use when discussing learnings, corrections, or when the user mentions remembering something for future sessions.",
-    "summary": "Self-learning system that captures corrections during sessions and reminds users to run /reflect to ...",
-    "icon": "brain",
-    "version": "2.1.1",
+    "description": "Capture Claude Code corrections, review them, and add approved learnings to CLAUDE.md or AGENTS.md for future sessions.",
+    "summary": "Turn reviewed Claude Code corrections into reusable project and global guidance.",
+    "icon": "📦",
+    "version": "1.0.0",
     "author": "BayramAnnakov",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
+      "claude-code",
       "memory",
-      "learning",
-      "corrections",
-      "CLAUDE.md",
-      "self-improvement"
+      "workflow",
+      "agent-guidance",
+      "session-review"
     ],
     "supported_tools": [
       "claude",
+      "codex",
       "claude-code"
     ],
     "risk_factors": [
       "scripts",
       "filesystem",
-      "external_commands"
-    ]
+      "external_commands",
+      "env_access",
+      "network"
+    ],
+    "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a legitimate self-learning system with no malicious intent. All static findings are false positives: shell commands are documentation examples, hidden file access targets the standard ~/.claude/ directory for Claude configuration, and credential references are guidance documentation, not actual access. The critical heuristic alert incorrectly flagged local file operations as dangerous.",
+    "summary": "Static analysis reported a critical heuristic because the repository combines scripts, shell examples, home-directory file access, URLs, and secret-related terms. Manual review found no evidence of malicious C2, credential exfiltration, or prompt-injection text in the skill files, but confirmed a real elevated-risk design: hooks capture local prompts, /reflect can scan session history, and approved learnings are written to assistant guidance files. Publish with a clear privacy and file-modification warning.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
         "evidence": [
           {
-            "file": "scripts/lib/reflect_utils.py",
-            "line_start": 1,
-            "line_end": 52
+            "file": "README.md",
+            "line_start": 69,
+            "line_end": 77
+          },
+          {
+            "file": "scripts/capture_learning.py",
+            "line_start": 24,
+            "line_end": 63
           },
           {
             "file": "scripts/lib/semantic_detector.py",
-            "line_start": 1,
-            "line_end": 38
+            "line_start": 76,
+            "line_end": 83
           }
         ]
       },
@@ -62,14 +70,19 @@
         "factor": "filesystem",
         "evidence": [
           {
-            "file": "commands/reflect.md",
-            "line_start": 1,
-            "line_end": 1013
-          },
-          {
             "file": "scripts/lib/reflect_utils.py",
             "line_start": 17,
-            "line_end": 29
+            "line_end": 51
+          },
+          {
+            "file": "commands/reflect.md",
+            "line_start": 521,
+            "line_end": 523
+          },
+          {
+            "file": "commands/reflect.md",
+            "line_start": 922,
+            "line_end": 986
           }
         ]
       },
@@ -78,148 +91,377 @@
         "evidence": [
           {
             "file": "commands/reflect.md",
-            "line_start": 109,
-            "line_end": 246
+            "line_start": 1,
+            "line_end": 19
+          },
+          {
+            "file": "scripts/lib/semantic_detector.py",
+            "line_start": 70,
+            "line_end": 83
+          },
+          {
+            "file": "scripts/lib/semantic_detector.py",
+            "line_start": 302,
+            "line_end": 315
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "commands/reflect.md",
+            "line_start": 456,
+            "line_end": 465
+          },
+          {
+            "file": "scripts/lib/reflect_utils.py",
+            "line_start": 380,
+            "line_end": 399
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/lib/semantic_detector.py",
+            "line_start": 70,
+            "line_end": 83
+          },
+          {
+            "file": "README.md",
+            "line_start": 3,
+            "line_end": 7
+          },
+          {
+            "file": "DISTRIBUTION.md",
+            "line_start": 11,
+            "line_end": 13
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 30,
-    "total_lines": 6268,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T18:00:18.373Z"
+    "medium_findings": [
+      {
+        "title": "Automatic Local Capture of User Prompts",
+        "description": "The plugin installs hooks that run on UserPromptSubmit, PreCompact, and Bash PostToolUse events. The capture hook stores matching user prompts in a home-directory queue, which is expected behavior but creates a local privacy and data-retention risk.",
+        "locations": [
+          {
+            "file": "README.md",
+            "line_start": 69,
+            "line_end": 77
+          },
+          {
+            "file": "scripts/capture_learning.py",
+            "line_start": 24,
+            "line_end": 63
+          },
+          {
+            "file": "scripts/lib/reflect_utils.py",
+            "line_start": 17,
+            "line_end": 51
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The README describes automatic hooks, and the Python capture path directly shows prompt processing and writes to ~/.claude/learnings-queue.json. This is intentional for the skill, but the privacy impact is real."
+      },
+      {
+        "title": "Broad Session History Reading",
+        "description": "The /reflect workflow can scan Claude Code project session JSONL files, including agent session files, to extract corrections and tool rejections. This is useful for cold starts, but it expands the amount of conversation history processed by the skill.",
+        "locations": [
+          {
+            "file": "commands/reflect.md",
+            "line_start": 287,
+            "line_end": 310
+          },
+          {
+            "file": "commands/reflect.md",
+            "line_start": 312,
+            "line_end": 350
+          },
+          {
+            "file": "scripts/lib/reflect_utils.py",
+            "line_start": 194,
+            "line_end": 248
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The command instructions and utility functions explicitly read session files and extract user messages. The feature is user-triggered, so this is elevated but not malicious."
+      },
+      {
+        "title": "Claude CLI Subprocess for Semantic Analysis",
+        "description": "The semantic detector invokes the Claude CLI with extracted user text to classify reusable learnings. Arguments are constructed as a list, which limits shell injection risk, but the subprocess may send session-derived text to the configured Claude service.",
+        "locations": [
+          {
+            "file": "scripts/lib/semantic_detector.py",
+            "line_start": 67,
+            "line_end": 83
+          },
+          {
+            "file": "scripts/lib/semantic_detector.py",
+            "line_start": 295,
+            "line_end": 315
+          },
+          {
+            "file": "commands/reflect.md",
+            "line_start": 527,
+            "line_end": 567
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The subprocess calls are direct and semantically tied to analyzing captured messages. The list-form invocation avoids shell=True, reducing command injection concerns."
+      },
+      {
+        "title": "Writes Approved Learnings to Assistant Configuration Files",
+        "description": "After user confirmation, /reflect edits global and project CLAUDE.md files and may append a managed section to AGENTS.md. This is the intended purpose, but it can affect future assistant behavior if harmful or overbroad learnings are approved.",
+        "locations": [
+          {
+            "file": "commands/reflect.md",
+            "line_start": 881,
+            "line_end": 930
+          },
+          {
+            "file": "commands/reflect.md",
+            "line_start": 931,
+            "line_end": 958
+          },
+          {
+            "file": "commands/reflect.md",
+            "line_start": 960,
+            "line_end": 986
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The workflow requires final confirmation before writing, but the destination files influence future Claude Code and Codex behavior. This is a clear integrity risk with user mediation."
+      },
+      {
+        "title": "Environment and Secret Names in Tool Error Learning",
+        "description": "The tool-error extractor matches environment variable names such as DATABASE_URL, API_KEY, SECRET, SUPABASE_KEY, and REDIS_URL in error text. I did not find evidence that it reads .env file contents, but it can surface secret-related names and error snippets in proposed learnings.",
+        "locations": [
+          {
+            "file": "commands/reflect.md",
+            "line_start": 456,
+            "line_end": 519
+          },
+          {
+            "file": "scripts/lib/reflect_utils.py",
+            "line_start": 380,
+            "line_end": 399
+          },
+          {
+            "file": "scripts/lib/reflect_utils.py",
+            "line_start": 559,
+            "line_end": 566
+          }
+        ],
+        "confidence": 0.76,
+        "confidence_reasoning": "The regex patterns clearly match secret-related environment names, while the surrounding code extracts errors from session logs rather than reading environment files directly."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Documentation and Test Pattern False Positives",
+        "description": "Many static detections come from markdown examples, README badges, distribution notes, legacy scripts, or mocked subprocess tests. These findings explain the high static score but do not show malicious network access, C2 behavior, or credential theft.",
+        "locations": [
+          {
+            "file": "README.md",
+            "line_start": 3,
+            "line_end": 7
+          },
+          {
+            "file": "DISTRIBUTION.md",
+            "line_start": 11,
+            "line_end": 13
+          },
+          {
+            "file": "tests/test_semantic_detector.py",
+            "line_start": 4,
+            "line_end": 38
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The cited lines are badges, marketplace links, and tests that mock subprocess.run. They are static-analysis noise rather than executable malicious behavior."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Command Instructions with Bash and Home Directory Access",
+        "description": "The slash commands allow Bash and include shell snippets that read or modify files under ~/.claude. The snippets align with queue processing and target discovery, but they require user trust in the command workflow.",
+        "locations": [
+          {
+            "file": "commands/reflect.md",
+            "line_start": 1,
+            "line_end": 19
+          },
+          {
+            "file": "commands/skip-reflect.md",
+            "line_start": 1,
+            "line_end": 24
+          },
+          {
+            "file": "commands/view-queue.md",
+            "line_start": 1,
+            "line_end": 48
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The allowed-tools headers and shell snippets are explicit. The commands are locally scoped, but they access persistent assistant state."
+      },
+      {
+        "title": "Prompt Injection Exposure in Learning Extraction",
+        "description": "Captured user messages are placed into a semantic-analysis prompt and may later become proposed memory entries. No embedded prompt-injection attempt was found in the skill files, but untrusted session text can influence proposed CLAUDE.md content.",
+        "locations": [
+          {
+            "file": "scripts/lib/semantic_detector.py",
+            "line_start": 16,
+            "line_end": 38
+          },
+          {
+            "file": "scripts/lib/semantic_detector.py",
+            "line_start": 67,
+            "line_end": 83
+          },
+          {
+            "file": "commands/reflect.md",
+            "line_start": 428,
+            "line_end": 455
+          }
+        ],
+        "confidence": 0.68,
+        "confidence_reasoning": "The data flow from user text to analysis prompt and proposed learnings is clear. Human review reduces impact, so this is a medium-confidence exposure rather than a confirmed exploit."
+      }
+    ],
+    "files_scanned": 29,
+    "total_lines": 5827,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T13:58:35.762Z",
+    "risk_factors": [
+      "scripts",
+      "filesystem",
+      "external_commands",
+      "env_access",
+      "network"
+    ]
   },
   "content": {
-    "user_title": "Capture corrections to remember in CLAUDE.md",
-    "value_statement": "Users often correct Claude Code during sessions but lose those learnings between sessions. This skill automatically detects corrections, queues them, and helps you apply them to CLAUDE.md so Claude remembers your preferences in future sessions.",
+    "user_title": "Review Claude Code Learnings",
+    "value_statement": "Corrections and preferences from Claude Code sessions are easy to lose after context changes. Claude Reflect captures likely learnings, lets you review them, and writes approved guidance to CLAUDE.md or AGENTS.md.",
     "seo_keywords": [
-      "claude-reflect",
+      "Claude",
+      "Codex",
+      "Claude Code",
       "CLAUDE.md",
-      "claude code",
-      "self-learning",
-      "memory",
-      "corrections",
-      "preferences",
-      "persistent learning",
-      "claude",
-      "codex"
+      "AGENTS.md",
+      "session memory",
+      "AI coding workflow",
+      "reflection command",
+      "developer productivity",
+      "learning queue"
     ],
     "actual_capabilities": [
-      "Detects correction patterns during sessions using regex and semantic analysis",
-      "Queues learnings to ~/.claude/learnings-queue.json for later review",
-      "Scans past sessions with --scan-history to find missed corrections",
-      "Applies approved learnings to CLAUDE.md and AGENTS.md with human review",
-      "Supports global (all projects) and project-specific learning scopes"
+      "Detects correction and preference patterns from Claude Code prompts through hooks.",
+      "Stores candidate learnings in a local queue under the Claude configuration directory.",
+      "Runs /reflect to review, edit, approve, skip, or deduplicate queued learnings.",
+      "Can scan past Claude Code session files for missed corrections when requested.",
+      "Writes approved entries to global CLAUDE.md, project CLAUDE.md, and AGENTS.md when present.",
+      "Provides commands to view or clear the learning queue without applying changes."
     ],
     "limitations": [
-      "Requires human review - learnings are never auto-applied without approval",
-      "Cannot capture non-verbal corrections or contextual feedback",
-      "First-time use requires --scan-history to discover past session learnings"
+      "Requires Claude Code hooks and a local Python runtime to capture prompts automatically.",
+      "Pattern detection can capture false positives, so human review is required before applying learnings.",
+      "Historical scans process local session history and may expose sensitive conversation details during review.",
+      "Semantic validation depends on the Claude CLI and falls back to heuristic detection when unavailable."
     ],
     "use_cases": [
       {
-        "target_user": "Individual developers",
-        "title": "Remember model preferences",
-        "description": "Capture corrections like 'use gpt-5.1 not gpt-5' so Claude remembers your model preferences across sessions."
+        "title": "Preserve Team Conventions",
+        "description": "Turn repeated corrections about project structure, commands, or style into reviewed project guidance.",
+        "target_user": "Engineering teams using Claude Code in shared repositories"
       },
       {
-        "target_user": "Development teams",
-        "title": "Build project conventions",
-        "description": "Store project-specific coding standards and tool preferences that apply to everyone using the shared CLAUDE.md."
+        "title": "Build Personal Coding Preferences",
+        "description": "Save approved global preferences, such as model choices or common tool habits, for future sessions.",
+        "target_user": "Individual developers who use Claude Code daily"
       },
       {
-        "target_user": "Power users",
-        "title": "Create persistent memory",
-        "description": "Build a comprehensive memory of your workflow preferences that persists between Claude Code sessions."
+        "title": "Recover Missed Learnings",
+        "description": "Scan past session history after installation to find useful corrections that were not captured earlier.",
+        "target_user": "Developers setting up Claude Reflect on an existing project"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Process queued learnings",
-        "scenario": "Review captured corrections",
-        "prompt": "Run /reflect to process my queued learnings from this session."
+        "title": "View Pending Learnings",
+        "scenario": "Beginner check before changing files",
+        "prompt": "Run /view-queue and summarize the pending learnings without applying any changes."
       },
       {
-        "title": "Find past corrections",
-        "scenario": "First-time setup or cold start",
-        "prompt": "Run /reflect --scan-history to find corrections I made in past sessions."
+        "title": "Review Current Queue",
+        "scenario": "Standard reflection after a work session",
+        "prompt": "Run /reflect and help me review each queued learning before adding anything to CLAUDE.md."
       },
       {
-        "title": "Review before applying",
-        "scenario": "Check confidence scores",
-        "prompt": "Run /reflect --review to see my queued learnings with confidence scores before processing."
+        "title": "Preview Changes Safely",
+        "scenario": "Dry run before editing guidance files",
+        "prompt": "Run /reflect --dry-run and show the proposed global, project, and AGENTS.md updates."
       },
       {
-        "title": "Consolidate duplicates",
-        "description": "Clean up similar entries",
-        "prompt": "Run /reflect --dedupe to find and consolidate similar entries in my CLAUDE.md files."
+        "title": "Scan and Consolidate History",
+        "scenario": "Advanced setup or cleanup",
+        "prompt": "Run /reflect --scan-history --dedupe and propose consolidated learnings from past sessions for my review."
       }
     ],
     "output_examples": [
       {
-        "input": "User says: no, use gpt-5.1 not gpt-5 for reasoning",
-        "output": [
-          "Hook queues learning: Use gpt-5.1 for reasoning tasks",
-          "/reflect shows: 1 learning queued - scope: global",
-          "User approves: Added to ~/.claude/CLAUDE.md"
-        ]
+        "input": "Run /reflect after I corrected the assistant to use the project test command.",
+        "output": "The skill presents the captured correction, suggests a project-scoped learning, checks for similar entries, and asks for approval before editing files."
       },
       {
-        "input": "User runs: /reflect --scan-history",
-        "output": [
-          "Scans all past session files for corrections",
-          "Finds 5 learnings missed by real-time hooks",
-          "User reviews and applies 3 to CLAUDE.md"
-        ]
+        "input": "Run /reflect --dry-run before changing CLAUDE.md.",
+        "output": "The skill shows proposed additions and destinations, marks skipped or duplicate items, and leaves all files unchanged."
       },
       {
-        "input": "User runs: /reflect --review",
-        "output": [
-          "Shows queue with confidence scores (0.60-0.95)",
-          "Displays decay status (stale items flagged)",
-          "User can skip low-confidence entries before applying"
-        ]
+        "input": "Run /skip-reflect when the queue contains false positives.",
+        "output": "The skill displays the number of queued items, asks for confirmation, and clears the queue only after approval."
       }
     ],
     "best_practices": [
-      "Use 'remember:' prefix for important corrections to ensure high-confidence capture",
-      "Run /reflect after git commits to capture work-related learnings",
-      "Review and edit learnings before applying to ensure clarity and accuracy"
+      "Review every proposed learning before applying it to global or project guidance.",
+      "Use project scope for repository-specific commands, paths, services, and coding conventions.",
+      "Run dry runs before large history scans or deduplication changes."
     ],
     "anti_patterns": [
-      "Skipping /reflect regularly causes corrections to be lost between sessions",
-      "Applying learnings without review allows low-confidence noise into CLAUDE.md",
-      "Forgetting --scan-history on new machines loses learnings from past sessions"
+      "Do not approve learnings that contain secrets, tokens, passwords, or private customer data.",
+      "Do not make one-time task instructions permanent assistant guidance.",
+      "Do not run broad history scans when sensitive session data should stay unprocessed."
     ],
     "faq": [
       {
-        "question": "Does this send my data externally?",
-        "answer": "No. All processing happens locally on your machine using your Claude configuration files only."
+        "question": "Does this skill automatically edit CLAUDE.md?",
+        "answer": "The main /reflect workflow requires review and confirmation before applying learnings to guidance files."
       },
       {
-        "question": "Can I remove a learning after applying it?",
-        "answer": "Yes. Edit ~/.claude/CLAUDE.md or project CLAUDE.md directly to remove or modify entries."
+        "question": "Where are captured learnings stored?",
+        "answer": "Candidate learnings are stored locally in the Claude configuration directory as a learning queue."
       },
       {
-        "question": "Does it work with other AI tools?",
-        "answer": "Yes. It syncs to AGENTS.md which works with Codex, Cursor, Aider, Jules, Zed, and Factory."
+        "question": "Can I inspect the queue first?",
+        "answer": "Yes. Use /view-queue to see pending items without processing or writing changes."
       },
       {
-        "question": "What happens to my queue if I don't run /reflect?",
-        "answer": "Learnings stay queued until you run /reflect. They are flagged as stale after 90 days of decay."
+        "question": "Can I discard captured items?",
+        "answer": "Yes. Use /skip-reflect to clear queued learnings after confirmation."
       },
       {
-        "question": "Can I use this without internet?",
-        "answer": "Yes. The skill uses local file operations and optional Claude CLI for semantic analysis."
+        "question": "Does it work with Codex?",
+        "answer": "It can write approved learnings to AGENTS.md, which Codex can use when that file exists."
       },
       {
-        "question": "Is my data secure?",
-        "answer": "Yes. The skill only reads your Claude session files and writes to your CLAUDE.md files."
+        "question": "What should I review most carefully?",
+        "answer": "Check historical scan results, secret-related error text, and any learning that changes future assistant behavior."
       }
     ]
   },

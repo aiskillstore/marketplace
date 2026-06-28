@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T17:52:07.105Z",
+    "generated_at": "2026-06-28T13:47:27.017Z",
     "slug": "bauplanlabs-wap-ingestion",
     "source_url": "https://github.com/BauplanLabs/bauplan-mcp-server/tree/main/skills/wap",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "dfe58331cffa6a5ef4e683135f295ad2c8e8b631a1728907c663d062d0f2404c",
-    "tree_hash": "d284dee45cd73064114e50cce2824dcdd860f8e952753dc2b571c00ee519b10d"
+    "tree_hash": "5a61e27fd7874a2815b2bf45bb7ae1b18d18a3151c8af4563e954e017ac0e99b"
   },
   "skill": {
     "name": "wap-ingestion",
-    "description": "Ingest data from S3 into bauplan using the Write-Audit-Publish pattern for safe data loading. Use when loading new data from S3, performing safe data ingestion, or when the user mentions WAP, data ingestion, importing parquet/csv/jsonl files, or needs to safely load data with quality checks.",
-    "summary": "Ingest data from S3 into bauplan using the Write-Audit-Publish pattern for safe data loading. Use wh...",
+    "description": "Guide safe S3 data ingestion into Bauplan with the Write-Audit-Publish pattern, temporary branches, row-count checks, and controlled publish steps.",
+    "summary": "Load S3 data into Bauplan through a branch-based Write-Audit-Publish workflow.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "BauplanLabs",
     "license": "MIT",
-    "category": "data",
     "tags": [
-      "data-ingestion",
-      "s3",
       "bauplan",
-      "branching",
-      "data-quality"
+      "s3-ingestion",
+      "write-audit-publish",
+      "data-quality",
+      "branching"
     ],
     "supported_tools": [
       "claude",
@@ -33,196 +32,388 @@
       "claude-code"
     ],
     "risk_factors": [
-      "network",
       "external_commands",
-      "scripts"
-    ]
+      "network"
+    ],
+    "category": "data"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate data ingestion skill implementing the Write-Audit-Publish pattern. All 47 static findings are FALSE POSITIVES. The 'C2 keywords' detection was triggered by a git tree hash (hex string), 'weak crypto' by generic string patterns, and 'shell backtick' by markdown code formatting. The code uses only the bauplan SDK with hardcoded method names and no command injection vectors.",
+    "summary": "The high weak-cryptography alerts are false positives, and most backtick alerts are Markdown inline code or examples, not Ruby execution. The skill has legitimate elevated operational risk because it enables Bash-driven ingestion workflows, networked Bauplan and S3 operations, and optional publishing to main. Human review should note the unvalidated SQL identifier construction and assert-based safety checks in the template.",
     "risk_factor_evidence": [
-      {
-        "factor": "network",
-        "evidence": [
-          {
-            "file": "skill-report.json",
-            "line_start": 6,
-            "line_end": 6
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 67,
-            "line_end": 67
-          }
-        ]
-      },
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 15,
-            "line_end": 139
+            "line_start": 9,
+            "line_end": 9
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 73,
+            "line_end": 81
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 85,
+            "line_end": 106
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 124,
+            "line_end": 137
           }
         ]
       },
       {
-        "factor": "scripts",
+        "factor": "network",
         "evidence": [
           {
+            "file": "SKILL.md",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 27,
+            "line_end": 27
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 67
+          },
+          {
             "file": "wap_template.py",
-            "line_start": 1,
-            "line_end": 123
+            "line_start": 58,
+            "line_end": 71
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 3,
-    "total_lines": 477,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T17:52:07.105Z"
+    "medium_findings": [
+      {
+        "title": "Optional Publish Step Can Modify Main Data Branch",
+        "description": "The skill supports automatic merge to main and documents manual CLI merge commands. This is legitimate for Write-Audit-Publish, but mistakes can publish bad data if review is skipped.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 34
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 124,
+            "line_end": 137
+          },
+          {
+            "file": "wap_template.py",
+            "line_start": 85,
+            "line_end": 91
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The merge behavior is explicitly documented and implemented. It is not malicious, but it can affect production data when selected."
+      },
+      {
+        "title": "Unvalidated SQL Identifier Construction",
+        "description": "The template builds a SQL row-count query from namespace and table name without validation or identifier quoting. A crafted table name could break the audit query or alter the intended SQL.",
+        "locations": [
+          {
+            "file": "wap_template.py",
+            "line_start": 75,
+            "line_end": 78
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The f-string directly inserts table identifiers into SQL. The exact Bauplan SQL execution impact depends on backend parsing and permissions."
+      },
+      {
+        "title": "Safety Checks Rely on Python Assertions",
+        "description": "The template uses assert statements for branch existence, table existence, and non-empty import checks. These checks can be disabled when Python runs with optimization enabled.",
+        "locations": [
+          {
+            "file": "wap_template.py",
+            "line_start": 45,
+            "line_end": 55
+          },
+          {
+            "file": "wap_template.py",
+            "line_start": 76,
+            "line_end": 80
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The assertions are visible in the template and guard safety-critical workflow steps. The risk is conditional on optimized Python execution."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Markdown Backtick Alerts Are Mostly False Positives",
+        "description": "The static analyzer flagged many backticks as Ruby or shell execution. Most locations are Markdown inline code, method names, or fenced examples rather than executable skill code.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 15
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 27,
+            "line_end": 34
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 50
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 65
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 73,
+            "line_end": 81
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 85,
+            "line_end": 106
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 112,
+            "line_end": 120
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "Line review shows Markdown formatting and documentation examples. The actual template uses the Bauplan SDK rather than Ruby backtick execution."
+      },
+      {
+        "title": "Hardcoded Documentation URL Is Benign",
+        "description": "The hardcoded URL points to Bauplan documentation and matches the allowed WebFetch domain. No evidence found that data or credentials are sent to that URL.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 67
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The URL is a documentation reference and the allowed tool restricts access to the same domain. There is no evidence of exfiltration behavior."
+      },
+      {
+        "title": "Weak Cryptography Alerts Are False Positives",
+        "description": "The static weak-cryptography alerts at the reported lines do not correspond to cryptographic code. No hash, cipher, or password handling operation is present there.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 54
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The cited lines contain descriptive text and a Markdown table header. I did not find evidence of weak cryptographic algorithms at those locations."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Bash Tool and CLI Merge Workflow",
+        "description": "The skill enables Bash and documents commands that run Python ingestion scripts and merge branches. This is expected for the workflow but should be treated as an external command capability.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 9,
+            "line_end": 9
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 73,
+            "line_end": 81
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 124,
+            "line_end": 137
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The allowed tool and documented commands are explicit. They are operationally sensitive but not evidence of malicious intent."
+      },
+      {
+        "title": "Networked Data Import Through Bauplan SDK",
+        "description": "The template imports data from user-provided S3 paths into Bauplan. This network access is central to the skill and must use authorized buckets and credentials.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 27,
+            "line_end": 27
+          },
+          {
+            "file": "wap_template.py",
+            "line_start": 58,
+            "line_end": 71
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The skill explicitly requests an S3 URI and the template passes it to create_table and import_data. The behavior is intended, but it is still networked data movement."
+      },
+      {
+        "title": "Dynamic SQL String Formatting",
+        "description": "The audit query uses formatted namespace and table values in SQL. Identifier validation should be added before publishing this as a safe template.",
+        "locations": [
+          {
+            "file": "wap_template.py",
+            "line_start": 75,
+            "line_end": 78
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The SQL f-string is directly visible and depends on caller-supplied identifiers. Impact depends on backend SQL parsing and permissions."
+      }
+    ],
+    "files_scanned": 2,
+    "total_lines": 263,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T13:47:27.017Z",
+    "risk_factors": [
+      "external_commands",
+      "network"
+    ]
   },
   "content": {
-    "user_title": "Ingest S3 data with Write-Audit-Publish pattern",
-    "value_statement": "Load data from S3 safely by staging to a temporary branch first. Verify quality before merging to production. Prevents bad data from reaching your main tables.",
+    "user_title": "Ingest S3 Data Safely with WAP",
+    "value_statement": "Loading data directly into production tables can create errors that are hard to reverse. This skill creates a branch-based Bauplan workflow that writes, audits, and publishes data with review controls.",
     "seo_keywords": [
-      "WAP pattern",
-      "S3 data ingestion",
-      "bauplan",
-      "data pipeline",
-      "branch-based loading",
-      "parquet import",
-      "CSV import",
-      "data quality",
+      "Claude",
+      "Codex",
       "Claude Code",
-      "Claude"
+      "Bauplan ingestion",
+      "S3 data loading",
+      "Write-Audit-Publish",
+      "WAP data workflow",
+      "data quality checks",
+      "branch-based ingestion",
+      "safe data publishing"
     ],
     "actual_capabilities": [
-      "Create temporary branch for safe data staging",
-      "Import parquet, CSV, or JSONL files from S3",
-      "Run quality audit to verify row count before publishing",
-      "Atomic merge to main branch or manual inspection",
-      "Append data to existing tables safely"
+      "Generates a Bauplan Python ingestion script from a WAP template.",
+      "Asks for the required S3 path and target table before creating the script.",
+      "Creates a temporary branch before importing data into Bauplan.",
+      "Runs a row-count audit to confirm that data was imported.",
+      "Supports inspection-first and automatic merge publish modes.",
+      "Documents manual CLI merge steps after user inspection."
     ],
     "limitations": [
-      "Requires bauplan account and configured S3 access",
-      "Cannot modify or overwrite existing table schemas",
-      "Schema inferred from S3 files, not user-defined",
-      "Single-table or multi-table operations only via separate WAP runs"
+      "Requires valid Bauplan credentials and access to the target S3 data.",
+      "Only includes a basic row-count audit by default.",
+      "Does not validate table names or namespace values in the provided template.",
+      "Automatic merge can publish bad data if users skip review."
     ],
     "use_cases": [
       {
-        "target_user": "Data engineers",
-        "title": "Safe production data loading",
-        "description": "Load new data batches with automatic quality verification before exposing to downstream systems."
+        "title": "Load New Analytics Tables",
+        "description": "Create a new Bauplan table from S3 files while keeping production unchanged until review.",
+        "target_user": "Data engineer"
       },
       {
-        "target_user": "Analytics teams",
-        "title": "Staged data updates",
-        "description": "Import research data to temporary branch for review before merging to main analytics tables."
+        "title": "Review Imports Before Publish",
+        "description": "Keep an ingestion branch open so row counts and sample queries can be checked before merge.",
+        "target_user": "Analytics engineer"
       },
       {
-        "target_user": "ML engineers",
-        "title": "Model feature ingestion",
-        "description": "Safely load new feature data from S3 buckets with audit checks before production use."
+        "title": "Automate Repeatable S3 Ingestion",
+        "description": "Build a reusable script for controlled S3 imports with consistent branch cleanup behavior.",
+        "target_user": "Platform engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic S3 ingestion",
-        "scenario": "Load parquet files from S3",
-        "prompt": "Use wap-ingestion to load data from s3://my-bucket/events/*.parquet into a table called events in the bauplan namespace."
+        "title": "Start a Safe Import",
+        "scenario": "Beginner setup for a new table.",
+        "prompt": "Help me ingest S3 data into Bauplan using WAP. Ask me for the S3 path, table name, and review preferences."
       },
       {
-        "title": "Auto-merge after import",
-        "scenario": "Merge to main automatically",
-        "prompt": "Use wap-ingestion to import customer_data.csv from s3://data-bucket/exports/ into the customers table with on_success=merge."
+        "title": "Create an Inspection Workflow",
+        "scenario": "Keep the branch open after import.",
+        "prompt": "Create a WAP ingestion script for my S3 dataset and keep the branch open after a successful row-count audit."
       },
       {
-        "title": "Append new data batch",
-        "scenario": "Add data to existing table",
-        "prompt": "Use wap-ingestion to append new monthly data from s3://bucket/2024-12/*.parquet to the existing sales table."
+        "title": "Append to an Existing Table",
+        "scenario": "Load new files without recreating a table.",
+        "prompt": "Adapt the WAP workflow to append S3 data to an existing Bauplan table and preserve the branch for inspection."
       },
       {
-        "title": "Manual review before merge",
-        "scenario": "Inspect before publishing",
-        "prompt": "Use wap-ingestion to load data from s3://bucket/new-data/ into the products table with on_success=inspect so I can review before merging."
+        "title": "Prepare a Reviewed Publish",
+        "scenario": "Advanced flow after quality checks.",
+        "prompt": "After I inspect the WAP branch, guide me through publishing it to main and cleaning up the branch safely."
       }
     ],
     "output_examples": [
       {
-        "input": "Ingest parquet files from s3://analytics-data/user-events/ into a table called user_events",
-        "output": [
-          "Created branch: alice.wap_user_events_1704067200",
-          "Imported 15,234 rows from S3",
-          "Quality check passed: 15,234 rows imported",
-          "Branch ready for inspection",
-          "To merge: client.merge_branch(source_ref='alice.wap_user_events_1704067200', into_branch='main')"
-        ]
+        "input": "A user provides an S3 parquet path, table name orders, and wants inspection before merge.",
+        "output": "The assistant prepares a Bauplan WAP script, leaves the temporary branch open, and reports the branch name for review."
       },
       {
-        "input": "Import CSV data and auto-merge to main",
-        "output": [
-          "Created branch: bob.wap_orders_1704153600",
-          "Imported 5,000 rows from S3",
-          "Quality check passed: 5,000 rows imported",
-          "Successfully published orders to main",
-          "Cleaned up branch: bob.wap_orders_1704153600"
-        ]
+        "input": "A user asks to append daily files to an existing transactions table.",
+        "output": "The assistant adjusts the workflow to import into the existing table on a branch and run the row-count audit."
       },
       {
-        "input": "Load data for review before merge",
-        "output": [
-          "Created branch: carol.wap_products_1704240000",
-          "Imported 2,500 rows from S3",
-          "Quality check passed: 2,500 rows imported",
-          "WAP completed successfully. Branch 'carol.wap_products_1704240000' ready for inspection.",
-          "Run bauplan checkout main && bauplan branch merge carol.wap_products_1704240000 after review"
-        ]
+        "input": "A user has inspected the branch and wants to publish it.",
+        "output": "The assistant confirms the target branch, switches to main, merges the WAP branch, and explains cleanup steps."
       }
     ],
     "best_practices": [
-      "Use on_success='inspect' for initial data loads to verify schema and content before merging",
-      "Keep on_failure='keep' to preserve branches for debugging when imports fail",
-      "Review branch changes with bauplan queries before merging to catch data quality issues early"
+      "Use inspection mode unless the ingestion path and table are already trusted.",
+      "Add domain-specific quality checks before merging a branch to main.",
+      "Validate table names, namespace values, and S3 paths before running the script."
     ],
     "anti_patterns": [
-      "Do not use WAP for overwriting existing tables - it only appends or creates new tables",
-      "Do not skip the audit phase - the row count check catches empty imports",
-      "Do not run multiple WAP operations simultaneously on the same table name"
+      "Do not auto-merge unfamiliar data without inspecting row counts and sample records.",
+      "Do not use broad S3 wildcards unless the matched files are well understood.",
+      "Do not treat the default row-count audit as complete data validation."
     ],
     "faq": [
       {
-        "question": "What file formats are supported?",
-        "answer": "Parquet, CSV, and JSONL files from S3 are supported. Schema is automatically inferred from the source files."
+        "question": "What does WAP mean?",
+        "answer": "WAP means Write-Audit-Publish. Data is written to a branch, checked, then published only after approval."
       },
       {
-        "question": "What happens if the import fails?",
-        "answer": "On failure, the branch is preserved by default for inspection. Set on_failure='delete' to auto-cleanup failed branches."
+        "question": "Does this skill run command-line tools?",
+        "answer": "Yes. It can run Python scripts and documents Bauplan CLI merge steps after inspection."
       },
       {
-        "question": "Can I modify existing tables?",
-        "answer": "WAP can append new rows to existing tables but cannot modify table schemas or overwrite existing data."
+        "question": "Can it merge data into main automatically?",
+        "answer": "Yes. The merge option can publish to main, but inspection mode is the safer default."
       },
       {
-        "question": "Is my data safe during ingestion?",
-        "answer": "Yes. Data is written to an isolated temporary branch first. It only reaches main after quality checks pass and merge is executed."
+        "question": "What data formats are supported?",
+        "answer": "The skill is designed for S3 sources such as parquet, csv, and jsonl files supported by Bauplan."
       },
       {
-        "question": "How do I handle very large datasets?",
-        "answer": "Large imports are supported. The quality audit counts rows to verify successful import. Consider partitioning S3 paths for better performance."
+        "question": "Does it perform full data quality validation?",
+        "answer": "No. The template checks that rows were imported. Add business-specific checks before publish."
       },
       {
-        "question": "How is this different from direct imports?",
-        "answer": "WAP provides a safety net by staging data on a branch first. Bad imports never reach production unless you explicitly merge them."
+        "question": "What credentials are required?",
+        "answer": "You need Bauplan access and permission to read the S3 source path used for ingestion."
       }
     ]
   },
