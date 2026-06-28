@@ -171,7 +171,57 @@ jobs:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
-          RESULT=$("$GITHUB_WORKSPACE/skillstore-cli" skill translate-content --count-only --output json)
+          configure_tls() {
+            if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && command -v apt-get >/dev/null 2>&1; then
+              echo "CA bundle missing; attempting to install ca-certificates"
+              if command -v sudo >/dev/null 2>&1; then
+                sudo apt-get update -y && sudo apt-get install -y ca-certificates || true
+              else
+                apt-get update -y && apt-get install -y ca-certificates || true
+              fi
+            fi
+
+            if command -v update-ca-certificates >/dev/null 2>&1; then
+              if command -v sudo >/dev/null 2>&1; then
+                sudo update-ca-certificates || true
+              else
+                update-ca-certificates || true
+              fi
+            fi
+
+            if [ -s /etc/ssl/certs/ca-certificates.crt ]; then
+              export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+              export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+              export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+              export GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt
+            fi
+            export NODE_OPTIONS="${NODE_OPTIONS:-} --use-openssl-ca"
+          }
+
+          is_tls_error() {
+            grep -Eqi 'certificate verification|unable to get local issuer certificate|self-signed certificate|CERT_|TLS|SSL' <<< "$1"
+          }
+
+          RESULT=""
+          for ATTEMPT in 1 2 3 4; do
+            configure_tls
+            set +e
+            RESULT=$("$GITHUB_WORKSPACE/skillstore-cli" skill translate-content --count-only --output json 2>&1)
+            EXIT_CODE=$?
+            set -e
+
+            if [ "$EXIT_CODE" -eq 0 ] && echo "$RESULT" | jq -e '.count' > /dev/null 2>&1; then
+              break
+            fi
+            if ! is_tls_error "$RESULT" || [ "$ATTEMPT" -eq 4 ]; then
+              echo "$RESULT"
+              exit 1
+            fi
+
+            echo "::warning::TLS error while counting translatable skills; retrying attempt ${ATTEMPT}/4"
+            sleep $((ATTEMPT * 15))
+          done
+
           COUNT=$(echo "$RESULT" | jq -r '.count')
           echo "total_count=$COUNT" >> $GITHUB_OUTPUT
           echo "📊 Found $COUNT translatable skills in database"
@@ -343,6 +393,7 @@ jobs:
           SELECTION_FLAG=""
           if [ -n "$OFFSET" ]; then
             echo "🌍 Offset/limit mode: offset=$OFFSET, limit=$LIMIT"
+            SKILL_COUNT="$LIMIT"
             SELECTION_FLAG="--offset $OFFSET --limit $LIMIT"
           elif [ -n "$SLUGS" ]; then
             SKILL_COUNT=$(echo "$SLUGS" | tr ',' '\n' | grep -c . || echo 0)
@@ -364,15 +415,79 @@ jobs:
             FORCE_FLAG="--force"
           fi
 
-          set +e
-          RESULT=$("$GITHUB_WORKSPACE/skillstore-cli" skill translate-content \
-            $SELECTION_FLAG \
-            --concurrency "$CONCURRENCY" \
-            --output json \
-            $MODEL_FLAG \
-            $FORCE_FLAG)
-          EXIT_CODE=$?
-          set -e
+          configure_tls() {
+            if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && command -v apt-get >/dev/null 2>&1; then
+              echo "CA bundle missing; attempting to install ca-certificates"
+              if command -v sudo >/dev/null 2>&1; then
+                sudo apt-get update -y && sudo apt-get install -y ca-certificates || true
+              else
+                apt-get update -y && apt-get install -y ca-certificates || true
+              fi
+            fi
+
+            if command -v update-ca-certificates >/dev/null 2>&1; then
+              if command -v sudo >/dev/null 2>&1; then
+                sudo update-ca-certificates || true
+              else
+                update-ca-certificates || true
+              fi
+            fi
+
+            if [ -s /etc/ssl/certs/ca-certificates.crt ]; then
+              export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+              export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+              export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+              export GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt
+            fi
+            export NODE_OPTIONS="${NODE_OPTIONS:-} --use-openssl-ca"
+          }
+
+          is_tls_error() {
+            grep -Eqi 'certificate verification|unable to get local issuer certificate|self-signed certificate|CERT_|TLS|SSL' <<< "$1"
+          }
+
+          RESULT=""
+          EXIT_CODE=1
+          MAX_TRANSLATE_ATTEMPTS=8
+
+          for ATTEMPT in $(seq 1 "$MAX_TRANSLATE_ATTEMPTS"); do
+            configure_tls
+
+            CURRENT_CONCURRENCY="$CONCURRENCY"
+            if [ "$ATTEMPT" -gt 1 ]; then
+              CURRENT_CONCURRENCY=3
+            fi
+            if [ "${SKILL_COUNT:-0}" -le 5 ]; then
+              CURRENT_CONCURRENCY=1
+            fi
+
+            echo "=== Translate attempt ${ATTEMPT}/${MAX_TRANSLATE_ATTEMPTS} (concurrency=${CURRENT_CONCURRENCY}) ==="
+            set +e
+            RESULT=$("$GITHUB_WORKSPACE/skillstore-cli" skill translate-content \
+              $SELECTION_FLAG \
+              --concurrency "$CURRENT_CONCURRENCY" \
+              --output json \
+              $MODEL_FLAG \
+              $FORCE_FLAG 2>&1)
+            EXIT_CODE=$?
+            set -e
+
+            if echo "$RESULT" | jq -e '.totalSkills' > /dev/null 2>&1; then
+              break
+            fi
+
+            if ! is_tls_error "$RESULT"; then
+              break
+            fi
+
+            if [ "$ATTEMPT" -eq "$MAX_TRANSLATE_ATTEMPTS" ]; then
+              echo "::error::TLS errors remained after ${ATTEMPT} translate attempts"
+              break
+            fi
+
+            echo "::warning::TLS certificate error during translation; retrying shard ${{ matrix.shard }}"
+            sleep $((ATTEMPT * 15))
+          done
 
           # Save result to file for artifact upload
           echo "$RESULT" > shard-${{ matrix.shard }}-result.json
