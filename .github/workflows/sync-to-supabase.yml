@@ -205,6 +205,15 @@ jobs:
             echo "$summary" | sed -n 's/.*Sync complete: [0-9][0-9]* synced, \([0-9][0-9]*\) errors.*/\1/p'
           }
 
+          path_count() {
+            local paths="$1"
+            if [ -z "$paths" ]; then
+              echo 0
+            else
+              awk -F, '{ print NF }' <<< "$paths"
+            fi
+          }
+
           failed_paths_from_output() {
             local output_file="$1"
             local candidate_paths="$2"
@@ -265,17 +274,22 @@ jobs:
           : > sync-output.log
           CURRENT_PATHS="$SKILL_PATHS"
           SYNC_OK=false
+          MAX_SYNC_ATTEMPTS=8
 
-          for ATTEMPT in 1 2 3 4; do
+          for ATTEMPT in $(seq 1 "$MAX_SYNC_ATTEMPTS"); do
             configure_tls
 
             OUTPUT_FILE="sync-output-attempt-${ATTEMPT}.log"
+            CURRENT_COUNT=$(path_count "$CURRENT_PATHS")
             CONCURRENCY=10
             if [ "$ATTEMPT" -gt 1 ]; then
               CONCURRENCY=3
             fi
+            if [ "$CURRENT_COUNT" -le 5 ]; then
+              CONCURRENCY=1
+            fi
 
-            echo "=== Sync attempt ${ATTEMPT}/4 (concurrency=${CONCURRENCY}) ===" | tee -a sync-output.log
+            echo "=== Sync attempt ${ATTEMPT}/${MAX_SYNC_ATTEMPTS} (${CURRENT_COUNT} skill paths, concurrency=${CONCURRENCY}) ===" | tee -a sync-output.log
             set +e
             run_sync_once "$CURRENT_PATHS" "$CONCURRENCY" "$OUTPUT_FILE"
             SYNC_RC=$?
@@ -301,7 +315,7 @@ jobs:
               break
             fi
 
-            if [ "$ATTEMPT" -eq 4 ]; then
+            if [ "$ATTEMPT" -eq "$MAX_SYNC_ATTEMPTS" ]; then
               echo "::error::TLS errors remained after ${ATTEMPT} attempts"
               break
             fi
