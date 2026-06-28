@@ -1,29 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T18:58:22.136Z",
+    "generated_at": "2026-06-28T15:55:18.946Z",
     "slug": "blockrunai-nano-banana-blockrun",
     "source_url": "https://github.com/BlockRunAI/nano-banana-blockrun/tree/main/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "962314ed5d667ee472fa7503a04da07ef12937b712c6a740e468a24ef4c9d180",
-    "tree_hash": "1879d1b770dd33e3fb19611deb5b2a28a4a4bf30d9fd26f74f1fba73083d9b5b"
+    "tree_hash": "fa8d5a2377ed0738a40c683484e34731f3bff44f1426e2bc90b57f1d0f214d3f"
   },
   "skill": {
     "name": "nano-banana-blockrun",
-    "description": "Nano Banana by BlockRun - Generate images using Google's Nano Banana via x402 micropayments. Use when the user asks to generate, create, draw, or make images. Pay-per-request via USDC on Base, no API keys needed.",
-    "summary": "Nano Banana by BlockRun - Generate images using Google's Nano Banana via x402 micropayments. Use whe...",
+    "description": "Generate AI images through BlockRun using Google Nano Banana, Nano Banana Pro, or DALL-E 3 with x402 USDC micropayments on Base.",
+    "summary": "Generate paid AI images through BlockRun with local wallet signing.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "BlockRunAI",
-    "license": "MIT",
+    "license": "Apache-2.0",
+    "category": "design",
     "tags": [
-      "nano-banana-blockrun",
-      "ai",
-      "skill",
-      "claude"
+      "image-generation",
+      "x402",
+      "micropayments",
+      "base",
+      "blockrun"
     ],
     "supported_tools": [
       "claude",
@@ -31,6 +33,7 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
       "network",
       "external_commands",
       "filesystem",
@@ -38,11 +41,28 @@
     ]
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
     "safe_to_publish": false,
-    "summary": "AI analysis failed after multiple attempts - MANUAL REVIEW REQUIRED before publishing. This skill cannot be auto-published until reviewed by a human.",
+    "summary": "Static critical heuristics are not confirmed as malicious, and no prompt injection attempt was found. However, the skill requires a wallet private key, loads .env files, signs paid x402 requests, and uses network calls through a third-party SDK. This is high risk for a community marketplace skill and should not be published without stronger review and user warnings.",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "external_commands",
+      "filesystem",
+      "env_access"
+    ],
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/generate.py",
+            "line_start": 1,
+            "line_end": 74
+          }
+        ]
+      },
       {
         "factor": "network",
         "evidence": [
@@ -85,11 +105,6 @@
             "file": "README.md",
             "line_start": 113,
             "line_end": 113
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 6,
-            "line_end": 6
           },
           {
             "file": "SKILL.md",
@@ -335,89 +350,132 @@
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [
+    "high_findings": [
       {
-        "title": "Hardcoded URL",
-        "description": "Hardcoded URL detected in code",
+        "title": "Wallet Private Key Required for Payment Signing",
+        "description": "The skill instructs users to place a private wallet key in .env or BLOCKRUN_WALLET_KEY, then passes that key into the BlockRun ImageClient. This is a true positive for credential access because compromise or misuse of this value can authorize crypto payments.",
         "locations": [
           {
-            "file": "LICENSE",
-            "line_start": 3,
-            "line_end": 3
-          },
-          {
-            "file": "LICENSE",
-            "line_start": 184,
-            "line_end": 184
-          },
-          {
-            "file": "README.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": "README.md",
-            "line_start": 31,
-            "line_end": 31
-          },
-          {
-            "file": "README.md",
-            "line_start": 98,
-            "line_end": 98
-          },
-          {
-            "file": "README.md",
-            "line_start": 111,
-            "line_end": 111
-          },
-          {
-            "file": "README.md",
-            "line_start": 112,
-            "line_end": 112
-          },
-          {
-            "file": "README.md",
-            "line_start": 113,
-            "line_end": 113
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 6,
-            "line_end": 6
-          },
-          {
             "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
+            "line_start": 24,
+            "line_end": 30
           },
+          {
+            "file": "README.md",
+            "line_start": 35,
+            "line_end": 47
+          },
+          {
+            "file": "scripts/generate.py",
+            "line_start": 23,
+            "line_end": 29
+          },
+          {
+            "file": "scripts/generate.py",
+            "line_start": 48,
+            "line_end": 48
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The documentation and script directly require BLOCKRUN_WALLET_KEY and instantiate ImageClient with it. The local-signing claim reduces exfiltration certainty but does not remove the credential handling risk."
+      },
+      {
+        "title": "Network Payment Flow Uses Third-Party SDK and Signatures",
+        "description": "The skill sends generation requests to BlockRun and documents that a payment signature is sent to the server. This is a true positive for network plus credential-adjacent behavior because the workflow spends USDC through signed x402 requests.",
+        "locations": [
           {
             "file": "SKILL.md",
             "line_start": 67,
-            "line_end": 67
+            "line_end": 70
           },
           {
-            "file": "SKILL.md",
-            "line_start": 84,
-            "line_end": 84
+            "file": "README.md",
+            "line_start": 92,
+            "line_end": 98
           },
           {
-            "file": "SKILL.md",
-            "line_start": 85,
-            "line_end": 85
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 86,
-            "line_end": 86
+            "file": "scripts/generate.py",
+            "line_start": 51,
+            "line_end": 51
           }
-        ]
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The files explicitly describe API calls, HTTP 402 payment handling, local signing, and signature transmission. No evidence proves malicious exfiltration, but the paid network flow is confirmed."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Multiple .env Files Are Loaded from Variable Locations",
+        "description": "The script loads .env from the requested output directory, current working directory, and skill directory before reading BLOCKRUN_WALLET_KEY. This can unintentionally select a wallet key from a directory chosen by the caller.",
+        "locations": [
+          {
+            "file": "scripts/generate.py",
+            "line_start": 20,
+            "line_end": 29
+          }
+        ],
+        "confidence": 0.85,
+        "confidence_reasoning": "The output directory can come from an argument or environment variable, and load_dotenv is called on that path. The behavior is clear, but impact depends on how users run the skill."
       },
       {
-        "title": "Weak cryptographic algorithm",
-        "description": "Weak cryptographic algorithm detected in code",
+        "title": "Generated Files Are Written to Caller-Controlled Paths",
+        "description": "The script writes decoded PNG bytes into output_dir using predictable filenames. This is legitimate image generation behavior, but it can overwrite existing generated_image files in the selected directory.",
+        "locations": [
+          {
+            "file": "scripts/generate.py",
+            "line_start": 57,
+            "line_end": 63
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The file write is directly present and uses output_dir. The likely purpose is benign, but the overwrite and path-control behavior remains relevant."
+      },
+      {
+        "title": "Broad Python and Pip Execution Permissions",
+        "description": "The skill metadata allows Bash execution for python, python3, pip, and pip3. This is expected for a script-based skill, but it increases risk because the skill can install packages and execute local Python code.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 14,
+            "line_end": 17
+          },
+          {
+            "file": "README.md",
+            "line_start": 25,
+            "line_end": 28
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The allowed-tools declaration and installation commands are explicit. This is not malicious by itself, but it expands the execution surface for a community skill."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Markdown Code Fences Misclassified as Ruby Backticks",
+        "description": "The external command findings in README.md and SKILL.md largely point to Markdown fenced examples for installation and usage. They are documentation examples, not Ruby backtick execution in code.",
+        "locations": [
+          {
+            "file": "README.md",
+            "line_start": 60,
+            "line_end": 72
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 46,
+            "line_end": 54
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The cited lines are Markdown code blocks and normal shell examples. The static label does not match executable Ruby code."
+      },
+      {
+        "title": "Apache License Text Misclassified as Weak Cryptography",
+        "description": "The weak cryptography findings in LICENSE and SKILL.md do not identify cryptographic implementation code. The LICENSE lines are standard Apache License text, and SKILL.md only names the Nano Banana product.",
         "locations": [
           {
             "file": "LICENSE",
@@ -430,526 +488,207 @@
             "line_end": 106
           },
           {
-            "file": "LICENSE",
-            "line_start": 140,
-            "line_end": 140
-          },
-          {
-            "file": "LICENSE",
-            "line_start": 144,
-            "line_end": 144
-          },
-          {
-            "file": "LICENSE",
-            "line_start": 145,
-            "line_end": 145
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 16,
-            "line_end": 16
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 22,
-            "line_end": 22
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 147,
-            "line_end": 147
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 152,
-            "line_end": 152
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 155,
-            "line_end": 155
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 157,
-            "line_end": 157
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 157,
-            "line_end": 157
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 168,
-            "line_end": 168
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 173,
-            "line_end": 173
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 174,
-            "line_end": 174
-          },
-          {
             "file": "SKILL.md",
             "line_start": 3,
             "line_end": 3
           }
-        ]
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "No hashing, encryption, or signature algorithm implementation appears at these locations. The matches are false positives from ordinary license and description text."
       },
       {
-        "title": "Ruby/shell backtick execution",
-        "description": "Ruby/shell backtick execution detected in code",
+        "title": "Documented URLs Are Expected Network References",
+        "description": "Hardcoded URL findings point to documentation links for Base, BlockRun, PyPI, x402, and the Apache License. These references are expected for setup and attribution.",
         "locations": [
           {
             "file": "README.md",
-            "line_start": 19,
-            "line_end": 21
+            "line_start": 111,
+            "line_end": 113
           },
           {
-            "file": "README.md",
-            "line_start": 21,
-            "line_end": 26
-          },
-          {
-            "file": "README.md",
-            "line_start": 26,
-            "line_end": 28
-          },
-          {
-            "file": "README.md",
-            "line_start": 28,
-            "line_end": 36
-          },
-          {
-            "file": "README.md",
-            "line_start": 36,
-            "line_end": 42
-          },
-          {
-            "file": "README.md",
-            "line_start": 42,
-            "line_end": 45
-          },
-          {
-            "file": "README.md",
-            "line_start": 45,
-            "line_end": 47
-          },
-          {
-            "file": "README.md",
-            "line_start": 47,
-            "line_end": 60
-          },
-          {
-            "file": "README.md",
-            "line_start": 60,
-            "line_end": 66
-          },
-          {
-            "file": "README.md",
-            "line_start": 66,
-            "line_end": 69
-          },
-          {
-            "file": "README.md",
-            "line_start": 69,
-            "line_end": 72
-          },
-          {
-            "file": "README.md",
-            "line_start": 72,
+            "file": "SKILL.md",
+            "line_start": 84,
             "line_end": 86
           },
           {
-            "file": "README.md",
-            "line_start": 86,
-            "line_end": 87
-          },
-          {
-            "file": "README.md",
-            "line_start": 87,
-            "line_end": 88
-          },
-          {
-            "file": "README.md",
-            "line_start": 88,
-            "line_end": 105
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 15,
-            "line_end": 17
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 17,
-            "line_end": 25
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 25,
-            "line_end": 31
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 31,
-            "line_end": 38
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 38,
-            "line_end": 44
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 44,
-            "line_end": 47
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 47,
-            "line_end": 55
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 55,
-            "line_end": 61
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 61,
-            "line_end": 62
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 62,
-            "line_end": 63
+            "file": "LICENSE",
+            "line_start": 184,
+            "line_end": 184
           }
-        ]
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The URLs are visible documentation links and not hidden endpoints. The actual network risk comes from the SDK request flow, not these links."
       },
       {
-        "title": "Hidden file in home directory",
-        "description": "Hidden file in home directory detected in code",
+        "title": "Base64 Decode Used for Image Output",
+        "description": "The base64 decode finding is used to save data:image PNG results returned by the image generation API. This appears to be normal handling of image data, not obfuscation.",
         "locations": [
-          {
-            "file": "README.md",
-            "line_start": 20,
-            "line_end": 20
-          }
-        ]
-      },
-      {
-        "title": "Hidden file access",
-        "description": "Hidden file access detected in code",
-        "locations": [
-          {
-            "file": "README.md",
-            "line_start": 20,
-            "line_end": 20
-          }
-        ]
-      },
-      {
-        "title": "Environment file access",
-        "description": "Environment file access detected in code",
-        "locations": [
-          {
-            "file": "README.md",
-            "line_start": 38,
-            "line_end": 38
-          },
-          {
-            "file": "README.md",
-            "line_start": 38,
-            "line_end": 38
-          },
-          {
-            "file": "README.md",
-            "line_start": 40,
-            "line_end": 40
-          },
           {
             "file": "scripts/generate.py",
-            "line_start": 12,
-            "line_end": 12
-          },
+            "line_start": 55,
+            "line_end": 63
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The code checks for a PNG data URL and writes decoded bytes as an image file. This is a legitimate image-output pattern."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Credential Access Combined with Paid Network Requests",
+        "description": "The script reads BLOCKRUN_WALLET_KEY and uses it to create a client that generates images through a paid network flow. This matches the static analyzer's dangerous combination, although malicious intent is not confirmed.",
+        "locations": [
           {
             "file": "scripts/generate.py",
             "line_start": 23,
-            "line_end": 23
-          },
-          {
-            "file": "scripts/generate.py",
-            "line_start": 24,
-            "line_end": 24
-          },
-          {
-            "file": "scripts/generate.py",
-            "line_start": 25,
-            "line_end": 25
-          },
-          {
-            "file": "scripts/generate.py",
-            "line_start": 26,
-            "line_end": 26
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 26,
-            "line_end": 26
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 26,
-            "line_end": 26
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 27,
-            "line_end": 27
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 27,
-            "line_end": 27
-          }
-        ]
-      },
-      {
-        "title": "Crypto seed/private key mention",
-        "description": "Crypto seed/private key mention detected in code",
-        "locations": [
-          {
-            "file": "README.md",
-            "line_start": 40,
-            "line_end": 40
-          },
-          {
-            "file": "README.md",
-            "line_start": 102,
-            "line_end": 102
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 47,
-            "line_end": 47
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 216,
-            "line_end": 216
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 24,
-            "line_end": 24
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 77,
-            "line_end": 77
-          }
-        ]
-      },
-      {
-        "title": "Python file write/append",
-        "description": "Python file write/append detected in code",
-        "locations": [
-          {
-            "file": "scripts/generate.py",
-            "line_start": 61,
-            "line_end": 61
-          }
-        ]
-      },
-      {
-        "title": "Python environment access",
-        "description": "Python environment access detected in code",
-        "locations": [
-          {
-            "file": "scripts/generate.py",
-            "line_start": 21,
-            "line_end": 21
-          },
-          {
-            "file": "scripts/generate.py",
-            "line_start": 29,
             "line_end": 29
-          }
-        ]
-      },
-      {
-        "title": "dotenv library",
-        "description": "dotenv library detected in code",
-        "locations": [
-          {
-            "file": "scripts/generate.py",
-            "line_start": 8,
-            "line_end": 8
           },
-          {
-            "file": "scripts/generate.py",
-            "line_start": 8,
-            "line_end": 8
-          },
-          {
-            "file": "scripts/generate.py",
-            "line_start": 24,
-            "line_end": 24
-          },
-          {
-            "file": "scripts/generate.py",
-            "line_start": 25,
-            "line_end": 25
-          },
-          {
-            "file": "scripts/generate.py",
-            "line_start": 26,
-            "line_end": 26
-          }
-        ]
-      },
-      {
-        "title": "Python dotenv loader",
-        "description": "Python dotenv loader detected in code",
-        "locations": [
-          {
-            "file": "scripts/generate.py",
-            "line_start": 8,
-            "line_end": 8
-          },
-          {
-            "file": "scripts/generate.py",
-            "line_start": 24,
-            "line_end": 24
-          },
-          {
-            "file": "scripts/generate.py",
-            "line_start": 25,
-            "line_end": 25
-          },
-          {
-            "file": "scripts/generate.py",
-            "line_start": 26,
-            "line_end": 26
-          }
-        ]
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "Generic API/secret keys detected in code",
-        "locations": [
           {
             "file": "scripts/generate.py",
             "line_start": 48,
-            "line_end": 48
+            "line_end": 51
           }
-        ]
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The credential read and network generation call are both explicit in the script. The risk is confirmed even though the stated design is local payment signing."
       },
       {
-        "title": "Python base64 decode",
-        "description": "Python base64 decode detected in code",
+        "title": "Environment Loading from User-Influenced Directory",
+        "description": "The output directory can be set by command argument or OUTPUT_DIR, and the script loads .env from that directory. This can change which wallet key is used for payment signing.",
         "locations": [
           {
             "file": "scripts/generate.py",
-            "line_start": 62,
-            "line_end": 62
+            "line_start": 20,
+            "line_end": 26
           }
-        ]
-      },
-      {
-        "title": "C2 keywords",
-        "description": "C2 keywords detected in code",
-        "locations": [
-          {
-            "file": "skill-report.json",
-            "line_start": 12,
-            "line_end": 12
-          }
-        ]
-      },
-      {
-        "title": "System reconnaissance",
-        "description": "System reconnaissance detected in code",
-        "locations": [
-          {
-            "file": "skill-report.json",
-            "line_start": 195,
-            "line_end": 195
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 198,
-            "line_end": 198
-          },
-          {
-            "file": "skill-report.json",
-            "line_start": 200,
-            "line_end": 200
-          }
-        ]
-      },
-      {
-        "title": "[HEURISTIC] DANGEROUS COMBINATION: Code execution + Network + Credential access",
-        "description": "[HEURISTIC] DANGEROUS COMBINATION: Code execution + Network + Credential access detected in code",
-        "locations": [
-          {
-            "file": "multiple",
-            "line_start": 1,
-            "line_end": 1
-          }
-        ]
-      },
-      {
-        "title": "[HEURISTIC] DANGEROUS COMBINATION: Network + Credentials + Evasion techniques",
-        "description": "[HEURISTIC] DANGEROUS COMBINATION: Network + Credentials + Evasion techniques detected in code",
-        "locations": [
-          {
-            "file": "multiple",
-            "line_start": 1,
-            "line_end": 1
-          }
-        ]
-      },
-      {
-        "title": "[HEURISTIC] SUSPICIOUS COMBINATION: Filesystem + Credentials + Network",
-        "description": "[HEURISTIC] SUSPICIOUS COMBINATION: Filesystem + Credentials + Network detected in code",
-        "locations": [
-          {
-            "file": "multiple",
-            "line_start": 1,
-            "line_end": 1
-          }
-        ]
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The data flow from argument or environment variable to load_dotenv is direct. The effect depends on local file layout and user execution context."
       }
     ],
-    "files_scanned": 5,
-    "total_lines": 735,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T18:58:22.136Z"
+    "files_scanned": 4,
+    "total_lines": 471,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T15:55:18.946Z"
   },
   "content": {
-    "user_title": "Nano Banana Blockrun",
-    "value_statement": "An AI skill for Claude, Codex, and Claude Code",
+    "user_title": "Generate Paid AI Images with BlockRun",
+    "value_statement": "AI assistants often need a direct way to create images during a coding or design session. This skill connects Claude, Codex, and Claude Code to BlockRun image generation using x402 USDC micropayments.",
     "seo_keywords": [
-      "nano-banana-blockrun",
-      "ai",
-      "skill",
-      "claude"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "Nano Banana",
+      "BlockRun",
+      "x402",
+      "AI image generation",
+      "USDC micropayments",
+      "Base network",
+      "DALL-E 3"
     ],
-    "actual_capabilities": [],
-    "limitations": [],
-    "use_cases": [],
-    "prompt_templates": [],
-    "output_examples": [],
-    "best_practices": [],
-    "anti_patterns": [],
-    "faq": []
+    "actual_capabilities": [
+      "Generates images from text prompts through the BlockRun SDK.",
+      "Supports google/nano-banana, google/nano-banana-pro, and openai/dall-e-3 model names.",
+      "Uses x402 payment flow with USDC on the Base network.",
+      "Reads a BLOCKRUN_WALLET_KEY value from environment configuration.",
+      "Saves returned PNG data URLs as generated image files.",
+      "Prints returned image URLs when the service does not return inline PNG data."
+    ],
+    "limitations": [
+      "Requires USDC on Base and a wallet private key for payment signing.",
+      "Depends on the external blockrun-llm Python package and BlockRun service availability.",
+      "Generated files use predictable names and may overwrite previous outputs.",
+      "This community skill has high security risk because it handles wallet credentials."
+    ],
+    "use_cases": [
+      {
+        "title": "Create Concept Art",
+        "description": "Generate quick visual concepts from prompts while exploring a product, game, or campaign idea.",
+        "target_user": "Designers"
+      },
+      {
+        "title": "Produce App Mockup Assets",
+        "description": "Create placeholder images for prototypes without leaving an AI coding session.",
+        "target_user": "Frontend developers"
+      },
+      {
+        "title": "Test Paid Image Workflows",
+        "description": "Validate x402 payment-based image generation using a small wallet balance and explicit prompts.",
+        "target_user": "Blockchain developers"
+      }
+    ],
+    "prompt_templates": [
+      {
+        "title": "Generate a Simple Image",
+        "scenario": "Beginner image creation",
+        "prompt": "Generate an image of a clean workspace with a laptop, notebook, and warm natural light."
+      },
+      {
+        "title": "Choose a Specific Model",
+        "scenario": "Model selection",
+        "prompt": "Generate an image of a futuristic city using google/nano-banana-pro and save it to my project assets folder."
+      },
+      {
+        "title": "Create Product Visuals",
+        "scenario": "Design exploration",
+        "prompt": "Create three image prompt options for a modern fintech dashboard hero image, then generate the strongest option."
+      },
+      {
+        "title": "Run a Controlled Paid Test",
+        "scenario": "Advanced payment-aware workflow",
+        "prompt": "Before generating, confirm the selected model, output directory, and expected cost. Then create a 1024x1024 image of a Base network payment terminal."
+      }
+    ],
+    "output_examples": [
+      {
+        "input": "Generate an image of a cat wearing a space helmet.",
+        "output": "The assistant creates a paid image request, then reports the saved PNG file path or returned image URL."
+      },
+      {
+        "input": "Use nano-banana-pro to create a high-resolution city scene.",
+        "output": "The assistant selects the requested model, sends the prompt through BlockRun, and saves the generated image when PNG data is returned."
+      },
+      {
+        "input": "Make an image for a blockchain payment landing page.",
+        "output": "The assistant turns the design goal into an image prompt and generates a visual asset through the configured wallet payment flow."
+      }
+    ],
+    "best_practices": [
+      "Use a dedicated wallet with only the small USDC balance needed for image generation.",
+      "Review the model name, prompt, and expected cost before each paid request.",
+      "Set an explicit output directory that does not contain unrelated .env files."
+    ],
+    "anti_patterns": [
+      "Do not use a wallet that holds production funds or unrelated assets.",
+      "Do not store private keys in shared project folders or committed files.",
+      "Do not run paid generations from untrusted prompts without reviewing the request."
+    ],
+    "faq": [
+      {
+        "question": "Does this skill require an API key?",
+        "answer": "No. It uses a wallet private key for local x402 payment signing instead of a service API key."
+      },
+      {
+        "question": "Why is the audit risk high?",
+        "answer": "The skill handles a wallet private key, signs paid requests, performs network calls, and writes files."
+      },
+      {
+        "question": "Does the private key leave the machine?",
+        "answer": "The documentation says the key signs locally and only a signature is sent. The marketplace should still treat private key handling as high risk."
+      },
+      {
+        "question": "Which image models are documented?",
+        "answer": "The skill documents google/nano-banana, google/nano-banana-pro, and openai/dall-e-3."
+      },
+      {
+        "question": "Where are generated images saved?",
+        "answer": "Inline PNG results are saved to the selected output directory using generated_image filenames."
+      },
+      {
+        "question": "Can this skill be used without crypto funds?",
+        "answer": "No. The documented workflow requires USDC on the Base network for pay-per-request generation."
+      }
+    ]
   },
   "file_structure": [
     {

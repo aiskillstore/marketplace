@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T19:02:39.054Z",
+    "generated_at": "2026-06-28T15:59:08.628Z",
     "slug": "bltgv-microsoft-graph-api",
     "source_url": "https://github.com/BLTGV/agent-skills/tree/master/skills/microsoft-graph",
     "source_ref": "master",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "ab89f22136609b892b733c680f5d4d292cc2ee53383038afe06fb8f715335c03",
-    "tree_hash": "24e31f60471f53215bf980a65052984588ad86623a0049342f1e70c2686e9fa3"
+    "tree_hash": "65c3fe5b9b6606010b9f3486906c9b927047d8951af00e49aef1e48b85808d24"
   },
   "skill": {
     "name": "microsoft-graph-api",
-    "description": "This skill should be used when the user asks to \"read my emails\", \"send an email\", \"compose email\", \"check my calendar\", \"get calendar events\", \"create a meeting\", \"schedule an event\", \"add calendar event\", \"search emails\", \"list mail folders\", \"show unread messages\", \"what meetings do I have\", \"fetch emails from Microsoft\", \"access Outlook\", or mentions Microsoft Graph, Office 365 email, or Outlook calendar integration.",
-    "summary": "This skill should be used when the user asks to \"read my emails\", \"send an email\", \"compose email\", ...",
-    "icon": "📧",
+    "description": "Connects Claude, Codex, and Claude Code to Microsoft Graph for Outlook email and calendar workflows through Bun TypeScript scripts.",
+    "summary": "Access Outlook mail and calendar data through Microsoft Graph scripts.",
+    "icon": "📦",
     "version": "0.3.0",
     "author": "BLTGV",
     "license": "MIT",
-    "category": "office",
     "tags": [
-      "microsoft",
+      "microsoft-graph",
+      "outlook",
       "email",
       "calendar",
-      "office-365",
-      "productivity"
+      "office-365"
     ],
     "supported_tools": [
       "claude",
@@ -33,39 +32,36 @@
       "claude-code"
     ],
     "risk_factors": [
-      "external_commands",
+      "scripts",
       "network",
-      "filesystem"
-    ]
+      "filesystem",
+      "env_access"
+    ],
+    "category": "office"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "The static analyzer flagged 317 issues, but upon evaluation, ALL findings are FALSE POSITIVES. The code is a legitimate Microsoft Graph API integration using standard OAuth 2.0 device code flow. The 'backtick execution' detections are template literals in documentation and code, not shell commands. 'Hardcoded URL' findings are public Microsoft API endpoints, not secrets. 'C2 keywords' are the official Microsoft Graph Explorer client ID. All credential handling follows standard OAuth patterns with the @azure/msal-node library.",
+    "summary": "Static findings for Ruby or shell backtick execution, weak cryptography, C2 keywords, and path traversal are mostly false positives caused by Markdown code blocks, TypeScript template literals, and Microsoft Graph terminology. The real risks are legitimate but sensitive capabilities: OAuth token storage, Microsoft network access, mailbox read and send operations, and calendar write operations. No evidence found of malicious intent, data exfiltration to non-Microsoft endpoints, or prompt injection text.",
     "risk_factor_evidence": [
       {
-        "factor": "external_commands",
+        "factor": "scripts",
         "evidence": [
           {
-            "file": "SKILL.md",
-            "line_start": 74,
-            "line_end": 210
-          },
-          {
             "file": "scripts/auth.ts",
-            "line_start": 56,
-            "line_end": 210
+            "line_start": 1,
+            "line_end": 27
           },
           {
             "file": "scripts/emails.ts",
-            "line_start": 65,
-            "line_end": 349
+            "line_start": 1,
+            "line_end": 34
           },
           {
             "file": "scripts/calendar.ts",
-            "line_start": 66,
-            "line_end": 420
+            "line_start": 1,
+            "line_end": 35
           }
         ]
       },
@@ -73,14 +69,29 @@
         "factor": "network",
         "evidence": [
           {
-            "file": "scripts/lib/graph-client.ts",
-            "line_start": 155,
-            "line_end": 155
+            "file": "scripts/lib/device-code.ts",
+            "line_start": 38,
+            "line_end": 55
           },
           {
             "file": "scripts/lib/device-code.ts",
-            "line_start": 38,
-            "line_end": 175
+            "line_start": 78,
+            "line_end": 93
+          },
+          {
+            "file": "scripts/lib/graph-client.ts",
+            "line_start": 155,
+            "line_end": 162
+          },
+          {
+            "file": "scripts/emails.ts",
+            "line_start": 119,
+            "line_end": 152
+          },
+          {
+            "file": "scripts/calendar.ts",
+            "line_start": 122,
+            "line_end": 157
           }
         ]
       },
@@ -90,155 +101,353 @@
           {
             "file": "scripts/lib/credentials.ts",
             "line_start": 6,
-            "line_end": 7
+            "line_end": 24
           },
           {
             "file": "scripts/lib/pending-auth.ts",
             "line_start": 29,
-            "line_end": 34
+            "line_end": 53
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 208,
+            "line_end": 210
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "scripts/lib/graph-client.ts",
+            "line_start": 102,
+            "line_end": 106
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 12,
-    "total_lines": 2677,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T19:02:39.054Z"
+    "medium_findings": [
+      {
+        "title": "Plaintext OAuth Credential Storage",
+        "description": "The skill stores Microsoft Graph access and refresh tokens in a local JSON file under the user home directory. The write path does not set an explicit restrictive file mode, so token exposure depends on host defaults and filesystem permissions.",
+        "locations": [
+          {
+            "file": "scripts/lib/credentials.ts",
+            "line_start": 6,
+            "line_end": 24
+          },
+          {
+            "file": "scripts/lib/graph-client.ts",
+            "line_start": 135,
+            "line_end": 145
+          },
+          {
+            "file": "scripts/auth.ts",
+            "line_start": 185,
+            "line_end": 196
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The code directly serializes OAuth credentials, including refresh tokens, to credentials.json. This is legitimate persistence, but the security impact is clear if the local file is readable by another process or user."
+      },
+      {
+        "title": "Sensitive Microsoft Graph Permissions",
+        "description": "The skill requests delegated permissions for reading mail, sending mail, reading calendars, and writing calendars. These permissions match the skill purpose, but compromise or misuse can expose mailbox content or modify calendar data.",
+        "locations": [
+          {
+            "file": "scripts/lib/graph-client.ts",
+            "line_start": 13,
+            "line_end": 19
+          },
+          {
+            "file": "scripts/emails.ts",
+            "line_start": 169,
+            "line_end": 175
+          },
+          {
+            "file": "scripts/calendar.ts",
+            "line_start": 228,
+            "line_end": 234
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The scope constants and command-specific scope selection are explicit. The risk is capability scope, not hidden behavior, because these permissions are required for the advertised features."
+      },
+      {
+        "title": "Email Sending Capability",
+        "description": "The email script can send messages through /me/sendMail using user-provided recipients, subject, body, CC, and BCC fields. This is intended functionality, but it creates social, compliance, and accidental-send risk in agent workflows.",
+        "locations": [
+          {
+            "file": "scripts/emails.ts",
+            "line_start": 289,
+            "line_end": 325
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The send command validates required fields and posts directly to the Graph sendMail endpoint. No evidence suggests malicious exfiltration, but the action is high impact and should require clear user approval."
+      },
+      {
+        "title": "Calendar Write Capability",
+        "description": "The calendar script can create Microsoft Graph calendar events with subject, location, body, and attendees. This is expected behavior, but agent misuse can create unwanted events or invite external attendees.",
+        "locations": [
+          {
+            "file": "scripts/calendar.ts",
+            "line_start": 335,
+            "line_end": 400
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The create command builds an event from command-line values and posts it to /me/events. The behavior is transparent and useful, but it modifies user data."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Backtick Findings Are False Positives",
+        "description": "The numerous static detections for Ruby or shell backtick execution come from Markdown command examples and TypeScript template literals. I did not find child_process usage, eval usage, or shell execution in the reviewed TypeScript code.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 31
+          },
+          {
+            "file": "scripts/emails.ts",
+            "line_start": 119,
+            "line_end": 124
+          },
+          {
+            "file": "references/graph-api.md",
+            "line_start": 7,
+            "line_end": 7
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The referenced syntax is documentation fencing or JavaScript string interpolation. The reviewed files do not execute those strings through a shell."
+      },
+      {
+        "title": "Static Weak-Cryptography And C2 Keyword Findings Are False Positives",
+        "description": "The weak cryptography and C2 keyword detections appear to match benign words such as Graph, token, device code, and control-flow terms in OAuth code and documentation. No evidence found of custom cryptography, command-and-control behavior, or non-Microsoft exfiltration endpoints.",
+        "locations": [
+          {
+            "file": "scripts/lib/device-code.ts",
+            "line_start": 30,
+            "line_end": 67
+          },
+          {
+            "file": "scripts/lib/auth-handler.ts",
+            "line_start": 121,
+            "line_end": 164
+          },
+          {
+            "file": "references/graph-api.md",
+            "line_start": 13,
+            "line_end": 24
+          }
+        ],
+        "confidence": 0.89,
+        "confidence_reasoning": "The semantic context is OAuth device-code authentication against Microsoft login endpoints. The code handles tokens but does not implement cryptographic primitives or contact suspicious infrastructure."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Persistent Refresh Tokens On Disk",
+        "description": "Refresh tokens are stored in a local credentials file to support automatic token refresh. This enables convenience but increases impact if the user home directory or skill process is compromised.",
+        "locations": [
+          {
+            "file": "scripts/lib/credentials.ts",
+            "line_start": 22,
+            "line_end": 24
+          },
+          {
+            "file": "scripts/lib/graph-client.ts",
+            "line_start": 135,
+            "line_end": 145
+          },
+          {
+            "file": "scripts/lib/auth-handler.ts",
+            "line_start": 146,
+            "line_end": 164
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The credential object includes accessToken and refreshToken fields and is written as JSON. This is direct evidence of persistent secret storage."
+      },
+      {
+        "title": "Bearer Token Network Requests",
+        "description": "The scripts send bearer tokens to Microsoft Graph and Azure OAuth endpoints. The destinations are expected Microsoft services, but all network execution should be visible to users because mailbox and calendar data is sensitive.",
+        "locations": [
+          {
+            "file": "scripts/lib/device-code.ts",
+            "line_start": 45,
+            "line_end": 55
+          },
+          {
+            "file": "scripts/lib/device-code.ts",
+            "line_start": 151,
+            "line_end": 158
+          },
+          {
+            "file": "scripts/emails.ts",
+            "line_start": 119,
+            "line_end": 152
+          },
+          {
+            "file": "scripts/calendar.ts",
+            "line_start": 122,
+            "line_end": 157
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "Network calls are explicit fetch requests to Microsoft domains with OAuth data or Authorization headers. The endpoints align with the skill purpose."
+      },
+      {
+        "title": "Agent-Triggered Data Modification",
+        "description": "The email and calendar scripts can change external state by sending email and creating calendar events. These operations should be gated by explicit user confirmation before execution.",
+        "locations": [
+          {
+            "file": "scripts/emails.ts",
+            "line_start": 289,
+            "line_end": 325
+          },
+          {
+            "file": "scripts/calendar.ts",
+            "line_start": 335,
+            "line_end": 400
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The code posts to /me/sendMail and /me/events. These are clear state-changing operations that can affect other people."
+      }
+    ],
+    "files_scanned": 11,
+    "total_lines": 2369,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T15:59:08.628Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "env_access"
+    ]
   },
   "content": {
-    "user_title": "Access Microsoft 365 email and calendar",
-    "value_statement": "Users need to read and manage their Microsoft 365 emails and calendar events without leaving their AI assistant. This skill provides direct integration with Microsoft Graph API to list, read, search, and send emails as well as view and create calendar events using OAuth authentication.",
+    "user_title": "Manage Microsoft Graph Email and Calendar",
+    "value_statement": "Microsoft 365 email and calendar tasks often require switching tools and copying context. This skill lets Claude, Codex, and Claude Code use Microsoft Graph scripts to read, search, send, and schedule with user authorization.",
     "seo_keywords": [
-      "Microsoft Graph API",
-      "Office 365 email",
-      "Outlook calendar",
-      "Microsoft 365 integration",
-      "email automation",
-      "calendar management",
       "Claude",
       "Codex",
-      "Claude Code"
+      "Claude Code",
+      "Microsoft Graph API",
+      "Outlook email automation",
+      "Office 365 calendar",
+      "Microsoft 365 assistant",
+      "Graph email search",
+      "Graph calendar events",
+      "Bun TypeScript scripts"
     ],
     "actual_capabilities": [
-      "List, read, search, and send emails via Microsoft Graph API",
-      "View, search, and create calendar events and meetings",
-      "Manage multiple credential profiles for different accounts",
-      "Handle OAuth device code flow authentication automatically",
-      "List mail folders and filter emails by sender, subject, or date",
-      "Create calendar events with attendees, locations, and all-day support"
+      "Lists Outlook messages from a selected mail folder with sender, subject, preview, read status, and attachment status.",
+      "Reads a specific Outlook message by Microsoft Graph message ID, including body content and metadata.",
+      "Searches Outlook messages and lists mail folders through Microsoft Graph endpoints.",
+      "Sends Outlook email with To, CC, BCC, subject, text body, or HTML body options.",
+      "Lists, views, searches, and creates Microsoft calendar events with attendees, location, body, and all-day options.",
+      "Handles Microsoft device-code authentication, token refresh, and multiple local credential profiles."
     ],
     "limitations": [
-      "Requires Microsoft account with appropriate Graph API permissions",
-      "Access tokens expire after approximately 90 days of inactivity",
-      "Cannot access shared mailboxes or delegation without separate setup",
-      "Rate limited by Microsoft Graph API quotas"
+      "Requires Bun, Microsoft Graph access, and an authorized Microsoft account before data can be retrieved.",
+      "Stores OAuth credentials locally in a JSON file instead of using an encrypted keychain.",
+      "Does not implement automatic pagination or retry handling for Microsoft Graph rate limits.",
+      "Does not validate recipient domains, event attendee domains, or outgoing message content policy."
     ],
     "use_cases": [
       {
-        "target_user": "Remote workers",
-        "title": "Check email and schedule",
-        "description": "Quickly check inbox for important emails and view today's calendar meetings"
+        "title": "Review Inbox Priorities",
+        "target_user": "Executive assistant",
+        "description": "List unread or recent Outlook messages, inspect selected messages, and prepare a concise priority summary."
       },
       {
-        "target_user": "Administrative assistants",
-        "title": "Schedule meetings",
-        "description": "Create calendar events and send meeting invitations to attendees"
+        "title": "Coordinate Meetings",
+        "target_user": "Project manager",
+        "description": "Check upcoming Microsoft calendar events, search for related meetings, and create follow-up events with attendees."
       },
       {
-        "target_user": "Project managers",
-        "title": "Find communications",
-        "description": "Search email threads and calendar events for project-related discussions"
+        "title": "Automate Microsoft 365 Workflows",
+        "target_user": "Developer",
+        "description": "Use Graph-backed scripts from an AI coding environment to test email and calendar automation flows."
       }
     ],
     "prompt_templates": [
       {
-        "title": "List recent emails",
-        "scenario": "Read inbox messages",
-        "prompt": "List my recent emails from the inbox"
+        "title": "List Recent Email",
+        "scenario": "Beginner email review",
+        "prompt": "Show my 10 most recent Outlook emails from the inbox and summarize which ones need a response."
       },
       {
-        "title": "Check calendar",
-        "scenario": "View today's schedule",
-        "prompt": "What meetings do I have today"
+        "title": "Find A Message",
+        "scenario": "Targeted mailbox search",
+        "prompt": "Search my Outlook mail for messages from finance about the quarterly report, then summarize the matching subjects and dates."
       },
       {
-        "title": "Send email",
-        "scenario": "Compose and send message",
-        "prompt": "Send an email to team@example.com about the project update"
+        "title": "Prepare A Meeting",
+        "scenario": "Calendar planning",
+        "prompt": "Check my calendar for tomorrow, then draft a one-hour follow-up meeting with the project team. Ask before creating it."
       },
       {
-        "title": "Create meeting",
-        "scenario": "Schedule event",
-        "prompt": "Create a team meeting for tomorrow at 2pm with john@example.com and jane@example.com"
+        "title": "Send Approved Follow-Up",
+        "scenario": "Advanced email action",
+        "prompt": "Draft a follow-up email to the listed attendees from today’s review meeting. Show me the recipients, subject, and body before sending."
       }
     ],
     "output_examples": [
       {
-        "input": "List my recent emails",
-        "output": [
-          "Recent emails from inbox:",
-          "- Subject: Project Update, From: john@company.com, 10:30 AM",
-          "- Subject: Meeting Tomorrow, From: jane@company.com, 9:15 AM",
-          "- Subject: Newsletter, From: team@newsletter.com, Yesterday"
-        ]
+        "input": "Show my upcoming calendar events for this week.",
+        "output": "A concise agenda with event titles, times, organizers, locations, and attendee response status where available."
       },
       {
-        "input": "What meetings do I have today",
-        "output": [
-          "Today's calendar:",
-          "- 10:00 AM: Team Standup (1 hour) - Conference Room A",
-          "- 2:00 PM: Project Review (30 min) - Video Call"
-        ]
+        "input": "Search for unread messages about contract review.",
+        "output": "A short list of matching messages with sender, subject, received date, and preview text for quick triage."
       },
       {
-        "input": "Send an email about the project update",
-        "output": [
-          "Email sent successfully:",
-          "To: team@example.com",
-          "Subject: Project Update",
-          "The email has been delivered."
-        ]
+        "input": "Create a meeting for tomorrow with the design team.",
+        "output": "A confirmation-ready meeting summary with title, start time, end time, attendees, location, and description before creation."
       }
     ],
     "best_practices": [
-      "Use specific profiles when managing multiple Microsoft accounts to keep credentials separate",
-      "Run the auth.ts script first to complete device code authentication before using email or calendar features",
-      "Request only the necessary scopes (Mail.Read, Calendars.Read) rather than full access when possible"
+      "Ask for explicit user approval before sending email or creating calendar events.",
+      "Use the narrowest command and profile needed for the current task.",
+      "Delete unused credential profiles and protect the local credentials file."
     ],
     "anti_patterns": [
-      "Using the same profile for personal and work accounts - create separate profiles instead",
-      "Sharing credential files between users - each user should authenticate their own account",
-      "Ignoring auth_required responses - always complete the device code flow when prompted"
+      "Do not send email based only on inferred intent or incomplete recipient details.",
+      "Do not request broad mailbox searches when a folder, sender, or date range is available.",
+      "Do not expose raw access tokens, refresh tokens, or device codes in chat output."
     ],
     "faq": [
       {
-        "question": "How do I authenticate for the first time?",
-        "answer": "Run any email or calendar command. If not authenticated, the skill returns auth_required with a code. Open the displayed URL, enter the code, and sign in with Microsoft."
+        "question": "What Microsoft services does this skill use?",
+        "answer": "It uses Microsoft Graph for Outlook mail and Microsoft calendar operations through OAuth-authenticated requests."
       },
       {
-        "question": "How long do tokens remain valid?",
-        "answer": "Access tokens expire after 1 hour but refresh automatically. Refresh tokens last approximately 90 days before requiring re-authentication."
+        "question": "Does it require user authentication?",
+        "answer": "Yes. It starts Microsoft device-code authentication and stores authorized credentials for later use."
       },
       {
-        "question": "Can I use this with my work Microsoft account?",
-        "answer": "Yes, the skill works with both work and personal Microsoft accounts. Use --profile to manage different accounts separately."
+        "question": "Can it send email?",
+        "answer": "Yes. It can send Outlook email when the Mail.Send permission is authorized and the user approves the action."
+      },
+      {
+        "question": "Can it create calendar events?",
+        "answer": "Yes. It can create Microsoft calendar events with attendees, location, body text, and all-day settings."
       },
       {
         "question": "Where are credentials stored?",
-        "answer": "OAuth tokens are stored in ~/.config/api-skills/credentials.json with standard file permissions."
+        "answer": "Credentials are stored in a local JSON file under the user home configuration directory."
       },
       {
-        "question": "What permissions does the app require?",
-        "answer": "By default, it requests Mail.Read, Mail.Send, Calendars.Read, Calendars.ReadWrite, and User.Read scopes for full functionality."
-      },
-      {
-        "question": "Can I use my own Azure AD app registration?",
-        "answer": "Yes, run auth.ts with --client-id and --tenant-id options to use a custom app registration for production use."
+        "question": "Is it safe to publish?",
+        "answer": "It is publishable with warnings because the behavior is transparent, but it handles sensitive Microsoft 365 data."
       }
     ]
   },
