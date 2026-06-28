@@ -203,18 +203,23 @@ jobs:
           }
 
           RESULT=""
+          ERR_FILE=$(mktemp)
+          trap 'rm -f "$ERR_FILE"' EXIT
           for ATTEMPT in 1 2 3 4; do
             configure_tls
+            : > "$ERR_FILE"
             set +e
-            RESULT=$("$GITHUB_WORKSPACE/skillstore-cli" skill translate-content --count-only --output json 2>&1)
+            RESULT=$("$GITHUB_WORKSPACE/skillstore-cli" skill translate-content --count-only --output json 2>"$ERR_FILE")
             EXIT_CODE=$?
             set -e
+            ERR_OUTPUT=$(cat "$ERR_FILE")
+            COMBINED_OUTPUT="${RESULT}"$'\n'"${ERR_OUTPUT}"
 
             if [ "$EXIT_CODE" -eq 0 ] && echo "$RESULT" | jq -e '.count' > /dev/null 2>&1; then
               break
             fi
-            if ! is_tls_error "$RESULT" || [ "$ATTEMPT" -eq 4 ]; then
-              echo "$RESULT"
+            if ! is_tls_error "$COMBINED_OUTPUT" || [ "$ATTEMPT" -eq 4 ]; then
+              echo "$COMBINED_OUTPUT"
               exit 1
             fi
 
@@ -449,9 +454,12 @@ jobs:
           RESULT=""
           EXIT_CODE=1
           MAX_TRANSLATE_ATTEMPTS=8
+          ERR_FILE=$(mktemp)
+          trap 'rm -f "$ERR_FILE"' EXIT
 
           for ATTEMPT in $(seq 1 "$MAX_TRANSLATE_ATTEMPTS"); do
             configure_tls
+            : > "$ERR_FILE"
 
             CURRENT_CONCURRENCY="$CONCURRENCY"
             if [ "$ATTEMPT" -gt 1 ]; then
@@ -468,15 +476,17 @@ jobs:
               --concurrency "$CURRENT_CONCURRENCY" \
               --output json \
               $MODEL_FLAG \
-              $FORCE_FLAG 2>&1)
+              $FORCE_FLAG 2>"$ERR_FILE")
             EXIT_CODE=$?
             set -e
+            ERR_OUTPUT=$(cat "$ERR_FILE")
+            COMBINED_OUTPUT="${RESULT}"$'\n'"${ERR_OUTPUT}"
 
             if echo "$RESULT" | jq -e '.totalSkills' > /dev/null 2>&1; then
               break
             fi
 
-            if ! is_tls_error "$RESULT"; then
+            if ! is_tls_error "$COMBINED_OUTPUT"; then
               break
             fi
 
