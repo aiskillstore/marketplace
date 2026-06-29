@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T00:12:53.417Z",
+    "generated_at": "2026-06-29T09:29:03.414Z",
     "slug": "cygnusfear-update-docs",
     "source_url": "https://github.com/Cygnusfear/claude-stuff/tree/main/skills/update-docs",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "ecf81151a7a86cfdfb31a3eccf7e77596e1a139f4148ca0489a9e9af4f90784f",
-    "tree_hash": "c2022688dac09cd580cb17323a13a8814875c1484f6e6afb7c2b5d4c27dd7510"
+    "tree_hash": "e944c0a2e1917efcd18a4431f1bd51c76196700332b2823cb23a3b284abc891d"
   },
   "skill": {
     "name": "update-docs",
-    "description": "Update all documentation in .plans, CLAUDE.md files, docs, and .tasks to match current codebase state. Use when user asks to update docs, refresh documentation, sync docs with code, or validate documentation accuracy.",
-    "summary": "Update all documentation in .plans, CLAUDE.md files, docs, and .tasks to match current codebase stat...",
-    "icon": "📝",
+    "description": "Reviews project documentation against the current codebase and guides safe updates while preserving decisions, warnings, and historical context.",
+    "summary": "Synchronize documentation with code while preserving important project knowledge.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Cygnusfear",
     "license": "MIT",
-    "category": "documentation",
     "tags": [
       "documentation",
-      "codebase sync",
-      "maintenance",
-      "file management"
+      "code-audit",
+      "knowledge-preservation",
+      "markdown",
+      "project-maintenance"
     ],
     "supported_tools": [
       "claude",
@@ -32,29 +32,118 @@
       "claude-code"
     ],
     "risk_factors": [
-      "network",
-      "external_commands"
-    ]
+      "external_commands",
+      "filesystem"
+    ],
+    "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This skill is a pure prompt-based documentation tool with no executable code. It uses standard MCP tools (Task, Read, Edit, Glob, Grep, Bash) for documentation operations. All static findings are false positives: 'Hardcoded URL' is normal metadata, 'Weak cryptographic algorithm' and 'Ruby/shell backtick execution' are misidentified markdown content, and 'System reconnaissance' refers to standard git operations for documentation review. The skill's purpose (documentation updates) matches its documented capabilities exactly.",
+    "summary": "Static analysis flagged many code fence and inline markdown tokens as shell, crypto, and reconnaissance patterns. Most are false positives from documentation examples, but the skill does instruct agents to search, read, edit, rename, and run git or build validation commands across a repository. No evidence found of malicious intent, network exfiltration, credential theft, obfuscation, or prompt injection.",
     "risk_factor_evidence": [
       {
-        "factor": "network",
+        "factor": "external_commands",
         "evidence": [
           {
-            "file": "skill-report.json",
-            "line_start": 6,
-            "line_end": 6
+            "file": "SKILL.md",
+            "line_start": 102,
+            "line_end": 105
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 248,
+            "line_end": 255
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 344,
+            "line_end": 350
           }
         ]
       },
       {
-        "factor": "external_commands",
+        "factor": "filesystem",
         "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 95,
+            "line_end": 100
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 146,
+            "line_end": 149
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 158,
+            "line_end": 170
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 248,
+            "line_end": 248
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 346,
+            "line_end": 352
+          }
+        ]
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Broad Repository Read and Edit Workflow",
+        "description": "TRUE_POSITIVE for operational risk. The skill directs agents to discover documentation files, read code thoroughly, edit documentation, rename plan files, and save update summaries. This is legitimate for a documentation skill, but it can modify many files if used without review.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 95,
+            "line_end": 105
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 146,
+            "line_end": 170
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 248,
+            "line_end": 255
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 346,
+            "line_end": 352
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The file explicitly instructs agents to search, read, edit, rename, and validate repository documentation. The behavior is expected for the skill but has meaningful filesystem impact."
+      },
+      {
+        "title": "Delegation of Full Document Content to Subagent",
+        "description": "TRUE_POSITIVE for data exposure within the tool environment. The Oracle prompt asks the agent to send each document path and full content to a general-purpose subagent for analysis. This may expose sensitive repository documentation to another model context, although no external network destination is specified.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 56
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The subagent prompt includes placeholders for document path and full content. The risk depends on platform isolation, but the exposure path is clearly described."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static External Command Alerts Are Mostly Markdown False Positives",
+        "description": "FALSE_POSITIVE for most listed external command hits. The detected locations are markdown code fences, inline glob patterns, status examples, and prose, not executable shell code. The supporting tools section does mention Bash and git operations, so command use should be reviewed by the executing agent.",
+        "locations": [
           {
             "file": "SKILL.md",
             "line_start": 18,
@@ -62,242 +151,257 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 56,
-            "line_end": 86
-          },
-          {
-            "file": "SKILL.md",
             "line_start": 86,
-            "line_end": 91
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 91,
-            "line_end": 96
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 96,
-            "line_end": 97
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 97,
-            "line_end": 98
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 98,
-            "line_end": 99
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 99,
             "line_end": 105
           },
           {
             "file": "SKILL.md",
-            "line_start": 105,
-            "line_end": 131
-          },
-          {
-            "file": "SKILL.md",
             "line_start": 131,
-            "line_end": 139
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 139,
-            "line_end": 147
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 147,
-            "line_end": 148
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 148,
-            "line_end": 149
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 149,
             "line_end": 152
           },
           {
             "file": "SKILL.md",
-            "line_start": 152,
-            "line_end": 216
-          },
-          {
-            "file": "SKILL.md",
             "line_start": 216,
-            "line_end": 246
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 246,
             "line_end": 248
           },
           {
             "file": "SKILL.md",
-            "line_start": 248,
-            "line_end": 288
-          },
-          {
-            "file": "SKILL.md",
             "line_start": 288,
-            "line_end": 299
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 299,
-            "line_end": 324
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 324,
-            "line_end": 327
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 327,
             "line_end": 337
           },
           {
             "file": "SKILL.md",
-            "line_start": 337,
-            "line_end": 338
+            "line_start": 344,
+            "line_end": 352
           }
-        ]
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The inspected lines are markdown instructions and examples rather than runnable scripts. Only the general instruction to use Bash for git operations remains operationally relevant."
+      },
+      {
+        "title": "Weak Crypto Keyword Alerts Are False Positives",
+        "description": "FALSE_POSITIVE. The high-severity weak cryptographic algorithm detections map to words inside the skill description, checklist prose, documentation examples, and table text. No cryptographic API, hashing function, cipher selection, or executable implementation is present.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 60,
+            "line_end": 60
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 187,
+            "line_end": 187
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 311,
+            "line_end": 311
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "Manual review found prose and documentation labels at the flagged lines, not crypto code. There is no evidence of weak cryptographic behavior."
+      },
+      {
+        "title": "System Reconnaissance Alerts Are Documentation Review Instructions",
+        "description": "FALSE_POSITIVE as malware reconnaissance. The flagged lines describe checking cross-references, rationale, diagrams, and a mermaid example. These are normal documentation maintenance activities, with no host inventory, credential search, or persistence behavior.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 201,
+            "line_end": 201
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 274,
+            "line_end": 274
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 301,
+            "line_end": 303
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 327,
+            "line_end": 327
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The lines are documentation workflow text and a mermaid diagram fence. They do not instruct operating system enumeration or data collection outside the repository."
       }
     ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 529,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T00:12:53.417Z"
+    "dangerous_patterns": [
+      {
+        "title": "Repository-Wide File Discovery and Modification",
+        "description": "The workflow asks agents to find many documentation paths and update them, including plan file renames and summary file creation. This is not malicious, but it can create broad changes and should be used with source control review.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 95,
+            "line_end": 105
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 146,
+            "line_end": 149
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 248,
+            "line_end": 248
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 346,
+            "line_end": 352
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The relevant instructions are explicit and central to the skill. The risk is controlled by the user and agent execution environment."
+      }
+    ],
+    "files_scanned": 1,
+    "total_lines": 353,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T09:29:03.414Z",
+    "risk_factors": [
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Update Documentation",
-    "value_statement": "Documentation drifts from codebase reality over time. This skill provides a systematic process to audit, update, and synchronize all documentation with current implementation state.",
+    "user_title": "Update Project Documentation Safely",
+    "value_statement": "Project documentation often drifts from the codebase and loses important historical context during cleanup. This skill guides Claude, Codex, and Claude Code through careful review, preservation, updates, and validation.",
     "seo_keywords": [
-      "Claude documentation update",
-      "codebase documentation sync",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "documentation update",
+      "project docs sync",
+      "AI documentation audit",
+      "codebase documentation review",
       "CLAUDE.md maintenance",
-      "documentation synchronization",
-      "documentation audit tool",
-      "Claude Code documentation",
-      "code documentation refresh",
-      "doc sync automation",
-      "documentation maintenance",
-      "project documentation"
+      "markdown documentation workflow",
+      "documentation preservation"
     ],
     "actual_capabilities": [
-      "Find and catalog all documentation files across the codebase",
-      "Analyze documentation using Oracle subagent before making changes",
-      "Cross-reference documentation claims against actual code implementation",
-      "Update documentation while preserving critical knowledge and decisions",
-      "Validate plan documents against implementation status",
-      "Generate documentation update summary with change tracking"
+      "Finds project documentation in .plans, docs, .tasks, CLAUDE.md, and user-specified paths.",
+      "Compares documentation claims with current code and project conventions.",
+      "Preserves decisions, warnings, historical notes, and non-obvious project knowledge.",
+      "Updates plan status files as todo, done, or obsolete after code verification.",
+      "Creates a documentation update summary with changed files and coverage gaps.",
+      "Checks links, examples, diagrams, and terminology for consistency."
     ],
     "limitations": [
-      "Does not modify code, only documentation files",
-      "Requires user approval for significant changes to historical content",
-      "Cannot access external resources or APIs",
-      "Does not create new documentation from scratch"
+      "Requires repository access and careful human review before accepting broad edits.",
+      "Cannot prove business intent when documentation conflicts with undocumented code.",
+      "May require project builds or link checks that are unavailable in some environments.",
+      "Subagent analysis may expose document content inside the AI tool environment."
     ],
     "use_cases": [
       {
-        "target_user": "Software developers",
-        "title": "Documentation Sync",
-        "description": "Keep project documentation accurate after code changes by systematically reviewing and updating all docs"
+        "title": "Refresh Engineering Docs After a Release",
+        "description": "Review architecture notes, API docs, and examples so they match the shipped code.",
+        "target_user": "Engineering teams"
       },
       {
-        "target_user": "AI assistants",
-        "title": "Context Maintenance",
-        "description": "Maintain accurate context for AI assistants by ensuring CLAUDE.md and documentation reflect current architecture"
+        "title": "Audit Plans Before Closing Work",
+        "description": "Verify each plan item against code before marking a plan done, todo, or obsolete.",
+        "target_user": "Technical leads"
       },
       {
-        "target_user": "Technical leads",
-        "title": "Documentation Audit",
-        "description": "Audit project documentation to identify gaps, outdated content, and inconsistencies across all doc files"
+        "title": "Preserve Project Knowledge During Cleanup",
+        "description": "Update old documents without deleting decisions, warnings, migration notes, or gotchas.",
+        "target_user": "Documentation maintainers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Full Doc Sync",
-        "scenario": "Update all docs in project",
-        "prompt": "Use the update-docs skill to sync all documentation with current codebase state"
+        "title": "Basic Documentation Refresh",
+        "scenario": "Beginner",
+        "prompt": "Use update-docs to review the docs folder and update obvious outdated paths, examples, and feature descriptions. Preserve warnings and decision notes."
       },
       {
-        "title": "Single Doc Update",
-        "scenario": "Update specific documentation",
-        "prompt": "Use update-docs to update CLAUDE.md and validate it against current code patterns"
+        "title": "CLAUDE.md Accuracy Review",
+        "scenario": "Intermediate",
+        "prompt": "Use update-docs to audit every CLAUDE.md file against the current repository. Keep project conventions, but fix claims that no longer match the code."
       },
       {
-        "title": "Plan Status Check",
-        "scenario": "Review plan documents",
-        "prompt": "Use update-docs to check plan documents in .plans and mark completed items"
+        "title": "Plan Status Verification",
+        "scenario": "Intermediate",
+        "prompt": "Use update-docs to inspect .plans files and verify each checklist item against implementation. Rename plans only when the status is fully confirmed."
       },
       {
-        "title": "Doc Audit",
-        "scenario": "Find documentation gaps",
-        "prompt": "Use update-docs to perform a documentation audit and generate a coverage report"
+        "title": "Full Documentation Preservation Audit",
+        "scenario": "Advanced",
+        "prompt": "Use update-docs for a full documentation audit. Run the preservation review first, update docs from code evidence, validate links, and produce a summary of gaps."
       }
     ],
     "output_examples": [
       {
-        "input": "Use update-docs to sync all documentation",
+        "input": "Update docs after the authentication refactor.",
         "output": [
-          "Documentation Update Summary",
-          "• 12 files reviewed",
-          "• 3 files updated (status markers, version numbers, path references)",
-          "• 2 plans marked done (verified in code)",
-          "• 1 orphaned doc identified",
-          "• All preserved sections from Oracle analysis retained"
+          "Preservation checklist for authentication decisions and warnings.",
+          "Updated API and setup documentation that matches the refactored code.",
+          "Summary of changed files, preserved sections, and remaining coverage gaps."
+        ]
+      },
+      {
+        "input": "Check whether the payment migration plan is done.",
+        "output": [
+          "Verified checklist items with evidence from current implementation.",
+          "Plan status recommendation as todo, done, or obsolete.",
+          "Notes for any items that require human confirmation."
+        ]
+      },
+      {
+        "input": "Refresh architecture diagrams in docs.",
+        "output": [
+          "Updated diagrams that reflect current components and data flow.",
+          "List of removed or obsolete diagram claims.",
+          "Validation notes for references and examples."
         ]
       }
     ],
     "best_practices": [
-      "Always run Oracle analysis before modifying significant documentation",
-      "Verify documentation claims against actual code before updating",
-      "Preserve architectural decisions, historical context, and warnings"
+      "Run the workflow on a clean branch so documentation edits are easy to review.",
+      "Give the agent the product area or release scope when a full repository audit is not needed.",
+      "Review preservation checklists before accepting changes to architecture or decision documents."
     ],
     "anti_patterns": [
-      "Skipping Oracle analysis for documentation with historical context",
-      "Marking plans as done without verifying every item in code",
-      "Deleting or rewriting Why and History sections without approval"
+      "Do not use it to rewrite decision history without human approval.",
+      "Do not mark plans done from text alone without checking implementation.",
+      "Do not run broad edits on repositories that contain sensitive private documentation unless the AI environment is approved."
     ],
     "faq": [
       {
-        "question": "Which AI tools support this skill?",
-        "answer": "Claude, Codex, and Claude Code all support this documentation skill through standard MCP tool access."
+        "question": "What does this skill update?",
+        "answer": "It targets .plans, CLAUDE.md, docs, .tasks, and other documentation paths requested by the user."
       },
       {
-        "question": "How long does a full documentation sync take?",
-        "answer": "Time varies by codebase size. A typical project with 10-20 doc files completes in 5-15 minutes."
+        "question": "Does it delete old documentation?",
+        "answer": "It favors preservation. It warns against deleting decisions, warnings, history, and gotchas without explicit approval."
       },
       {
-        "question": "How does Oracle analysis work?",
-        "answer": "The skill launches a subagent to analyze each document before modification, identifying critical knowledge to preserve."
+        "question": "Can it mark plan files as done?",
+        "answer": "Yes, but only after verifying every plan item against the current codebase."
       },
       {
-        "question": "Is my data safe with this skill?",
-        "answer": "Yes. This skill only reads and edits documentation files within the project. No data is sent externally."
+        "question": "Does it require command execution?",
+        "answer": "It may use file search, git history, build checks, and link checks when the environment allows them."
       },
       {
-        "question": "What if documentation has broken links?",
-        "answer": "The skill validates internal links during Phase 3 and reports broken references in the summary output."
+        "question": "Is it safe for private repositories?",
+        "answer": "Use caution. The workflow can read broad documentation content and may delegate content to a subagent."
       },
       {
-        "question": "How is this different from manual documentation review?",
-        "answer": "The skill provides a systematic process with Oracle analysis, preservation checks, and comprehensive change tracking."
+        "question": "Which AI tools are supported?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },
