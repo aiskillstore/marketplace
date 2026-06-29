@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-21T15:17:16.053Z",
+    "generated_at": "2026-06-28T23:06:28.568Z",
     "slug": "cleanexpo-stripe-agent",
     "source_url": "https://github.com/CleanExpo/Unite-Hub/tree/main/.claude/skills/stripe-agent",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "53fbf7a935f3c56a2c64f89c23313ca4185b43a1583fce1763d17a696ac2601c",
-    "tree_hash": "6b08030b2c6a46afeb9ea018b1fe981eaf70ca6d48758c5c9bfe8eec2546c1b2"
+    "tree_hash": "ffdc335e8be9e01221abb9911b015d23730777fc623b96636ffc362de5cc6535"
   },
   "skill": {
     "name": "stripe-agent",
-    "description": "Automates Stripe billing operations including product setup, subscription management, checkout sessions, and webhook handling with dual-mode support for test and live environments.",
-    "summary": "Manages Stripe billing operations with dual-mode test and live environment support",
+    "description": "Guides Stripe billing operations for Unite-Hub, including product and price setup, checkout sessions, subscriptions, webhooks, and test/live billing separation.",
+    "summary": "Manage Stripe billing workflows with test and live mode separation for Unite-Hub.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "CleanExpo",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
       "stripe",
       "billing",
-      "payments",
       "subscriptions",
-      "webhooks"
+      "webhooks",
+      "payments"
     ],
     "supported_tools": [
       "claude",
@@ -33,16 +32,33 @@
       "claude-code"
     ],
     "risk_factors": [
+      "external_commands",
       "network",
       "env_access"
-    ]
+    ],
+    "category": "devops"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This skill provides legitimate Stripe payment integration functionality. Static analyzer flagged 102 potential issues, but manual review confirms these are false positives from documentation patterns and markdown code blocks. The skill properly uses environment variables for API credentials and follows Stripe integration best practices. Network access is legitimate for Stripe API communication.",
+    "summary": "Static analysis flagged many backticks as shell execution, plus hardcoded URLs, secret-key names, weak crypto, reconnaissance, and a dangerous-combination heuristic. Review found the execution, crypto, and reconnaissance signals are Markdown documentation false positives, while the real concern is legitimate but sensitive Stripe billing control. Publish only with clear warnings, scoped Stripe credentials, and human approval for live-mode changes.",
     "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 433,
+            "line_end": 438
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 458,
+            "line_end": 470
+          }
+        ]
+      },
       {
         "factor": "network",
         "evidence": [
@@ -64,183 +80,319 @@
           {
             "file": "SKILL.md",
             "line_start": 166,
-            "line_end": 174
+            "line_end": 179
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 347,
+            "line_end": 352
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "medium_findings": [
       {
-        "title": "Environment Variable Access for API Credentials",
-        "description": "The skill documentation references Stripe API keys stored in environment variables (STRIPE_TEST_SECRET_KEY, STRIPE_LIVE_SECRET_KEY). This is the proper security practice for managing API credentials. Users should ensure these variables are properly secured in their deployment environment.",
+        "title": "Stripe Billing Mutations Through MCP",
+        "description": "The skill instructs agents to create products, prices, checkout sessions, customers, invoices, and subscription updates through Stripe MCP calls. This is legitimate for a billing skill, but mistakes can affect customer billing and live subscription state.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 166,
-            "line_end": 174
+            "line_start": 24,
+            "line_end": 75
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 102,
+            "line_end": 139
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 250,
+            "line_end": 269
           }
-        ]
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The listed MCP operations are explicit and directly modify Stripe objects. The context is legitimate billing administration, so this is an operational risk rather than confirmed malicious behavior."
       },
       {
-        "title": "Network Communication with Stripe API",
-        "description": "The skill makes network requests to Stripe API endpoints using the @stripe/mcp server. This is expected behavior for a Stripe billing integration. All communication is with legitimate Stripe services.",
+        "title": "Credential-Dependent Live Billing Mode",
+        "description": "The skill documents required Stripe test and live secret keys and webhook secrets. It does not expose real secret values, but it assumes access to credentials that can control payment workflows.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 162,
+            "line_end": 180
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 342,
+            "line_end": 352
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The environment variable names are placeholders, not leaked credentials. Confidence is high that sensitive access is required because both test and live secret key names are documented."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Markdown Backticks Misclassified As Shell Execution",
+        "description": "The static shell-execution findings mostly point to Markdown code fences, inline identifiers, JSON examples, TypeScript examples, and table entries. I did not find Ruby backtick execution in the skill file.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 25,
+            "line_end": 35
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 38,
+            "line_end": 56
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 61,
+            "line_end": 76
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The cited lines are fenced documentation examples and do not execute by themselves. The file contains Markdown instructions rather than Ruby source code."
+      },
+      {
+        "title": "Documented CLI Commands Require Operator Control",
+        "description": "The skill includes Stripe CLI and npm command examples for webhook testing and billing scripts. They are manual operational commands, not automatically executed by this file.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 431,
+            "line_end": 438
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 456,
+            "line_end": 470
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "The commands are real external commands, but they appear in Markdown examples. Risk depends on whether an agent or operator runs them with live credentials."
+      },
+      {
+        "title": "Hardcoded URLs Are Redirect And Webhook Examples",
+        "description": "The hardcoded URL findings are checkout redirect URLs and placeholder webhook endpoints. I did not find evidence that these URLs exfiltrate credentials or send data to an unrelated domain.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 69,
             "line_end": 70
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 345,
+            "line_end": 350
           }
-        ]
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The URLs are shown in Stripe checkout and webhook configuration contexts. They are expected network destinations for this billing workflow."
+      },
+      {
+        "title": "Weak Crypto And Reconnaissance Signals Not Confirmed",
+        "description": "The weak cryptography, system reconnaissance, and network reconnaissance findings do not match the semantic content of the cited lines. I found billing descriptions, webhook events, and error handling text instead.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 29
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 280,
+            "line_end": 280
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 364,
+            "line_end": 364
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "Manual review of the cited lines found no cryptographic algorithm or reconnaissance command. The scanner appears to have matched unrelated words inside normal documentation."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 1550,
-    "audit_model": "claude",
-    "audited_at": "2026-01-21T15:17:16.053Z"
+    "dangerous_patterns": [
+      {
+        "title": "External Payment API Mutation Pattern",
+        "description": "The skill describes creating and updating Stripe resources that can affect prices, checkout sessions, invoices, and customer subscriptions. These actions should be gated by explicit user approval and Stripe role scoping.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 27,
+            "line_end": 45
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 62,
+            "line_end": 75
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 133,
+            "line_end": 139
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The MCP call names and parameters show direct Stripe resource creation. The pattern is dangerous only because payment state is sensitive, not because malicious intent is evident."
+      },
+      {
+        "title": "Live Credential Workflow",
+        "description": "The skill separates test and live billing modes using Stripe secret keys and webhook secrets. Any deployment should prevent accidental live-mode use during testing.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 146,
+            "line_end": 180
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 342,
+            "line_end": 352
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The test/live split and secret names are explicitly documented. There is no secret leakage, but the workflow can affect real payments when live credentials are available."
+      }
+    ],
+    "files_scanned": 1,
+    "total_lines": 475,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T23:06:28.568Z",
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "env_access"
+    ]
   },
   "content": {
-    "user_title": "Automate Stripe Billing and Subscription Management",
-    "value_statement": "Managing Stripe billing manually is time-consuming and error-prone. This skill automates product setup, subscription lifecycle management, checkout sessions, and webhook processing with support for dual test and live environments.",
+    "user_title": "Manage Stripe Billing Workflows",
+    "value_statement": "Stripe billing setup is complex when test and live customers must stay separate. This skill guides product setup, checkout, subscription handling, webhooks, and billing audits for Unite-Hub.",
     "seo_keywords": [
-      "Stripe integration",
-      "payment automation",
-      "subscription management",
-      "billing automation",
-      "Claude Code",
-      "Claude",
-      "Codex",
-      "webhook handling",
+      "Claude Stripe billing",
+      "Codex Stripe automation",
+      "Claude Code Stripe skill",
+      "Stripe subscriptions",
+      "Stripe webhooks",
+      "billing operations",
       "checkout sessions",
-      "Stripe API"
+      "payment workflow",
+      "test live billing",
+      "SaaS billing"
     ],
     "actual_capabilities": [
-      "Create and manage Stripe products and pricing tiers with monthly and annual billing options",
-      "Generate checkout sessions for customer subscription sign-ups with customizable success and cancel URLs",
-      "Process Stripe webhook events including subscription lifecycle changes and payment status updates",
-      "Manage customer records and subscription upgrades or downgrades with proration calculations",
-      "Support dual-mode billing with separate test and live environments for staff and customer separation",
-      "Generate billing reports with revenue breakdowns by tier and subscription metrics"
+      "Defines Stripe product and price setup for Starter, Professional, and Elite tiers.",
+      "Guides checkout session creation with customer email, price, workspace metadata, and redirect URLs.",
+      "Documents subscription upgrade, downgrade, cancellation, and billing adjustment workflows.",
+      "Explains webhook handling for checkout, subscription, invoice paid, and payment failed events.",
+      "Describes test and live billing separation using staff roles, domains, and Stripe environment variables.",
+      "Provides billing report and configuration audit workflows for products, prices, webhooks, and environment variables."
     ],
     "limitations": [
-      "Requires valid Stripe API credentials configured in environment variables",
-      "Depends on the @stripe/mcp server being properly installed and configured",
-      "Does not handle payment method updates or customer portal access directly",
-      "Webhook processing requires proper endpoint configuration in Stripe dashboard"
+      "The skill is tailored to Unite-Hub pricing, domains, routes, and database fields.",
+      "It requires a configured Stripe MCP server or equivalent Stripe tooling.",
+      "It documents required environment variables but does not provision secure secret storage.",
+      "Live billing actions can affect real customers and should require human approval."
     ],
     "use_cases": [
       {
-        "title": "SaaS Subscription Setup",
-        "description": "Set up complete subscription billing for a SaaS product with multiple pricing tiers, automated checkout, and webhook-driven subscription activation.",
-        "target_user": "SaaS founders launching subscription-based products"
+        "title": "Launch SaaS billing tiers",
+        "description": "Create matching Stripe products and monthly or annual prices for the Unite-Hub subscription tiers.",
+        "target_user": "SaaS founder"
       },
       {
-        "title": "Billing System Audit",
-        "description": "Audit existing Stripe configuration to verify all products, prices, and webhooks are properly configured across test and live environments.",
-        "target_user": "DevOps engineers managing production billing infrastructure"
+        "title": "Maintain subscription operations",
+        "description": "Handle checkout, upgrades, cancellations, invoice status, and webhook-driven subscription sync.",
+        "target_user": "Billing operations lead"
       },
       {
-        "title": "Subscription Lifecycle Management",
-        "description": "Handle customer subscription upgrades, downgrades, and cancellations with proper proration and database synchronization.",
-        "target_user": "Backend developers building customer billing portals"
+        "title": "Validate Stripe configuration",
+        "description": "Audit environment variables, products, prices, webhook endpoints, and test/live parity before release.",
+        "target_user": "DevOps engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Setup Stripe Products",
-        "prompt": "Create three Stripe products: Starter at $495/month, Professional at $895/month, and Elite at $1,295/month. Include both monthly and annual pricing with annual discount.",
-        "scenario": "Initial product catalog setup for new SaaS launch"
+        "title": "Audit setup health",
+        "scenario": "Beginner check before using Stripe billing flows.",
+        "prompt": "Audit our Stripe billing setup for test and live mode. Report missing environment variables, products, prices, and webhooks without making changes."
       },
       {
-        "title": "Create Checkout Session",
-        "prompt": "Create a Stripe checkout session for user email@example.com subscribing to the Professional tier with monthly billing. Use workspace ID ws_123 and redirect to /dashboard on success.",
-        "scenario": "User clicks subscribe button on pricing page"
+        "title": "Create a checkout plan",
+        "scenario": "Prepare a subscription checkout flow.",
+        "prompt": "Plan a checkout session for a Professional monthly subscription. Include customer lookup, price selection, metadata, success URL, and cancellation URL."
       },
       {
-        "title": "Process Subscription Upgrade",
-        "prompt": "Upgrade subscription sub_abc123 from Starter to Professional tier with proration. Update the workspace tier in the database after successful upgrade.",
-        "scenario": "Existing customer wants to upgrade their plan"
+        "title": "Handle an upgrade",
+        "scenario": "Move a customer from one tier to another.",
+        "prompt": "Review this subscription upgrade request from Starter to Professional. Explain the Stripe steps, proration handling, and database sync needed."
       },
       {
-        "title": "Generate Billing Report",
-        "prompt": "Generate a billing report for the current month showing total revenue, revenue by tier, active subscriptions, new subscriptions, churned subscriptions, and MRR.",
-        "scenario": "Monthly financial reporting and metrics analysis"
+        "title": "Review live billing readiness",
+        "scenario": "Advanced release review for production billing.",
+        "prompt": "Compare test and live Stripe configuration for release readiness. Identify drift, risky permissions, webhook gaps, and approvals needed before live changes."
       }
     ],
     "output_examples": [
       {
-        "input": "Audit the Stripe configuration and check if all required environment variables are present",
-        "output": [
-          "Stripe Configuration Audit Results:",
-          "Status: Healthy",
-          "Environment Variables: All 12 required variables present",
-          "Products: 3 products found (Starter, Professional, Elite)",
-          "Prices: 6 prices configured (monthly and annual for each tier)",
-          "Webhooks: Test webhook configured, Live webhook pending setup",
-          "Recommendation: Add STRIPE_LIVE_WEBHOOK_SECRET to production environment"
-        ]
+        "input": "Audit Stripe setup for production readiness.",
+        "output": "The audit reports whether required keys, products, prices, and webhook endpoints are present. It flags missing live webhooks and recommends fixes."
       },
       {
-        "input": "Create a checkout session for john@example.com subscribing to Professional tier monthly",
-        "output": [
-          "Checkout session created successfully",
-          "Customer: cus_ABC123 (john@example.com)",
-          "Price: Professional Monthly - $895.00 AUD",
-          "Checkout URL: https://checkout.stripe.com/c/pay/cs_test_xyz789",
-          "Session expires in 24 hours",
-          "Workspace will be upgraded upon successful payment"
-        ]
+        "input": "Prepare checkout for a Professional annual customer.",
+        "output": "The response outlines customer lookup, annual price selection, checkout metadata, redirect behavior, and the approval needed before creating a live session."
       },
       {
-        "input": "List all active subscriptions for customer cus_ABC123",
-        "output": [
-          "Active Subscriptions for cus_ABC123:",
-          "Subscription ID: sub_123456",
-          "Tier: Professional",
-          "Billing: Monthly ($895.00 AUD)",
-          "Status: Active",
-          "Current period: 2026-01-15 to 2026-02-15",
-          "Next invoice: 2026-02-15"
-        ]
+        "input": "Generate a monthly billing report.",
+        "output": "The report summarizes revenue, active subscriptions, new customers, churn, monthly recurring revenue, trial conversions, and follow-up actions."
       }
     ],
     "best_practices": [
-      "Always use separate test and live API keys and configure them properly in environment variables to avoid mixing test and production data",
-      "Implement webhook signature verification using webhook secrets to ensure incoming webhook events are genuine Stripe requests",
-      "Store subscription and customer data in your database synchronized with Stripe to enable fast queries without repeated API calls"
+      "Use restricted Stripe keys and separate accounts or roles for test and live work.",
+      "Require explicit approval before creating, updating, or canceling live subscriptions.",
+      "Run configuration audits before release and after each pricing or webhook change."
     ],
     "anti_patterns": [
-      "Avoid hardcoding API keys or price IDs directly in code instead of using environment variables and configuration management",
-      "Do not process subscription changes without webhook confirmation as payments may fail or require additional authentication steps",
-      "Never skip webhook signature verification as this exposes your billing system to forged webhook attacks and data manipulation"
+      "Do not run live billing commands while testing staff or sandbox flows.",
+      "Do not store Stripe secret keys in prompts, tickets, logs, or generated documentation.",
+      "Do not change prices or subscriptions without recording the customer, workspace, and reason."
     ],
     "faq": [
       {
-        "question": "What Stripe API credentials do I need to configure?",
-        "answer": "You need to set up test and live secret keys, webhook secrets, publishable keys, and price IDs for each tier in your environment variables. The skill documentation lists all 12 required variables."
+        "question": "Does this skill include real Stripe credentials?",
+        "answer": "No. It lists environment variable names and placeholder values, but deployments must provide secrets securely."
       },
       {
-        "question": "How does the dual-mode billing system work?",
-        "answer": "The skill automatically routes staff users with specific roles or internal email domains to test mode, while real customers use live mode. This prevents test charges from mixing with production billing."
+        "question": "Can it make live billing changes?",
+        "answer": "Yes, when connected to Stripe tooling with live credentials. Live changes should require explicit human approval."
       },
       {
-        "question": "Can this skill handle subscription upgrades and downgrades?",
-        "answer": "Yes, the skill can process subscription changes with proration calculations and update your database to reflect the new tier. Users are charged or credited based on time remaining in the billing period."
+        "question": "Is it specific to Unite-Hub?",
+        "answer": "Yes. The tiers, routes, domains, metadata, and database sync examples are written for Unite-Hub."
       },
       {
-        "question": "What webhook events does this skill handle?",
-        "answer": "The skill processes checkout completion, subscription creation, updates and deletion, invoice paid and payment failed events. Each event triggers appropriate actions like activating subscriptions or sending notifications."
+        "question": "Does it handle Stripe webhooks?",
+        "answer": "It documents webhook events for checkout, subscriptions, invoices, failed payments, and local testing."
       },
       {
-        "question": "Do I need the @stripe/mcp server installed?",
-        "answer": "Yes, this skill depends on the official Stripe MCP server to communicate with the Stripe API. You need to install and configure it before using this skill."
+        "question": "Can it audit billing configuration?",
+        "answer": "Yes. It describes checks for environment variables, products, prices, webhooks, and test/live parity."
       },
       {
-        "question": "How can I test the billing flow without real payments?",
-        "answer": "Use Stripe test mode with test card numbers provided in the documentation. The skill supports separate test webhooks and products for safe testing without affecting production data."
+        "question": "What tools are required?",
+        "answer": "It expects Stripe MCP access or equivalent Stripe CLI and API tooling configured outside the skill."
       }
     ]
   },
