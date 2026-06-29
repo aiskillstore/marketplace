@@ -1,20 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-21T17:20:38.255Z",
+    "generated_at": "2026-06-29T08:57:37.708Z",
     "slug": "daisuke897-assume-cloudformation-role",
     "source_url": "https://github.com/Daisuke897/dotfiles/tree/main/.github/skills/assume-cloudformation-role",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "1faeb738f363c216e095ee18c51b35333156b5df524563e88d586194538cc347",
-    "tree_hash": "15112b7ad0eb98458944a9000398408a49c3ce74978f7739609036eaf0d56641"
+    "tree_hash": "1828d5f6c32b985f6ac35b38bdac6414ef862bf58c8b1e3f7881a610e063f69a"
   },
   "skill": {
     "name": "assume-cloudformation-role",
-    "description": "Assume AWS IAM role for CloudFormation operations and set temporary credentials as environment variables. Use when working with CloudFormation stacks or when authentication setup is needed before AWS CloudFormation operations.",
-    "summary": "Automate AWS IAM role assumption for CloudFormation stack operations with temporary credential management.",
+    "description": "Assume an AWS IAM role for CloudFormation work, extract temporary STS credentials, and export them for AWS CLI commands.",
+    "summary": "Prepare temporary AWS credentials for CloudFormation stack operations.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "Daisuke897",
@@ -24,8 +24,8 @@
       "aws",
       "cloudformation",
       "iam",
-      "credentials",
-      "devops"
+      "sts",
+      "credentials"
     ],
     "supported_tools": [
       "claude",
@@ -39,23 +39,28 @@
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This skill automates AWS IAM role assumption for CloudFormation operations. Static analysis detected 59 potential issues, but upon evaluation, all are false positives or legitimate AWS credential management patterns. The skill uses standard AWS CLI commands to obtain temporary credentials via STS AssumeRole, stores them briefly in /tmp, and sets environment variables. This is a standard DevOps workflow with no malicious intent. Risk level is low due to AWS credential handling, but all operations are legitimate and well-documented.",
+    "summary": "Static findings for external commands, environment access, and temporary file use are confirmed, but they align with the skill purpose. The main concerns are handling AWS credentials in a predictable temporary file and exporting privileged credentials into the shell environment. No prompt injection attempt or evidence of malicious exfiltration was found in SKILL.md.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 29,
-            "line_end": 44
+            "line_start": 31,
+            "line_end": 35
           },
           {
             "file": "SKILL.md",
-            "line_start": 57,
-            "line_end": 66
+            "line_start": 38,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 59,
+            "line_end": 65
           }
         ]
       },
@@ -69,7 +74,7 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 43,
+            "line_start": 38,
             "line_end": 43
           },
           {
@@ -97,149 +102,239 @@
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "medium_findings": [
       {
-        "title": "AWS Credential Environment Variables",
-        "description": "The skill sets AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN environment variables. This is the documented purpose of the skill and follows AWS CLI standard practices for temporary credential management. The credentials are obtained via legitimate AWS STS AssumeRole API and are temporary in nature.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 38,
-            "line_end": 40
-          }
-        ]
-      },
-      {
-        "title": "Temporary File Storage",
-        "description": "Credentials are temporarily stored in /tmp/creds.json before being parsed and set as environment variables. The file is properly cleaned up after use. This is a common pattern for credential handling in shell scripts.",
+        "title": "Temporary AWS Credentials Written to Predictable Path",
+        "description": "The command example writes STS credentials to /tmp/creds.json before parsing and deleting the file. This is legitimate for the workflow, but a predictable path can expose temporary AWS credentials to local users or stale-file mistakes.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 35,
             "line_end": 43
           }
-        ]
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The file path and credential parsing commands are explicit in the documented workflow. The risk is contextual because the file is deleted, but the temporary secret exposure is real."
+      },
+      {
+        "title": "AWS Credentials Exported Into Shell Environment",
+        "description": "The skill instructs users to export AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN. This is required for AWS CLI use, but environment variables can leak through shell history, subprocesses, logs, or later commands.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 38,
+            "line_end": 51
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The exact AWS credential variable names are shown as outputs and export targets. This is a confirmed sensitive-data handling pattern with legitimate operational purpose."
+      },
+      {
+        "title": "Hardcoded Privileged CloudFormation Role Defaults",
+        "description": "The documentation includes a default IAM role ARN and profile for a CloudFormation write role. Users may run commands against an unintended account or a role with broad stack modification permissions.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 18
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 31,
+            "line_end": 35
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The role ARN, profile, and session name are explicit defaults. The impact depends on the user's AWS trust policy, so this is a medium-risk configuration concern."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 728,
-    "audit_model": "claude",
-    "audited_at": "2026-01-21T17:20:38.255Z"
+    "low_findings": [
+      {
+        "title": "AWS Credentials Directory Reference Is a Prerequisite",
+        "description": "The static scanner flagged ~/.aws/credentials and ~/.aws/config as sensitive file access. In context, the skill only lists them as places where the AWS CLI profile may already be configured, not as files to read or exfiltrate.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 72,
+            "line_end": 72
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "Line 72 is a prerequisite statement rather than a command. It still references sensitive credential locations, but no direct read or network transfer is described."
+      },
+      {
+        "title": "Weak Cryptographic Algorithm Finding Dismissed",
+        "description": "The scanner reported a weak cryptographic algorithm at line 3, but the line is metadata describing AWS IAM role assumption. No cryptographic algorithm or hash implementation appears there.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The referenced line is the skill description and contains no cryptographic code. This is a clear static-analysis false positive."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "External AWS CLI Commands Can Modify CloudFormation Stacks",
+        "description": "The skill includes AWS CLI examples for assume-role, create-stack, update-stack, and delete-stack. These commands are expected for the skill, but they can change or remove cloud infrastructure.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 31,
+            "line_end": 35
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 65
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The exact AWS CLI operations are documented in command examples. Their risk comes from intended infrastructure write behavior, not from hidden behavior."
+      },
+      {
+        "title": "Command Substitution Parses Sensitive Credential Values",
+        "description": "The shell command substitutions read credential values from a temporary file and assign them to environment variables. This pattern is functional but sensitive.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 38,
+            "line_end": 40
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The command substitution syntax and credential field names are visible on the cited lines. The pattern is not malicious by itself, but it handles secrets."
+      }
+    ],
+    "files_scanned": 1,
+    "total_lines": 80,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T08:57:37.708Z",
+    "risk_factors": [
+      "external_commands",
+      "filesystem",
+      "env_access"
+    ]
   },
   "content": {
-    "user_title": "Assume AWS CloudFormation IAM Role with Temporary Credentials",
-    "value_statement": "Managing AWS CloudFormation stacks requires proper IAM role credentials, which can be complex to configure manually. This skill automates the process of assuming an IAM role via AWS STS, obtaining temporary credentials, and setting them as environment variables for seamless CloudFormation operations.",
+    "user_title": "Assume AWS CloudFormation Roles Safely",
+    "value_statement": "CloudFormation work often fails when temporary AWS role credentials are missing or expired. This skill guides Claude, Codex, or Claude Code through assuming an IAM role and preparing AWS CLI credentials.",
     "seo_keywords": [
       "Claude",
-      "Claude Code",
       "Codex",
+      "Claude Code",
       "AWS CloudFormation",
-      "IAM role",
-      "AWS credentials",
-      "STS AssumeRole",
+      "IAM role assumption",
+      "AWS STS",
       "temporary credentials",
       "AWS CLI",
-      "DevOps automation"
+      "DevOps automation",
+      "cloud deployment"
     ],
     "actual_capabilities": [
-      "Assumes AWS IAM roles using AWS STS AssumeRole API with configurable role ARN and session name",
-      "Obtains temporary AWS credentials (access key, secret key, session token) for CloudFormation operations",
-      "Sets AWS credential environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN) automatically",
-      "Manages temporary credential files securely with automatic cleanup after processing",
-      "Supports AWS CLI profile-based authentication with configurable profile names",
-      "Enables immediate CloudFormation stack operations (create, update, delete) after credential setup"
+      "Documents the required AWS CLI profile, role ARN, and session name inputs.",
+      "Shows how to call AWS STS assume-role for CloudFormation access.",
+      "Explains how to parse STS credentials with jq.",
+      "Shows how to export temporary AWS credentials for AWS CLI commands.",
+      "Provides example CloudFormation create, update, and delete commands.",
+      "Lists prerequisites for AWS CLI, jq, and source profile permissions."
     ],
     "limitations": [
-      "Requires AWS CLI and jq to be installed and available in the system PATH",
-      "Temporary credentials typically expire after 1 hour and require re-execution of the skill",
-      "Requires source AWS profile to have sts:AssumeRole permission for the target IAM role",
-      "Environment variables are only set in the current shell session and do not persist across sessions"
+      "It does not validate IAM trust policies or CloudFormation permissions.",
+      "It uses a hardcoded default role ARN and profile from the source documentation.",
+      "It writes credentials to a temporary file before deleting it.",
+      "It does not rotate, revoke, or securely store credentials after use."
     ],
     "use_cases": [
       {
-        "title": "DevOps Engineer - CloudFormation Stack Deployment",
-        "description": "Automate IAM role assumption before deploying infrastructure updates via CloudFormation, ensuring proper permissions for stack creation and updates without manual credential configuration.",
-        "target_user": "DevOps Engineer"
+        "title": "Prepare Deployment Credentials",
+        "description": "Assume a CloudFormation write role before creating or updating infrastructure stacks.",
+        "target_user": "DevOps engineer"
       },
       {
-        "title": "Cloud Architect - Multi-Account AWS Management",
-        "description": "Quickly switch between different AWS account roles when managing CloudFormation stacks across multiple AWS accounts in an organization, streamlining cross-account infrastructure operations.",
-        "target_user": "Cloud Architect"
+        "title": "Recover Expired AWS Sessions",
+        "description": "Refresh temporary AWS environment variables when an existing CloudFormation session expires.",
+        "target_user": "Cloud engineer"
       },
       {
-        "title": "Platform Engineer - Automated Infrastructure Workflows",
-        "description": "Integrate IAM role assumption into Claude Code workflows for automated infrastructure provisioning, eliminating manual credential management in CI/CD pipelines.",
-        "target_user": "Platform Engineer"
+        "title": "Standardize Stack Operations",
+        "description": "Give team members a repeatable role-assumption workflow before running AWS CLI stack commands.",
+        "target_user": "Platform team lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic CloudFormation Role Assumption",
-        "prompt": "Assume the CloudFormation write role using the default profile and role ARN",
-        "scenario": "Quick credential setup for CloudFormation operations with default configuration"
+        "title": "Assume the Default Role",
+        "prompt": "Use the assume-cloudformation-role skill to prepare temporary AWS credentials with the documented default profile and role.",
+        "scenario": "Beginner setup before a CloudFormation operation"
       },
       {
-        "title": "Custom Profile and Role",
-        "prompt": "Assume IAM role arn:aws:iam::123456789012:role/CustomCFNRole using the production profile with session name my-deployment",
-        "scenario": "Assuming a specific IAM role with custom AWS profile for production deployment"
+        "title": "Use a Custom Role ARN",
+        "prompt": "Use the assume-cloudformation-role skill with my AWS profile and role ARN. Confirm the exact account and role before showing commands.",
+        "scenario": "Team-specific CloudFormation access"
       },
       {
-        "title": "Deploy CloudFormation Stack After Role Assumption",
-        "prompt": "Assume the CloudFormation role and then create a new stack named my-infrastructure using template.yaml",
-        "scenario": "End-to-end workflow combining role assumption with stack deployment"
+        "title": "Refresh an Expired Session",
+        "prompt": "My CloudFormation AWS session expired. Use this skill to guide me through refreshing the temporary environment variables.",
+        "scenario": "Session renewal during deployment work"
       },
       {
-        "title": "Update Multiple Stacks with Assumed Role",
-        "prompt": "Assume CloudFormation role for profile staging, then update both frontend-stack and backend-stack with their respective templates",
-        "scenario": "Advanced multi-stack update workflow with role-based credentials"
+        "title": "Review Before Stack Deletion",
+        "prompt": "Use the skill to prepare role credentials, then help me verify the active AWS identity before any CloudFormation delete-stack command.",
+        "scenario": "Advanced review before destructive infrastructure changes"
       }
     ],
     "output_examples": [
       {
-        "input": "Assume the CloudFormation write role using the default profile",
-        "output": "Successfully assumed role arn:aws:iam::692859919890:role/CloudFormationWriteRole\nSet environment variables:\n- AWS_ACCESS_KEY_ID\n- AWS_SECRET_ACCESS_KEY\n- AWS_SESSION_TOKEN\n\nYou can now execute CloudFormation commands using the assumed role credentials."
+        "input": "Prepare my shell for CloudFormation updates.",
+        "output": "The assistant identifies the configured profile and role, explains the STS assume-role step, and reminds the user to verify the active AWS identity before updating stacks."
       },
       {
-        "input": "Assume role arn:aws:iam::123456789012:role/DeployRole with profile prod and create stack my-app",
-        "output": "Assumed role: arn:aws:iam::123456789012:role/DeployRole\nSession: cfn-write\nCredentials obtained and set as environment variables\n\nCreating CloudFormation stack: my-app\nStack creation initiated successfully\nStack ID: arn:aws:cloudformation:us-east-1:123456789012:stack/my-app/abc123"
+        "input": "My temporary credentials expired.",
+        "output": "The assistant guides the user through re-running the role-assumption workflow and replacing the expired environment variables."
+      },
+      {
+        "input": "I need to delete a CloudFormation stack.",
+        "output": "The assistant prepares role credentials, highlights the destructive nature of stack deletion, and asks the user to confirm account, region, and stack name."
       }
     ],
     "best_practices": [
-      "Always verify that your source AWS profile has sts:AssumeRole permission for the target IAM role before attempting to assume it",
-      "Use descriptive role session names that identify the purpose or user of the assumed role session for better AWS CloudTrail auditing",
-      "Re-assume the role when credentials expire (typically after 1 hour) rather than extending session duration to maintain security best practices"
+      "Verify the AWS account, region, and caller identity before modifying any stack.",
+      "Use a unique temporary file path with restrictive permissions when handling credentials.",
+      "Unset temporary AWS environment variables after the CloudFormation task is complete."
     ],
     "anti_patterns": [
-      "Do not hardcode sensitive role ARNs or account IDs directly in prompts; use variables or configuration files when possible",
-      "Avoid assuming roles with overly broad permissions; use least-privilege IAM roles specific to CloudFormation operations",
-      "Do not rely on assumed role credentials for long-running operations that exceed the typical 1-hour session duration without implementing re-assumption logic"
+      "Do not run the default role ARN without confirming it matches your AWS account.",
+      "Do not leave temporary credential files on shared systems.",
+      "Do not use this workflow for long-lived credentials or permanent access keys."
     ],
     "faq": [
       {
-        "question": "What happens if my temporary credentials expire during a CloudFormation operation?",
-        "answer": "AWS CloudFormation operations initiated with valid credentials will continue even if the credentials expire mid-operation. However, you will need to re-assume the role to perform new operations. It is best practice to assume the role immediately before starting CloudFormation operations."
+        "question": "Does this skill create AWS credentials?",
+        "answer": "No. It guides AWS STS role assumption, which returns temporary credentials when the source profile has permission."
       },
       {
-        "question": "Can I use this skill with AWS organizations and cross-account roles?",
-        "answer": "Yes, this skill supports cross-account role assumption. Ensure your source AWS profile has a trust relationship with the target role in the other account, and specify the full role ARN including the account ID."
+        "question": "Can it modify CloudFormation stacks?",
+        "answer": "The skill includes commands that can create, update, or delete stacks when valid AWS credentials are active."
       },
       {
-        "question": "Do I need to install any additional tools besides AWS CLI?",
-        "answer": "Yes, you need jq (a JSON processor) installed on your system. The skill uses jq to parse the AWS STS AssumeRole response and extract credentials. Install jq using your system package manager."
+        "question": "Why is the security risk medium?",
+        "answer": "It handles AWS secrets, writes a temporary credential file, and supports infrastructure write operations."
       },
       {
-        "question": "Are the credentials stored permanently on my system?",
-        "answer": "No, credentials are temporarily stored in /tmp/creds.json and are immediately deleted after being parsed and set as environment variables. They only persist in your current shell session until you close it or they expire."
+        "question": "Does it access ~/.aws/credentials directly?",
+        "answer": "No evidence found. The file is referenced as an AWS CLI profile prerequisite, not as a direct read command."
       },
       {
-        "question": "Can I customize the session duration for the assumed role?",
-        "answer": "The skill uses the default session duration configured in the IAM role's trust policy. To customize duration, you would need to modify the aws sts assume-role command to include the --duration-seconds parameter."
+        "question": "What tools are required?",
+        "answer": "The documented workflow requires AWS CLI, jq, and a source AWS profile with sts:AssumeRole permission."
       },
       {
-        "question": "What permissions does my source profile need to assume the CloudFormation role?",
-        "answer": "Your source AWS profile must have the sts:AssumeRole permission for the specific role ARN. Additionally, the target IAM role must have a trust policy that allows your source account or user to assume it."
+        "question": "Should I use the default role ARN?",
+        "answer": "Only use it if it is your intended AWS account and role. Otherwise, provide your own role ARN."
       }
     ]
   },
