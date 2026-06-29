@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T23:15:36.031Z",
+    "generated_at": "2026-06-29T03:03:58.375Z",
     "slug": "cornjebus-security-analyzer",
     "source_url": "https://github.com/Cornjebus/security-analyzer/tree/main/.claude/skills/security-analyzer",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "54f1e90d87b0ecdb321889b767583300510434790a73121a0d06979013656619",
-    "tree_hash": "f0adf3f98e487f12c9d282e9b83bf1ec4e96a1013290cc9d4c55d412a6a42518"
+    "tree_hash": "b7aeea8efa2d26b6648c18815bb8671f11e16488f4b64fa5380c3b9a168b987e"
   },
   "skill": {
     "name": "security-analyzer",
-    "description": "Comprehensive security vulnerability analysis for codebases and infrastructure. Scans dependencies (npm, pip, gem, go, cargo), containers (Docker, Kubernetes), cloud IaC (Terraform, CloudFormation), and detects secrets exposure. Fetches live CVE data from OSV.dev, calculates risk scores, and generates phased remediation plans with TDD validation tests. Use when users mention security scan, vulnerability, CVE, exploit, security audit, penetration test, OWASP, hardening, dependency audit, container security, or want to improve security posture.",
-    "summary": "Comprehensive security vulnerability analysis for codebases and infrastructure. Scans dependencies (...",
-    "icon": "🔒",
+    "description": "Security analysis skill for projects and infrastructure. It inventories dependencies, containers, IaC, and environment-file exposure, queries OSV.dev for dependency vulnerabilities, scores risk, and generates technical and executive remediation reports.",
+    "summary": "Inventory project assets, check OSV vulnerabilities, and produce remediation reports.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Cornjebus",
     "license": "MIT",
-    "category": "security",
     "tags": [
-      "vulnerability scanning",
-      "CVE detection",
-      "dependency audit",
-      "container security",
-      "infrastructure as code"
+      "security",
+      "vulnerability-scanning",
+      "dependency-audit",
+      "cve",
+      "remediation"
     ],
     "supported_tools": [
       "claude",
@@ -33,24 +32,37 @@
       "claude-code"
     ],
     "risk_factors": [
-      "external_commands",
+      "scripts",
       "network",
-      "filesystem"
-    ]
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ],
+    "category": "security"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a legitimate defensive security tool. The static scanner flagged 103 patterns, but all are false positives. Network access is limited to the OSV.dev public API for CVE data. Filesystem access scans for dependency files and detects exposed .env files but NEVER reads their contents (SKILL.md:29 explicitly prohibits logging secrets). External commands are hardcoded version detection commands (pip show) for generating TDD tests, not arbitrary code execution. The critical heuristic flags are false positives - template documentation contains example code and 'SAM' appears in CloudFormation detection logic, not SAM database access.",
+    "summary": "Static analysis reported a critical heuristic because this skill combines scripts, filesystem discovery, network access, and security-related keywords. Manual review found no malicious intent or prompt injection, but confirmed moderate operational risk from OSV.dev queries, broad project enumeration, and generated remediation commands.",
     "risk_factor_evidence": [
       {
-        "factor": "external_commands",
+        "factor": "scripts",
         "evidence": [
           {
+            "file": "scripts/discover_env.py",
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
+            "file": "scripts/fetch_vulns.py",
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
             "file": "scripts/generate_report.py",
-            "line_start": 50,
-            "line_end": 85
+            "line_start": 1,
+            "line_end": 1
           }
         ]
       },
@@ -59,13 +71,18 @@
         "evidence": [
           {
             "file": "scripts/fetch_vulns.py",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
+            "file": "scripts/fetch_vulns.py",
             "line_start": 14,
             "line_end": 14
           },
           {
             "file": "scripts/fetch_vulns.py",
-            "line_start": 40,
-            "line_end": 50
+            "line_start": 41,
+            "line_end": 49
           }
         ]
       },
@@ -79,159 +96,390 @@
           },
           {
             "file": "scripts/discover_env.py",
+            "line_start": 185,
+            "line_end": 199
+          },
+          {
+            "file": "scripts/generate_report.py",
+            "line_start": 285,
+            "line_end": 289
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 29
+          },
+          {
+            "file": "scripts/discover_env.py",
             "line_start": 98,
-            "line_end": 122
+            "line_end": 121
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 19
+          },
+          {
+            "file": "scripts/generate_report.py",
+            "line_start": 50,
+            "line_end": 85
+          },
+          {
+            "file": "scripts/generate_report.py",
+            "line_start": 160,
+            "line_end": 182
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
+    "medium_findings": [
+      {
+        "title": "External OSV.dev Vulnerability Query",
+        "description": "The scanner posts dependency package names, ecosystems, and versions to OSV.dev. This is legitimate vulnerability intelligence, but it can disclose private package metadata.",
+        "locations": [
+          {
+            "file": "scripts/fetch_vulns.py",
+            "line_start": 14,
+            "line_end": 14
+          },
+          {
+            "file": "scripts/fetch_vulns.py",
+            "line_start": 41,
+            "line_end": 49
+          },
+          {
+            "file": "scripts/fetch_vulns.py",
+            "line_start": 128,
+            "line_end": 134
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The code clearly sends package metadata to a fixed OSV.dev API endpoint. No secret values are sent, so the risk is metadata disclosure rather than exfiltration."
+      },
+      {
+        "title": "Workspace File Enumeration and Environment File Discovery",
+        "description": "The discovery script recursively scans a user-selected root and records dependency, container, IaC, and environment-file paths. It flags .env files but does not read or print secret values.",
+        "locations": [
+          {
+            "file": "scripts/discover_env.py",
+            "line_start": 14,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/discover_env.py",
+            "line_start": 98,
+            "line_end": 121
+          },
+          {
+            "file": "scripts/discover_env.py",
+            "line_start": 203,
+            "line_end": 245
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The file traversal and .env discovery are explicit. The surrounding code records paths and risk status, with no evidence that .env contents are logged or transmitted."
+      },
+      {
+        "title": "Generated Commands and Subprocess Test Snippets",
+        "description": "The report generator emits package-manager commands and Python tests containing subprocess.run. The script does not execute them, but users should review generated commands before running them.",
+        "locations": [
+          {
+            "file": "scripts/generate_report.py",
+            "line_start": 27,
+            "line_end": 35
+          },
+          {
+            "file": "scripts/generate_report.py",
+            "line_start": 50,
+            "line_end": 85
+          },
+          {
+            "file": "scripts/generate_report.py",
+            "line_start": 160,
+            "line_end": 182
+          }
+        ],
+        "confidence": 0.75,
+        "confidence_reasoning": "The static subprocess findings are inside generated report strings, not active execution. The residual risk is that generated remediation content may later be copied and run."
+      }
+    ],
     "low_findings": [
       {
-        "title": "Test code generation uses subprocess for version detection",
-        "description": "The report generator creates test code containing subprocess.run() calls to detect package versions for TDD validation. This is a legitimate security testing pattern but involves code execution. Requires existing project write access to exploit.",
+        "title": "Markdown Code Fences Misclassified as Shell Execution",
+        "description": "Many external-command alerts point to triple-backtick Markdown examples in the skill instructions and report template. These are documentation blocks, not Ruby or shell backtick execution.",
+        "locations": [
+          {
+            "file": "references/report-templates.md",
+            "line_start": 5,
+            "line_end": 109
+          },
+          {
+            "file": "references/report-templates.md",
+            "line_start": 113,
+            "line_end": 206
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 32,
+            "line_end": 108
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The cited locations are Markdown fences or inline examples. They are not executable code paths in the skill runtime."
+      },
+      {
+        "title": "Sensitive Keyword Alerts Are Contextual False Positives",
+        "description": "The Windows SAM and weak-crypto alerts match ordinary text near ecosystem mapping and security documentation. The .env handling finds file paths and explicitly says not to log values.",
+        "locations": [
+          {
+            "file": "scripts/fetch_vulns.py",
+            "line_start": 16,
+            "line_end": 28
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 29
+          },
+          {
+            "file": "scripts/discover_env.py",
+            "line_start": 98,
+            "line_end": 121
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "Manual review found no SAM database access and no weak cryptographic implementation. Environment-file logic records names and exposure state, not secret contents."
+      },
+      {
+        "title": "Hard Link and Path Traversal Alerts Are Token-Level False Positives",
+        "description": "Hard-link and path-traversal alerts map to loop variables, grouping logic, and report formatting. No evidence found of os.link, symlink abuse, or path traversal writes.",
+        "locations": [
+          {
+            "file": "scripts/fetch_vulns.py",
+            "line_start": 135,
+            "line_end": 135
+          },
+          {
+            "file": "scripts/fetch_vulns.py",
+            "line_start": 173,
+            "line_end": 173
+          },
+          {
+            "file": "scripts/generate_report.py",
+            "line_start": 123,
+            "line_end": 141
+          },
+          {
+            "file": "scripts/generate_report.py",
+            "line_start": 254,
+            "line_end": 256
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 79,
+            "line_end": 81
+          }
+        ],
+        "confidence": 0.85,
+        "confidence_reasoning": "The cited lines do not create links or normalize attacker-controlled paths. The scanner appears to have matched substrings inside unrelated words or templates."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "HTTP POST to External Vulnerability API",
+        "description": "The skill sends dependency metadata to https://api.osv.dev/v1/query for vulnerability lookup. This is expected behavior but should be disclosed to users.",
+        "locations": [
+          {
+            "file": "scripts/fetch_vulns.py",
+            "line_start": 14,
+            "line_end": 14
+          },
+          {
+            "file": "scripts/fetch_vulns.py",
+            "line_start": 41,
+            "line_end": 49
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The endpoint and POST request are explicit. The context confirms intended vulnerability lookup rather than hidden data exfiltration."
+      },
+      {
+        "title": "Recursive Project File Discovery",
+        "description": "The skill recursively searches the chosen root for dependency manifests, container files, IaC files, and .env filenames.",
+        "locations": [
+          {
+            "file": "scripts/discover_env.py",
+            "line_start": 14,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/discover_env.py",
+            "line_start": 215,
+            "line_end": 235
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The traversal is a core feature and is visible in the discovery flow. It is bounded by the user-provided root and skips common large folders."
+      },
+      {
+        "title": "Report-Generated Subprocess Examples",
+        "description": "The report generator writes validation test examples containing subprocess.run. These examples are not executed by the generator.",
         "locations": [
           {
             "file": "scripts/generate_report.py",
             "line_start": 50,
             "line_end": 85
           }
-        ]
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The subprocess calls appear inside formatted strings returned as report content. There is no direct subprocess execution in the generator itself."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 6,
-    "total_lines": 1360,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T23:15:36.031Z"
+    "files_scanned": 5,
+    "total_lines": 1084,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T03:03:58.375Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Scan projects for security vulnerabilities",
-    "value_statement": "Developers need to identify security risks in their codebases before deployment. This skill scans dependencies, containers, and cloud infrastructure for vulnerabilities, fetches live CVE data, and generates fix commands with validation tests.",
+    "user_title": "Analyze Security Risk Across Projects",
+    "value_statement": "Security reviews often miss dependency, container, and IaC risks spread across a repository. This skill inventories assets, checks OSV data, and creates prioritized remediation reports.",
     "seo_keywords": [
-      "security scanner",
-      "vulnerability scan",
-      "CVE detection",
-      "dependency audit",
-      "OWASP",
-      "security audit",
+      "Claude",
+      "Codex",
       "Claude Code",
+      "security analyzer",
+      "vulnerability scanning",
+      "CVE audit",
+      "dependency audit",
+      "OSV.dev",
       "container security",
-      "IaC security",
-      "secret detection"
+      "IaC security"
     ],
     "actual_capabilities": [
-      "Scan dependencies across npm, pip, gem, Go, and Cargo ecosystems",
-      "Detect exposed .env files and secrets exposure risks without reading values",
-      "Find Docker, Kubernetes, Terraform, and CloudFormation configurations",
-      "Query OSV.dev API for real-time CVE vulnerability data",
-      "Calculate risk scores using CVSS, exploitability, and exposure factors",
-      "Generate remediation plans with fix commands and TDD validation tests"
+      "Discovers npm, pip, gem, Go, Cargo, Maven, and NuGet dependency manifests.",
+      "Finds Docker, Docker Compose, Kubernetes, Terraform, CloudFormation, and Bicep configuration files.",
+      "Flags environment files that may be exposed by missing .gitignore rules.",
+      "Queries OSV.dev for known dependency vulnerabilities by package and version.",
+      "Calculates vulnerability risk scores using severity, exploitability, criticality, and exposure factors.",
+      "Generates technical and executive remediation reports with validation test examples."
     ],
     "limitations": [
-      "Does not perform dynamic analysis or runtime security testing",
-      "Requires network access to fetch CVE data from OSV.dev",
-      "Risk scoring uses default assumptions that may need manual adjustment",
-      "Does not access private vulnerability databases or enterprise security tools"
+      "It sends dependency names and versions to OSV.dev during vulnerability lookup.",
+      "It does not automatically verify CISA KEV, NVD, or GitHub Advisory results.",
+      "Generated fix commands and tests need review before use in production.",
+      "It is not a replacement for manual penetration testing or compliance review."
     ],
     "use_cases": [
       {
-        "target_user": "DevOps Engineers",
-        "title": "Container security audits",
-        "description": "Scan Dockerfiles and Kubernetes manifests for misconfigurations and known vulnerabilities in base images."
+        "title": "Pre-release security review",
+        "description": "Scan a repository before release and prioritize dependency fixes by risk.",
+        "target_user": "Application engineer"
       },
       {
-        "target_user": "Security Teams",
-        "title": "Vulnerability assessments",
-        "description": "Run comprehensive dependency audits with CVE data, risk scores, and prioritized remediation plans."
+        "title": "Infrastructure posture check",
+        "description": "Inventory container and IaC files before a platform hardening sprint.",
+        "target_user": "DevOps engineer"
       },
       {
-        "target_user": "Developers",
-        "title": "Pre-commit security checks",
-        "description": "Identify secrets exposure and dependency vulnerabilities before pushing code to version control."
+        "title": "Leadership risk summary",
+        "description": "Create an executive summary that explains vulnerability counts, effort, and remediation phases.",
+        "target_user": "Security lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Quick security scan",
-        "scenario": "Basic vulnerability check",
-        "prompt": "Run a security scan on this project using the security-analyzer skill. Show me the critical and high severity vulnerabilities."
+        "title": "Basic repository scan",
+        "scenario": "Beginner scan of the current project.",
+        "prompt": "Run a security scan on this repository and summarize the highest-risk findings first."
       },
       {
-        "title": "Container audit",
-        "scenario": "Docker and K8s review",
-        "prompt": "Check this project for container security issues. Focus on Dockerfile base images and Kubernetes configuration risks."
+        "title": "Dependency vulnerability review",
+        "scenario": "Focused dependency analysis.",
+        "prompt": "Check this project for vulnerable dependencies, then list affected packages, severity, and safe upgrade paths."
       },
       {
-        "title": "Secrets scan",
-        "scenario": "Credential exposure check",
-        "prompt": "Look for potentially exposed secrets in this codebase. Check .env files and suggest remediation steps."
+        "title": "Container and IaC assessment",
+        "scenario": "Infrastructure-focused review.",
+        "prompt": "Review container, Kubernetes, Terraform, and CloudFormation files for security issues and remediation priorities."
       },
       {
-        "title": "Full assessment",
-        "scenario": "Complete security report",
-        "prompt": "Perform a complete security analysis including dependency vulnerabilities, container configs, cloud IaC, and secrets exposure. Generate both technical and executive reports."
+        "title": "Remediation plan with validation",
+        "scenario": "Advanced workflow for engineering teams.",
+        "prompt": "Create a phased remediation plan with validation tests, estimated effort, and separate technical and executive summaries."
       }
     ],
     "output_examples": [
       {
-        "input": "Run a security scan on this project",
-        "output": [
-          "Found 23 dependencies across npm (18), pip (3), and Go (2)",
-          "Identified 5 vulnerabilities: 1 Critical, 2 High, 2 Medium",
-          "Critical: CVE-2024-37890 in library@1.0.0 (CVSS 9.8)",
-          "Secrets exposure risk: 2 .env files potentially committed",
-          "Generated fix commands and validation tests for all findings"
-        ]
+        "input": "Run a dependency security scan before release.",
+        "output": "A prioritized vulnerability report with package names, severity levels, risk scores, and recommended upgrade actions."
       },
       {
-        "input": "Check for container security issues",
-        "output": [
-          "Found 3 Dockerfiles and 1 docker-compose.yml",
-          "Base image vulnerability: python:3.9 has known CVEs",
-          "Detected privilege escalation risk: container runs as root",
-          "Recommend: Use python:3.9-slim and add USER directive"
-        ]
+        "input": "Assess our Docker and Terraform files.",
+        "output": "An inventory of infrastructure files, likely exposure points, and remediation tasks grouped by urgency."
+      },
+      {
+        "input": "Summarize security risk for leadership.",
+        "output": "An executive summary with total findings, top risks, estimated engineering effort, and near-term actions."
       }
     ],
     "best_practices": [
-      "Run security scans early in development and before each release",
-      "Address critical and high severity vulnerabilities within your SLA",
-      "Review and rotate any secrets that may have been exposed in version control",
-      "Integrate the security analyzer into CI/CD pipelines for automated scanning"
+      "Run the skill on a scoped project directory, not an entire home directory.",
+      "Review dependency metadata disclosure before querying OSV.dev for private packages.",
+      "Validate generated fixes in a branch with tests and code review."
     ],
     "anti_patterns": [
-      "Ignoring low severity findings without review",
-      "Running scans only after production deployment",
-      "Not validating fixes with the generated test cases",
-      "Skipping secrets exposure checks after finding .env files"
+      "Do not paste secrets or environment file contents into prompts or reports.",
+      "Do not run generated package-manager commands without reviewing version impact.",
+      "Do not treat the report as a complete penetration test or compliance attestation."
     ],
     "faq": [
       {
-        "question": "Which package ecosystems are supported?",
-        "answer": "npm, pip, RubyGems, Go modules, and Cargo crates are fully supported. Maven and NuGet can be queried through OSV.dev."
+        "question": "Does this skill read secret values from .env files?",
+        "answer": "No evidence found that it reads secret values. It records environment-file paths and exposure status."
       },
       {
-        "question": "What severity levels are used?",
-        "answer": "Critical (CVSS 9.0+), High (CVSS 7.0-8.9), Medium (CVSS 4.0-6.9), and Low (CVSS below 4.0). Scores are combined with exploitability factors."
+        "question": "Does it make network requests?",
+        "answer": "Yes. It queries OSV.dev with package names, ecosystems, and versions to find vulnerabilities."
       },
       {
-        "question": "How does it integrate with my workflow?",
-        "answer": "The skill uses standard Claude tools (Bash, Read, Write) to scan your project. It outputs JSON reports that you can save or convert to markdown documentation."
+        "question": "Can it scan private dependencies?",
+        "answer": "It can list private package names if they appear in manifests. Review metadata disclosure before scanning."
       },
       {
-        "question": "Is my code and data safe?",
-        "answer": "Yes. The skill only reads project files and never logs secrets or credentials. Network access is limited to the OSV.dev public API. No data is sent to third parties."
+        "question": "Does it execute remediation commands automatically?",
+        "answer": "No. It generates commands and test examples for review by engineers."
       },
       {
-        "question": "Why did the scan find no vulnerabilities?",
-        "answer": "Either all dependencies are up to date, the OSV.dev API was unreachable, or the ecosystem is not yet fully mapped. Try WebSearch for CISA KEV data for actively exploited vulns."
+        "question": "Which tools can use this skill?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "How is this different from npm audit?",
-        "answer": "This skill provides unified scanning across all ecosystems, adds risk scoring, generates fix commands with tests, and creates executive summaries for leadership reporting."
+        "question": "Why is the marketplace risk level medium?",
+        "answer": "The skill has legitimate security functions, but it uses scripts, filesystem scanning, network queries, and generated commands."
       }
     ]
   },
