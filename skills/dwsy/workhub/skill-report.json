@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T04:59:28.148Z",
+    "generated_at": "2026-06-29T22:18:02.969Z",
     "slug": "dwsy-workhub",
     "source_url": "https://github.com/Dwsy/agent/tree/main/skills/workhub",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "31f83bcf71f8670537785a69ede7b194777c39e49287e61dc2e31e9e9e1f3720",
-    "tree_hash": "c0821cf3949f320a20474e001d68b0057085e40ae947275441d549c98f1068c3"
+    "tree_hash": "1c2af26c0e833d5ebf68feb2731b6f6eeded0c8b631ef4c2bc0009fe4af57fbc"
   },
   "skill": {
     "name": "workhub",
-    "description": "工作文档枢纽，强制执行 SSOT（Single Source of Truth）原则，管理 `docs/` 目录下的架构决策、设计文档、Issues（任务规划）、PRs（变更记录）。支持 GitHub 协作开发模式。",
-    "summary": "工作文档枢纽，强制执行 SSOT（Single Source of Truth）原则，管理 `docs/` 目录下的架构决策、设计文档、Issues（任务规划）、PRs（变更记录）。支持 GitHub...",
+    "description": "Workhub manages project documentation under docs/ using a single-source-of-truth workflow for issues, PR notes, architecture records, and decisions.",
+    "summary": "Create, audit, search, and read structured project documentation for issue and PR workflows.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "Dwsy",
     "license": "MIT",
-    "category": "documentation",
     "tags": [
       "documentation",
-      "task-tracking",
-      "architecture",
-      "ssot"
+      "project-management",
+      "markdown",
+      "workflow",
+      "governance"
     ],
     "supported_tools": [
       "claude",
@@ -33,168 +33,369 @@
     ],
     "risk_factors": [
       "filesystem"
-    ]
+    ],
+    "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Pure documentation management skill using Node.js fs APIs. Only reads/writes markdown files to local docs/ directory. No network calls, no external commands, no sensitive data access. All 303 static findings are false positives from misclassified markdown examples and path strings.",
+    "safe_to_publish": false,
+    "summary": "Static command, crypto, entropy, hidden-file, and network alerts are mostly false positives from markdown examples, template literals, Chinese text, and one historical GitHub release URL. Manual review confirms real filesystem risk: user-controlled paths are joined into read and write operations without constraining them to docs/. No prompt injection attempt or confirmed malicious intent was found, so this is high risk rather than critical.",
     "risk_factor_evidence": [
       {
         "factor": "filesystem",
         "evidence": [
           {
             "file": "lib.ts",
-            "line_start": 66,
-            "line_end": 66
+            "line_start": 122,
+            "line_end": 128
           },
           {
             "file": "lib.ts",
-            "line_start": 144,
-            "line_end": 144
+            "line_start": 166,
+            "line_end": 189
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 206,
+            "line_end": 230
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 378,
+            "line_end": 390
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 8,
-    "total_lines": 1620,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T04:59:28.148Z"
+    "high_findings": [
+      {
+        "title": "Path Traversal in Document Read Command",
+        "description": "The read command builds a path with join(DOCS_ROOT, target) and immediately reads it. A target containing parent directory segments can escape docs/ and print arbitrary local files available to the process.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 122,
+            "line_end": 128
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The path is directly derived from a CLI argument and there is no normalization check that the resolved path remains under DOCS_ROOT."
+      },
+      {
+        "title": "Path Traversal in Issue and PR Creation",
+        "description": "Issue and PR creation place user-controlled description and category values into target paths before copyFile. Crafted path segments can write template files outside the intended docs/issues or docs/pr folders.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 166,
+            "line_end": 189
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 206,
+            "line_end": 230
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The write targets are assembled from CLI arguments and copied without allowlisting path characters or verifying the final resolved path boundary."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Broad Local Documentation Reads",
+        "description": "List and search commands recursively read markdown files from docs/issues and docs/pr, then print metadata or matching content. This is expected behavior but can expose sensitive project notes in model-visible output.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 252,
+            "line_end": 264
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 298,
+            "line_end": 310
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 378,
+            "line_end": 398
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The behavior is intentional for a documentation skill, but the recursive reads are clear and can disclose local document content during AI-assisted use."
+      },
+      {
+        "title": "Filesystem Writes Are Core Behavior",
+        "description": "The skill creates directories and copies markdown templates into the project docs tree. This is legitimate for Workhub, but it needs user awareness because it modifies the workspace.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 33,
+            "line_end": 45
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 173,
+            "line_end": 189
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 214,
+            "line_end": 230
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "The code clearly performs mkdir and copyFile operations. The purpose is legitimate, but these operations are security relevant in a marketplace skill."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Shell Execution Alerts Are False Positives",
+        "description": "The reported Ruby or shell backtick findings come from markdown command examples, paths wrapped in backticks, and JavaScript template literals. No child_process, spawn, exec, or shell invocation was found in lib.ts.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 56
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 30,
+            "line_end": 37
+          },
+          {
+            "file": "docs/pr/20260107-修复前端构建错误并重新发布 v6.1.md",
+            "line_start": 70,
+            "line_end": 87
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The cited locations are documentation examples or string interpolation. The executable code imports filesystem APIs only and does not invoke an external process."
+      },
+      {
+        "title": "Hidden Home Directory Alerts Are Documentation References",
+        "description": "The ~/.pi paths describe where the skill is installed and how to run it. They are not reads or writes to hidden files by the implementation.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 14,
+            "line_end": 16
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The lines are a table of documented paths. Runtime file operations use DOCS_ROOT and TEMPLATES_DIR rather than reading arbitrary hidden home files."
+      },
+      {
+        "title": "Weak Crypto and Entropy Alerts Are False Positives",
+        "description": "No cryptographic API, hash comparison, cipher, or encoded payload was found. The entropy alerts appear to be caused by Chinese markdown text and dense template content.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 105,
+            "line_end": 112
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 56
+          },
+          {
+            "file": "templates/pr-template.md",
+            "line_start": 70,
+            "line_end": 87
+          }
+        ],
+        "confidence": 0.89,
+        "confidence_reasoning": "The referenced code contains plain strings, markdown examples, and file extensions. There is no semantic evidence of encryption, obfuscation, or weak cryptography."
+      },
+      {
+        "title": "Hardcoded URL Is Historical Documentation",
+        "description": "The only network finding is a GitHub release URL inside a completed PR note. The code does not perform HTTP requests or send data to that URL.",
+        "locations": [
+          {
+            "file": "docs/pr/20260107-修复前端构建错误并重新发布 v6.1.md",
+            "line_start": 51,
+            "line_end": 51
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The URL is static markdown evidence of a release. No fetch, request library, or network API is present in the implementation."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Unbounded join() With User-Controlled Paths",
+        "description": "User arguments are passed through join() and used in readFile or copyFile without checking that the resolved path stays inside docs/.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 122,
+            "line_end": 128
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 179,
+            "line_end": 189
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 220,
+            "line_end": 230
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The path construction and filesystem calls are adjacent in the code, and there is no boundary validation between them."
+      },
+      {
+        "title": "Recursive Reads of Workspace Markdown",
+        "description": "The list and search helpers recursively traverse project documentation and read markdown files. This can surface sensitive project information in assistant output.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 252,
+            "line_end": 264
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 298,
+            "line_end": 310
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 378,
+            "line_end": 390
+          }
+        ],
+        "confidence": 0.76,
+        "confidence_reasoning": "The recursive traversal is explicit and legitimate for the feature, but it increases disclosure risk when used on private repositories."
+      }
+    ],
+    "files_scanned": 7,
+    "total_lines": 1382,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T22:18:02.969Z",
+    "risk_factors": [
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Manage documentation and track tasks",
-    "value_statement": "Managing project documentation across multiple files and tracking issues becomes disorganized. Workhub enforces a Single Source of Truth principle with standardized templates for architecture decisions, issues, and pull requests in a structured docs/ directory.",
+    "user_title": "Organize Project Work With Workhub",
+    "value_statement": "Project decisions, tasks, and change records often become scattered across chats and files. Workhub gives Claude, Codex, and Claude Code a structured docs workflow for issues, PR notes, ADRs, and audits.",
     "seo_keywords": [
-      "workhub",
-      "documentation management",
-      "task tracking",
-      "SSOT",
-      "single source of truth",
-      "architecture decisions",
-      "issue tracking",
-      "PR templates",
       "Claude",
-      "Claude Code"
+      "Codex",
+      "Claude Code",
+      "Workhub skill",
+      "documentation workflow",
+      "markdown issue tracker",
+      "project governance",
+      "single source of truth",
+      "AI coding documentation",
+      "PR notes"
     ],
     "actual_capabilities": [
-      "Initialize standardized docs/ directory structure with adr/, architecture/, issues/, pr/ folders",
-      "Create issue files from templates with status tracking and acceptance criteria",
-      "Create pull request files from templates with rollback plans",
-      "List all issues and PRs with their current status",
-      "Search across all issues and PRs for specific keywords",
-      "Audit docs structure for compliance with SSOT governance rules"
+      "Initializes a docs/ structure with adr, architecture, issues, and pr folders.",
+      "Creates issue and PR markdown files from bundled templates.",
+      "Audits whether required documentation folders exist.",
+      "Reads a requested documentation file and prints its contents.",
+      "Lists issue and PR files with detected status and title metadata.",
+      "Searches issue and PR markdown files for a keyword."
     ],
     "limitations": [
-      "Only manages markdown files in the local docs/ directory",
-      "Does not integrate with external issue trackers like GitHub Issues",
-      "No built-in synchronization or backup capabilities",
-      "Status updates require manual file editing"
+      "It does not synchronize issues or pull requests with GitHub APIs.",
+      "Path validation is missing, so only trusted arguments should be used.",
+      "It manages markdown conventions, not a database or task service.",
+      "It does not edit issue or PR content after creation."
     ],
     "use_cases": [
       {
-        "target_user": "Project Architects",
-        "title": "Architecture Decision Records",
-        "description": "Document architectural decisions with context, alternatives considered, and trade-offs made."
+        "title": "Set up documentation governance",
+        "target_user": "Solo developer",
+        "description": "Create the standard docs folders before starting a new project or feature branch."
       },
       {
-        "target_user": "Development Leads",
-        "title": "Task Tracking and Planning",
-        "description": "Track implementation phases, acceptance criteria, and status of features and bug fixes."
+        "title": "Track implementation work",
+        "target_user": "Engineering team lead",
+        "description": "Create issue files with goals, phases, acceptance criteria, notes, and status updates."
       },
       {
-        "target_user": "Code Reviewers",
-        "title": "Pull Request Documentation",
-        "description": "Document changes with rollback plans, risk assessments, and test verification results."
+        "title": "Review delivery history",
+        "target_user": "Maintainer",
+        "description": "List and search PR notes to find previous changes, rollback plans, and test records."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create Issue",
-        "scenario": "Start a new task",
-        "prompt": "Use workhub to create an issue titled \"[description]\" in the [category] category. Then show me the created file path."
+        "title": "Initialize docs",
+        "scenario": "Beginner setup",
+        "prompt": "Use Workhub to initialize the documentation structure for this repository, then summarize the folders it created."
       },
       {
-        "title": "Track Progress",
-        "scenario": "Check task status",
-        "prompt": "Run workhub status to show me all open issues and their current phase progress."
+        "title": "Create an issue",
+        "scenario": "Feature planning",
+        "prompt": "Use Workhub to create an issue for adding user profile export. Put it under the backend category."
       },
       {
-        "title": "Review Changes",
-        "scenario": "Before merging code",
-        "prompt": "Run workhub list prs to show pending PRs, then read the PR file for [PR name] to review the rollback plan."
+        "title": "Audit project docs",
+        "scenario": "Documentation review",
+        "prompt": "Use Workhub to audit the docs structure and tell me which required folders are missing."
       },
       {
-        "title": "Find Context",
-        "scenario": "Search documentation",
-        "prompt": "Search workhub for \"[keyword]\" to find relevant issues and PRs related to this feature."
+        "title": "Search delivery notes",
+        "scenario": "Advanced repository review",
+        "prompt": "Use Workhub to search issues and PR notes for rollback, then summarize the relevant files and decisions."
       }
     ],
     "output_examples": [
       {
-        "input": "Create an issue for adding dark mode to the UI",
-        "output": [
-          "Created issue: docs/issues/20260110-添加深色模式.md",
-          "Edit the file and fill in Goal, Phases, Acceptance Criteria",
-          "Status: Pending"
-        ]
+        "input": "Create an issue for adding dark mode in the frontend category.",
+        "output": "Workhub creates a dated issue file under docs/issues/frontend and points you to the file for goal, phase, and acceptance details."
       },
       {
-        "input": "Check all open issues",
-        "output": [
-          "Issues with status indicators",
-          "Each shows title and file path",
-          "Total count of open items"
-        ]
+        "input": "Audit the documentation structure.",
+        "output": "Workhub reports whether adr, architecture, issues, and pr folders exist, then marks the structure healthy or incomplete."
       },
       {
-        "input": "Find documentation about authentication",
-        "output": [
-          "Matching issues and PRs",
-          "Line numbers with matches",
-          "Full paths to files"
-        ]
+        "input": "Search work notes for release rollback.",
+        "output": "Workhub lists matching issue or PR documents and shows short matching lines for review."
       }
     ],
     "best_practices": [
-      "Initialize docs structure before starting any project work",
-      "Create an issue before starting any feature or bug fix",
-      "Update issue status as you complete each phase"
+      "Run commands from the project root so docs/ resolves to the intended repository.",
+      "Use short category names without path separators or parent directory segments.",
+      "Review generated issue and PR files before committing them."
     ],
     "anti_patterns": [
-      "Using the wrong directory path when reading or creating files",
-      "Skipping the issue template when creating new tasks",
-      "Not linking PRs to their related issues"
+      "Do not pass untrusted filenames, categories, or paths to Workhub commands.",
+      "Do not store secrets in issue or PR markdown files that the search command may print.",
+      "Do not treat Workhub as a replacement for GitHub issue synchronization."
     ],
     "faq": [
       {
-        "question": "Which tools support this skill?",
-        "answer": "Workhub works with Claude, Codex, and Claude Code. Run commands using bun path/to/lib.ts command."
+        "question": "Does Workhub connect to GitHub?",
+        "answer": "No. It uses GitHub-style issue and PR markdown files, but it does not call GitHub APIs."
       },
       {
-        "question": "What directory structure does it create?",
-        "answer": "It creates docs/ with subdirectories: adr/, architecture/, issues/, and pr/ for organized documentation."
+        "question": "Where does Workhub store documents?",
+        "answer": "It stores project documents under docs/ in the current working directory."
       },
       {
-        "question": "Can I organize issues by module?",
-        "answer": "Yes, create issues in subdirectories like docs/issues/frontend/ by specifying a category parameter."
+        "question": "Can it create architecture records?",
+        "answer": "It creates the adr and architecture folders during initialization, but it does not include a dedicated ADR creation command."
       },
       {
-        "question": "Is my data safe?",
-        "answer": "Yes, the skill only accesses the local docs/ directory. No data leaves your machine."
+        "question": "Is it safe for private repositories?",
+        "answer": "Use caution. The read, list, and search commands can print local documentation into the assistant conversation."
       },
       {
-        "question": "Why is my file not found?",
-        "answer": "Run workhub from your project root where docs/ exists. Use relative paths from docs/ when reading."
+        "question": "Why is the security rating high?",
+        "answer": "The CLI accepts path arguments without enforcing a docs/ boundary, which can allow unintended file reads or writes."
       },
       {
-        "question": "How is this different from GitHub Issues?",
-        "answer": "Workhub stores issues locally as markdown files following SSOT principle without external service integration."
+        "question": "Which tools can use this skill?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },

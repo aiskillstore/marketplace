@@ -1,21 +1,21 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T04:41:14.419Z",
+    "generated_at": "2026-06-29T21:55:36.116Z",
     "slug": "dwsy-knowledge-base",
     "source_url": "https://github.com/Dwsy/knowledge-base-skill/tree/main/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "34d737746be1c082cd059d69565b2ad8ca8a6f368554a9eb9a80005d0785c2de",
-    "tree_hash": "784f11e28477c4c3da2e553c94a22ac7248163e24245b605a03d720ba26f4a87"
+    "tree_hash": "826503b1e00376ec201d39e2fc06831f41aecd59306272534e477d5a53ad98b8"
   },
   "skill": {
     "name": "knowledge-base",
-    "description": "专业的知识库管理系统，旨在解决“知识诅咒”和认知偏差问题。通过显式化隐性知识、扫描代码提取领域概念、整合行业最佳实践，构建结构化的 Markdown 知识库。",
-    "summary": "专业的知识库管理系统，旨在解决“知识诅咒”和认知偏差问题。通过显式化隐性知识、扫描代码提取领域概念、整合行业最佳实践，构建结构化的 Markdown 知识库。",
-    "icon": "🧠",
+    "description": "Builds a structured Markdown knowledge base from project concepts, guides, decisions, glossary entries, and source tree discovery.",
+    "summary": "Create and maintain project knowledge bases with templates, indexes, glossary generation, search, and codebase discovery.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Dwsy",
     "license": "MIT",
@@ -23,9 +23,9 @@
     "tags": [
       "knowledge-base",
       "documentation",
-      "code-analysis",
-      "domain-knowledge",
-      "markdown"
+      "markdown",
+      "glossary",
+      "architecture-decisions"
     ],
     "supported_tools": [
       "claude",
@@ -33,189 +33,340 @@
       "claude-code"
     ],
     "risk_factors": [
+      "external_commands",
       "filesystem"
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "This is a legitimate knowledge base documentation tool. All static findings are false positives: child_process exec is imported but never used; backticks are JavaScript template literals for documentation generation, not shell execution; path traversal warnings are mitigated by explicit sanitization (lines 217, 225); hidden files are explicitly skipped (lines 149, 194, 288, 357, 423, 473); all operations scoped to project-local docs/knowledge directory with no network calls or credential access.",
+    "safe_to_publish": false,
+    "summary": "Static analysis produced many alerts, but most command, network, hidden-file, entropy, and weak-crypto detections are documentation examples or template literals. One confirmed issue remains: decision creation uses an unsanitized title in a filesystem path, allowing path traversal writes inside the project. No prompt injection attempt or data exfiltration behavior was found.",
     "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "lib.ts",
+            "line_start": 4,
+            "line_end": 7
+          }
+        ]
+      },
       {
         "factor": "filesystem",
         "evidence": [
           {
             "file": "lib.ts",
-            "line_start": 1,
-            "line_end": 1
+            "line_start": 145,
+            "line_end": 159
           },
           {
             "file": "lib.ts",
-            "line_start": 111,
-            "line_end": 136
+            "line_start": 236,
+            "line_end": 249
           },
           {
             "file": "lib.ts",
-            "line_start": 139,
-            "line_end": 199
+            "line_start": 467,
+            "line_end": 523
           },
           {
             "file": "lib.ts",
-            "line_start": 201,
-            "line_end": 267
+            "line_start": 526,
+            "line_end": 619
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 8,
-    "total_lines": 1466,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T04:41:14.418Z"
+    "high_findings": [
+      {
+        "title": "Path Traversal in Decision Document Creation",
+        "description": "The decision creation path builds the output filename from the user supplied decision title without the same sanitization used for concept and guide names. A crafted title containing path separators and parent directory segments can cause writes outside the intended decisions directory.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 236,
+            "line_end": 239
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 249,
+            "line_end": 249
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The code uses the raw decision name after only replacing whitespace, then joins it into a write path. This is a direct filesystem write issue with a clear traversal vector."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Broad Project File Read and Report Write Capability",
+        "description": "The scan and discover commands recursively inspect project directories and write generated Markdown reports under docs/knowledge. This is expected behavior for the skill, but users should understand that running it reads local source files and creates documentation files.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 145,
+            "line_end": 159
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 164,
+            "line_end": 197
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 467,
+            "line_end": 523
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 526,
+            "line_end": 619
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The file reads and writes are visible and align with the documented feature set. The risk is operational rather than malicious because writes target the knowledge base."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Unused Child Process Import",
+        "description": "The file imports child_process and creates execAsync, but no call site uses it. This confirms the static external command alert at import time, but no command execution path was found.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 4,
+            "line_end": 7
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The import is present, but targeted review found no execAsync usage. The finding should be cleaned up, but it is not active command execution."
+      },
+      {
+        "title": "Documentation Command Examples Are False Positives",
+        "description": "Many static external command and hidden home directory alerts come from README.md and SKILL.md command examples that show how to run the skill. They are not automatically executed by the skill.",
+        "locations": [
+          {
+            "file": "README.md",
+            "line_start": 25,
+            "line_end": 28
+          },
+          {
+            "file": "README.md",
+            "line_start": 43,
+            "line_end": 60
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 77,
+            "line_end": 111
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The flagged lines are fenced command examples or documentation tables. They describe manual use and do not create an execution path."
+      },
+      {
+        "title": "Hardcoded URLs Are Reference Links",
+        "description": "The network findings are Markdown links to related projects and public reference material. No code path performs network requests or sends local data to those URLs.",
+        "locations": [
+          {
+            "file": "README.md",
+            "line_start": 19,
+            "line_end": 19
+          },
+          {
+            "file": "README.md",
+            "line_start": 280,
+            "line_end": 282
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The URLs appear only in documentation. Review found no fetch, HTTP client, or network execution code."
+      },
+      {
+        "title": "Weak Cryptography Alerts Are Terminology False Positives",
+        "description": "The weak cryptography alerts map to terms and documentation text such as Token, OAuth, JWT, MD file extensions, and Markdown examples. No cryptographic implementation was found.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 24,
+            "line_end": 32
+          },
+          {
+            "file": "README.md",
+            "line_start": 100,
+            "line_end": 107
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 32,
+            "line_end": 70
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The reviewed code contains no hashing, encryption, signing, or verification logic. The alerts are caused by words in domain lists and Markdown structure."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Unsanitized User Input in Filesystem Path",
+        "description": "The create decision command uses a user controlled title to build a path passed to writeFile. This should normalize and validate the final path remains under docs/knowledge/decisions.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 236,
+            "line_end": 239
+          },
+          {
+            "file": "lib.ts",
+            "line_start": 249,
+            "line_end": 249
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The unsafe path construction and subsequent write are directly adjacent in the reviewed code. The risk is confirmed without needing inferred behavior."
+      },
+      {
+        "title": "Dormant Shell Execution Capability",
+        "description": "child_process.exec is imported and promisified but unused. It should be removed to reduce future command execution risk and static audit noise.",
+        "locations": [
+          {
+            "file": "lib.ts",
+            "line_start": 4,
+            "line_end": 7
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The pattern is present, but it is dormant because no call site was found. The confidence reflects confirmed code presence but no active exploit path."
+      }
+    ],
+    "files_scanned": 7,
+    "total_lines": 1224,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T21:55:36.116Z",
+    "risk_factors": [
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Build Structured Knowledge Base from Code",
-    "value_statement": "Teams struggle to capture and share domain knowledge. This skill extracts concepts from code, creates structured documentation, and builds an organized knowledge base with markdown files.",
+    "user_title": "Build a Project Knowledge Base",
+    "value_statement": "Project knowledge often lives in code, chat, and memory, which slows onboarding and reviews. This skill creates structured Markdown concepts, guides, decisions, indexes, and glossaries.",
     "seo_keywords": [
-      "knowledge base",
-      "documentation",
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "domain concepts",
-      "code documentation",
-      "technical writing",
-      "knowledge management",
-      "markdown docs"
+      "Claude knowledge base",
+      "Codex documentation skill",
+      "Claude Code project docs",
+      "Markdown knowledge base",
+      "architecture decision records",
+      "developer onboarding",
+      "glossary generator",
+      "codebase discovery",
+      "project documentation",
+      "technical concepts"
     ],
     "actual_capabilities": [
-      "Scan code to extract domain concepts (classes, interfaces, types)",
-      "Create structured documentation (concepts, guides, decisions)",
-      "Generate hierarchical knowledge index automatically",
-      "Build glossary from concept definitions",
-      "Search all knowledge base content"
+      "Initializes a docs/knowledge folder with concepts, guides, decisions, and external reference sections.",
+      "Creates Markdown concept, guide, decision, and term files from included templates.",
+      "Scans source files for class, interface, type, enum, and struct names to suggest concepts.",
+      "Generates an index from Markdown files in the knowledge base.",
+      "Builds a glossary by extracting definition text from concept documents.",
+      "Discovers common technical directories and suggests missing knowledge documents."
     ],
     "limitations": [
-      "Operates only on local project files in docs/knowledge directory",
-      "Scans only .ts, .js, .py, .java, .go, .rs files (limit 50 per scan)",
-      "Does not sync with external documentation systems",
-      "No collaboration or version control features"
+      "Requires Bun or a compatible TypeScript runtime to run lib.ts commands.",
+      "Generated content is template-based and still needs human review.",
+      "Code scanning uses simple heuristics and may miss domain terms.",
+      "Decision titles have a path validation issue and should be fixed before publication."
     ],
     "use_cases": [
       {
-        "target_user": "Software Developers",
-        "title": "Document Domain Concepts",
-        "description": "Extract technical terms from code and create a shared vocabulary for the team"
+        "title": "Onboard a New Engineer",
+        "description": "Create a shared glossary and concept map before a new teammate starts reading implementation details.",
+        "target_user": "Engineering manager"
       },
       {
-        "target_user": "Technical Writers",
-        "title": "Generate Structure Guides",
-        "description": "Build how-to guides and best practices with standardized templates"
+        "title": "Document Architecture Decisions",
+        "description": "Record why a team chose a design, which options were rejected, and what tradeoffs remain.",
+        "target_user": "Tech lead"
       },
       {
-        "target_user": "System Architects",
-        "title": "Record Architecture Decisions",
-        "description": "Document why technical choices were made for future reference"
+        "title": "Turn Code Structure Into Documentation Tasks",
+        "description": "Scan a repository for technical directories and generate a checklist of missing concept and guide pages.",
+        "target_user": "Developer advocate"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Initialize Knowledge Base",
-        "scenario": "Start new project documentation",
-        "prompt": "Run init to set up docs/knowledge structure with concepts, guides, decisions, and external directories"
+        "title": "Initialize Documentation",
+        "scenario": "Beginner setup for an existing repository.",
+        "prompt": "Use the knowledge-base skill to initialize docs/knowledge for this project. Then explain the created folders and the next two commands I should run."
       },
       {
-        "title": "Scan Code for Concepts",
-        "scenario": "Find undocumented terms",
-        "prompt": "Run scan to analyze code and generate a list of concepts that should be documented"
+        "title": "Create a Concept Entry",
+        "scenario": "Document a domain term.",
+        "prompt": "Create a concept document for [term] in category [category]. Include a clear definition, context, misconceptions, relationships, and references."
       },
       {
-        "title": "Create Concept Document",
-        "scenario": "Document a new term",
-        "prompt": "Create concept 'ConceptName' in category 'auth/user' directory"
+        "title": "Generate Discovery Checklist",
+        "scenario": "Find missing documentation from project structure.",
+        "prompt": "Run knowledge-base discovery for this repository. Summarize the highest confidence documentation gaps and recommend the first five pages to create."
       },
       {
-        "title": "Discover Documentation Gaps",
-        "scenario": "Find what to document",
-        "prompt": "Run discover to analyze project structure and generate documentation checklist"
+        "title": "Maintain a Mature Knowledge Base",
+        "scenario": "Advanced recurring documentation workflow.",
+        "prompt": "Scan for new concepts, update the glossary and index, compare the discovery report with existing docs, and propose a documentation maintenance plan."
       }
     ],
     "output_examples": [
       {
-        "input": "Run scan to analyze my codebase",
-        "output": [
-          "Found 15 concepts to document: UserAuthentication, SessionManager, PaymentProcessor, OrderService, InventorySystem, ShippingCalculator, TaxEngine, NotificationService, CacheManager, DatabaseConnection, APIGateway, RateLimiter, ErrorHandler, Logger, ConfigurationManager",
-          "Suggested Concepts to Document:",
-          "- [⬜] UserAuthentication - Run: create concept 'UserAuthentication'",
-          "- [⬜] SessionManager - Run: create concept 'SessionManager'",
-          "- [✅] CacheManager - Already documented",
-          "Scan complete. Suggestions saved to: docs/knowledge/suggested_concepts.md"
-        ]
+        "input": "Initialize a knowledge base for a backend service.",
+        "output": "Creates concepts, guides, decisions, external, and index files under docs/knowledge. Provides next steps for scanning and creating priority entries."
       },
       {
-        "input": "Run discover to analyze my project structure",
-        "output": [
-          "🔬 Discovering knowledge base structure and generating checklist...",
-          "📊 Found 5 technical directories",
-          "💡 23 document suggestions generated",
-          "Next steps:",
-          "  1. Review the report: docs/knowledge/discovery_report.md",
-          "  2. Create suggested documents using the provided commands",
-          "  3. Run 'index' to update the knowledge base index"
-        ]
+        "input": "Create a concept for Session Token in the auth category.",
+        "output": "Produces a Markdown concept page with definition, context, implementation references, misconceptions, related concepts, and reference placeholders."
       },
       {
-        "input": "Create a decision record for choosing PostgreSQL over MongoDB",
-        "output": [
-          "✅ Created: docs/knowledge/decisions/database/20260107-WhyUsePostgreSQL.md",
-          "Open the file to complete the decision record template with:",
-          "- Context (background and problem)",
-          "- Options Considered (PostgreSQL, MongoDB, MySQL)",
-          "- The Decision (PostgreSQL)",
-          "- Cognitive Alignment (why this makes sense)",
-          "- Consequences (trade-offs)"
-        ]
+        "input": "Discover missing documentation in a repository.",
+        "output": "Produces a discovery report with detected technical directories, suggested concepts, suggested guides, confidence levels, and progress tracking."
       }
     ],
     "best_practices": [
-      "Run discover before creating documents to see project structure and suggested topics",
-      "Use consistent category paths like 'auth/user', 'backend/api', 'frontend/components'",
-      "Document the 'why' not just the 'what' using decision records"
+      "Run discovery before creating many pages, so the folder structure follows the actual repository.",
+      "Keep each concept definition short and link deeper explanations to guides or decisions.",
+      "Regenerate the index and glossary after adding or moving documents."
     ],
     "anti_patterns": [
-      "Skipping the common misconceptions section in concept documents",
-      "Creating deep nested categories beyond 5 levels",
-      "Using inconsistent naming conventions across documentation"
+      "Do not treat generated templates as final documentation without review.",
+      "Do not use deeply nested categories unless the project structure requires them.",
+      "Do not create decision entries with untrusted or unsanitized titles until the path issue is fixed."
     ],
     "faq": [
       {
-        "question": "What file types does scan support?",
-        "answer": "TypeScript, JavaScript, Python, Java, Go, and Rust files. Limited to 50 files per scan for performance."
+        "question": "What does this skill create?",
+        "answer": "It creates Markdown knowledge base folders, concept pages, guide pages, decision records, indexes, glossaries, and discovery reports."
       },
       {
-        "question": "How deep can category hierarchies go?",
-        "answer": "The tool supports unlimited nesting but recommends keeping categories under 5 levels deep."
+        "question": "Does it send project data to external services?",
+        "answer": "No evidence found. The reviewed code does not contain network request logic."
       },
       {
-        "question": "Can I use this with existing documentation?",
-        "answer": "Yes. The init command only creates missing directories. Existing files in docs/knowledge are preserved."
+        "question": "Which tools can use this skill?",
+        "answer": "The report marks it as compatible with Claude, Codex, and Claude Code."
       },
       {
-        "question": "Is my data sent anywhere?",
-        "answer": "No. All operations are local. The skill reads and writes only to your project's docs/knowledge directory."
+        "question": "Does the skill execute shell commands?",
+        "answer": "The code imports child_process.exec but does not use it. Users still need to run the Bun commands manually."
       },
       {
-        "question": "Why is my concept marked as existing?",
-        "answer": "The scan checks for matching filenames in docs/knowledge/concepts. Ensure document names match the concept name."
+        "question": "Can it replace human documentation review?",
+        "answer": "No. It creates structure and suggestions, but teams should verify accuracy and add missing context."
       },
       {
-        "question": "How is this different from regular documentation?",
-        "answer": "This tool focuses on capturing tacit knowledge and domain concepts, not just API documentation. It uses structured templates with anti-patterns and cognitive alignment sections."
+        "question": "Is it ready for marketplace publication?",
+        "answer": "Not yet. The decision document path validation issue should be fixed before publishing."
       }
     ]
   },

@@ -1,29 +1,29 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T05:44:11.216Z",
+    "generated_at": "2026-06-29T21:34:35.791Z",
     "slug": "dyai2025-docx",
     "source_url": "https://github.com/DYAI2025/Stoppclock-page/tree/main/stoppclock_speckit/.claude/commands/skills/document-skills/docx",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "0bd90681fcab2e282025ee14acf508b60bbd6c41ac6c3bf83c0dc14d52c37933",
-    "tree_hash": "c6072d6b526f4129591bfe58352e5f1c9c0bbfcb52ea418d5df3fd2b3f7e5118"
+    "tree_hash": "7909188fedb0342406164dd4f00bb08a2c8a60788dc1a4713fc9973a88b51fb1"
   },
   "skill": {
     "name": "docx",
-    "description": "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When Claude needs to work with professional documents (.docx files) for: (1) Creating new documents, (2) Modifying or editing content, (3) Working with tracked changes, (4) Adding comments, or any other document tasks",
-    "summary": "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, f...",
-    "icon": "📄",
+    "description": "Create, edit, inspect, validate, and review DOCX files using docx-js, OOXML workflows, tracked changes, comments, and document conversion tools.",
+    "summary": "Work with DOCX files through document generation, OOXML editing, comments, redlines, extraction, and validation.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "DYAI2025",
     "license": "Proprietary. LICENSE.txt has complete terms",
-    "category": "documentation",
     "tags": [
-      "document",
-      "word",
       "docx",
+      "ooxml",
+      "tracked-changes",
+      "document-editing",
       "office"
     ],
     "supported_tools": [
@@ -33,19 +33,56 @@
     ],
     "risk_factors": [
       "scripts",
+      "external_commands",
       "filesystem",
-      "external_commands"
-    ]
+      "network"
+    ],
+    "category": "office"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "This is a legitimate document manipulation skill. The extensive static findings are overwhelmingly false positives: markdown documentation files showing command examples (backticks), standard OOXML schema definitions, and safe external commands with hardcoded arguments. The skill uses defusedxml for secure XML parsing and creates temporary directories for isolation. No credential access, data exfiltration, or malicious behavior was detected.",
+    "safe_to_publish": false,
+    "summary": "Static analysis produced many hits, and most network, weak-crypto, C2, and Markdown backtick matches are false positives from OOXML schemas, XML namespace URLs, and documentation examples. The audit confirms a real high-risk issue: multiple scripts extract untrusted Office archives with zipfile.extractall() without path validation, which can enable Zip Slip writes outside the intended directory. No prompt injection or confirmed malicious intent was found, but publication should wait until archive extraction is hardened.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
         "evidence": [
+          {
+            "file": "ooxml/scripts/unpack.py",
+            "line_start": 1,
+            "line_end": 2
+          },
+          {
+            "file": "ooxml/scripts/pack.py",
+            "line_start": 1,
+            "line_end": 7
+          },
+          {
+            "file": "scripts/document.py",
+            "line_start": 1,
+            "line_end": 3
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 36,
+            "line_end": 39
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 160,
+            "line_end": 167
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 193,
+            "line_end": 196
+          },
           {
             "file": "ooxml/scripts/pack.py",
             "line_start": 103,
@@ -54,7 +91,7 @@
           {
             "file": "ooxml/scripts/validation/redlining.py",
             "line_start": 153,
-            "line_end": 165
+            "line_end": 166
           }
         ]
       },
@@ -62,30 +99,245 @@
         "factor": "filesystem",
         "evidence": [
           {
+            "file": "ooxml/scripts/unpack.py",
+            "line_start": 15,
+            "line_end": 17
+          },
+          {
+            "file": "ooxml/scripts/pack.py",
+            "line_start": 64,
+            "line_end": 79
+          },
+          {
             "file": "scripts/document.py",
-            "line_start": 634,
-            "line_end": 642
+            "line_start": 640,
+            "line_end": 646
+          },
+          {
+            "file": "scripts/document.py",
+            "line_start": 882,
+            "line_end": 884
           }
         ]
       },
       {
-        "factor": "external_commands",
+        "factor": "network",
         "evidence": [
           {
-            "file": "ooxml/scripts/pack.py",
-            "line_start": 103,
-            "line_end": 116
+            "file": "ooxml/scripts/validation/base.py",
+            "line_start": 70,
+            "line_end": 81
+          },
+          {
+            "file": "scripts/document.py",
+            "line_start": 93,
+            "line_end": 104
+          },
+          {
+            "file": "ooxml/schemas/ISO-IEC29500-4_2016/wml.xsd",
+            "line_start": 2,
+            "line_end": 23
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
+    "high_findings": [
+      {
+        "title": "Unsafe archive extraction of Office files",
+        "description": "Confirmed true positive. The unpack and validation paths call zipfile.extractall() on Office archives without validating member paths. A malicious DOCX, PPTX, or XLSX containing ../ or absolute paths could write files outside the intended output or temporary directory during processing.",
+        "locations": [
+          {
+            "file": "ooxml/scripts/unpack.py",
+            "line_start": 17,
+            "line_end": 17
+          },
+          {
+            "file": "ooxml/scripts/validation/base.py",
+            "line_start": 890,
+            "line_end": 891
+          },
+          {
+            "file": "ooxml/scripts/validation/docx.py",
+            "line_start": 200,
+            "line_end": 201
+          },
+          {
+            "file": "ooxml/scripts/validation/redlining.py",
+            "line_start": 69,
+            "line_end": 70
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The exact extractall() calls are present on paths that process user-supplied Office archives. This is a known Zip Slip pattern and no member path validation is visible at these locations."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "External command execution required by workflows",
+        "description": "Confirmed true positive with legitimate purpose. The skill documents and invokes tools such as pandoc, soffice, pdftoppm, npm, sudo apt-get, and git. The Python subprocess usage passes argument arrays and does not use shell=True, but the skill still executes local programs on document data and should run in a constrained environment.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 36,
+            "line_end": 39
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 160,
+            "line_end": 167
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 193,
+            "line_end": 196
+          },
+          {
+            "file": "ooxml/scripts/pack.py",
+            "line_start": 103,
+            "line_end": 116
+          },
+          {
+            "file": "ooxml/scripts/validation/redlining.py",
+            "line_start": 153,
+            "line_end": 166
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The commands are explicit and are part of the intended document workflow. Injection risk is reduced because subprocess calls use fixed binary names and argument arrays, but local execution remains a meaningful risk factor."
+      },
+      {
+        "title": "Broad filesystem mutation during document processing",
+        "description": "Confirmed true positive with legitimate purpose. The scripts create temporary directories, copy unpacked document trees, write archives, remove temporary directories, and copy edited content back to a destination. These operations are expected for DOCX editing but can overwrite files if paths are misused.",
+        "locations": [
+          {
+            "file": "ooxml/scripts/pack.py",
+            "line_start": 64,
+            "line_end": 79
+          },
+          {
+            "file": "scripts/document.py",
+            "line_start": 640,
+            "line_end": 646
+          },
+          {
+            "file": "scripts/document.py",
+            "line_start": 833,
+            "line_end": 836
+          },
+          {
+            "file": "scripts/document.py",
+            "line_start": 882,
+            "line_end": 884
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The file operations are clearly present and necessary for packaging Office documents. The risk depends on caller-controlled input and destination paths, so confidence is moderate rather than very high."
+      }
+    ],
     "low_findings": [
       {
-        "title": "External command execution for validation",
-        "description": "pack.py uses subprocess to run 'soffice' for document validation with hardcoded arguments and timeout protection. redlining.py uses 'git diff' for text comparison. Safe, documented operations.",
+        "title": "Hardcoded URLs are mostly OOXML namespaces",
+        "description": "False positive for active networking. The hardcoded URLs reviewed are XML namespace and schema identifiers used in Office documents, not code that sends data over the network. No evidence found of credential exfiltration or unauthorized HTTP requests in the reviewed locations.",
+        "locations": [
+          {
+            "file": "ooxml/scripts/validation/base.py",
+            "line_start": 70,
+            "line_end": 81
+          },
+          {
+            "file": "scripts/document.py",
+            "line_start": 93,
+            "line_end": 104
+          },
+          {
+            "file": "scripts/templates/comments.xml",
+            "line_start": 2,
+            "line_end": 2
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The cited values are namespace constants or XML templates, and the reviewed code does not call network client APIs around them. This strongly supports a false-positive network verdict."
+      },
+      {
+        "title": "Markdown backtick matches are documentation examples",
+        "description": "False positive for Ruby or shell backtick execution. Many external command detections are Markdown code fences and inline examples in documentation rather than executable Ruby code. Actual command execution is covered separately as a medium finding.",
+        "locations": [
+          {
+            "file": "docx-js.md",
+            "line_start": 11,
+            "line_end": 20
+          },
+          {
+            "file": "ooxml.md",
+            "line_start": 25,
+            "line_end": 29
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 36,
+            "line_end": 39
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The excerpts are Markdown tutorials and code blocks, not Ruby source files. They can influence agent behavior, but they are not direct backtick execution in the package itself."
+      },
+      {
+        "title": "Weak-crypto and C2 keyword hits are schema terminology",
+        "description": "Mostly false positive. The scanner appears to match OOXML schema terms, hash-related document fields, IDs, and general document terminology. No evidence found that the skill implements weak cryptography, command-and-control behavior, or network scanning in the reviewed context.",
+        "locations": [
+          {
+            "file": "scripts/document.py",
+            "line_start": 116,
+            "line_end": 123
+          },
+          {
+            "file": "scripts/utilities.py",
+            "line_start": 1,
+            "line_end": 7
+          },
+          {
+            "file": "ooxml/schemas/ISO-IEC29500-4_2016/wml.xsd",
+            "line_start": 769,
+            "line_end": 769
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "Reviewed examples are document editing helpers or static schema content, not cryptographic implementations or network control logic. Some static matches were not individually inspected, so confidence remains below very high."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "zipfile.extractall without path validation",
+        "description": "The highest-risk pattern is direct archive extraction from Office files without checking each member path against the destination directory.",
+        "locations": [
+          {
+            "file": "ooxml/scripts/unpack.py",
+            "line_start": 17,
+            "line_end": 17
+          },
+          {
+            "file": "ooxml/scripts/validation/base.py",
+            "line_start": 890,
+            "line_end": 891
+          },
+          {
+            "file": "ooxml/scripts/validation/docx.py",
+            "line_start": 200,
+            "line_end": 201
+          },
+          {
+            "file": "ooxml/scripts/validation/redlining.py",
+            "line_start": 69,
+            "line_end": 70
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The calls are explicit and no safe extraction wrapper is used at the cited lines."
+      },
+      {
+        "title": "Local external tool execution",
+        "description": "The workflows depend on local binaries for conversion, validation, and diff generation. These tools should run with least privilege and constrained input directories.",
         "locations": [
           {
             "file": "ooxml/scripts/pack.py",
@@ -95,132 +347,158 @@
           {
             "file": "ooxml/scripts/validation/redlining.py",
             "line_start": 153,
-            "line_end": 165
+            "line_end": 166
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 160,
+            "line_end": 167
           }
-        ]
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The commands are present and intentional. The use of argument arrays lowers command injection risk, but executing document converters is still a dangerous pattern for untrusted files."
+      },
+      {
+        "title": "Privileged package installation instructions",
+        "description": "The skill documentation recommends sudo apt-get install commands for dependencies. This is not malicious by itself, but marketplace users should not run privileged package installation from untrusted skill instructions without review.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 191,
+            "line_end": 196
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "The sudo commands are directly documented. They are dependency setup instructions, so the risk is operational rather than evidence of malicious intent."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 60,
-    "total_lines": 25341,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T05:44:11.216Z"
+    "files_scanned": 59,
+    "total_lines": 24725,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T21:34:35.791Z",
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "filesystem",
+      "network"
+    ]
   },
   "content": {
-    "user_title": "Create and edit Word documents",
-    "value_statement": "Professional Word document tasks are time-consuming when done manually. This skill provides structured workflows for creating, editing, and reviewing DOCX files with proper tracked changes, comments, and formatting preservation.",
+    "user_title": "Create and Review DOCX Documents",
+    "value_statement": "Professional DOCX work often requires precise formatting, comments, redlines, and XML-level repairs. This skill gives Claude, Codex, and Claude Code workflows for creating, editing, validating, and inspecting Word documents.",
     "seo_keywords": [
-      "docx skill",
-      "word document creation",
-      "claude docx",
-      "claude code docx",
-      "codex word documents",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "DOCX editing",
+      "OOXML editing",
       "tracked changes",
-      "document editing",
-      "redlining",
-      "office documents"
+      "Word comments",
+      "document validation",
+      "office automation",
+      "docx-js"
     ],
     "actual_capabilities": [
-      "Create new Word documents with headings, tables, images, and formatting",
-      "Edit existing DOCX files while preserving tracked changes (redlining)",
-      "Add and reply to comments in Word documents",
-      "Extract text content from DOCX files using pandoc",
-      "Validate document structure against OOXML schemas",
-      "Convert documents to PDF and images for visual analysis"
+      "Create new DOCX files with docx-js components, styles, tables, lists, headers, footers, images, and page layout.",
+      "Extract document text to Markdown with pandoc while preserving tracked change views.",
+      "Unpack DOCX files to inspect XML parts, comments, media, relationships, metadata, and document structure.",
+      "Edit existing DOCX content through a Python Document library and lower-level OOXML operations.",
+      "Add comments, replies, tracked insertions, tracked deletions, and redline-oriented review changes.",
+      "Validate and convert documents with local tools such as LibreOffice, Poppler, and schema validators."
     ],
     "limitations": [
-      "Cannot modify documents that contain macros (docm files)",
-      "Does not support password-protected documents",
-      "Limited to DOCX, PPTX, and XLSX file formats",
-      "Visual formatting beyond basic styles requires careful construction"
+      "Requires local tools such as pandoc, docx-js, LibreOffice, Poppler, Python, and defusedxml for full functionality.",
+      "Unsafe archive extraction must be fixed before use with untrusted Office files.",
+      "Direct OOXML edits can corrupt documents when element order, relationships, or content types are incorrect.",
+      "Designed for modern Office Open XML files, not legacy binary .doc files."
     ],
     "use_cases": [
       {
-        "target_user": "Legal professionals",
-        "title": "Contract redlining",
-        "description": "Review and mark up legal documents with tracked changes while preserving original formatting and comments."
+        "title": "Review a contract with tracked changes",
+        "target_user": "Legal reviewer",
+        "description": "Apply precise redlines, comments, and replies while preserving the original Word review workflow."
       },
       {
-        "target_user": "Technical writers",
-        "title": "Documentation updates",
-        "description": "Create professional documentation with tables, images, and proper heading structures for technical guides."
+        "title": "Generate a formatted business document",
+        "target_user": "Business operations team",
+        "description": "Create reports, proposals, briefs, or letters with consistent headings, tables, lists, and page layout."
       },
       {
-        "target_user": "Business users",
-        "title": "Report editing",
-        "description": "Edit business reports with multiple authors, adding comments and suggestions without altering source content."
+        "title": "Inspect and repair DOCX internals",
+        "target_user": "Documentation engineer",
+        "description": "Unpack a document, inspect XML parts, validate relationships, and correct structural problems."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Simple document",
-        "scenario": "Create a basic Word document",
-        "prompt": "Create a Word document with a title Quarterly Report and a paragraph of summary text about our department achievements."
+        "title": "Create a simple DOCX",
+        "scenario": "Beginner document generation",
+        "prompt": "Create a DOCX file for a one-page project update. Include a title, three sections, a bullet list, and a short next-steps table."
       },
       {
-        "title": "Formatted document",
-        "scenario": "Create a formatted document",
-        "prompt": "Create a Word document with a two-column table showing Q1 and Q2 metrics. Add a heading with bold text and a bulleted list of key findings."
+        "title": "Extract and summarize a document",
+        "scenario": "Reading an existing document",
+        "prompt": "Extract the text from this DOCX file, preserve tracked change information where possible, and summarize the key decisions and open questions."
       },
       {
-        "title": "Tracked changes",
-        "scenario": "Edit with revisions",
-        "prompt": "Unpack the document at path/to/contract.docx and make these changes with tracked revisions: update the date from January to March, change Client to Customer throughout, and add a new section after paragraph 3."
+        "title": "Add comments and tracked edits",
+        "scenario": "Review workflow",
+        "prompt": "Review this DOCX as a business reviewer. Add tracked changes for unclear wording and add comments explaining each recommendation."
       },
       {
-        "title": "Add comments",
-        "scenario": "Review and comment",
-        "prompt": "Add comments to the document explaining the changes I made. Use the tracked changes workflow to review and suggest additional edits where the language could be clearer."
+        "title": "Diagnose OOXML structure issues",
+        "scenario": "Advanced repair and validation",
+        "prompt": "Unpack this DOCX, inspect the relevant OOXML files, identify relationship or content type issues, repair them, repack the file, and verify that it opens correctly."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a Word document with a title Project Proposal and three sections: Introduction, Scope, and Timeline.",
-        "output": [
-          "Created project-proposal.docx with:",
-          "- Title heading (centered, 24pt Arial bold)",
-          "- Section 1: Introduction (two paragraphs)",
-          "- Section 2: Scope (bullet points with custom style)",
-          "- Section 3: Timeline (table with two columns: Milestone and Date)",
-          "Ready for review and additional edits."
-        ]
+        "input": "Create a polished client proposal from my outline.",
+        "output": "Produces a DOCX with title styling, section headings, numbered recommendations, a pricing table, and consistent page margins."
+      },
+      {
+        "input": "Review this policy document and suggest edits.",
+        "output": "Returns an updated DOCX with tracked insertions, tracked deletions, and comments tied to the relevant paragraphs."
+      },
+      {
+        "input": "This Word file looks corrupt after editing.",
+        "output": "Inspects the unpacked document parts, reports likely relationship or XML ordering issues, and provides a repaired DOCX when possible."
       }
     ],
     "best_practices": [
-      "Always unpack documents before editing to preserve original structure and track changes properly",
-      "Use tracked changes for all modifications to maintain audit trail and enable easy review",
-      "Validate documents after editing to ensure OOXML schema compliance before sharing",
-      "Group related changes into batches of 3-10 edits for manageable review cycles"
+      "Run the skill in a sandbox when processing external or unknown Office files.",
+      "Keep a backup of the original document before unpacking, editing, or repacking it.",
+      "Validate every edited document before sending it to reviewers or clients."
     ],
     "anti_patterns": [
-      "Avoid modifying another authors tracked changes directly - use nested insertions or deletions",
-      "Do not skip the validation step when repacking documents as corruption may not be visible",
-      "Never use unicode characters for bullet points - Word requires proper numbering configuration"
+      "Do not process untrusted DOCX files until archive extraction is path-safe.",
+      "Do not skip validation after direct OOXML edits.",
+      "Do not use markdown line numbers as stable references for XML edits."
     ],
     "faq": [
       {
-        "question": "Which file formats does this skill support?",
-        "answer": "The skill supports DOCX for full editing, and PPTX and XLSX for basic operations."
+        "question": "Can this skill create new Word documents?",
+        "answer": "Yes. It uses docx-js guidance for creating DOCX files with common Word layout and formatting features."
       },
       {
-        "question": "What are the document size limits?",
-        "answer": "The skill handles documents of any size that fit in memory. Very large documents over 100 pages may require more processing time."
+        "question": "Can it edit existing DOCX files?",
+        "answer": "Yes. It can unpack the document, edit OOXML, add comments or tracked changes, and repack the result."
       },
       {
-        "question": "Can I use this skill with Google Docs or cloud documents?",
-        "answer": "No. Documents must be local files. Download cloud documents first then use the skill and re-upload when finished."
+        "question": "Does it support tracked changes?",
+        "answer": "Yes. The skill includes redlining workflows for tracked insertions, tracked deletions, and review comments."
       },
       {
-        "question": "Is my document data secure when using this skill?",
-        "answer": "Yes. All processing happens locally on your machine. The skill creates temporary directories for unpacking and does not send data to external servers."
+        "question": "Is it safe for untrusted documents?",
+        "answer": "Not yet. The audit found unsafe archive extraction, so untrusted Office files need sandboxing or a code fix first."
       },
       {
-        "question": "Why does validation fail after my edits?",
-        "answer": "Validation failures occur when XML structure breaks OOXML schema rules. Common causes include missing xml:space attributes or malformed table structures."
+        "question": "What tools are required?",
+        "answer": "Full use may require Python, defusedxml, pandoc, docx-js, LibreOffice, Poppler, and git."
       },
       {
-        "question": "How does this skill compare to other document tools?",
-        "answer": "Unlike text editors this skill understands OOXML structure and produces valid Word documents with proper tracked changes for precise editing tasks."
+        "question": "Can it work with old .doc files?",
+        "answer": "No. The workflows target Office Open XML formats such as DOCX, PPTX, and XLSX."
       }
     ]
   },
