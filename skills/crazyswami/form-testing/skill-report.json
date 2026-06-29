@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T23:54:59.805Z",
+    "generated_at": "2026-06-29T02:41:39.591Z",
     "slug": "crazyswami-form-testing",
     "source_url": "https://github.com/CrazySwami/wordpress-dev-skills/tree/main/skills/form-testing",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "499dacb3db3e626d8c3be7d15ddf3eb544fe12354ebf49a05297649a26bcdf33",
-    "tree_hash": "751ece8b0aa7bc6b593328db587b36a9c226c7a65f846a95a3decb68e77f8002"
+    "tree_hash": "229c64a2469e33c0a5d9a1ba7473811f3901ed5907bd79d8746d4914d77a9192"
   },
   "skill": {
     "name": "form-testing",
-    "description": "Test WordPress form submissions and email delivery. Validates contact forms, checks WP Mail SMTP configuration, and sends test emails. Use when verifying form functionality or troubleshooting email delivery issues.",
-    "summary": "Test WordPress form submissions and email delivery. Validates contact forms, checks WP Mail SMTP con...",
-    "icon": "📧",
+    "description": "Test WordPress form submissions and email delivery. Validates contact forms, checks WP Mail SMTP configuration, and sends test emails for troubleshooting.",
+    "summary": "Test WordPress forms, SMTP settings, and email delivery from a WordPress container.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "CrazySwami",
     "license": "MIT",
-    "category": "development",
     "tags": [
       "wordpress",
       "forms",
-      "email",
+      "email-testing",
       "smtp",
-      "testing"
+      "wp-cli"
     ],
     "supported_tools": [
       "claude",
@@ -33,28 +32,51 @@
       "claude-code"
     ],
     "risk_factors": [
-      "external_commands",
-      "network"
-    ]
+      "scripts",
+      "network",
+      "filesystem",
+      "external_commands"
+    ],
+    "category": "devops"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "The form-testing skill is a legitimate WordPress development tool. All detected patterns (Docker commands, email testing, file operations) are intentional functionality for testing WordPress email delivery. No malicious intent or data exfiltration patterns found.",
+    "safe_to_publish": false,
+    "summary": "Static analysis found many command, network, and filesystem patterns; several are expected for a WordPress form testing skill. Human review confirmed high-risk issues: a hardcoded external default recipient receives diagnostics, and a user-controlled recipient is interpolated into wp eval PHP code.",
     "risk_factor_evidence": [
       {
-        "factor": "external_commands",
+        "factor": "scripts",
         "evidence": [
           {
             "file": "scripts/test-mail.sh",
             "line_start": 1,
-            "line_end": 82
+            "line_end": 1
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 72
           },
           {
             "file": "SKILL.md",
-            "line_start": 13,
-            "line_end": 267
+            "line_start": 97,
+            "line_end": 105
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 50,
+            "line_end": 76
           }
         ]
       },
@@ -62,162 +84,409 @@
         "factor": "network",
         "evidence": [
           {
-            "file": "scripts/test-mail.sh",
-            "line_start": 18,
-            "line_end": 76
+            "file": "SKILL.md",
+            "line_start": 98,
+            "line_end": 105
           },
           {
             "file": "SKILL.md",
-            "line_start": 99,
-            "line_end": 106
+            "line_start": 310,
+            "line_end": 312
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 47,
+            "line_end": 76
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 21
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 190,
+            "line_end": 192
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 45,
+            "line_end": 45
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "high_findings": [
       {
-        "title": "Hardcoded email address in test script",
-        "description": "Default recipient email admin@csrdevelopment.com should be customized per environment",
+        "title": "Hardcoded External Email Recipient Receives Diagnostics",
+        "description": "The email test script defaults to admin@csrdevelopment.com and sends site URL, PHP version, and WordPress version to that recipient. This can disclose site metadata outside the user environment if the script is run without an explicit recipient.",
         "locations": [
           {
             "file": "scripts/test-mail.sh",
             "line_start": 8,
             "line_end": 8
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 50,
+            "line_end": 58
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 64,
+            "line_end": 68
           }
-        ]
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The default recipient is explicit, and the later wp_mail call sends diagnostic site metadata to that address. This is a concrete data disclosure risk unless users always override the default."
+      },
+      {
+        "title": "Recipient Argument Is Interpolated Into wp eval Code",
+        "description": "The script embeds the recipient argument directly inside PHP code passed to wp eval. A crafted email argument containing a quote could alter the PHP snippet executed inside the WordPress container.",
+        "locations": [
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 7,
+            "line_end": 8
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 50,
+            "line_end": 52
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 118,
+            "line_end": 124
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The recipient value is user-controlled and inserted into a quoted PHP string without escaping. The execution sink is wp eval, so the impact is arbitrary PHP execution in the target container."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 3,
-    "total_lines": 640,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T23:54:59.805Z"
+    "medium_findings": [
+      {
+        "title": "SMTP Configuration Commands Can Expose Secrets",
+        "description": "The skill recommends printing the full wp_mail_smtp option and shows an inline SMTP password field. These commands can expose SMTP credentials in terminal output, shell history, or agent logs.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 77,
+            "line_end": 79
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 163,
+            "line_end": 165
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 224,
+            "line_end": 240
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The documentation explicitly retrieves the full SMTP option and includes a password field in a command example. It is possible the value is a placeholder, but the workflow still encourages unsafe secret handling."
+      },
+      {
+        "title": "Broad Shell and Container Execution Is Required",
+        "description": "The skill relies on Bash, docker exec, WP-CLI, curl, and wp eval to test forms and mail delivery. This is legitimate for WordPress operations, but it gives the skill high-impact access to containers and external endpoints.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 72
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 97,
+            "line_end": 105
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 20,
+            "line_end": 20
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The commands are directly present and match the stated purpose of the skill. The risk is elevated access and network activity, not clear malicious intent."
+      },
+      {
+        "title": "Email Sending Capability Needs User Control",
+        "description": "The script and examples send live email through WordPress. This can be appropriate for testing, but repeated or misdirected runs can create unwanted email traffic or disclose test content.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 72
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 123,
+            "line_end": 149
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 47,
+            "line_end": 76
+          }
+        ],
+        "confidence": 0.75,
+        "confidence_reasoning": "Live wp_mail use is explicit in both the documentation and script. The behavior is expected for this skill, so the concern is operational misuse rather than hidden malware."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Analyzer False Positives in Documentation",
+        "description": "The weak cryptography and system reconnaissance hits do not show real weak crypto or reconnaissance behavior. The cited lines contain a skill description and a SQL query for recent WP Mail SMTP logs.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 179,
+            "line_end": 179
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "Review of the cited lines found no cryptographic algorithm use. The SQL query is local troubleshooting for recent mail logs, not host or network reconnaissance."
+      },
+      {
+        "title": "Documentation URLs and Device File Usage Are Benign",
+        "description": "The hardcoded URLs are example contact pages or official documentation links. The /dev/null usage is standard curl output suppression, not hidden file collection.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 99,
+            "line_end": 99
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 190,
+            "line_end": 192
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 310,
+            "line_end": 312
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The URLs are visible examples and references, and /dev/null is only used to discard curl output. No evidence of covert network or filesystem access was found at these locations."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Recipient Argument Is Interpolated Into wp eval Code",
+        "description": "The script embeds the recipient argument directly inside PHP code passed to wp eval. A crafted email argument containing a quote could alter the PHP snippet executed inside the WordPress container.",
+        "locations": [
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 7,
+            "line_end": 8
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 50,
+            "line_end": 52
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 118,
+            "line_end": 124
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The recipient value is user-controlled and inserted into a quoted PHP string without escaping. The execution sink is wp eval, so the impact is arbitrary PHP execution in the target container."
+      },
+      {
+        "title": "Hardcoded External Email Recipient Receives Diagnostics",
+        "description": "The email test script defaults to admin@csrdevelopment.com and sends site URL, PHP version, and WordPress version to that recipient. This can disclose site metadata outside the user environment if the script is run without an explicit recipient.",
+        "locations": [
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 8,
+            "line_end": 8
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 50,
+            "line_end": 58
+          },
+          {
+            "file": "scripts/test-mail.sh",
+            "line_start": 64,
+            "line_end": 68
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The default recipient is explicit, and the later wp_mail call sends diagnostic site metadata to that address. This is a concrete data disclosure risk unless users always override the default."
+      },
+      {
+        "title": "SMTP Configuration Commands Can Expose Secrets",
+        "description": "The skill recommends printing the full wp_mail_smtp option and shows an inline SMTP password field. These commands can expose SMTP credentials in terminal output, shell history, or agent logs.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 77,
+            "line_end": 79
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 163,
+            "line_end": 165
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 224,
+            "line_end": 240
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The documentation explicitly retrieves the full SMTP option and includes a password field in a command example. It is possible the value is a placeholder, but the workflow still encourages unsafe secret handling."
+      }
+    ],
+    "files_scanned": 2,
+    "total_lines": 395,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T02:41:39.591Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
     "user_title": "Test WordPress Forms and Email Delivery",
-    "value_statement": "WordPress contact forms often fail silently, causing lost leads and frustrated users. This skill tests form submissions, validates email delivery, and diagnoses SMTP configuration issues to ensure your forms work reliably.",
+    "value_statement": "WordPress form failures are hard to diagnose when submission, SMTP, and email receipt all interact. This skill guides targeted checks for forms, WP Mail SMTP, and delivery results.",
     "seo_keywords": [
-      "wordpress form testing",
-      "email delivery test",
-      "wp mail smtp",
-      "contact form validation",
-      "claude code wordpress",
-      "form troubleshooting",
-      "smtp configuration",
-      "wordpress email issues",
-      "claude ai testing",
-      "codex form testing"
+      "Claude WordPress form testing",
+      "Codex WordPress email testing",
+      "Claude Code WP Mail SMTP",
+      "WordPress contact form audit",
+      "WP-CLI email test",
+      "SMTP troubleshooting skill",
+      "WordPress form validation",
+      "email delivery testing",
+      "contact form security",
+      "WordPress Docker testing"
     ],
     "actual_capabilities": [
-      "Tests WordPress email delivery via wp_mail() function",
-      "Validates WP Mail SMTP plugin configuration",
-      "Checks SMTP server connectivity and settings",
-      "Sends test emails with detailed diagnostics",
-      "Provides color-coded terminal output for easy reading",
-      "Displays WordPress and PHP version information"
+      "Checks whether WP Mail SMTP is active in a WordPress container.",
+      "Reads selected SMTP status details through WP-CLI commands.",
+      "Sends WordPress test emails with wp_mail for delivery verification.",
+      "Provides curl examples for contact form submission testing.",
+      "Reviews nonce, validation, redirect, and email receipt checklist items.",
+      "Documents common causes for form and email delivery failures."
     ],
     "limitations": [
-      "Requires Docker container access for WordPress sites",
-      "Only tests email functionality, not form UI/UX",
-      "Default recipient email must be customized",
-      "Cannot test external SMTP services directly"
+      "Requires access to the target WordPress container and WP-CLI.",
+      "Can send real email, so recipients must be selected carefully.",
+      "Does not verify inbox delivery unless the user confirms receipt.",
+      "Examples are tailored to WordPress and may need site-specific changes."
     ],
     "use_cases": [
       {
-        "target_user": "WordPress developers",
-        "title": "Debug Email Delivery Issues",
-        "description": "Quickly diagnose why contact form emails are not reaching inboxes by testing SMTP configuration and mail server connectivity."
+        "title": "Verify a Contact Form Before Launch",
+        "description": "Run submission, redirect, nonce, and email checks before a WordPress site goes live.",
+        "target_user": "WordPress developer"
       },
       {
-        "target_user": "QA testers",
-        "title": "Validate Form Functionality",
-        "description": "Automate testing of contact forms after deployments to ensure submissions work and emails are delivered properly."
+        "title": "Troubleshoot SMTP Delivery Problems",
+        "description": "Check plugin status, SMTP settings, and a live wp_mail test when messages are missing.",
+        "target_user": "Site administrator"
       },
       {
-        "target_user": "Site administrators",
-        "title": "Verify SMTP Setup",
-        "description": "Confirm WP Mail SMTP plugin is configured correctly and test email delivery without manual form submissions."
+        "title": "Document Form QA Results",
+        "description": "Create a clear audit record covering fields, validation, email receipt, and security checks.",
+        "target_user": "QA specialist"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Email Test",
-        "scenario": "Test if WordPress can send emails",
-        "prompt": "Run the form-testing skill to check if my WordPress container can send emails. Use the default settings."
+        "title": "Check Basic Email Delivery",
+        "scenario": "Beginner check for a local WordPress container.",
+        "prompt": "Use the form-testing skill to check email delivery for my WordPress container named wordpress. Send the test only to my provided recipient address."
       },
       {
-        "title": "Custom Recipient Test",
-        "scenario": "Test email delivery to specific address",
-        "prompt": "Test email delivery from my WordPress container to test@mycompany.com and show me the SMTP configuration."
+        "title": "Audit a Contact Form",
+        "scenario": "Intermediate review of a contact page.",
+        "prompt": "Use the form-testing skill to audit my WordPress contact form. Check field validation, nonce handling, redirect behavior, and email delivery."
       },
       {
-        "title": "Full Form Audit",
-        "scenario": "Comprehensive form and email testing",
-        "prompt": "Perform a complete audit of my WordPress forms including email delivery, SMTP configuration, and provide troubleshooting recommendations."
+        "title": "Troubleshoot SMTP Settings",
+        "scenario": "Intermediate diagnosis of failed email delivery.",
+        "prompt": "Use the form-testing skill to inspect WP Mail SMTP status and identify likely causes for failed WordPress email delivery. Do not print passwords or secret values."
       },
       {
-        "title": "Troubleshoot Email Issues",
-        "scenario": "Diagnose specific email delivery problems",
-        "prompt": "My WordPress contact form submissions are not sending emails. Check the WP Mail SMTP configuration, test email delivery, and provide step-by-step troubleshooting guidance."
+        "title": "Prepare a Full Form QA Report",
+        "scenario": "Advanced pre-release QA workflow.",
+        "prompt": "Use the form-testing skill to create a full QA report for contact and inquiry forms. Include delivery, validation, security, and recommended fixes."
       }
     ],
     "output_examples": [
       {
-        "input": "Test email delivery from WordPress container",
-        "output": [
-          "WordPress Email Test",
-          "Container: wordpress-local-wordpress-1",
-          "Recipient: admin@example.com",
-          "Checking WP Mail SMTP plugin...",
-          "WP Mail SMTP is active",
-          "SMTP Configuration:",
-          "Host: smtp.gmail.com",
-          "Port: 587",
-          "Encryption: tls",
-          "Auth: Yes",
-          "Sending test email...",
-          "Email sent successfully to admin@example.com",
-          "Check your inbox for the test email!"
-        ]
+        "input": "Check whether WordPress can send a test email from the container.",
+        "output": "A short delivery result showing plugin status, selected SMTP details, send status, recipient, and next troubleshooting steps."
+      },
+      {
+        "input": "Audit the contact form on a WordPress contact page.",
+        "output": "A checklist covering form fields, validation behavior, nonce protection, redirect result, and email receipt confirmation."
+      },
+      {
+        "input": "Explain why a form submits but no email arrives.",
+        "output": "A prioritized diagnosis covering SMTP plugin status, mailer configuration, PHP mail fallback, spam filtering, and debug log review."
       }
     ],
     "best_practices": [
-      "Always test email delivery after configuring WP Mail SMTP to verify settings are correct",
-      "Use staging environments first before testing on production sites to avoid sending test emails to real users",
-      "Document your SMTP configuration settings for team members who need to troubleshoot email issues"
+      "Always pass an explicit test recipient that belongs to the site owner or tester.",
+      "Redact SMTP passwords and tokens from terminal output, logs, and reports.",
+      "Run tests in staging before sending messages from production systems."
     ],
     "anti_patterns": [
-      "Do not test with real customer email addresses - use test emails or your own address",
-      "Avoid testing email delivery on live production sites during business hours",
-      "Never share SMTP credentials in documentation or commit them to version control"
+      "Do not run the email test with the default recipient unchanged.",
+      "Do not paste full SMTP option output into shared tickets or chat logs.",
+      "Do not use live customer addresses for repeated test submissions."
     ],
     "faq": [
       {
-        "question": "Is this compatible with all WordPress setups?",
-        "answer": "The skill requires Docker-based WordPress installations and WP-CLI access. It works with any WordPress site running in a Docker container."
+        "question": "What does this skill test?",
+        "answer": "It tests WordPress form submissions, WP Mail SMTP status, wp_mail delivery, redirects, validation, and basic form security checks."
       },
       {
-        "question": "What are the testing limits?",
-        "answer": "There is no hard limit on test emails, but SMTP providers may have daily sending limits. The skill sends one test email per execution."
+        "question": "Does it send real email?",
+        "answer": "Yes. The provided script and examples can send live WordPress email, so use a controlled test recipient."
       },
       {
-        "question": "Can I integrate this with CI/CD pipelines?",
-        "answer": "Yes, the script is designed for automation and returns appropriate exit codes for success or failure, making it suitable for continuous integration workflows."
+        "question": "Can it confirm inbox receipt automatically?",
+        "answer": "No. It can send the message and report success from WordPress, but the user must confirm inbox receipt."
       },
       {
-        "question": "Is my data safe during testing?",
-        "answer": "The skill only reads WordPress configuration and sends test emails. It does not store or transmit any sensitive data externally beyond the test email itself."
+        "question": "Does it require Docker?",
+        "answer": "The included commands assume a WordPress Docker container with WP-CLI access."
       },
       {
-        "question": "What if the test email fails?",
-        "answer": "The script will display error messages from PHPMailer and WordPress, helping you identify configuration issues, authentication problems, or server connectivity issues."
+        "question": "Can it expose SMTP secrets?",
+        "answer": "Some documented commands can print full SMTP settings. Users should redact passwords and avoid sharing raw output."
       },
       {
-        "question": "How does this compare to other email testing tools?",
-        "answer": "Unlike external email testing services, this skill tests the actual WordPress email system with your specific SMTP configuration, providing more accurate results for WordPress-specific issues."
+        "question": "Is it safe to publish as written?",
+        "answer": "No. The hardcoded default recipient and unsafe wp eval interpolation should be fixed before publication."
       }
     ]
   },

@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T23:14:40.273Z",
+    "generated_at": "2026-06-29T03:00:19.615Z",
     "slug": "cornjebus-recursive-knowledge",
     "source_url": "https://github.com/Cornjebus/rlm-replication-study/tree/main/recursive-knowledge/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "b40c2d5b2aade8f97818ed96a133d3fdc87dd922559e1d172eafadfae0c7986a",
-    "tree_hash": "2feb63c3512d8ba3aabb595476b2ed74cd0f46e25b5b5a3ffc9c9684f5f398c2"
+    "tree_hash": "d2a67d58a10206ed6ba85348409a1ad0247428ed32c398f50ef3dbc8da5dff68"
   },
   "skill": {
     "name": "recursive-knowledge",
-    "description": "Process large document corpora (1000+ docs, millions of tokens) through knowledge graph construction and stateful multi-hop reasoning. Use when (1) User provides a large corpus exceeding context limits, (2) Questions require connections across multiple documents, (3) Multi-hop reasoning needed for complex queries, (4) User wants persistent queryable knowledge from documents. Replaces brute-force document stuffing with intelligent graph traversal.",
-    "summary": "Process large document corpora (1000+ docs, millions of tokens) through knowledge graph construction...",
-    "icon": "🔗",
+    "description": "Build a local knowledge graph from large document collections, then answer multi-hop questions with traversal state, confidence scoring, and provenance.",
+    "summary": "Turn large document corpora into a queryable knowledge graph for multi-hop research questions.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Cornjebus",
     "license": "MIT",
-    "category": "data",
     "tags": [
       "knowledge-graph",
-      "document-analysis",
+      "document-indexing",
       "multi-hop-reasoning",
-      "corpus-processing",
-      "entity-extraction"
+      "research",
+      "provenance"
     ],
     "supported_tools": [
       "claude",
@@ -34,14 +33,17 @@
     ],
     "risk_factors": [
       "scripts",
-      "filesystem"
-    ]
+      "network",
+      "filesystem",
+      "env_access"
+    ],
+    "category": "data"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate knowledge graph processing skill. Static findings are false positives triggered by markdown formatting (backticks), SHA-256 for ID generation, and standard filesystem operations. No network calls by default. LLM integration requires explicit USE_LLM=1 opt-in. All operations are appropriate for document corpus analysis.",
+    "summary": "Static analysis reported many external command and weak cryptography patterns, but review found these are mostly markdown backticks, examples, and SHA-256 identifiers rather than command execution or password storage. The skill does include executable Python scripts that read local corpora, write graph files, and can send document chunks to the Anthropic API when USE_LLM=1 is set, so publication should include a privacy and filesystem warning. No prompt injection attempt or confirmed malicious intent was found.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
@@ -49,17 +51,27 @@
           {
             "file": "scripts/index_corpus.py",
             "line_start": 1,
-            "line_end": 476
+            "line_end": 15
           },
           {
             "file": "scripts/query.py",
             "line_start": 1,
-            "line_end": 439
+            "line_end": 17
           },
           {
             "file": "scripts/graph_ops.py",
             "line_start": 1,
-            "line_end": 246
+            "line_end": 7
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/index_corpus.py",
+            "line_start": 135,
+            "line_end": 144
           }
         ]
       },
@@ -72,137 +84,326 @@
             "line_end": 39
           },
           {
+            "file": "scripts/index_corpus.py",
+            "line_start": 421,
+            "line_end": 427
+          },
+          {
             "file": "scripts/graph_ops.py",
             "line_start": 171,
-            "line_end": 195
+            "line_end": 183
+          },
+          {
+            "file": "scripts/query.py",
+            "line_start": 401,
+            "line_end": 407
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "scripts/index_corpus.py",
+            "line_start": 128,
+            "line_end": 144
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 8,
-    "total_lines": 1925,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T23:14:40.273Z"
+    "medium_findings": [
+      {
+        "title": "Optional LLM API Transmission of Corpus Text",
+        "description": "When USE_LLM=1 is set, the indexer creates an Anthropic client and sends extraction prompts containing document chunks. This appears legitimate and opt-in, but sensitive corpora could leave the local environment if users enable it without understanding the data flow.",
+        "locations": [
+          {
+            "file": "scripts/index_corpus.py",
+            "line_start": 128,
+            "line_end": 144
+          },
+          {
+            "file": "scripts/index_corpus.py",
+            "line_start": 324,
+            "line_end": 359
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "The code explicitly gates an Anthropic API call behind USE_LLM=1 and passes prompts built from document chunks. The behavior is documented and opt-in, so the concern is privacy exposure rather than malicious exfiltration."
+      },
+      {
+        "title": "User-Controlled Local File Reads and Graph Writes",
+        "description": "The CLI accepts input and output paths, recursively reads .txt, .md, and .json files, and writes a graph file. This is expected for a corpus indexer, but it can process sensitive local files or overwrite outputs if invoked with broad paths.",
+        "locations": [
+          {
+            "file": "scripts/index_corpus.py",
+            "line_start": 35,
+            "line_end": 39
+          },
+          {
+            "file": "scripts/index_corpus.py",
+            "line_start": 421,
+            "line_end": 427
+          },
+          {
+            "file": "scripts/graph_ops.py",
+            "line_start": 171,
+            "line_end": 183
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The file access is direct and controlled by CLI paths, which confirms the behavior. It is also central to the skill purpose, so the risk is operational misuse rather than suspicious intent."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static External Command Detections Are Markdown False Positives",
+        "description": "The reported Ruby or shell backtick findings are markdown code fences, inline identifiers, table values, and CLI examples. The Python scripts do not invoke shell commands or spawn subprocesses.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 26
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 56
+          },
+          {
+            "file": "references/graph-schema.md",
+            "line_start": 7,
+            "line_end": 27
+          },
+          {
+            "file": "references/state-management.md",
+            "line_start": 22,
+            "line_end": 39
+          },
+          {
+            "file": "references/traversal-patterns.md",
+            "line_start": 99,
+            "line_end": 141
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.94,
+        "confidence_reasoning": "Manual review showed the flagged lines are documentation formatting or examples. A targeted search found no subprocess, os.system, popen, eval, or exec use in the scripts."
+      },
+      {
+        "title": "SHA-256 Usage Is for Deterministic Identifiers",
+        "description": "The weak cryptography detections map to SHA-256 content hashes and deterministic graph IDs. They are not used for password storage, signatures, encryption, or authentication.",
+        "locations": [
+          {
+            "file": "references/graph-schema.md",
+            "line_start": 63,
+            "line_end": 68
+          },
+          {
+            "file": "scripts/graph_ops.py",
+            "line_start": 210,
+            "line_end": 213
+          },
+          {
+            "file": "scripts/index_corpus.py",
+            "line_start": 300,
+            "line_end": 304
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.91,
+        "confidence_reasoning": "The reviewed hash operations create short IDs and document change hashes. There is no security-sensitive cryptographic use in the cited code."
+      },
+      {
+        "title": "Graph Output Can Reveal Source Paths and Metadata",
+        "description": "The generated graph stores document paths, titles, content hashes, chunk counts, and source document references. This is useful provenance data, but users should avoid sharing graph files from sensitive corpora without review.",
+        "locations": [
+          {
+            "file": "scripts/index_corpus.py",
+            "line_start": 390,
+            "line_end": 399
+          },
+          {
+            "file": "scripts/graph_ops.py",
+            "line_start": 171,
+            "line_end": 178
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "The code clearly serializes document metadata into the graph output. The information is metadata rather than raw secrets, so severity remains low."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Opt-In External LLM Call",
+        "description": "The script can call the Anthropic API when USE_LLM=1 is present, sending prompts that include document text for extraction.",
+        "locations": [
+          {
+            "file": "scripts/index_corpus.py",
+            "line_start": 128,
+            "line_end": 144
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "The external call is explicit in the code and is gated by an environment variable. It is legitimate functionality but requires user awareness for private documents."
+      },
+      {
+        "title": "Recursive Local Corpus Access",
+        "description": "The indexer recursively selects supported document files from a user-supplied directory and writes the resulting graph to a user-supplied output path.",
+        "locations": [
+          {
+            "file": "scripts/index_corpus.py",
+            "line_start": 421,
+            "line_end": 427
+          },
+          {
+            "file": "scripts/graph_ops.py",
+            "line_start": 171,
+            "line_end": 178
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The filesystem behavior is visible and required for the skill. It is a publishable risk when documented, not evidence of malicious intent."
+      }
+    ],
+    "files_scanned": 7,
+    "total_lines": 1664,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T03:00:19.615Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "env_access"
+    ]
   },
   "content": {
-    "user_title": "Build Knowledge Graphs from Documents",
-    "value_statement": "Large document sets exceed context limits. Process corpora into knowledge graphs for efficient multi-hop reasoning and persistent querying across thousands of documents.",
+    "user_title": "Build Queryable Knowledge Graphs from Large Corpora",
+    "value_statement": "Large document sets can exceed model context limits and make cross-document reasoning unreliable. This skill builds a local graph and queries it with stateful traversal, confidence scoring, and provenance.",
     "seo_keywords": [
-      "recursive knowledge",
-      "knowledge graph",
-      "multi-hop reasoning",
-      "entity extraction",
-      "document corpus",
       "Claude",
       "Codex",
       "Claude Code",
-      "relationship extraction",
-      "graph traversal"
+      "knowledge graph",
+      "document indexing",
+      "multi-hop reasoning",
+      "corpus analysis",
+      "provenance tracking",
+      "large document search",
+      "research automation"
     ],
     "actual_capabilities": [
-      "Extract entities and relationships from document collections",
-      "Build persistent knowledge graphs in JSON format",
-      "Execute multi-hop queries with stateful traversal",
-      "Track confidence scores for query results",
-      "Prevent redundant exploration with visited node tracking",
-      "Synthesize answers from multiple corroborating sources"
+      "Indexes .txt, .md, and .json files into a local knowledge graph.",
+      "Extracts entities and relationships with either heuristics or an optional Claude API call.",
+      "Stores document provenance, content hashes, source references, and graph metadata.",
+      "Queries the graph with visited-node and visited-edge tracking to avoid repeated traversal.",
+      "Scores answers using confidence, corroborating source counts, and traversal limits.",
+      "Provides reference material for graph schema, state management, and traversal patterns."
     ],
     "limitations": [
-      "Does not perform OCR on scanned images",
-      "Requires documents to be in text format (txt, md, json)",
-      "Does not index new documents automatically after initial indexing",
-      "Limited entity extraction quality without LLM integration"
+      "The default heuristic extraction is basic and may miss complex entities or relationships.",
+      "Optional Claude API extraction can transmit document text outside the local environment.",
+      "The query engine returns simple synthesized answers rather than full natural language reports.",
+      "It does not include access control, redaction, or encryption for generated graph files."
     ],
     "use_cases": [
       {
-        "target_user": "Researchers",
-        "title": "Analyze Academic Papers",
-        "description": "Build searchable knowledge bases from research collections to trace ideas across publications."
+        "title": "Map Research Collections",
+        "description": "Create a graph from papers, notes, and source files so related entities and claims can be traced across documents.",
+        "target_user": "Researchers"
       },
       {
-        "target_user": "Legal Professionals",
-        "title": "Connect Case Documents",
-        "description": "Map relationships between entities across large case files for comprehensive discovery."
+        "title": "Analyze Internal Knowledge Bases",
+        "description": "Index technical documentation and project notes to answer questions that depend on several linked documents.",
+        "target_user": "Engineering teams"
       },
       {
-        "target_user": "Technical Writers",
-        "title": "Cross-Reference Documentation",
-        "description": "Index product documentation to find connections across thousands of markdown files."
+        "title": "Prepare Evidence-Backed Briefs",
+        "description": "Use graph provenance to identify supporting sources, contradictions, and important entities before writing a report.",
+        "target_user": "Analysts"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Indexing",
-        "scenario": "Index new documents",
-        "prompt": "Index the documents in /path/to/docs into a knowledge graph. Use python3 scripts/index_corpus.py --input /path/to/docs --output /path/to/graph.json --verbose"
+        "title": "Index a Folder",
+        "scenario": "Beginner setup for a local document collection.",
+        "prompt": "Use recursive-knowledge to index my local document folder into a graph file. Keep the run local and summarize the graph statistics after indexing."
       },
       {
-        "title": "Entity Query",
-        "scenario": "Find specific entities",
-        "prompt": "Find all entities of type person in the knowledge graph. Query the graph using python3 scripts/query.py --graph graph.json --query \"Who are the key people mentioned?\""
+        "title": "Ask a Multi-Hop Question",
+        "scenario": "Query a graph when the answer may span several documents.",
+        "prompt": "Use recursive-knowledge to answer this question against my existing graph. Show the answer, confidence, source count, and the key path used."
       },
       {
-        "title": "Multi-Hop Query",
-        "scenario": "Trace relationships",
-        "prompt": "Find who created the concept mentioned in document A and trace connections to organizations. Use multi-hop traversal with depth 4."
+        "title": "Find Conflicting Claims",
+        "scenario": "Review consistency across a corpus.",
+        "prompt": "Use recursive-knowledge traversal patterns to look for claims that support or contradict this topic. Report the strongest evidence and source references."
       },
       {
-        "title": "Confidence Filtering",
-        "scenario": "Filter high-confidence answers",
-        "prompt": "Query the knowledge graph with confidence threshold 0.85 and minimum 3 corroborating sources. Return only high-confidence findings."
+        "title": "Tune Traversal Strategy",
+        "scenario": "Advanced analysis with stricter evidence requirements.",
+        "prompt": "Use recursive-knowledge with a deeper traversal limit and higher confidence threshold. Explain how the stopping conditions affected the final answer."
       }
     ],
     "output_examples": [
       {
-        "input": "Query the knowledge graph: Who worked with John Smith on Project Alpha?",
-        "output": [
-          "Alice appears in both paths: John Smith → works_with → Alice and Project Alpha → has_member → Alice",
-          "Confidence: 92% (3 corroborating sources)",
-          "Sources: doc_abc123, doc_def456, doc_ghi789"
-        ]
+        "input": "Question: Who worked with Alice on Project Orion across the indexed documents?",
+        "output": "The answer identifies collaborators connected to both Alice and Project Orion, reports confidence, lists source document counts, and explains the intersecting graph path."
+      },
+      {
+        "input": "Question: Are there conflicting claims about the launch date?",
+        "output": "The result separates supporting and contradicting evidence, names the related entities, and highlights which documents contributed each claim."
+      },
+      {
+        "input": "Task: Index a folder of project notes and summarize the graph.",
+        "output": "The response reports document count, entity count, relationship count, top entity types, and whether any files were skipped as already indexed."
       }
     ],
     "best_practices": [
-      "Index documents in text format (txt, md, json) for best extraction results",
-      "Use confidence thresholds appropriate to your accuracy requirements",
-      "Run verbose mode during initial indexing to monitor progress",
-      "Update graphs incrementally when adding new documents to preserve existing knowledge"
+      "Index only the folders needed for the task, especially when documents may contain sensitive information.",
+      "Review graph files before sharing them because they include source paths and provenance metadata.",
+      "Use higher confidence and source thresholds for decisions that require strong evidence."
     ],
     "anti_patterns": [
-      "Do not use for single documents under 50k tokens where direct context would work",
-      "Avoid queries that require real-time data rather than static corpus analysis",
-      "Do not ignore confidence scores when making decisions based on results",
-      "Avoid querying without sufficient corroborating sources for critical questions"
+      "Do not use this skill for small document sets that already fit in context.",
+      "Do not enable USE_LLM=1 for confidential corpora without approval for external API processing.",
+      "Do not treat heuristic extraction results as complete without reviewing important entities and relationships."
     ],
     "faq": [
       {
-        "question": "What document formats are supported?",
-        "answer": "Plain text files (.txt), Markdown (.md), and JSON (.json) files are supported for indexing."
+        "question": "Does this skill run external shell commands?",
+        "answer": "No shell command execution was found in the scripts. The documentation shows command examples for users to run manually."
       },
       {
-        "question": "How many documents can this process?",
-        "answer": "Designed for 1000+ documents and millions of tokens. Performance depends on available memory for graph storage."
+        "question": "Does indexing stay local by default?",
+        "answer": "Yes. The default path uses heuristic extraction and local file processing only."
       },
       {
-        "question": "Can I use this with Claude API for extraction?",
-        "answer": "Set USE_LLM=1 environment variable to enable Claude API calls for improved entity and relationship extraction."
+        "question": "When does it contact an external API?",
+        "answer": "It can call the Anthropic API only when USE_LLM=1 is set before indexing."
       },
       {
-        "question": "Is my data sent to external servers?",
-        "answer": "No network calls are made by default. LLM integration requires explicit configuration via environment variable."
+        "question": "What file types can it index?",
+        "answer": "It indexes .txt, .md, and .json files from a file path or recursive folder scan."
       },
       {
-        "question": "Why do queries stop before exploring all nodes?",
-        "answer": "Query engine uses confidence thresholds and corroboration requirements for early termination. Adjust parameters if more exploration is needed."
+        "question": "What does the graph output contain?",
+        "answer": "It contains entities, relationships, document metadata, source document links, content hashes, and provenance fields."
       },
       {
-        "question": "How does this differ from simple search?",
-        "answer": "Knowledge graphs capture relationships between entities, enabling multi-hop queries that connect information across multiple documents."
+        "question": "Is it suitable for real-time data?",
+        "answer": "No. It is designed for static corpora and incremental updates, not real-time streams."
       }
     ]
   },
