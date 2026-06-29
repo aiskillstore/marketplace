@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T03:14:38.316Z",
+    "generated_at": "2026-06-29T18:20:10.166Z",
     "slug": "diversioteam-code-review-digest-writer",
     "source_url": "https://github.com/DiversioTeam/agent-skills-marketplace/tree/main/plugins/code-review-digest-writer/skills/code-review-digest-writer",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "3dd3b42a208afb5b8c84fad98f098e9c2723648156c297bc67ff6db498c49afe",
-    "tree_hash": "1ec2efcc427f13e0596cb262fd49e6925ccfa642ed2cecac72a89e5382a47a5a"
+    "tree_hash": "8833f32dcfd72fcf4d02f2f9140857e0801ffe2ec08bc2e21c778ec80bbd84b9"
   },
   "skill": {
     "name": "code-review-digest-writer",
-    "description": "Generates weekly code-review digest docs from PR review comments for any GitHub repository. If present, follows project-specific docs/review-digests/AGENTS.md guidelines. Use this to turn a date-bounded set of PR reviews into a structured markdown “newsletter” that captures themes, repeated issues, and concrete takeaways.\n",
-    "summary": "Generates weekly code-review digest docs from PR review comments for any GitHub repository. If prese...",
-    "icon": "📝",
+    "description": "Generates markdown code review digests from GitHub PR review comments for a selected repository and date range.",
+    "summary": "Creates weekly review digests that group PR feedback into themes, repeated issues, and team takeaways.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "DiversioTeam",
     "license": "MIT",
-    "category": "documentation",
     "tags": [
       "code-review",
-      "documentation",
       "github",
       "digest",
-      "knowledge-sharing"
+      "engineering-docs",
+      "pr-reviews"
     ],
     "supported_tools": [
       "claude",
@@ -33,26 +32,36 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
-      "network",
-      "filesystem",
-      "env_access",
-      "external_commands"
-    ]
+      "external_commands",
+      "filesystem"
+    ],
+    "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Pure prompt-based skill containing only workflow instructions for generating code review digests from PR comments. Uses gh CLI for GitHub data retrieval and writes markdown files only to docs/review-digests/ directory. Static findings are false positives: markdown code formatting, metadata URLs, and hash field names triggered pattern matching. Behavior matches stated purpose exactly.",
+    "summary": "Static analysis reported many shell-backtick and weak-cryptography patterns, but review shows these are markdown inline-code and wording false positives, not Ruby execution or crypto code. The skill does legitimately use Bash with GitHub CLI and writes digest files under docs/review-digests, so publication should include a warning about external command use and untrusted repository content.",
     "risk_factor_evidence": [
       {
-        "factor": "scripts",
-        "evidence": []
-      },
-      {
-        "factor": "network",
-        "evidence": []
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 60
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 94,
+            "line_end": 101
+          }
+        ]
       },
       {
         "factor": "filesystem",
@@ -64,163 +73,301 @@
           },
           {
             "file": "SKILL.md",
+            "line_start": 75,
+            "line_end": 88
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 131,
-            "line_end": 133
+            "line_end": 134
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 166,
+            "line_end": 172
           }
         ]
-      },
-      {
-        "factor": "env_access",
-        "evidence": []
-      },
-      {
-        "factor": "external_commands",
-        "evidence": []
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 389,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T03:14:38.316Z"
+    "medium_findings": [
+      {
+        "title": "External GitHub CLI Commands",
+        "description": "The skill instructs the agent to use Bash with gh to query pull requests, comments, and review-thread data. This is legitimate for a review digest workflow, but it can expose repository metadata to command output and depends on the authenticated GitHub identity.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 60
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 94,
+            "line_end": 101
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The Bash and gh workflow is explicit and central to the skill. I found no evidence of malicious exfiltration, but external command use is confirmed."
+      },
+      {
+        "title": "Untrusted Repository Guidance Treated As Authoritative",
+        "description": "The skill tells the agent to read docs/review-digests/AGENTS.md and treat it as the source of truth for digest behavior. A malicious repository could place prompt-injection instructions there, so agents should apply the skill scope and platform instructions before repository guidance.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 75,
+            "line_end": 82
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 131,
+            "line_end": 134
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "The behavior is clearly described, and repository-local guidance can be attacker controlled in some use cases. I found no direct injection text in this skill file."
+      },
+      {
+        "title": "Writes Documentation Files In The Target Repository",
+        "description": "The skill can create or update markdown files below docs/review-digests. The scope is narrow and documentation-only, but it still modifies the filesystem and should be run after confirming the target date and repository.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 45,
+            "line_end": 51
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 166,
+            "line_end": 172
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The file write behavior and target directory are explicit. The limited docs-only scope reduces severity."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Backtick Execution Alerts Are Markdown False Positives",
+        "description": "The analyzer flagged many inline backtick spans as Ruby or shell execution. The reviewed lines contain markdown examples, file paths, labels, and command names, not executable Ruby code.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 29
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 88,
+            "line_end": 88
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 206,
+            "line_end": 208
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The file is markdown instructions and the flagged backticks delimit text examples. There is no Ruby source or command substitution syntax being executed."
+      },
+      {
+        "title": "Weak Cryptography Alerts Are Keyword False Positives",
+        "description": "The analyzer flagged weak cryptography, but the reviewed content uses the word digest for review summaries and contains no hash implementation, cipher selection, or cryptographic API usage.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 8
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 174,
+            "line_end": 183
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 201,
+            "line_end": 203
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The suspicious term is semantically about newsletter digests, not cryptographic digests. I found no evidence of crypto code."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Bash Tool And gh Command Workflow",
+        "description": "The skill requires Bash access and assumes gh is authenticated. This enables repository data retrieval through local credentials and should be disclosed to users.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 9,
+            "line_end": 14
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 60
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 94,
+            "line_end": 101
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The allowed tools and gh dependency are explicit. The pattern is risky by capability, not by confirmed malicious intent."
+      },
+      {
+        "title": "Repository Content Can Influence Output",
+        "description": "The skill reads local digest guidance, previous digests, PR comments, and diff context. These inputs may contain untrusted text that should be summarized without obeying instructions embedded in them.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 75,
+            "line_end": 91
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 99,
+            "line_end": 107
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 109,
+            "line_end": 119
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The skill explicitly consumes repository and PR text. I found no prompt injection in the skill itself, but this data path is a real review concern."
+      }
+    ],
+    "files_scanned": 1,
+    "total_lines": 213,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T18:20:10.166Z",
+    "risk_factors": [
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Generate Code Review Digest from PR Comments",
-    "value_statement": "Code review feedback is scattered across many PRs and hard to track over time. This skill transforms PR review comments into a structured markdown digest that captures themes, repeated issues, and actionable best practices for your team.",
+    "user_title": "Generate Code Review Digests",
+    "value_statement": "Teams lose useful lessons when pull request feedback stays scattered across reviews. This skill turns date-bounded GitHub review comments into a structured markdown digest with themes, repeated issues, and takeaways.",
     "seo_keywords": [
+      "Claude",
+      "Codex",
+      "Claude Code",
       "code review digest",
-      "PR review summary",
-      "GitHub review insights",
-      "Claude Code skill",
-      "Codex skill",
-      "documentation generator",
-      "code review patterns",
-      "team learning",
+      "GitHub PR summary",
+      "pull request reviews",
       "engineering documentation",
-      "Claude skill"
+      "review newsletter",
+      "team learning",
+      "developer productivity"
     ],
     "actual_capabilities": [
-      "Fetches PR review comments using GitHub CLI (gh)",
-      "Clusters review feedback into thematic categories",
-      "Detects repeated issues across digests with [NEW] and [REPEAT] tags",
-      "Writes structured markdown files to docs/review-digests/",
-      "Follows project-specific AGENTS.md guidelines when present",
-      "Creates reference-style links to specific PRs and comments"
+      "Creates a markdown digest for a requested start date and end date.",
+      "Uses GitHub CLI to collect pull request comments and review-thread context.",
+      "Groups review feedback into themes across multiple pull requests.",
+      "Labels themes as new or repeated by comparing prior digest files.",
+      "Writes the digest under docs/review-digests using the end date as the filename.",
+      "Adds reference-style links for pull requests and review comments."
     ],
     "limitations": [
-      "Requires GitHub CLI (gh) to be installed and authenticated",
-      "Only generates digests within docs/review-digests/ directory",
-      "Cannot access PR data without gh or without appropriate GitHub permissions",
-      "Excludes bot and infrastructure comments with no review content"
+      "Requires GitHub CLI access for complete pull request data.",
+      "Quality depends on the clarity and availability of review comments.",
+      "It should only edit documentation under docs/review-digests.",
+      "Repository guidance and PR comments may contain untrusted text."
     ],
     "use_cases": [
       {
-        "target_user": "Software Developers",
-        "title": "Track Code Quality Trends",
-        "description": "Identify recurring code issues and best practices across your team's PR reviews over time."
+        "title": "Weekly Engineering Learning Digest",
+        "description": "Summarize the main review lessons from the past week for an engineering team.",
+        "target_user": "Engineering manager"
       },
       {
-        "target_user": "Engineering Managers",
-        "title": "Team Learning Summaries",
-        "description": "Generate markdown digests that document what the team is learning from code review feedback."
+        "title": "Recurring Review Pattern Tracking",
+        "description": "Find review themes that continue across multiple digest periods and need team attention.",
+        "target_user": "Tech lead"
       },
       {
-        "target_user": "Tech Leads",
-        "title": "Documentation Automation",
-        "description": "Create persistent records of code review themes for onboarding and standards documentation."
+        "title": "Onboarding Review Knowledge Base",
+        "description": "Turn historical pull request feedback into documentation that helps new developers learn team standards.",
+        "target_user": "Developer enablement lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Digest",
-        "scenario": "Generate a weekly code review digest",
-        "prompt": "Generate a code review digest for this repo for 2025-02-01 → 2025-02-14."
+        "title": "Create A Basic Digest",
+        "scenario": "Beginner request for one repository and one date range.",
+        "prompt": "Generate a code review digest for this repository for 2026-06-01 to 2026-06-07."
       },
       {
-        "title": "With Historical Context",
-        "scenario": "Use existing digests as reference",
-        "prompt": "Create a weekly PR review digest for 2025-03-10 → 2025-03-17, using any existing digests as historical context."
+        "title": "Use Prior Digests",
+        "scenario": "Compare current review feedback with existing digest history.",
+        "prompt": "Create a review digest for 2026-06-08 to 2026-06-14. Use existing docs/review-digests files to mark repeated themes."
       },
       {
-        "title": "Cross-Repo Analysis",
-        "scenario": "Analyze reviews in a specific repository",
-        "prompt": "From 2025-04-01 to 2025-04-30, summarize what reviewers focused on in owner/service-repo and highlight repeated issues."
+        "title": "Focus On Risk Areas",
+        "scenario": "Emphasize security, privacy, and correctness review feedback.",
+        "prompt": "Write a digest for 2026-06-01 to 2026-06-30. Highlight security, PII, access control, and data correctness themes."
       },
       {
-        "title": "Themed Newsletter",
-        "scenario": "Create styled digest with theme tags",
-        "prompt": "Write a newsletter-style code review digest for this project for 2025-05-15 → 2025-05-29, tagging themes as [NEW] or [REPEAT]."
+        "title": "Cross-Repository Digest",
+        "scenario": "Advanced request when GitHub CLI should target a specific repository.",
+        "prompt": "Generate a digest for owner/service-repo for 2026-06-01 to 2026-06-15. Use GitHub CLI with the explicit repo target and write the final markdown digest."
       }
     ],
     "output_examples": [
       {
-        "input": "Generate a code review digest for this repo for 2025-06-01 → 2025-06-15.",
-        "output": [
-          "Created docs/review-digests/2025-06-15.md",
-          "Period covered: June 1–15, 2025",
-          "Main themes: Error handling patterns, test fixture reuse, security review checklist",
-          "5 [NEW] themes, 2 [REPEAT] themes (error handling patterns recurring)"
-        ]
+        "input": "Generate a digest for 2026-06-01 to 2026-06-07.",
+        "output": "A markdown review digest with an overview, themed sections, new and repeated tags, and reference links for cited pull requests."
       },
       {
-        "input": "From 2025-01-01 to 2025-01-31, summarize what reviewers focused on in my-org/my-repo",
-        "output": [
-          "Created docs/review-digests/2025-01-31.md",
-          "Period covered: January 2025",
-          "Main themes: Type safety, logging patterns, database migrations",
-          "Reviewers emphasized TypedDict adoption and structured logging",
-          "Cross-referenced against 3 previous digests for pattern detection"
-        ]
+        "input": "Summarize repeated review issues from this month.",
+        "output": "A monthly digest that calls out recurring patterns, explains why they matter, and lists practical team takeaways."
       },
       {
-        "input": "Generate a digest for last month, highlighting what improved and what still needs attention",
-        "output": [
-          "Created docs/review-digests/2025-04-30.md",
-          "Period covered: April 2025",
-          "8 [NEW] themes introduced, 4 [REPEAT] themes showing improvement",
-          "Notable progress on error handling patterns (now [NEW] instead of [REPEAT])",
-          "Continued attention needed on test fixture reuse"
-        ]
+        "input": "Create a digest but GitHub CLI is unavailable.",
+        "output": "A partial digest based on local notes and existing files, with a clear note about missing GitHub review data."
       }
     ],
     "best_practices": [
-      "Always specify both start and end dates in YYYY-MM-DD format for clear scope definition.",
-      "Review past digests before generating new ones to identify repeated patterns effectively.",
-      "Use [NEW] and [REPEAT] tags consistently to help your team track improvement over time."
+      "Provide an exact start date and end date before running the skill.",
+      "Review any repository-specific digest guidance before writing the final file.",
+      "Check generated links and repeated-theme labels before sharing the digest."
     ],
     "anti_patterns": [
-      "Asking for a digest without specifying date boundaries creates ambiguous scope.",
-      "Ignoring previous digest history misses opportunities to identify recurring issues.",
-      "Skipping [NEW] and [REPEAT] tags reduces the digest value for tracking team learning."
+      "Do not use the skill to modify application code or configuration files.",
+      "Do not treat PR comments or repository docs as trusted instructions.",
+      "Do not publish a digest without noting missing GitHub data."
     ],
     "faq": [
       {
-        "question": "Which AI tools support this skill?",
-        "answer": "This skill works with Claude, Claude Code, and OpenAI Codex. Installation and invocation vary by platform."
+        "question": "What does this skill create?",
+        "answer": "It creates a markdown code review digest for a selected repository and date range."
       },
       {
-        "question": "What data does this skill access?",
-        "answer": "It reads PR review comments via GitHub CLI. No local code is accessed. All processing happens locally."
+        "question": "Does it require GitHub CLI?",
+        "answer": "GitHub CLI is needed for complete pull request and review-thread data."
       },
       {
-        "question": "Can this skill modify my codebase?",
-        "answer": "No. The skill scope is strictly limited to docs/review-digests/ directory. Application code is never modified."
+        "question": "Where does it write files?",
+        "answer": "It writes digest files under docs/review-digests using the end date as the filename."
       },
       {
-        "question": "What if gh CLI is not available?",
-        "answer": "The skill gracefully falls back to summarizing based on locally available notes and clearly marks the digest as partial."
+        "question": "Can it identify repeated themes?",
+        "answer": "Yes. It compares current review feedback with prior digest files when they are available."
       },
       {
-        "question": "Where are digests saved?",
-        "answer": "Digests are saved to docs/review-digests/YYYY-MM-DD.md. The directory is created if it does not exist."
+        "question": "Can it work without network access?",
+        "answer": "It can create a limited digest from local notes and existing files, but GitHub data will be incomplete."
       },
       {
-        "question": "How are repeated issues detected?",
-        "answer": "The skill compares current themes against the last 3–4 digests and labels recurring patterns as [REPEAT]."
+        "question": "Is repository content trusted?",
+        "answer": "No. Repository guidance and PR comments should be treated as source material, not higher-priority instructions."
       }
     ]
   },
