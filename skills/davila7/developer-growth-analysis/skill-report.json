@@ -1,31 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T00:35:59.214Z",
+    "generated_at": "2026-06-29T13:32:47.780Z",
     "slug": "davila7-developer-growth-analysis",
     "source_url": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/development/developer-growth-analysis",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "cbf6f200d45d07ae970e2409d0227f7ece0854b24985de871f1a9f46f053c636",
-    "tree_hash": "9876ff38088506789f434cce2b9dfdc2e2a60680baaed822da728d321ce0cd5e"
+    "tree_hash": "73b1decf74ed121bf4e5e05b226b39a45ff62713723fe89cba6892d006a50156"
   },
   "skill": {
     "name": "developer-growth-analysis",
-    "description": "Analyzes your recent Claude Code chat history to identify coding patterns, development gaps, and areas for improvement, curates relevant learning resources from HackerNews, and automatically sends a personalized growth report to your Slack DMs.",
-    "summary": "Analyzes your recent Claude Code chat history to identify coding patterns, development gaps, and are...",
-    "icon": "📈",
+    "description": "Analyzes recent Claude Code chat history to identify development patterns, improvement areas, and learning resources, then can deliver the report to Slack.",
+    "summary": "Review recent coding chats and create a personalized developer growth report.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "davila7",
     "license": "MIT",
     "category": "productivity",
     "tags": [
       "developer-growth",
-      "learning",
-      "analysis",
-      "productivity",
-      "feedback"
+      "coding-analysis",
+      "learning-resources",
+      "slack-reporting",
+      "claude-code"
     ],
     "supported_tools": [
       "claude",
@@ -33,174 +33,381 @@
       "claude-code"
     ],
     "risk_factors": [
-      "filesystem"
+      "network",
+      "filesystem",
+      "external_commands"
     ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a prompt-based skill with no executable code. All static findings are false positives caused by markdown code blocks in documentation that contain backticks and example text. The skill legitimately accesses local chat history for analysis purposes and uses MCP tools for external integrations.",
+    "summary": "Static external-command and weak-cryptography alerts are false positives caused by Markdown code fences, inline backticks, and ordinary prose. Real concerns remain: the skill instructs access to local Claude history, including pasted content, and sends a derived report through Slack using Rube MCP.",
     "risk_factor_evidence": [
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 149,
+            "line_end": 164
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 191,
+            "line_end": 204
+          }
+        ]
+      },
       {
         "factor": "filesystem",
         "evidence": [
           {
             "file": "SKILL.md",
             "line_start": 65,
+            "line_end": 69
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 71,
             "line_end": 71
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 44
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 48,
+            "line_end": 50
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 104,
+            "line_end": 147
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 167,
+            "line_end": 181
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 210,
+            "line_end": 216
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
+    "medium_findings": [
+      {
+        "title": "Sensitive Local Chat History Access",
+        "description": "TRUE_POSITIVE: The skill instructs the assistant to read ~/.claude/history.jsonl and process display, project, timestamp, and pastedContents fields. This is disclosed, but it can expose private prompts, project names, and pasted code from local Claude Code sessions.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 63,
+            "line_end": 71
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The file path and specific fields are explicitly listed. The privacy risk is direct because pastedContents may contain source code or secrets."
+      },
+      {
+        "title": "External Slack Delivery of Derived Developer Data",
+        "description": "TRUE_POSITIVE: The skill tells the assistant to send the complete growth report to Slack DMs through Rube MCP. The report is derived from local chat history, so delivery can move sensitive work details to an external service.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 191,
+            "line_end": 204
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The Slack delivery flow is explicit and includes connection checks, authorization, and message sending. It is user-facing but still creates third-party data exposure."
+      },
+      {
+        "title": "Third-Party Resource Searches Based on Work Patterns",
+        "description": "TRUE_POSITIVE: The skill uses Rube MCP to search HackerNews for each improvement area. Search queries based on technologies, debugging topics, and gaps may reveal sensitive project context to an external tool.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 149,
+            "line_end": 164
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The external search behavior is explicit. The exact sensitivity depends on generated queries, but the source data is the user's private work history."
+      }
+    ],
     "low_findings": [
       {
-        "title": "Accesses local chat history file",
-        "description": "The skill reads ~/.claude/history.jsonl to analyze user chat conversations. This is the core documented functionality and poses minimal risk as the data stays local during analysis. Only the generated report (not raw chat data) is shared via MCP tools.",
+        "title": "Markdown Backticks Misidentified as Shell Execution",
+        "description": "FALSE_POSITIVE: The static external_commands findings correspond to Markdown fenced examples, output templates, and inline formatting. No executable Ruby or shell backtick code is present in the skill file.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 44
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 48,
+            "line_end": 50
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 104,
+            "line_end": 147
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 167,
+            "line_end": 181
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 210,
+            "line_end": 216
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The cited lines are Markdown examples and templates, not runnable source files. No command invocation syntax or script interpreter context was found."
+      },
+      {
+        "title": "Weak Cryptography Alerts Are Prose Matches",
+        "description": "FALSE_POSITIVE: The static weak-cryptography alerts occur in ordinary descriptive text and example report content. No evidence of cryptographic algorithms, hashing, encryption, or credential processing was found.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 115,
+            "line_end": 115
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 162,
+            "line_end": 162
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 173,
+            "line_end": 177
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 224,
+            "line_end": 224
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 250,
+            "line_end": 254
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 261,
+            "line_end": 261
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 282,
+            "line_end": 282
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 295,
+            "line_end": 302
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 321,
+            "line_end": 321
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "Review of the cited lines shows report prose and example learning-resource text. There is no code implementing MD5, SHA1, DES, RC4, or similar weak primitives."
+      },
+      {
+        "title": "System Reconnaissance Alert Is Development Self-Assessment",
+        "description": "FALSE_POSITIVE: The scanner flagged line 79, but the text asks the assistant to identify challenges in the user's coding work. It does not enumerate host, network, account, or environment reconnaissance commands.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 79,
+            "line_end": 84
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The surrounding context is developer growth analysis from chat history. No evidence of system inventory, privilege checks, network discovery, or persistence probing was found."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Reads Hidden Claude History File",
+        "description": "The skill instructs access to a hidden local Claude history file that can contain private requests, project context, and pasted content.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 65,
-            "line_end": 71
+            "line_end": 69
           }
-        ]
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The exact hidden path and sensitive fields are named in the instructions."
+      },
+      {
+        "title": "Sends Report to Slack Through MCP",
+        "description": "The skill instructs the assistant to use Rube MCP to send the complete report to Slack direct messages.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 191,
+            "line_end": 204
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The Slack send workflow is explicit and operationally described."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 531,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T00:35:59.214Z"
+    "files_scanned": 1,
+    "total_lines": 323,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T13:32:47.780Z",
+    "risk_factors": [
+      "network",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Analyze your coding patterns and growth opportunities",
-    "value_statement": "Get personalized feedback on your development work by analyzing your Claude Code chat history. Identify skill gaps and receive curated learning resources tailored to your actual coding patterns.",
+    "user_title": "Analyze Developer Growth from Recent Chats",
+    "value_statement": "Developers often lack structured feedback from their daily AI-assisted work. This skill reviews recent Claude Code chats, identifies growth areas, and creates a focused learning report.",
     "seo_keywords": [
+      "Claude",
+      "Codex",
+      "Claude Code",
       "developer growth analysis",
-      "Claude Code productivity",
-      "coding pattern analysis",
-      "Claude skill marketplace",
-      "developer learning tracker",
-      "personalized code feedback",
-      "HackerNews resources",
-      "chat history analysis",
-      "skill gap detection",
-      "developer improvement"
+      "coding feedback",
+      "software learning plan",
+      "chat history review",
+      "Slack developer report",
+      "HackerNews learning resources",
+      "AI coding assistant"
     ],
     "actual_capabilities": [
-      "Analyzes local Claude Code chat history from the past 24 to 48 hours",
-      "Identifies development patterns including technologies used and problem types",
-      "Generates prioritized improvement areas with evidence-based recommendations",
-      "Searches HackerNews via MCP for curated learning resources matching identified gaps",
-      "Creates comprehensive markdown reports with action items and time estimates",
-      "Delivers complete reports to Slack DMs using Rube MCP integration"
+      "Reads recent Claude Code chat history from a local JSONL file.",
+      "Identifies projects, technologies, problem types, and recurring challenges.",
+      "Ranks three to five improvement areas using evidence from recent chats.",
+      "Creates a structured developer growth report with strengths and action items.",
+      "Searches HackerNews for learning resources related to improvement areas.",
+      "Can send the completed report to the user's Slack direct messages."
     ],
     "limitations": [
-      "Only analyzes Claude Code chat history stored in local JSONL file format",
-      "Cannot access code from your editor directly or analyze code not discussed in chats",
-      "Learning resources are limited to HackerNews content available via Rube MCP",
-      "Requires Rube MCP with HackerNews and Slack connections for full external features"
+      "Requires access to local Claude Code chat history.",
+      "May expose sensitive work details when Slack delivery or external search is used.",
+      "Resource quality depends on available HackerNews results.",
+      "Findings are guidance, not a substitute for code review or mentoring."
     ],
     "use_cases": [
       {
-        "target_user": "Self-improving developers",
-        "title": "Weekly Growth Review",
-        "description": "Run weekly analyses to track your development patterns and improvement trajectory over time with data-driven insights."
+        "title": "Weekly Skill Review",
+        "description": "Create a short growth report from recent coding chats and choose one focus area for the next week.",
+        "target_user": "Individual software developer"
       },
       {
-        "target_user": "Junior developers",
-        "title": "Targeted Skill Building",
-        "description": "Identify specific knowledge gaps from your actual work and receive curated resources to address them systematically."
+        "title": "Mentorship Preparation",
+        "description": "Summarize recent challenges, strengths, and learning needs before a mentoring session or career check-in.",
+        "target_user": "Junior or mid-level engineer"
       },
       {
-        "target_user": "Busy engineers",
-        "title": "Prioritized Learning Plan",
-        "description": "Get actionable feedback with time estimates to focus your limited learning time on high-impact improvements."
+        "title": "Learning Plan Curation",
+        "description": "Connect recurring technical gaps to relevant articles and discussions for targeted study.",
+        "target_user": "Engineering learner or team lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Quick Analysis",
-        "scenario": "Basic growth check",
-        "prompt": "Analyze my developer growth from my recent chats"
+        "title": "Basic Growth Report",
+        "scenario": "Beginner request for a default report.",
+        "prompt": "Analyze my developer growth from my recent Claude Code chats and give me a concise report."
       },
       {
-        "title": "Daily Review",
-        "scenario": "End-of-day retrospective",
-        "prompt": "Analyze my work from today and suggest areas for improvement"
+        "title": "Today Focus Review",
+        "scenario": "Review work from a specific short period.",
+        "prompt": "Analyze my coding work from today. Highlight repeated challenges, strengths, and the top three areas to improve."
       },
       {
-        "title": "Weekly Summary",
-        "scenario": "Comprehensive weekly review",
-        "prompt": "Give me a developer growth report for the past week covering my main projects and top improvement areas"
+        "title": "Technology-Specific Review",
+        "scenario": "Focus the analysis on one stack or project type.",
+        "prompt": "Review my recent chats for TypeScript and React work. Identify patterns, gaps, and learning resources for those areas."
       },
       {
-        "title": "Focused Development",
-        "scenario": "Targeted skill building",
-        "prompt": "Analyze my recent chats and identify the top 3 skills I should focus on developing right now with specific recommendations and learning resources"
+        "title": "Mentor-Ready Report",
+        "scenario": "Advanced report for sharing with another person.",
+        "prompt": "Create a mentor-ready growth report from the last 48 hours of chats. Include evidence, priorities, action items, and Slack delivery only after I approve the final text."
       }
     ],
     "output_examples": [
       {
-        "input": "Analyze my developer growth from my recent chats",
-        "output": [
-          "Work Summary: You focused on backend API development with TypeScript and React across two projects over the past 24 hours.",
-          "Top Improvement Areas:",
-          "- Advanced TypeScript Patterns (5-8 hours to skill up): Study utility types and discriminated unions for better type safety",
-          "- Error Handling and Validation (3-4 hours): Implement comprehensive null checks and edge case handling",
-          "Curated Resources: 5 HackerNews articles matching your improvement areas",
-          "Action Items: 4 prioritized tasks to improve your development velocity",
-          "Report delivered to your Slack DMs for easy reference"
-        ]
+        "input": "Analyze my developer growth from my recent chats.",
+        "output": "A report summarizing recent projects, common technologies, three prioritized improvement areas, observed strengths, and practical next actions."
       },
       {
-        "input": "Analyze my work from today and suggest areas for improvement",
-        "output": [
-          "Daily Summary: You worked on responsive UI components and deployment configuration today.",
-          "Key Strengths: Security awareness, iterative refinement, full-stack capability",
-          "Focus Area: Component architecture and responsive design patterns (6-10 hours)",
-          "Specific Recommendation: Study CSS layout containment and React composition patterns to prevent overflow issues",
-          "3 curated HackerNews articles on advanced React patterns and responsive design"
-        ]
+        "input": "Focus on my debugging habits from today.",
+        "output": "A focused review showing repeated debugging patterns, likely knowledge gaps, stronger habits to keep, and suggested resources for deeper practice."
+      },
+      {
+        "input": "Prepare a learning plan from my last two days of work.",
+        "output": "A study plan with improvement themes, time estimates, curated article topics, and a short checklist for the next week."
       }
     ],
     "best_practices": [
-      "Run the analysis once per week to track your improvement trajectory and compare patterns over time",
-      "Focus on one improvement area for several days before moving to the next area for better skill retention",
-      "Use the provided time estimates to plan realistic learning sessions that fit your schedule"
+      "Review the report before sending it to Slack or sharing it externally.",
+      "Remove secrets, private customer details, and proprietary code from pasted chat content.",
+      "Run the analysis on a regular cadence so trends are easier to compare."
     ],
     "anti_patterns": [
-      "Running analysis when chat history file does not exist or contains insufficient recent activity",
-      "Skipping the curated learning resources which are specifically tailored to your identified gaps",
-      "Ignoring the strengths section which helps you understand and maintain effective development habits"
+      "Do not use the report as the only measure of engineering performance.",
+      "Do not send reports to Slack without checking sensitive project details first.",
+      "Do not treat generic article recommendations as proof of a real skill gap."
     ],
     "faq": [
       {
-        "question": "What chat history does this skill access?",
-        "answer": "It reads the local file at ~/.claude/history.jsonl containing your Claude Code conversations with timestamps, project names, and pasted content."
+        "question": "What data does this skill analyze?",
+        "answer": "It analyzes recent Claude Code chat history, including messages, project names, timestamps, and pasted content."
       },
       {
-        "question": "How far back does the analysis look?",
-        "answer": "By default it analyzes the past 24 to 48 hours of chat history based on current timestamp filtering."
+        "question": "Does it run code from my projects?",
+        "answer": "No evidence found that it runs project code. The file contains analysis instructions and Markdown examples."
       },
       {
-        "question": "What external services are used?",
-        "answer": "It uses Rube MCP to search HackerNews for curated learning resources and to send the complete report to your Slack direct messages."
+        "question": "Can it send information outside my machine?",
+        "answer": "Yes. It can search HackerNews through Rube MCP and send the report to Slack direct messages."
       },
       {
-        "question": "Is my chat data sent anywhere?",
-        "answer": "Chat data stays local for analysis. Only the generated report and learning resource queries are sent via MCP tools, not your raw chat history."
+        "question": "Should I review the report before Slack delivery?",
+        "answer": "Yes. Review it first because it may include sensitive project details or summaries of pasted code."
       },
       {
-        "question": "What if I do not have Rube MCP installed?",
-        "answer": "You will still receive the analysis report in your CLI, but will not get HackerNews resources or Slack delivery functionality."
+        "question": "How often should I use it?",
+        "answer": "Weekly use is a good fit because it gives enough recent work to identify patterns."
       },
       {
-        "question": "How does this differ from traditional code review?",
-        "answer": "This analyzes your overall development patterns across multiple projects to identify systemic gaps, rather than reviewing specific code correctness."
+        "question": "Is this a replacement for code review?",
+        "answer": "No. It is a personal learning aid and should complement code review, mentoring, and direct project feedback."
       }
     ]
   },
