@@ -53,6 +53,12 @@ export type AgentId =
 	| 'zencoder'
 	| 'neovate';
 
+export const DEFAULT_INSTALL_AGENT_IDS = ['codex', 'claude-code'] as const satisfies readonly AgentId[];
+
+const AGENT_ID_ALIASES: Record<string, AgentId> = {
+	claude: 'claude-code',
+};
+
 const home = homedir();
 const codexHome = process.env.CODEX_HOME?.trim() || join(home, '.codex');
 
@@ -275,12 +281,24 @@ export function detectInstalledAgents(): AgentConfig[] {
 	return Object.values(agents).filter((agent) => agent.detectInstalled());
 }
 
+/** Detect default Skillstore install targets: Codex and Claude Code only. */
+export function detectDefaultInstallAgents(): AgentConfig[] {
+	return DEFAULT_INSTALL_AGENT_IDS.map((id) => agents[id]).filter((agent) => agent.detectInstalled());
+}
+
+export function normalizeAgentId(id: string): AgentId | null {
+	const normalized = id.trim().toLowerCase();
+	const canonicalId = AGENT_ID_ALIASES[normalized] ?? normalized;
+	return canonicalId in agents ? (canonicalId as AgentId) : null;
+}
+
 /** Get agent configs by IDs */
-export function getAgentsByIds(ids: AgentId[]): AgentConfig[] {
-	return ids.map((id) => agents[id]).filter(Boolean);
+export function getAgentsByIds(ids: string[]): AgentConfig[] {
+	const uniqueIds = [...new Set(ids.map((id) => normalizeAgentId(id)).filter(Boolean))] as AgentId[];
+	return uniqueIds.map((id) => agents[id]).filter(Boolean);
 }
 
 /** Check if an agent ID is valid */
-export function isValidAgentId(id: string): id is AgentId {
-	return id in agents;
+export function isValidAgentId(id: string): boolean {
+	return normalizeAgentId(id) !== null;
 }
