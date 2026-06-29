@@ -4,6 +4,7 @@ import {
 	getAllAgentIds,
 	getAgentById,
 	detectInstalledAgents,
+	detectDefaultInstallAgents,
 	getAgentsByIds,
 	isValidAgentId,
 	CANONICAL_SKILLS_DIR,
@@ -138,6 +139,19 @@ describe('agents', () => {
 		});
 	});
 
+	describe('detectDefaultInstallAgents', () => {
+		it('should return only Codex and Claude Code when both folders exist', () => {
+			vi.mocked(existsSync).mockImplementation((path) => {
+				const p = String(path);
+				return p.includes('.codex') || p.includes('.claude') || p.includes('.cursor');
+			});
+
+			const installed = detectDefaultInstallAgents();
+
+			expect(installed.map((a) => a.id)).toEqual(['codex', 'claude-code']);
+		});
+	});
+
 	describe('getAgentsByIds', () => {
 		it('should return configs for given IDs', () => {
 			const configs = getAgentsByIds(['claude-code', 'cursor']);
@@ -153,11 +167,18 @@ describe('agents', () => {
 			expect(configs.length).toBe(1);
 			expect(configs[0].id).toBe('claude-code');
 		});
+
+		it('should support claude as an alias for claude-code', () => {
+			const configs = getAgentsByIds(['claude', 'codex', 'claude']);
+
+			expect(configs.map((agent) => agent.id)).toEqual(['claude-code', 'codex']);
+		});
 	});
 
 	describe('isValidAgentId', () => {
 		it('should return true for valid agent IDs', () => {
 			expect(isValidAgentId('claude-code')).toBe(true);
+			expect(isValidAgentId('claude')).toBe(true);
 			expect(isValidAgentId('cursor')).toBe(true);
 			expect(isValidAgentId('windsurf')).toBe(true);
 		});
@@ -165,7 +186,6 @@ describe('agents', () => {
 		it('should return false for invalid agent IDs', () => {
 			expect(isValidAgentId('invalid')).toBe(false);
 			expect(isValidAgentId('')).toBe(false);
-			expect(isValidAgentId('CLAUDE-CODE')).toBe(false);
 		});
 	});
 

@@ -10,16 +10,15 @@ import {
 } from '../lib/plugin-api.js';
 import { fetchSkillManifest, downloadSkillZip, SkillApiError } from '../lib/skill-api.js';
 import { verifyManifest, verifySkillManifest, verifyZipHash } from '../lib/plugin-verify.js';
-import { downloadAllSkills, printDownloadSummary } from '../lib/plugin-download.js';
+import { downloadAllSkills, printDownloadSummary, type DownloadSummary } from '../lib/plugin-download.js';
 import { logger } from '../lib/plugin-logger.js';
 import {
 	agents,
-	detectInstalledAgents,
+	detectDefaultInstallAgents,
 	getAgentsByIds,
 	isValidAgentId,
 	CANONICAL_SKILLS_DIR,
 	type AgentConfig,
-	type AgentId,
 } from '../lib/agents.js';
 import { addToLock, getLockEntry } from '../lib/skill-lock.js';
 import { installToAgents, getCanonicalSkillPath } from '../lib/installer.js';
@@ -97,20 +96,20 @@ export default defineCommand({
 		let targetAgents: AgentConfig[];
 		if (agentArg) {
 			// Parse comma-separated agent IDs
-			const agentIds = agentArg.split(',').map((s) => s.trim()) as AgentId[];
+			const agentIds = agentArg.split(',').map((s) => s.trim());
 			const invalidIds = agentIds.filter((id) => !isValidAgentId(id));
 			if (invalidIds.length > 0) {
 				logger.error(`Invalid agent ID(s): ${invalidIds.join(', ')}`);
 				console.log('');
-				console.log('Valid agents: claude-code, cursor, windsurf, cline, codex, continue, etc.');
+				console.log('Valid agents include: claude, codex, claude-code, cursor, windsurf, cline, continue, etc.');
 				process.exit(1);
 			}
 			targetAgents = getAgentsByIds(agentIds);
 		} else {
-			// Auto-detect installed agents
-			targetAgents = detectInstalledAgents();
+			// Auto-detect the default Skillstore targets only.
+			targetAgents = detectDefaultInstallAgents();
 			if (targetAgents.length === 0) {
-				logger.warn('No AI coding agents detected. Installing to Claude Code by default.');
+				logger.warn('No Codex or Claude Code folders detected. Installing to Claude Code by default.');
 				targetAgents = [agents['claude-code']];
 			}
 		}
@@ -129,6 +128,31 @@ interface AddOptions {
 	skipVerify: boolean;
 	dryRun: boolean;
 	overwrite: boolean;
+}
+
+interface PluginInstallTarget {
+	agent: AgentConfig;
+	installDir: string;
+}
+
+function getPluginInstallTargets(targetAgents: AgentConfig[], isGlobal: boolean): PluginInstallTarget[] {
+	return targetAgents.map((agent) => ({
+		agent,
+		installDir: isGlobal ? agent.globalPath : join(process.cwd(), agent.projectPath),
+	}));
+}
+
+function combineDownloadSummaries(summaries: DownloadSummary[]): DownloadSummary {
+	return summaries.reduce<DownloadSummary>(
+		(combined, summary) => ({
+			total: combined.total + summary.total,
+			success: combined.success + summary.success,
+			failed: combined.failed + summary.failed,
+			skipped: combined.skipped + summary.skipped,
+			results: [...combined.results, ...summary.results],
+		}),
+		{ total: 0, success: 0, failed: 0, skipped: 0, results: [] }
+	);
 }
 
 /**
@@ -290,20 +314,20 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 	const { targetAgents, isGlobal, skipVerify, dryRun, overwrite } = options;
 
-	// For plugins, use first agent's path as install dir (legacy behavior)
-	// TODO: Update plugin download to use multi-agent installation
-	const installDir = isGlobal
-		? targetAgents[0]?.globalPath || agents['claude-code'].globalPath
-		: join(process.cwd(), targetAgents[0]?.projectPath || '.claude/skills');
+	const installTargets = getPluginInstallTargets(targetAgents, isGlobal);
+	const primaryInstallDir = installTargets[0]?.installDir || agents['claude-code'].globalPath;
 
 	const config = getPluginConfig({
-		installDir,
+		installDir: primaryInstallDir,
 		skipVerify,
 		dryRun,
 	});
 
 	logger.info(`Adding plugin: @${slug}`);
-	logger.info(`Target directory: ${config.installDir}`);
+	logger.info(`Target agents: ${targetAgents.map((a) => a.name).join(', ')}`);
+	for (const target of installTargets) {
+		logger.info(`Target directory (${target.agent.name}): ${target.installDir}`);
+	}
 
 	if (dryRun) {
 		logger.warn('Dry run mode - no files will be written');
@@ -343,15 +367,25 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			`Generated: ${new Date(manifest.generatedAt).toLocaleDateString()}`,
 		]);
 
-		// Step 4: Download skills
-		logger.info('');
-		const downloadResult = await downloadAllSkills(config, manifest.skills, {
-			overwrite,
-			verifyHash: !skipVerify,
-		});
+		// Step 4: Download skills to every selected agent directory
+		const downloadSummaries: DownloadSummary[] = [];
+		for (const target of installTargets) {
+			logger.info('');
+			logger.info(`Installing to ${target.agent.name}...`);
+			const targetConfig = getPluginConfig({
+				installDir: target.installDir,
+				skipVerify,
+				dryRun,
+			});
+			const downloadResult = await downloadAllSkills(targetConfig, manifest.skills, {
+				overwrite,
+				verifyHash: !skipVerify,
+			});
+			printDownloadSummary(downloadResult);
+			downloadSummaries.push(downloadResult);
+		}
 
-		// Step 5: Print summary
-		printDownloadSummary(downloadResult);
+		const downloadResult = combineDownloadSummaries(downloadSummaries);
 
 		// Step 6: Report installation (non-blocking)
 		if (!dryRun && downloadResult.success > 0) {
@@ -367,10 +401,12 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			}
 
 			// Report telemetry for each successfully installed skill
-			const successfulSkills = downloadResult.results.filter((r) => r.success && !r.skipped);
-			if (successfulSkills.length > 0) {
+			const successfulSkillSlugs = [
+				...new Set(downloadResult.results.filter((r) => r.success && !r.skipped).map((r) => r.slug)),
+			];
+			if (successfulSkillSlugs.length > 0) {
 				// Report in parallel, non-blocking
-				Promise.all(successfulSkills.map((r) => reportSkillInstall(config, r.slug))).catch(() => {
+				Promise.all(successfulSkillSlugs.map((skillSlug) => reportSkillInstall(config, skillSlug))).catch(() => {
 					logger.debug('Telemetry reporting failed (non-critical)');
 				});
 			}
