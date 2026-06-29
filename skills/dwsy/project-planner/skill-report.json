@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T04:42:19.659Z",
+    "generated_at": "2026-06-29T21:59:58.989Z",
     "slug": "dwsy-project-planner",
     "source_url": "https://github.com/Dwsy/agent/tree/main/skills/project-planner",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "5a60f822a92e18e65207111df5071e22300ead5cced70991409fd68674ae9b9b",
-    "tree_hash": "8711c6174478c3cd0ea3ecebeea075a973e87b581c4664c2cebc2a9b94b5d74f"
+    "tree_hash": "39db2470459aee1e15d8697321127a0ad0b0ea72ff129bc2b8031f5a8abcdd17"
   },
   "skill": {
     "name": "project-planner",
-    "description": "Comprehensive project planning and documentation generator for software projects. Creates structured requirements documents, system design documents, and task breakdown plans with implementation tracking. Use when starting a new project, defining specifications, creating technical designs, or breaking down complex systems into implementable tasks. Supports user story format, acceptance criteria, component design, API specifications, and hierarchical task decomposition with requirement traceability.",
-    "summary": "Comprehensive project planning and documentation generator for software projects. Creates structured...",
-    "icon": "📋",
+    "description": "Generate structured project planning documents for software projects, including requirements, system design, and implementation tasks. The skill provides templates, domain patterns, and optional local scripts for creating and validating Markdown planning artifacts.",
+    "summary": "Create requirements, design, and task plans for software projects.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Dwsy",
     "license": "MIT",
-    "category": "documentation",
     "tags": [
       "project-planning",
-      "documentation",
       "requirements",
-      "design",
-      "templates"
+      "system-design",
+      "technical-specs",
+      "implementation-plans"
     ],
     "supported_tools": [
       "claude",
@@ -35,13 +34,14 @@
     "risk_factors": [
       "scripts",
       "filesystem"
-    ]
+    ],
+    "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a documentation and template generation skill. The static analyzer flagged 332 potential issues, but ALL findings are false positives. The 'Windows SAM database' detection is a misclassification of the word 'system' in documentation templates. 'Weak cryptographic algorithm' flags are triggered by legitimate references to standard security practices (AES, HTTPS, JWT) in architectural documentation. The 'Ruby/shell backtick execution' detections are triggered by markdown code formatting (backticks), not actual shell commands. No malicious intent or actual security vulnerabilities exist.",
+    "summary": "Static analysis reported many severe patterns, but review found most are false positives from Markdown fences, metadata URLs, and placeholder security text. The confirmed risk is limited to local scripts that write generated Markdown files and read user-specified validation files. No prompt injection, command execution, runtime network access, or credential exfiltration was found.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
@@ -49,12 +49,12 @@
           {
             "file": "scripts/generate_project_docs.py",
             "line_start": 1,
-            "line_end": 50
+            "line_end": 10
           },
           {
             "file": "scripts/validate_documents.py",
             "line_start": 1,
-            "line_end": 50
+            "line_end": 10
           }
         ]
       },
@@ -65,137 +65,273 @@
             "file": "scripts/generate_project_docs.py",
             "line_start": 757,
             "line_end": 761
+          },
+          {
+            "file": "scripts/validate_documents.py",
+            "line_start": 232,
+            "line_end": 236
+          },
+          {
+            "file": "scripts/validate_documents.py",
+            "line_start": 306,
+            "line_end": 310
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 8,
-    "total_lines": 3874,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T04:42:19.659Z"
+    "medium_findings": [
+      {
+        "title": "Local File Write Without Output Path Guardrails",
+        "description": "The document generator creates the requested output directory and writes requirements.md, design.md, and tasks.md. This is expected behavior for the skill, but a user-selected output path could overwrite existing planning files.",
+        "locations": [
+          {
+            "file": "scripts/generate_project_docs.py",
+            "line_start": 757,
+            "line_end": 761
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The code directly creates directories and writes files with open(..., \"w\"). The behavior is local and transparent, so the concern is overwrite scope rather than malicious intent."
+      },
+      {
+        "title": "User-Specified Local File Reads in Validator",
+        "description": "The validator accepts document paths from command-line arguments and reads those files for analysis. This is legitimate validation behavior, but users should avoid pointing it at sensitive local files.",
+        "locations": [
+          {
+            "file": "scripts/validate_documents.py",
+            "line_start": 296,
+            "line_end": 301
+          },
+          {
+            "file": "scripts/validate_documents.py",
+            "line_start": 232,
+            "line_end": 236
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The parser exposes path arguments and the validator reads each path directly. No network transmission or command execution was found, which limits severity."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Template Credential Placeholders Are Not Real Secret Access",
+        "description": "The static scanner flagged database and API key strings, but these are placeholder values inside generated documentation templates. No evidence found that the script reads real environment variables or harvests credentials.",
+        "locations": [
+          {
+            "file": "scripts/generate_project_docs.py",
+            "line_start": 306,
+            "line_end": 308
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The strings are embedded in a Markdown template and use placeholder values such as your-api-key. There is no runtime env access at these lines."
+      },
+      {
+        "title": "Static Network Indicators Are Metadata or Documentation",
+        "description": "Hardcoded URLs in plugin metadata and API wording in templates are not runtime network calls. No evidence found of HTTP client imports, outbound requests, or data exfiltration.",
+        "locations": [
+          {
+            "file": "plugin.json",
+            "line_start": 9,
+            "line_end": 10
+          },
+          {
+            "file": "references/domain-templates.md",
+            "line_start": 493,
+            "line_end": 497
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The plugin entries are homepage and repository metadata, and the reference file contains project-planning text. Search confirmed no runtime network library usage in the scripts."
+      },
+      {
+        "title": "Markdown Code Fences Misclassified as Command Execution",
+        "description": "Many external command findings come from Markdown code fences and usage examples. They document how to run the provided scripts and are not executed by the skill itself.",
+        "locations": [
+          {
+            "file": "README.md",
+            "line_start": 27,
+            "line_end": 49
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 85,
+            "line_end": 98
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The flagged syntax appears in documentation blocks rather than executable control flow. The Python scripts do not call subprocess, os.system, eval, or exec."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Filesystem Write Pattern",
+        "description": "The generator writes Markdown output files to a caller-selected directory using os.makedirs and open in write mode.",
+        "locations": [
+          {
+            "file": "scripts/generate_project_docs.py",
+            "line_start": 757,
+            "line_end": 761
+          }
+        ],
+        "confidence": 0.87,
+        "confidence_reasoning": "The file creation and write operations are explicit. The pattern is expected for document generation but requires user awareness."
+      },
+      {
+        "title": "Filesystem Read Pattern",
+        "description": "The validator reads local files supplied through command-line path arguments.",
+        "locations": [
+          {
+            "file": "scripts/validate_documents.py",
+            "line_start": 296,
+            "line_end": 301
+          },
+          {
+            "file": "scripts/validate_documents.py",
+            "line_start": 232,
+            "line_end": 236
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The CLI arguments map directly to open calls. The data stays local unless another tool handles it later."
+      }
+    ],
+    "files_scanned": 7,
+    "total_lines": 3613,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T21:59:58.989Z",
+    "risk_factors": [
+      "scripts",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Plan software projects with structured documentation",
-    "value_statement": "Software projects often lack clear requirements and implementation plans, leading to scope creep and missed deadlines. This skill generates comprehensive requirements documents, system designs, and task breakdowns with traceability matrices to ensure nothing is overlooked during development.",
+    "user_title": "Plan Software Projects With Structured Docs",
+    "value_statement": "Software projects often start with unclear requirements, missing design details, and weak task traceability. This skill turns an idea into requirements, architecture, and implementation plans that AI coding tools can follow.",
     "seo_keywords": [
-      "project planning skill",
-      "requirements documentation",
-      "system design generator",
-      "task breakdown tool",
-      "software architecture templates",
       "Claude project planner",
-      "Codex documentation generator",
-      "Claude Code skill"
+      "Codex project planning",
+      "Claude Code requirements",
+      "software requirements template",
+      "system design document",
+      "implementation plan",
+      "AI coding specifications",
+      "technical documentation skill",
+      "project architecture planning",
+      "task breakdown generator"
     ],
     "actual_capabilities": [
-      "Generates requirements documents with user stories and measurable acceptance criteria",
-      "Creates system design documents with component maps and data flow diagrams",
-      "Produces implementation plans with hierarchical task decomposition",
-      "Provides domain-specific templates for web apps, microservices, data pipelines, and trading systems",
-      "Supports requirement traceability across requirements, design, and tasks"
+      "Creates requirements documents with user stories and acceptance criteria.",
+      "Generates system design sections for components, data flows, APIs, and deployment.",
+      "Builds implementation plans with phases, tasks, dependencies, and traceability.",
+      "Provides domain templates for trading, ecommerce, SaaS, ML, developer tools, and other systems.",
+      "Includes optional scripts to generate and validate Markdown planning files."
     ],
     "limitations": [
-      "Does not execute code or interact with external systems",
-      "Does not generate actual implementation code",
-      "Does not validate existing code or project files",
-      "Does not integrate with project management tools"
+      "Generated documents require project-specific review and completion.",
+      "The scripts create templates; they do not design a production system automatically.",
+      "Validation checks structure and consistency, not technical correctness.",
+      "Local scripts can overwrite generated document names in the selected output directory."
     ],
     "use_cases": [
       {
-        "target_user": "Software developers starting new projects",
-        "title": "New project kickoff",
-        "description": "Generate complete planning documents for new software projects with requirements, architecture, and task breakdown."
+        "title": "Define a New Product Scope",
+        "description": "Turn a product idea into user stories, acceptance criteria, boundaries, and measurable success criteria.",
+        "target_user": "Product manager"
       },
       {
-        "target_user": "System architects designing complex systems",
-        "title": "System architecture planning",
-        "description": "Create detailed component designs, data flow diagrams, and integration specifications for complex systems."
+        "title": "Prepare an AI Coding Build Plan",
+        "description": "Create design and task documents that guide Claude, Codex, or Claude Code during implementation.",
+        "target_user": "Software engineer"
       },
       {
-        "target_user": "Technical leads managing development",
-        "title": "Implementation task tracking",
-        "description": "Break down features into atomic, traceable tasks with dependencies and acceptance criteria."
+        "title": "Standardize Technical Planning",
+        "description": "Use consistent templates for requirements, architecture, deployment, testing, and task traceability across projects.",
+        "target_user": "Engineering lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "New project setup",
-        "scenario": "Starting a new software project",
-        "prompt": "Generate requirements, design, and implementation plan documents for a [PROJECT TYPE] called [NAME] that will [CORE PURPOSE]. Include [KEY FEATURES] as main requirements."
+        "title": "Start a Simple Project Plan",
+        "scenario": "Beginner prompt for a new software idea.",
+        "prompt": "Create requirements, design, and task documents for a small web app that helps teams track project decisions."
       },
       {
-        "title": "Feature requirements",
-        "scenario": "Adding requirements for a new feature",
-        "prompt": "Add a new requirement to my requirements document for [FEATURE]. Create a user story with acceptance criteria and link it to existing components."
+        "title": "Add Constraints and Users",
+        "scenario": "Intermediate prompt with product context.",
+        "prompt": "Plan a SaaS analytics project for three user roles. Include scope boundaries, non-functional requirements, and task phases."
       },
       {
-        "title": "Architecture design",
-        "scenario": "Designing system components",
-        "prompt": "Create a component map and data flow diagram for a [SYSTEM TYPE] with [NUMBER] main components: [LIST COMPONENTS]. Include integration points with [EXTERNAL SYSTEMS]."
+        "title": "Generate an Architecture-First Specification",
+        "scenario": "Advanced prompt for system design work.",
+        "prompt": "Act as a project architect for an API service. Define components, data flows, integration points, API contracts, risks, and implementation tasks."
       },
       {
-        "title": "Task breakdown",
-        "scenario": "Breaking down implementation work",
-        "prompt": "Generate an implementation plan for requirement REQ-[NUMBER]. Break it down into phases, tasks, and subtasks with dependencies and estimated hours."
+        "title": "Refine Existing Planning Documents",
+        "scenario": "Advanced prompt for an existing project.",
+        "prompt": "Review my current requirements, design, and tasks. Find missing traceability, unclear boundaries, weak acceptance criteria, and incomplete dependencies."
       }
     ],
     "output_examples": [
       {
-        "input": "Generate requirements for a task management API",
+        "input": "Plan a customer support dashboard for a small SaaS team.",
         "output": [
-          "Requirements Document with user stories for creating, updating, and tracking tasks",
-          "Acceptance criteria using SHALL language with measurable conditions",
-          "Component map showing API layer, service layer, and database integration"
+          "A requirements document with user roles, support workflows, and acceptance criteria.",
+          "A design document with dashboard components, ticket data flow, integrations, and deployment notes.",
+          "An implementation plan with phased tasks and requirement references."
         ]
       },
       {
-        "input": "Create design for a real-time chat system",
+        "input": "Validate my generated planning documents before I give them to an AI coding agent.",
         "output": [
-          "Architecture diagram with WebSocket connections and message queues",
-          "Data flow specifications for message routing and persistence",
-          "Integration points for external notification services"
+          "A completeness review for required sections, user stories, acceptance criteria, and task structure.",
+          "Warnings for missing requirement links, missing components, weak scope boundaries, or unresolved placeholders."
+        ]
+      },
+      {
+        "input": "Create a design plan for a trading automation prototype.",
+        "output": [
+          "A planning package that covers market data, order flow, risk checks, monitoring, and audit requirements.",
+          "A task breakdown that separates infrastructure, integrations, business logic, testing, and deployment."
         ]
       }
     ],
     "best_practices": [
-      "Define clear boundaries and scope before generating documents to avoid feature creep",
-      "Use measurable acceptance criteria with specific performance targets and time limits",
-      "Trace every task back to requirements to ensure complete feature coverage"
+      "Provide target users, core features, integrations, constraints, and success metrics before generating documents.",
+      "Review every placeholder and acceptance criterion before implementation begins.",
+      "Write generated files to a dedicated planning directory to avoid overwriting existing documents."
     ],
     "anti_patterns": [
-      "Generating documents without understanding project scope and constraints",
-      "Using vague acceptance criteria like 'fast' or 'user-friendly' without metrics",
-      "Skipping the design phase and jumping directly to implementation tasks"
+      "Do not treat generated templates as final specifications without human review.",
+      "Do not mix requirements, design decisions, and tasks without traceability links.",
+      "Do not run validation against files that contain secrets or unrelated private content."
     ],
     "faq": [
       {
-        "question": "What document types does this skill generate?",
-        "answer": "This skill generates three core documents: requirements documents, system design documents, and implementation task plans."
+        "question": "What documents does this skill create?",
+        "answer": "It creates requirements, system design, and implementation plan documents in Markdown format."
       },
       {
-        "question": "Can I customize the templates for my domain?",
-        "answer": "Yes. The skill includes domain-specific templates for trading systems, microservices, data pipelines, and other system types."
+        "question": "Can it work with Claude, Codex, and Claude Code?",
+        "answer": "Yes. The planning outputs are plain Markdown and can guide these AI coding tools."
       },
       {
-        "question": "Does this skill write actual code?",
-        "answer": "No. This skill generates documentation templates and plans. Implementation code must be written separately."
+        "question": "Does it generate production-ready architecture?",
+        "answer": "No. It creates structured drafts that need review by the project team."
       },
       {
-        "question": "How do I link requirements to implementation tasks?",
-        "answer": "Use the requirement ID format (REQ-1, REQ-2) and reference them in task metadata using the templates provided."
+        "question": "Does the skill require network access?",
+        "answer": "No runtime network access was found. URLs appear as metadata or documentation examples."
       },
       {
-        "question": "What format do the output documents use?",
-        "answer": "All documents are generated in Markdown format for easy editing and version control compatibility."
+        "question": "What should users watch for when running the scripts?",
+        "answer": "The generator writes files named requirements.md, design.md, and tasks.md in the selected output directory."
       },
       {
-        "question": "Can I use this skill for existing projects?",
-        "answer": "Yes. You can generate documentation for existing projects by providing current system details and architecture."
+        "question": "What does the validator check?",
+        "answer": "It checks document structure, required sections, placeholders, traceability, components, and task consistency."
       }
     ]
   },

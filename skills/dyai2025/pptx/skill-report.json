@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T06:13:48.632Z",
+    "generated_at": "2026-06-29T22:03:28.388Z",
     "slug": "dyai2025-pptx",
     "source_url": "https://github.com/DYAI2025/Stoppclock-page/tree/main/stoppclock_speckit/.claude/commands/skills/document-skills/pptx",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "b6f25545bfb358739f1532f793458b5dbc87ee009933cb7c306b2d951ab6617f",
-    "tree_hash": "48e700acfe21016c9cf5c14a3a2640ca2b1b8b7f4947a1889acf723da281c1e9"
+    "tree_hash": "756c2dd3a7aa0adf012886ac2a3e6de836886218f3b8d2f658afdc4c7fece737"
   },
   "skill": {
     "name": "pptx",
-    "description": "Presentation creation, editing, and analysis. When Claude needs to work with presentations (.pptx files) for: (1) Creating new presentations, (2) Modifying or editing content, (3) Working with layouts, (4) Adding comments or speaker notes, or any other presentation tasks",
-    "summary": "Presentation creation, editing, and analysis. When Claude needs to work with presentations (.pptx fi...",
-    "icon": "📊",
+    "description": "Create, edit, inspect, validate, and convert PowerPoint presentations using HTML-to-PPTX, OOXML, thumbnail, and replacement workflows.",
+    "summary": "Work with PowerPoint decks through guided PPTX creation, editing, validation, and analysis workflows.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "DYAI2025",
     "license": "Proprietary. LICENSE.txt has complete terms",
-    "category": "office",
     "tags": [
-      "presentations",
       "powerpoint",
-      "office",
-      "documents",
-      "slides"
+      "pptx",
+      "presentations",
+      "ooxml",
+      "slide-automation"
     ],
     "supported_tools": [
       "claude",
@@ -33,28 +32,56 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
       "external_commands",
-      "filesystem"
-    ]
+      "filesystem",
+      "env_access"
+    ],
+    "category": "office"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "This is a legitimate PowerPoint manipulation skill. The static analyzer flagged 1207 potential issues, but most are false positives: (1) Shell command examples in documentation were flagged as code execution, (2) OOXML schema files were flagged for cryptographic references that are part of the spec, (3) XML namespace syntax was flagged as obfuscation. The actual risk is limited to external command execution for PDF/image conversion which requires user-provided filenames and is validated before use.",
+    "safe_to_publish": false,
+    "summary": "Static analysis produced many false positives from markdown examples, JavaScript template literals, and OOXML schema terms. However, multiple scripts extract user-supplied Office archives with extractall(), which creates a credible Zip Slip filesystem write risk. No prompt injection attempt or confirmed malicious intent was found, so this should be remediated before publication rather than blocked as malware.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 27,
+            "line_end": 29
+          },
+          {
+            "file": "scripts/thumbnail.py",
+            "line_start": 219,
+            "line_end": 238
+          },
+          {
+            "file": "ooxml/scripts/unpack.py",
+            "line_start": 15,
+            "line_end": 17
+          }
+        ]
+      },
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "scripts/thumbnail.py",
             "line_start": 219,
-            "line_end": 231
+            "line_end": 238
           },
           {
-            "file": "scripts/thumbnail.py",
-            "line_start": 237,
-            "line_end": 241
+            "file": "ooxml/scripts/pack.py",
+            "line_start": 103,
+            "line_end": 111
+          },
+          {
+            "file": "ooxml/scripts/validation/redlining.py",
+            "line_start": 153,
+            "line_end": 186
           }
         ]
       },
@@ -63,186 +90,377 @@
         "evidence": [
           {
             "file": "ooxml/scripts/unpack.py",
-            "line_start": 14,
-            "line_end": 24
+            "line_start": 15,
+            "line_end": 17
           },
           {
-            "file": "ooxml/scripts/pack.py",
-            "line_start": 13,
-            "line_end": 20
+            "file": "ooxml/scripts/validation/base.py",
+            "line_start": 889,
+            "line_end": 891
+          },
+          {
+            "file": "ooxml/scripts/validation/docx.py",
+            "line_start": 198,
+            "line_end": 201
+          },
+          {
+            "file": "ooxml/scripts/validation/redlining.py",
+            "line_start": 67,
+            "line_end": 70
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "scripts/html2pptx.js",
+            "line_start": 896,
+            "line_end": 899
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
+    "high_findings": [
+      {
+        "title": "Unsafe Archive Extraction of User-Supplied Office Files",
+        "description": "TRUE_POSITIVE: The unpacking and validation helpers call zipfile.extractall() on Office documents without visible member path validation. A crafted PPTX, DOCX, or XLSX archive could write files outside the intended output or temporary directory.",
+        "locations": [
+          {
+            "file": "ooxml/scripts/unpack.py",
+            "line_start": 15,
+            "line_end": 17
+          },
+          {
+            "file": "ooxml/scripts/validation/base.py",
+            "line_start": 889,
+            "line_end": 891
+          },
+          {
+            "file": "ooxml/scripts/validation/docx.py",
+            "line_start": 198,
+            "line_end": 201
+          },
+          {
+            "file": "ooxml/scripts/validation/redlining.py",
+            "line_start": 67,
+            "line_end": 70
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "risk_level": "high",
+        "confidence": 0.94,
+        "confidence_reasoning": "Direct extractall() calls are present on user-controlled Office archives. No path normalization or destination containment check is visible at these extraction sites."
+      }
+    ],
     "medium_findings": [
       {
-        "title": "External command execution for PDF conversion",
-        "description": "thumbnail.py invokes LibreOffice (soffice) and pdftoppm via subprocess for PDF and image conversion. User-provided filenames are passed as arguments but are validated before use.",
+        "title": "External Document Conversion Commands",
+        "description": "TRUE_POSITIVE: The skill runs external programs such as soffice, pdftoppm, and git. Arguments are passed as lists without shell=True, which reduces injection risk, but user documents are still processed by complex external binaries.",
         "locations": [
           {
             "file": "scripts/thumbnail.py",
             "line_start": 219,
-            "line_end": 241
+            "line_end": 238
+          },
+          {
+            "file": "ooxml/scripts/pack.py",
+            "line_start": 103,
+            "line_end": 111
+          },
+          {
+            "file": "ooxml/scripts/validation/redlining.py",
+            "line_start": 153,
+            "line_end": 186
           }
-        ]
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "risk_level": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The commands are hardcoded and do not use a shell, so command injection is unlikely. The risk remains because untrusted documents flow into external converters and diff tools."
+      },
+      {
+        "title": "Privilege-Elevated Dependency Installation Guidance",
+        "description": "TRUE_POSITIVE: The skill documentation recommends sudo apt-get install commands for LibreOffice and Poppler. This is not executed automatically, but marketplace users may follow privileged installation steps from community content.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 482,
+            "line_end": 483
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "risk_level": "medium",
+        "confidence": 0.76,
+        "confidence_reasoning": "The sudo commands are explicit in dependency instructions. They are documentation rather than hidden execution, so the risk depends on user action."
+      },
+      {
+        "title": "Environment-Controlled Temporary Directory",
+        "description": "NEEDS_REVIEW: The HTML conversion script reads process.env.TMPDIR to choose a temporary directory. This is not credential access, but an attacker-controlled environment could influence where browser rendering writes temporary files.",
+        "locations": [
+          {
+            "file": "scripts/html2pptx.js",
+            "line_start": 896,
+            "line_end": 899
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "risk_level": "medium",
+        "confidence": 0.58,
+        "confidence_reasoning": "The environment variable is TMPDIR, not a secret. The concern is path influence in a rendering workflow rather than exfiltration."
       }
     ],
     "low_findings": [
       {
-        "title": "Filesystem access for presentation processing",
-        "description": "Scripts access filesystem to read/write PowerPoint files, extract ZIP archives, and process temporary files. All operations are restricted to user-specified paths.",
+        "title": "Template Literal Detections Are False Positives",
+        "description": "FALSE_POSITIVE: Many backtick findings are JavaScript template literals or markdown command examples. The cited examples build validation messages or document expected commands, not shell execution.",
+        "locations": [
+          {
+            "file": "scripts/html2pptx.js",
+            "line_start": 59,
+            "line_end": 62
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 29
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "risk_level": "low",
+        "confidence": 0.9,
+        "confidence_reasoning": "The inspected backticks are inside JavaScript strings or markdown fences. They do not invoke a shell."
+      },
+      {
+        "title": "Schema Keyword Detections Are False Positives",
+        "description": "FALSE_POSITIVE: Weak-crypto, C2, and network-scanner alerts match normal OOXML schema words such as seq, arabic2Minus, and maps. No evidence found that these schema entries perform crypto, command-and-control, or scanning behavior.",
+        "locations": [
+          {
+            "file": "ooxml/schemas/ISO-IEC29500-4_2016/pml.xsd",
+            "line_start": 232,
+            "line_end": 236
+          },
+          {
+            "file": "ooxml/schemas/ISO-IEC29500-4_2016/dml-main.xsd",
+            "line_start": 2723,
+            "line_end": 2727
+          },
+          {
+            "file": "ooxml/schemas/ISO-IEC29500-4_2016/sml.xsd",
+            "line_start": 568,
+            "line_end": 573
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "risk_level": "low",
+        "confidence": 0.88,
+        "confidence_reasoning": "The inspected lines are XML schema declarations and enumeration values. They are data definitions, not executable code paths."
+      },
+      {
+        "title": "Hardcoded URL Findings Are Mostly Documentation or Namespaces",
+        "description": "FALSE_POSITIVE: The reviewed hardcoded URLs are license links or OOXML relationship namespace values. They do not show outbound runtime network requests or credential exfiltration.",
+        "locations": [
+          {
+            "file": "LICENSE.txt",
+            "line_start": 7,
+            "line_end": 9
+          },
+          {
+            "file": "ooxml.md",
+            "line_start": 321,
+            "line_end": 328
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "risk_level": "low",
+        "confidence": 0.84,
+        "confidence_reasoning": "The inspected URL locations are static references used for licensing or OOXML relationship metadata. No network API call is present in those locations."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "zipfile.extractall Without Zip Slip Guard",
+        "description": "The code extracts archive members directly into output or temporary directories. Replace extractall() with safe extraction that rejects absolute paths and parent traversal.",
         "locations": [
           {
             "file": "ooxml/scripts/unpack.py",
-            "line_start": 14,
-            "line_end": 24
+            "line_start": 17,
+            "line_end": 17
+          },
+          {
+            "file": "ooxml/scripts/validation/base.py",
+            "line_start": 891,
+            "line_end": 891
+          },
+          {
+            "file": "ooxml/scripts/validation/docx.py",
+            "line_start": 201,
+            "line_end": 201
+          },
+          {
+            "file": "ooxml/scripts/validation/redlining.py",
+            "line_start": 70,
+            "line_end": 70
           }
-        ]
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "risk_level": "high",
+        "confidence": 0.94,
+        "confidence_reasoning": "The same unsafe extraction pattern appears in multiple document-processing paths. The inputs are Office files, which are ZIP archives supplied by users."
+      },
+      {
+        "title": "External Binary Processing of Untrusted Documents",
+        "description": "The scripts pass user-selected documents to LibreOffice and Poppler utilities. This is a legitimate workflow, but it should run with sandboxing and patched dependencies.",
+        "locations": [
+          {
+            "file": "scripts/thumbnail.py",
+            "line_start": 219,
+            "line_end": 238
+          },
+          {
+            "file": "ooxml/scripts/pack.py",
+            "line_start": 103,
+            "line_end": 111
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "risk_level": "medium",
+        "confidence": 0.8,
+        "confidence_reasoning": "The command invocations are direct and hardcoded. The main uncertainty is exploitability, which depends on the runtime sandbox and converter versions."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 57,
-    "total_lines": 27075,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T06:13:48.631Z"
+    "files_scanned": 56,
+    "total_lines": 26504,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T22:03:28.388Z",
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "filesystem",
+      "env_access"
+    ]
   },
   "content": {
-    "user_title": "Create and edit PowerPoint presentations with precision",
-    "value_statement": "Stop wrestling with PowerPoint's limitations. This skill converts HTML designs to pixel-perfect slides and edits existing presentations with surgical precision. Create professional presentations faster than ever.",
+    "user_title": "Create and Edit PowerPoint Decks",
+    "value_statement": "PowerPoint work often requires XML edits, visual checks, and reliable conversion steps. This skill guides Claude, Codex, and Claude Code through PPTX creation, editing, analysis, and validation.",
     "seo_keywords": [
-      "powerpoint creation",
-      "pptx editing",
-      "presentation automation",
-      "html to powerpoint",
-      "Claude presentations",
-      "Claude Code office",
-      "slide generation",
-      "OOXML editing",
-      "pptxgenjs",
-      "office documents"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "PowerPoint automation",
+      "PPTX editing",
+      "presentation generation",
+      "OOXML validation",
+      "slide thumbnails",
+      "speaker notes",
+      "HTML to PPTX"
     ],
     "actual_capabilities": [
-      "Convert HTML/CSS slides to PowerPoint with exact positioning",
-      "Edit existing presentations by modifying OOXML directly",
-      "Extract and replace text while preserving formatting",
-      "Create thumbnail grids for visual presentation analysis",
-      "Validate presentation XML against Office schemas",
-      "Rearrange, duplicate, and delete slides programmatically"
+      "Creates new PowerPoint decks from HTML slide layouts.",
+      "Extracts and inspects PPTX text, comments, speaker notes, themes, and slide XML.",
+      "Edits existing presentations through OOXML replacement and packaging workflows.",
+      "Generates thumbnail grids for visual review of slide decks.",
+      "Validates presentation structure and relationships using included OOXML helpers.",
+      "Documents dependencies for conversion, rendering, image processing, and secure XML parsing."
     ],
     "limitations": [
-      "Requires LibreOffice installation for PDF conversion features",
-      "HTML-to-PPTX conversion needs Playwright for rendering",
-      "Complex animations and transitions not supported",
-      "Limited to web-safe fonts for cross-platform compatibility"
+      "Requires local dependencies such as LibreOffice, Poppler, Playwright, and pptxgenjs for full workflows.",
+      "Complex slide animations and proprietary PowerPoint behaviors may need manual verification.",
+      "Unsafe archive extraction must be fixed before marketplace publication.",
+      "Generated decks still need visual review in PowerPoint or a compatible viewer."
     ],
     "use_cases": [
       {
-        "target_user": "Business analysts",
-        "title": "Automated report presentations",
-        "description": "Convert data visualizations and charts from web dashboards directly into executive-ready PowerPoint slides with proper branding and layout."
+        "title": "Build a Client Presentation",
+        "description": "Create a polished deck from a brief, then export thumbnails for quick stakeholder review.",
+        "target_user": "Consultants and client-facing teams"
       },
       {
-        "target_user": "Marketing teams",
-        "title": "Template-based pitch decks",
-        "description": "Rapidly create customized pitch decks by mixing and matching slides from existing templates while maintaining consistent branding."
+        "title": "Update Existing Slides",
+        "description": "Inspect slide XML, replace text or assets, and repack the presentation with validation checks.",
+        "target_user": "Operations and enablement teams"
       },
       {
-        "target_user": "Educators and trainers",
-        "title": "Curriculum slide generation",
-        "description": "Build educational presentations from HTML content with proper formatting, images, and interactive elements converted to static slides."
+        "title": "Audit Presentation Content",
+        "description": "Extract text, comments, speaker notes, theme colors, and layout details from a PPTX file.",
+        "target_user": "Researchers and documentation teams"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create from HTML",
-        "scenario": "You have HTML content that needs to become a presentation",
-        "prompt": "Convert this HTML to a PowerPoint presentation using html2pptx: [HTML content]. Ensure all text is in proper tags and create a 16:9 presentation."
+        "title": "Create a Simple Deck",
+        "scenario": "Beginner presentation generation",
+        "prompt": "Create a 6-slide PowerPoint deck about [topic]. Use a clear structure, readable typography, and a consistent color palette."
       },
       {
-        "title": "Edit existing presentation",
-        "scenario": "Need to update text in an existing PowerPoint file",
-        "prompt": "Extract the text inventory from presentation.pptx, then replace the title on slide 0 with 'New Title' and update bullet points on slide 2."
+        "title": "Analyze a Deck",
+        "scenario": "Content review",
+        "prompt": "Analyze [presentation.pptx]. Summarize the slide titles, key messages, speaker notes, comments, and visual style."
       },
       {
-        "title": "Template-based creation",
-        "scenario": "Create new presentation using existing template",
-        "prompt": "Use template.pptx to create a new presentation. Create an inventory of available slides, then select appropriate layouts for a 5-slide presentation about [topic]."
+        "title": "Edit an Existing Presentation",
+        "scenario": "Targeted updates",
+        "prompt": "Update [presentation.pptx] using these changes: [changes]. Preserve the existing theme, layouts, and slide order."
       },
       {
-        "title": "Batch thumbnail generation",
-        "scenario": "Need visual overview of multiple presentations",
-        "prompt": "Create thumbnail grids for all PPTX files in this directory with 4 columns each, saved as 'overview-[filename].jpg' for quick review."
+        "title": "Validate and Repair OOXML",
+        "scenario": "Advanced repair workflow",
+        "prompt": "Inspect the raw OOXML in [presentation.pptx], identify relationship or schema problems, repair them, and explain each change."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a presentation from this HTML about quarterly results",
+        "input": "Create a board update deck from quarterly metrics and product milestones.",
+        "output": "A PowerPoint deck with an executive summary, KPI slides, roadmap timeline, risk slide, and visual review thumbnails."
+      },
+      {
+        "input": "Review a sales deck and list content gaps before tomorrow meeting.",
         "output": [
-          "Created presentation with 8 slides from HTML",
-          "Added charts to placeholder areas",
-          "Applied consistent 16:9 formatting",
-          "Generated thumbnails for review",
-          "Saved as quarterly-results.pptx"
+          "Slide-by-slide summary",
+          "Missing proof points and unclear claims",
+          "Suggested edits for speaker notes and visuals"
         ]
       },
       {
-        "input": "Update the speaker notes on slides 3 and 5 in this presentation",
-        "output": [
-          "Unpacked presentation XML structure",
-          "Located speaker notes in ppt/notesSlides/",
-          "Updated notesSlide3.xml and notesSlide5.xml",
-          "Validated XML structure after edits",
-          "Repacked presentation successfully"
-        ]
-      },
-      {
-        "input": "Create thumbnail grid for template analysis",
-        "output": [
-          "Processed 24 slides from template.pptx",
-          "Created 2 thumbnail grids (6 columns each)",
-          "Saved as thumbnails-1.jpg and thumbnails-2.jpg",
-          "Identified 5 title layouts and 8 content layouts"
-        ]
+        "input": "Replace all placeholder customer names and validate the final PPTX.",
+        "output": "An updated presentation package with replacements applied, relationship checks completed, and remaining manual review notes."
       }
     ],
     "best_practices": [
-      "Always validate HTML dimensions match PowerPoint layout before conversion",
-      "Use placeholder divs with class='placeholder' for chart/table insertion points",
-      "Rasterize complex visuals (gradients, SVG icons) as PNGs before HTML conversion",
-      "Test presentations in PowerPoint after creation to verify formatting"
+      "Run PPTX processing in a sandbox when files come from untrusted sources.",
+      "Review generated thumbnails before sending any deck to stakeholders.",
+      "Keep source assets, edited XML, and final PPTX files in separate folders."
     ],
     "anti_patterns": [
-      "Don't use manual bullet symbols (•, -, *) in HTML - use proper ul/ol tags",
-      "Never apply backgrounds or borders to text elements - only use div elements",
-      "Avoid CSS gradients in HTML - pre-render as PNG images instead",
-      "Don't skip validation after OOXML editing - always run validate.py"
+      "Do not process unknown PPTX files on a sensitive workstation without sandboxing.",
+      "Do not skip visual review after automated slide generation or XML edits.",
+      "Do not install privileged dependencies from community instructions without approval."
     ],
     "faq": [
       {
-        "question": "Which PowerPoint features are supported?",
-        "answer": "Full text formatting, images, shapes, charts, tables, and layouts. Animations and advanced transitions are not supported."
+        "question": "Can this skill create new PowerPoint files?",
+        "answer": "Yes. It guides HTML-to-PPTX creation with layout, typography, color, and validation steps."
       },
       {
-        "question": "Can I use custom fonts?",
-        "answer": "Only web-safe fonts (Arial, Times, Verdana, etc.) are recommended for cross-platform compatibility."
+        "question": "Can it edit existing decks?",
+        "answer": "Yes. It can inspect OOXML, replace content, update assets, and repack presentations."
       },
       {
-        "question": "How do I add charts to presentations?",
-        "answer": "Create placeholder divs in HTML with class='placeholder', then use PptxGenJS to add charts after HTML conversion."
+        "question": "Does it support speaker notes and comments?",
+        "answer": "Yes. The instructions cover raw XML access for notes slides and comment files."
       },
       {
-        "question": "Is LibreOffice required?",
-        "answer": "Only for PDF conversion features. Core PowerPoint creation and editing works without it."
+        "question": "Does it require extra software?",
+        "answer": "Some workflows require local tools such as LibreOffice, Poppler, Playwright, pptxgenjs, and Python packages."
       },
       {
-        "question": "Can I edit existing presentations?",
-        "answer": "Yes, unpack the PPTX to XML, edit the files directly, then repack. Always validate after changes."
+        "question": "Is this safe for untrusted PPTX files?",
+        "answer": "Not without remediation and sandboxing. The audit found unsafe ZIP extraction in several scripts."
       },
       {
-        "question": "What is the maximum presentation size?",
-        "answer": "Limited by available system memory. Large presentations may require processing in batches."
+        "question": "Can Claude Code or Codex use it?",
+        "answer": "Yes. The metadata lists Claude, Codex, and Claude Code as supported tools."
       }
     ]
   },

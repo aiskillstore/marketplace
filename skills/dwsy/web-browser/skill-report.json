@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T04:58:34.420Z",
+    "generated_at": "2026-06-29T22:14:51.515Z",
     "slug": "dwsy-web-browser",
     "source_url": "https://github.com/Dwsy/agent/tree/main/skills/web-browser",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "6c47776e82e1b3a2c10f2d84ca90ab4e47f797069e564631b47fc54a09d4596d",
-    "tree_hash": "24ebe86349661381bf846b887e1d31f7237c1f74c30a0e2df90ef1f19b4dd05c"
+    "tree_hash": "4d7436f839079976c0a0f1fbc690028858c434425b1c8cb822c8fa6cad386dfd"
   },
   "skill": {
     "name": "web-browser",
-    "description": "Allows to interact with web pages by performing actions such as clicking buttons, filling out forms, and navigating links. It works by remote controlling Google Chrome or Chromium browsers using the Chrome DevTools Protocol (CDP). When Claude needs to browse the web, it can use this skill to do so.",
-    "summary": "Allows to interact with web pages by performing actions such as clicking buttons, filling out forms,...",
-    "icon": "🌐",
+    "description": "Controls a local Chrome or Chromium browser through the Chrome DevTools Protocol to navigate pages, inspect elements, run JavaScript, and take screenshots.",
+    "summary": "Browse and inspect live web pages through a local Chrome DevTools session.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "Dwsy",
     "license": "Stolen from Mario",
-    "category": "productivity",
     "tags": [
-      "browser",
-      "automation",
-      "scraping",
-      "testing",
-      "web"
+      "browser-automation",
+      "web-research",
+      "cdp",
+      "screenshots",
+      "page-inspection"
     ],
     "supported_tools": [
       "claude",
@@ -33,30 +32,71 @@
       "claude-code"
     ],
     "risk_factors": [
+      "filesystem",
       "external_commands",
       "network",
-      "filesystem",
       "env_access"
-    ]
+    ],
+    "category": "research"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "This is a legitimate browser automation skill using Chrome DevTools Protocol. The static analyzer flagged patterns common to both automation tools and malicious software. After evaluating the code context, all high-severity findings are false positives. The skill's external command usage (spawn, execSync, backticks) is for legitimate browser management: starting Chrome, killing processes, creating directories, and syncing user profiles. The 'C2 keywords' flagged in dependencies are standard npm packages (commander, proxy-agent, degenerator) required by puppeteer-core. The 'weak cryptographic algorithm' findings are checksum verification in archive libraries. The skill does have elevated privileges by design (browser control), but this is its intended function with no evidence of credential exfiltration or data theft.",
+    "safe_to_publish": false,
+    "summary": "Static analysis reported many alerts; lockfile C2, weak-crypto, markdown backtick, and several hardcoded URL alerts are false positives. Real risks remain because the skill can copy a Chrome profile with cookies and logins, expose a localhost Chrome DevTools endpoint, execute arbitrary JavaScript in authenticated pages, and print selected page content. I found no evidence of prompt injection or confirmed malicious exfiltration, so this is high risk but not a critical block.",
     "risk_factor_evidence": [
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/start.js",
+            "line_start": 29,
+            "line_end": 29
+          },
+          {
+            "file": "scripts/start.js",
+            "line_start": 34,
+            "line_end": 34
+          },
+          {
+            "file": "scripts/start.js",
+            "line_start": 44,
+            "line_end": 44
+          },
+          {
+            "file": "scripts/screenshot.js",
+            "line_start": 19,
+            "line_end": 23
+          }
+        ]
+      },
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "scripts/start.js",
-            "line_start": 22,
-            "line_end": 44
+            "line_start": 3,
+            "line_end": 3
           },
           {
-            "file": "scripts/eval.js",
+            "file": "scripts/start.js",
+            "line_start": 22,
+            "line_end": 22
+          },
+          {
+            "file": "scripts/start.js",
             "line_start": 29,
-            "line_end": 32
+            "line_end": 29
+          },
+          {
+            "file": "scripts/start.js",
+            "line_start": 33,
+            "line_end": 34
+          },
+          {
+            "file": "scripts/start.js",
+            "line_start": 40,
+            "line_end": 48
           }
         ]
       },
@@ -72,16 +112,21 @@
             "file": "scripts/eval.js",
             "line_start": 15,
             "line_end": 15
-          }
-        ]
-      },
-      {
-        "factor": "filesystem",
-        "evidence": [
+          },
           {
-            "file": "scripts/start.js",
-            "line_start": 29,
-            "line_end": 34
+            "file": "scripts/nav.js",
+            "line_start": 17,
+            "line_end": 17
+          },
+          {
+            "file": "scripts/pick.js",
+            "line_start": 14,
+            "line_end": 14
+          },
+          {
+            "file": "scripts/screenshot.js",
+            "line_start": 8,
+            "line_end": 8
           }
         ]
       },
@@ -91,144 +136,434 @@
           {
             "file": "scripts/start.js",
             "line_start": 34,
+            "line_end": 34
+          },
+          {
+            "file": "scripts/start.js",
+            "line_start": 44,
             "line_end": 44
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 8,
-    "total_lines": 1500,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T04:58:34.420Z"
+    "high_findings": [
+      {
+        "title": "Browser Profile Copy Can Expose Credentials",
+        "description": "The --profile mode copies the default Chrome profile, including cookies and logins, into a cache directory and launches it with remote debugging. This is dangerous because any local process that can reach the debugging endpoint may interact with authenticated sessions.",
+        "locations": [
+          {
+            "file": "scripts/start.js",
+            "line_start": 31,
+            "line_end": 45
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 18
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The script explicitly documents and implements copying the Chrome profile with cookies and logins before enabling remote debugging. The behavior is intentional and materially exposes browser session data."
+      },
+      {
+        "title": "Arbitrary JavaScript Execution in Active Tab",
+        "description": "The eval helper builds an AsyncFunction from command-line input and executes it in the current page. This is an intended browser-control feature, but it can read page data, mutate pages, submit forms, or expose sensitive authenticated content.",
+        "locations": [
+          {
+            "file": "scripts/eval.js",
+            "line_start": 28,
+            "line_end": 32
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 37
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The code directly constructs and executes JavaScript from user-provided command-line input inside the active browser page. The semantic context confirms the feature is powerful and high impact."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Shell Command Execution with Environment-Derived Paths",
+        "description": "The startup script runs shell commands to kill Chrome, create a cache directory, copy profile data, and spawn Chrome. The rsync command interpolates HOME into a shell string, so a hostile environment can increase command-execution risk.",
+        "locations": [
+          {
+            "file": "scripts/start.js",
+            "line_start": 20,
+            "line_end": 45
+          },
+          {
+            "file": "scripts/start.js",
+            "line_start": 71,
+            "line_end": 72
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The external commands are real and mostly hardcoded, but HOME is inserted into an execSync shell string. This is a credible local risk, although not evidence of remote exploitation by itself."
+      },
+      {
+        "title": "Local Chrome DevTools Endpoint Controls Browser State",
+        "description": "Multiple helpers connect to http://localhost:9222 and control the active browser. This local network endpoint is expected for the skill, but it can control tabs and authenticated pages if another local process can access it.",
+        "locations": [
+          {
+            "file": "scripts/start.js",
+            "line_start": 40,
+            "line_end": 55
+          },
+          {
+            "file": "scripts/eval.js",
+            "line_start": 14,
+            "line_end": 16
+          },
+          {
+            "file": "scripts/nav.js",
+            "line_start": 16,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/pick.js",
+            "line_start": 13,
+            "line_end": 15
+          },
+          {
+            "file": "scripts/screenshot.js",
+            "line_start": 7,
+            "line_end": 9
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The same localhost CDP endpoint is used throughout the scripts and is the core automation mechanism. The risk is clear, but the endpoint is local and part of the intended design."
+      },
+      {
+        "title": "Element Picker Can Output Sensitive Page Content",
+        "description": "The element picker returns selected element text, class names, IDs, parent context, and a slice of outer HTML. This can disclose sensitive page content when used on authenticated or private pages.",
+        "locations": [
+          {
+            "file": "scripts/pick.js",
+            "line_start": 87,
+            "line_end": 94
+          },
+          {
+            "file": "scripts/pick.js",
+            "line_start": 138,
+            "line_end": 150
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The script explicitly gathers and prints DOM text and HTML for selected elements. The operation is user initiated, so the risk is disclosure through expected output rather than hidden exfiltration."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Markdown Backtick Alerts Are Documentation Examples",
+        "description": "The static analyzer flagged command snippets in SKILL.md as Ruby or shell backtick execution. These lines are markdown code fences and usage examples, not executable code inside the skill runtime.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 16
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 22,
+            "line_end": 25
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 31,
+            "line_end": 35
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 51
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The flagged text is visibly inside markdown code blocks. It documents commands users may run, but the markdown itself does not execute them."
+      },
+      {
+        "title": "Lockfile Keyword and Crypto Alerts Are False Positives",
+        "description": "The C2 keyword, weak cryptography, and archive-library alerts in pnpm-lock.yaml are dependency names, metadata, or integrity hashes. I did not find evidence that these lines implement command-and-control logic or cryptographic behavior.",
+        "locations": [
+          {
+            "file": "pnpm-lock.yaml",
+            "line_start": 83,
+            "line_end": 83
+          },
+          {
+            "file": "pnpm-lock.yaml",
+            "line_start": 130,
+            "line_end": 130
+          },
+          {
+            "file": "pnpm-lock.yaml",
+            "line_start": 137,
+            "line_end": 137
+          },
+          {
+            "file": "pnpm-lock.yaml",
+            "line_start": 159,
+            "line_end": 159
+          },
+          {
+            "file": "pnpm-lock.yaml",
+            "line_start": 308,
+            "line_end": 308
+          },
+          {
+            "file": "pnpm-lock.yaml",
+            "line_start": 310,
+            "line_end": 310
+          },
+          {
+            "file": "pnpm-lock.yaml",
+            "line_start": 314,
+            "line_end": 314
+          },
+          {
+            "file": "pnpm-lock.yaml",
+            "line_start": 332,
+            "line_end": 332
+          },
+          {
+            "file": "pnpm-lock.yaml",
+            "line_start": 367,
+            "line_end": 367
+          },
+          {
+            "file": "pnpm-lock.yaml",
+            "line_start": 706,
+            "line_end": 706
+          },
+          {
+            "file": "pnpm-lock.yaml",
+            "line_start": 715,
+            "line_end": 715
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The cited lines are package entries, dependency references, or SHA512 integrity strings in a lockfile. There is no active code path or malicious intent in the cited lockfile content."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Dangerous Browser Automation Capability Combination",
+        "description": "The skill combines local browser control, optional profile copying, JavaScript execution, filesystem writes, and external commands. This combination is powerful enough to expose authenticated browser data even without confirmed malicious intent.",
+        "locations": [
+          {
+            "file": "scripts/start.js",
+            "line_start": 31,
+            "line_end": 55
+          },
+          {
+            "file": "scripts/eval.js",
+            "line_start": 28,
+            "line_end": 32
+          },
+          {
+            "file": "scripts/pick.js",
+            "line_start": 87,
+            "line_end": 94
+          },
+          {
+            "file": "scripts/screenshot.js",
+            "line_start": 19,
+            "line_end": 23
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The static heuristic is supported by semantic context across the scripts. The combination is intentional browser automation, but the credential and session exposure risk is real."
+      },
+      {
+        "title": "Browser Profile Copy Can Expose Credentials",
+        "description": "The --profile mode copies the default Chrome profile, including cookies and logins, into a cache directory and launches it with remote debugging. This is dangerous because any local process that can reach the debugging endpoint may interact with authenticated sessions.",
+        "locations": [
+          {
+            "file": "scripts/start.js",
+            "line_start": 31,
+            "line_end": 45
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 18
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The script explicitly documents and implements copying the Chrome profile with cookies and logins before enabling remote debugging. The behavior is intentional and materially exposes browser session data."
+      },
+      {
+        "title": "Arbitrary JavaScript Execution in Active Tab",
+        "description": "The eval helper builds an AsyncFunction from command-line input and executes it in the current page. This is an intended browser-control feature, but it can read page data, mutate pages, submit forms, or expose sensitive authenticated content.",
+        "locations": [
+          {
+            "file": "scripts/eval.js",
+            "line_start": 28,
+            "line_end": 32
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 37
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The code directly constructs and executes JavaScript from user-provided command-line input inside the active browser page. The semantic context confirms the feature is powerful and high impact."
+      },
+      {
+        "title": "Shell Command Execution with Environment-Derived Paths",
+        "description": "The startup script runs shell commands to kill Chrome, create a cache directory, copy profile data, and spawn Chrome. The rsync command interpolates HOME into a shell string, so a hostile environment can increase command-execution risk.",
+        "locations": [
+          {
+            "file": "scripts/start.js",
+            "line_start": 20,
+            "line_end": 45
+          },
+          {
+            "file": "scripts/start.js",
+            "line_start": 71,
+            "line_end": 72
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The external commands are real and mostly hardcoded, but HOME is inserted into an execSync shell string. This is a credible local risk, although not evidence of remote exploitation by itself."
+      }
+    ],
+    "files_scanned": 7,
+    "total_lines": 1176,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T22:14:51.515Z",
+    "risk_factors": [
+      "filesystem",
+      "external_commands",
+      "network",
+      "env_access"
+    ]
   },
   "content": {
-    "user_title": "Control Chrome browser for web automation",
-    "value_statement": "Automate web browser interactions for scraping, testing, and data extraction. Control Chrome remotely via Chrome DevTools Protocol to click, navigate, evaluate JavaScript, and capture screenshots programmatically.",
+    "user_title": "Control Web Pages from Claude or Codex",
+    "value_statement": "Manual web inspection is slow when an agent needs live page context. This skill gives Claude, Codex, and Claude Code controlled browser navigation, screenshots, JavaScript evaluation, and element picking.",
     "seo_keywords": [
-      "web browser automation",
-      "Chrome DevTools Protocol",
-      "web scraping",
-      "browser automation",
+      "Claude",
+      "Codex",
       "Claude Code",
-      "puppeteer",
-      "automated testing",
-      "web interaction"
+      "Chrome DevTools Protocol",
+      "CDP automation",
+      "web page inspection",
+      "browser screenshots",
+      "AI browser control",
+      "element picker",
+      "web research automation"
     ],
     "actual_capabilities": [
-      "Start Chrome browser with remote debugging on localhost port 9222",
-      "Navigate to URLs and manage browser tabs programmatically",
-      "Execute JavaScript in browser context for extraction and interaction",
-      "Take screenshots of current viewport",
-      "Interactively pick and select DOM elements by clicking"
+      "Starts a local Chrome browser with a fresh profile or a copied default profile.",
+      "Navigates the active tab or opens a new tab for a supplied URL.",
+      "Runs JavaScript expressions in the active page through Chrome DevTools Protocol.",
+      "Captures the current viewport screenshot and prints the temporary image path.",
+      "Lets a user click page elements and returns tag, ID, class, text, HTML, and parent context."
     ],
     "limitations": [
-      "Requires Google Chrome or Chromium installed on the system",
-      "Works only on macOS with hardcoded Chrome paths (can be adapted for other platforms)",
-      "Cannot bypass authentication or access protected content without user credentials",
-      "JavaScript execution is limited to browser context, not system shell"
+      "The Chrome executable path is hardcoded for macOS.",
+      "A local browser must be reachable on port 9222.",
+      "Profile mode can expose cookies, logins, and authenticated browser state.",
+      "There is no built-in domain allowlist, sandbox, or output redaction."
     ],
     "use_cases": [
       {
-        "target_user": "Developers",
-        "title": "Test web applications",
-        "description": "Automate UI testing by programmatically clicking elements, filling forms, and verifying page state."
+        "title": "Inspect live pages during research",
+        "target_user": "Researchers",
+        "description": "Navigate public pages, capture screenshots, and extract visible page details for a research task."
       },
       {
-        "target_user": "Data engineers",
-        "title": "Extract web data",
-        "description": "Scrape websites by navigating pages and executing JavaScript to extract structured data."
+        "title": "Debug front-end behavior",
+        "target_user": "Web developers",
+        "description": "Run targeted JavaScript in a live page and inspect DOM elements while investigating interface behavior."
       },
       {
-        "target_user": "QA engineers",
-        "title": "Verify page behavior",
-        "description": "Take screenshots and evaluate page content to verify visual and functional correctness."
+        "title": "Collect UI context for agent workflows",
+        "target_user": "Automation builders",
+        "description": "Select page elements and provide structured context for an AI agent that needs browser state."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Navigate and explore",
-        "scenario": "Visit a website",
-        "prompt": "Start Chrome and navigate to https://example.com. What is the page title?"
+        "title": "Open a page",
+        "scenario": "Beginner navigation",
+        "prompt": "Start a fresh browser session, open this URL, and tell me whether the page loaded successfully: [URL]."
       },
       {
-        "title": "Extract structured data",
-        "scenario": "Get data from page",
-        "prompt": "Navigate to https://news.ycombinator.com and extract all article titles using eval.js."
+        "title": "Capture evidence",
+        "scenario": "Visual page review",
+        "prompt": "Navigate to [URL], take a screenshot, and summarize the visible page state without entering private information."
       },
       {
-        "title": "Visual verification",
-        "scenario": "Capture page screenshot",
-        "prompt": "Take a screenshot of the current page and save it to a temp file."
+        "title": "Inspect an element",
+        "scenario": "DOM exploration",
+        "prompt": "Use the element picker to inspect the main call-to-action on [URL]. Report its visible text and nearby context."
       },
       {
-        "title": "Interactive selection",
-        "scenario": "Select elements",
-        "prompt": "Use the element picker to find the submit button on the page."
+        "title": "Evaluate page state",
+        "scenario": "Advanced browser debugging",
+        "prompt": "Open [URL], run a safe read-only JavaScript check for the page title and link count, then explain what you found."
       }
     ],
     "output_examples": [
       {
-        "input": "Navigate to example.com and extract all links",
-        "output": [
-          "- Title: Example Domain",
-          "- Links found: 1",
-          "- URL: https://www.iana.org/help/example-domains"
-        ]
+        "input": "Check whether a documentation page loaded and capture the current view.",
+        "output": "The page loaded successfully. A screenshot was saved to a temporary file, and the visible content shows the documentation header and navigation."
       },
       {
-        "input": "Take a screenshot of example.com",
-        "output": [
-          "Screenshot saved to: /var/folders/.../screenshot-2024-01-17T10-30-00.png"
-        ]
+        "input": "Pick the submit button on a form page.",
+        "output": "The selected element is a button with visible submit text. It appears inside the main form area and can be referenced for follow-up actions."
       },
       {
-        "input": "Find all headings on the page",
-        "output": [
-          "- Heading 1: Welcome",
-          "- Heading 2: Getting Started",
-          "- Heading 3: Documentation"
-        ]
+        "input": "Read the title and count links on a public page.",
+        "output": "The page title was returned, and the link count indicates the page has many navigation and content links."
       }
     ],
     "best_practices": [
-      "Use the --profile flag only when you need to persist login sessions across runs",
-      "Always verify JavaScript code before evaluating it in the browser context",
-      "Close Chrome properly after automation tasks to avoid resource leaks"
+      "Use a fresh browser profile unless an authenticated session is strictly required.",
+      "Run read-only JavaScript checks when inspecting pages you do not control.",
+      "Close the Chrome DevTools session after use to reduce local exposure."
     ],
     "anti_patterns": [
-      "Avoid executing untrusted JavaScript code that could modify page behavior",
-      "Do not use this skill to automate login flows with stolen credentials",
-      "Avoid leaving Chrome running in the background after tasks complete"
+      "Do not use profile mode on shared or untrusted machines.",
+      "Do not run JavaScript that changes account settings, payments, or private data.",
+      "Do not paste secrets or private page content into prompts unless the user explicitly approves."
     ],
     "faq": [
       {
-        "question": "Does this skill work on Linux or Windows?",
-        "answer": "Currently designed for macOS with hardcoded Chrome paths. Can be modified for other platforms."
+        "question": "Does this skill browse the web by itself?",
+        "answer": "It controls a local Chrome browser through Chrome DevTools Protocol. It still depends on the agent and user instructions."
       },
       {
-        "question": "Can I automate form submissions?",
-        "answer": "Yes, use eval.js to execute JavaScript that fills form fields and triggers submit events."
+        "question": "Can it use my logged-in browser session?",
+        "answer": "Yes, profile mode can copy your Chrome profile. This is high risk because cookies and logins may be exposed."
       },
       {
-        "question": "Is my browsing data secure?",
-        "answer": "The skill runs locally on localhost:9222. Profile sync requires explicit --profile flag."
+        "question": "Does it work on every operating system?",
+        "answer": "No. The startup script uses a macOS Chrome path, so other systems need changes."
       },
       {
-        "question": "Can I use this for web scraping?",
-        "answer": "Yes, but respect website terms of service and robots.txt when scraping."
+        "question": "Can it execute JavaScript on pages?",
+        "answer": "Yes. It can run JavaScript in the active tab, so commands should be reviewed carefully before use."
       },
       {
-        "question": "What JavaScript can I execute?",
-        "answer": "Any JavaScript that runs in browser context. Access DOM, modify content, extract data."
+        "question": "Where are screenshots saved?",
+        "answer": "Screenshots are saved in the system temporary directory, and the script prints the file path."
       },
       {
-        "question": "How do I stop Chrome when done?",
-        "answer": "The skill manages Chrome lifecycle. Use Ctrl+C or run 'killall Google Chrome' to stop."
+        "question": "Is it safe for sensitive websites?",
+        "answer": "Use caution. The skill can expose authenticated page content, browser state, and selected DOM data."
       }
     ]
   },
