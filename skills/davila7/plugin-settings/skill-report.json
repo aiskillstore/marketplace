@@ -1,205 +1,395 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T00:58:46.886Z",
+    "generated_at": "2026-06-29T15:20:40.665Z",
     "slug": "davila7-plugin-settings",
     "source_url": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/development/plugin-settings",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "9c288b412cc63328235235c13cd470a74d78bdfe99229a41d293f8b942561aef",
-    "tree_hash": "468c9647b375eb7ac268815e9e18cbb8e15d21f8d12b00cdd0e8ff5ec0d63bec"
+    "tree_hash": "883870003a494d8d8ce9bd9bb3613b6ff8e743664172c09ebad261be63982232"
   },
   "skill": {
     "name": "plugin-settings",
-    "description": "This skill should be used when the user asks about \"plugin settings\", \"store plugin configuration\", \"user-configurable plugin\", \".local.md files\", \"plugin state files\", \"read YAML frontmatter\", \"per-project plugin settings\", or wants to make plugin behavior configurable. Documents the .claude/plugin-name.local.md pattern for storing plugin-specific configuration with YAML frontmatter and markdown content.",
-    "summary": "This skill should be used when the user asks about \"plugin settings\", \"store plugin configuration\", ...",
-    "icon": "⚙️",
+    "description": "Guides plugin authors in storing per-project settings in .claude/*.local.md files with YAML frontmatter and markdown notes.",
+    "summary": "Create and parse local plugin settings files for Claude Code workflows.",
+    "icon": "📦",
     "version": "0.1.0",
     "author": "davila7",
     "license": "MIT",
-    "category": "documentation",
     "tags": [
+      "plugin-settings",
+      "claude-code",
       "configuration",
-      "plugin",
-      "settings",
-      "yaml",
-      "frontmatter"
+      "frontmatter",
+      "hooks"
     ],
     "supported_tools": [
       "claude",
+      "codex",
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
+      "filesystem",
       "external_commands"
-    ]
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a documentation skill containing code examples for a plugin settings pattern. All static findings are FALSE POSITIVES - they flag shell command examples in markdown documentation, not actual executable code. The skill has no network access, no credential handling, and contains security mitigations that BLOCK access to sensitive files.",
+    "summary": "Static analysis reported many shell and filesystem patterns, plus high weak-crypto hits. Review found the weak-crypto alerts are false positives from markdown frontmatter separators, while the real risk is moderate shell-based parsing and prompt replay from local settings files. No malicious exfiltration, network access, or prompt-injection control text was found.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/parse-frontmatter.sh",
+            "line_start": 1,
+            "line_end": 5
+          },
+          {
+            "file": "scripts/validate-settings.sh",
+            "line_start": 1,
+            "line_end": 5
+          },
+          {
+            "file": "examples/read-settings-hook.sh",
+            "line_start": 1,
+            "line_end": 5
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 11,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/parse-frontmatter.sh",
+            "line_start": 27,
+            "line_end": 37
+          },
+          {
+            "file": "scripts/validate-settings.sh",
+            "line_start": 21,
+            "line_end": 41
+          }
+        ]
+      },
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 66,
-            "line_end": 68
+            "line_start": 78,
+            "line_end": 83
           },
           {
-            "file": "SKILL.md",
-            "line_start": 140,
-            "line_end": 142
-          },
-          {
-            "file": "examples/read-settings-hook.sh",
-            "line_start": 17,
-            "line_end": 22
+            "file": "references/real-world-examples.md",
+            "line_start": 76,
+            "line_end": 83
           },
           {
             "file": "scripts/parse-frontmatter.sh",
-            "line_start": 37,
-            "line_end": 51
+            "line_start": 50,
+            "line_end": 58
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 9,
-    "total_lines": 2270,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T00:58:46.886Z"
+    "medium_findings": [
+      {
+        "title": "Local Settings Body Can Be Reused As Prompt Text",
+        "description": "The skill documents hooks that extract markdown body content from a local settings file and return it as prompt text. This is useful for workflow loops, but untrusted edits to the settings file could influence model behavior.",
+        "locations": [
+          {
+            "file": "references/real-world-examples.md",
+            "line_start": 200,
+            "line_end": 216
+          },
+          {
+            "file": "references/parsing-techniques.md",
+            "line_start": 121,
+            "line_end": 140
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 466,
+            "line_end": 471
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The referenced examples explicitly read markdown body text and feed it back through hook output. The risk depends on who can modify the local settings file, so this is moderate rather than high."
+      },
+      {
+        "title": "Shell-Based Parsing Uses User-Controlled Field Names And Values",
+        "description": "The utility scripts and examples use grep, sed, awk, and heredocs to parse or create settings files. This is legitimate local tooling, but careless reuse with untrusted field names or free text can cause parsing errors, regex surprises, or malformed settings files.",
+        "locations": [
+          {
+            "file": "scripts/parse-frontmatter.sh",
+            "line_start": 50,
+            "line_end": 58
+          },
+          {
+            "file": "references/real-world-examples.md",
+            "line_start": 100,
+            "line_end": 115
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 389,
+            "line_end": 400
+          }
+        ],
+        "confidence": 0.66,
+        "confidence_reasoning": "The shell pipelines are real and can process user-provided settings data, but the skill also includes validation guidance. I did not find evidence of deliberate command injection or exfiltration."
+      },
+      {
+        "title": "Settings-Controlled Tmux Target In Documentation Examples",
+        "description": "The documentation shows a coordinator session read from settings and passed to tmux send-keys. If copied into a plugin without validation, a tampered settings file could redirect local notifications to an unintended tmux session.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 229,
+            "line_end": 234
+          },
+          {
+            "file": "references/real-world-examples.md",
+            "line_start": 76,
+            "line_end": 83
+          }
+        ],
+        "confidence": 0.62,
+        "confidence_reasoning": "The command target is settings-derived, which creates a plausible misuse path. The shown payload is only a notification string, so the impact appears limited."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Weak Cryptography Alerts Are False Positives",
+        "description": "The high-severity weak-cryptography detections correspond to YAML frontmatter delimiters and markdown examples, not hash functions, ciphers, or cryptographic decisions.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 31
+          },
+          {
+            "file": "examples/create-settings-command.md",
+            "line_start": 68,
+            "line_end": 75
+          },
+          {
+            "file": "references/parsing-techniques.md",
+            "line_start": 9,
+            "line_end": 16
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The inspected lines are markdown or YAML frontmatter examples. No cryptographic primitive is present at these locations."
+      },
+      {
+        "title": "Sensitive And System Path Alerts Are Defensive Checks",
+        "description": "The example hook checks for .env, secret, /etc, and /sys paths to deny risky file operations. These findings indicate defensive filtering rather than secret collection or system reconnaissance.",
+        "locations": [
+          {
+            "file": "examples/read-settings-hook.sh",
+            "line_start": 41,
+            "line_end": 48
+          },
+          {
+            "file": "scripts/validate-settings.sh",
+            "line_start": 40,
+            "line_end": 44
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The code emits denial messages when sensitive or system paths are detected. I did not find reads from those sensitive files in the inspected context."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "External Shell Utilities In Scripts And Examples",
+        "description": "The skill relies on bash, sed, grep, awk, jq, yq, tmux, mv, and related shell tools. These are expected for this skill, but generated plugins should quote variables and validate settings before use.",
+        "locations": [
+          {
+            "file": "scripts/parse-frontmatter.sh",
+            "line_start": 36,
+            "line_end": 51
+          },
+          {
+            "file": "scripts/validate-settings.sh",
+            "line_start": 40,
+            "line_end": 90
+          },
+          {
+            "file": "references/real-world-examples.md",
+            "line_start": 167,
+            "line_end": 216
+          }
+        ],
+        "confidence": 0.83,
+        "confidence_reasoning": "The shell utilities are directly present and intentionally documented. The pattern is legitimate but security-sensitive when copied into hooks."
+      },
+      {
+        "title": "Local Hidden Settings File Access",
+        "description": "The skill standardizes reads and writes under .claude/*.local.md. This local filesystem access is central to the skill and should remain user-local and gitignored.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 11,
+            "line_end": 18
+          },
+          {
+            "file": "examples/example-settings.md",
+            "line_start": 136,
+            "line_end": 144
+          },
+          {
+            "file": "scripts/validate-settings.sh",
+            "line_start": 21,
+            "line_end": 37
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The local settings-file pattern is repeatedly documented and implemented. The files are intended to be local, but they may contain sensitive project preferences."
+      }
+    ],
+    "files_scanned": 8,
+    "total_lines": 1978,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T15:20:40.665Z",
+    "risk_factors": [
+      "scripts",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Configure plugin settings with YAML frontmatter",
-    "value_statement": "Store plugin-specific configuration and state in .claude/plugin-name.local.md files using YAML frontmatter and markdown content. Enable per-project plugin customization that users can edit directly.",
+    "user_title": "Configure Plugin Settings Locally",
+    "value_statement": "Plugin authors need a simple way to store per-project preferences without committing user state. This skill documents a .claude/*.local.md pattern for readable settings, hook behavior, and validation.",
     "seo_keywords": [
-      "plugin settings",
-      "Claude Code configuration",
-      "YAML frontmatter",
-      "plugin state files",
-      "local settings",
-      "per-project configuration",
       "Claude",
-      "Claude Code",
       "Codex",
-      "plugin customization"
+      "Claude Code",
+      "plugin settings",
+      "local configuration",
+      "YAML frontmatter",
+      "Claude hooks",
+      "settings file pattern",
+      "frontmatter parsing",
+      "plugin state"
     ],
     "actual_capabilities": [
-      "Documents .claude/plugin-name.local.md file pattern for plugin settings",
-      "Provides YAML frontmatter parsing techniques using sed and grep",
-      "Shows hook integration for settings-driven behavior",
-      "Includes validation scripts for settings file structure",
-      "Demonstrates security best practices for settings files"
+      "Explains the .claude/plugin-name.local.md settings pattern.",
+      "Shows YAML frontmatter templates for plugin configuration and state.",
+      "Demonstrates bash parsing of settings fields and markdown bodies.",
+      "Includes example hook behavior controlled by local settings.",
+      "Provides scripts to parse and validate settings file structure.",
+      "Documents gitignore and restart guidance for local settings files."
     ],
     "limitations": [
-      "This is a documentation skill, not executable code",
-      "Does not provide runtime settings parsing libraries",
-      "Requires manual implementation of parsing in hooks/commands",
-      "Settings changes require Claude Code restart to take effect"
+      "Does not provide a full YAML parser for complex nested settings.",
+      "Requires careful validation before using settings in hooks or commands.",
+      "Settings changes may require restarting Claude Code for hook reloads.",
+      "Examples are templates and must be adapted to each plugin threat model."
     ],
     "use_cases": [
       {
-        "target_user": "Plugin Developers",
-        "title": "Add configuration to plugins",
-        "description": "Document how to make plugins configurable with user-editable settings files"
+        "title": "Add Project Settings To A Plugin",
+        "target_user": "Plugin author",
+        "description": "Define a local settings file, document supported fields, and read those fields from plugin commands or hooks."
       },
       {
-        "target_user": "Project Maintainers",
-        "title": "Override plugin defaults",
-        "description": "Create project-specific plugin configurations without modifying plugin code"
+        "title": "Control Hook Behavior Per Project",
+        "target_user": "Development team lead",
+        "description": "Use an enabled flag, validation level, or file limit to adjust hook behavior without changing plugin code."
       },
       {
-        "target_user": "Documentation Writers",
-        "title": "Document settings patterns",
-        "description": "Include settings documentation in plugin READMEs with templates"
+        "title": "Store Temporary Agent State",
+        "target_user": "Automation engineer",
+        "description": "Track task identifiers, coordinator sessions, iteration counts, or workflow notes in a local markdown settings file."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Add settings to plugin",
-        "scenario": "Making a plugin configurable",
-        "prompt": "How do I add user-configurable settings to my Claude Code plugin using .claude/my-plugin.local.md files?"
+        "title": "Create Basic Settings",
+        "scenario": "Beginner setup for a new plugin",
+        "prompt": "Use the plugin-settings pattern to design a basic local settings file for my plugin. Include enabled, mode, defaults, and gitignore guidance."
       },
       {
-        "title": "Parse frontmatter",
-        "scenario": "Reading settings in hooks",
-        "prompt": "Show me how to parse YAML frontmatter from a .local.md file in a bash hook"
+        "title": "Read Settings In A Hook",
+        "scenario": "Intermediate hook integration",
+        "prompt": "Show how my Claude Code hook should read .claude/my-plugin.local.md, validate enabled and strict_mode, and fall back to safe defaults."
       },
       {
-        "title": "Validate settings",
-        "scenario": "Checking file structure",
-        "prompt": "What are the required fields and structure for a valid plugin settings file?"
+        "title": "Validate A Settings Schema",
+        "scenario": "Advanced settings hardening",
+        "prompt": "Review this planned plugin settings schema for unsafe fields, missing validation, restart notes, and values that should not be stored locally."
       },
       {
-        "title": "Security best practices",
-        "scenario": "Protecting sensitive files",
-        "prompt": "How do I prevent my plugin settings from accidentally exposing .env files or secrets?"
+        "title": "Design Stateful Workflow Control",
+        "scenario": "Advanced agent coordination",
+        "prompt": "Design a local settings and state pattern for a multi-step agent workflow, including iteration limits, coordinator metadata, prompt safety, and cleanup behavior."
       }
     ],
     "output_examples": [
       {
-        "input": "How do I enable my plugin only for certain projects?",
-        "output": [
-          "Create a .claude/my-plugin.local.md file in the project with:",
-          "---",
-          "enabled: true",
-          "---",
-          "Your hook should check if the file exists and read the enabled field before running",
-          "Add .claude/*.local.md to .gitignore to prevent committing project-specific settings"
-        ]
+        "input": "A plugin author asks how to add project-specific validation settings.",
+        "output": "The skill returns a local settings-file design, field descriptions, default behavior, and notes about validation and restart requirements."
       },
       {
-        "input": "How do I parse a numeric setting in my hook?",
-        "output": [
-          "Use this pattern to extract and validate numeric settings:",
-          "MAX_SIZE=$(echo \"$FRONTMATTER\" | grep '^max_size:' | sed 's/max_size: *//')",
-          "Validate: if [[ \"$MAX_SIZE\" =~ ^[0-9]+$ ]]; then",
-          "Use in comparison: if [[ $MAX_SIZE -gt 1000 ]]; then"
-        ]
+        "input": "A team wants a hook to run only when strict mode is enabled.",
+        "output": "The skill outlines a hook flow that checks for the local file, reads frontmatter, validates booleans, and exits safely when disabled."
+      },
+      {
+        "input": "An automation engineer needs temporary state for a looping workflow.",
+        "output": "The skill describes a local markdown state file with counters, completion criteria, and cleanup rules."
       }
     ],
     "best_practices": [
-      "Always validate settings file structure before reading - check for --- markers and required fields",
-      "Provide sensible defaults when settings file doesn't exist to maintain backwards compatibility",
-      "Add .claude/*.local.md to .gitignore since these are user-local overrides"
+      "Keep local settings files gitignored and readable only by the user.",
+      "Validate every frontmatter value before it affects hooks, commands, or paths.",
+      "Provide safe defaults when the settings file is missing or incomplete."
     ],
     "anti_patterns": [
-      "Hardcoding settings directly in hooks - makes customization impossible",
-      "Committing .local.md files to git - these are per-user, per-project overrides",
-      "Not validating user input before writing settings - could lead to malformed files"
+      "Do not store tokens, passwords, or shared secrets in local markdown settings files.",
+      "Do not feed settings body text back to the model without trust and scope checks.",
+      "Do not use settings-derived paths or command targets without validation."
     ],
     "faq": [
       {
-        "question": "Where should I store plugin settings files?",
-        "answer": "Store in .claude/plugin-name.local.md in the project root. The .claude directory is the standard location."
+        "question": "What does this skill help me build?",
+        "answer": "It helps you add local, per-project configuration files for Claude Code plugins."
       },
       {
-        "question": "Do settings changes take effect immediately?",
-        "answer": "No. Hooks are loaded at startup. You must restart Claude Code for settings changes to apply."
+        "question": "Where are settings files stored?",
+        "answer": "The documented pattern uses .claude/plugin-name.local.md inside the project directory."
       },
       {
-        "question": "Can I use this for agent state?",
-        "answer": "Yes. The markdown body can contain prompts or task descriptions that agents read and execute."
+        "question": "Should these files be committed to git?",
+        "answer": "No. The skill recommends gitignoring .claude/*.local.md and .claude/*.local.json."
       },
       {
-        "question": "How do I prevent settings from being committed?",
-        "answer": "Add .claude/*.local.md and .claude/*.local.json to .gitignore in your plugin documentation."
+        "question": "Can the settings include markdown content?",
+        "answer": "Yes. The pattern supports YAML frontmatter for fields and markdown body text for notes or workflow context."
       },
       {
-        "question": "What happens if the settings file is malformed?",
-        "answer": "Your hook should validate structure (check for --- markers) and provide graceful fallback to defaults."
+        "question": "Does it support complex YAML automatically?",
+        "answer": "No. The examples focus on simple fields and suggest yq for complex YAML structures."
       },
       {
-        "question": "Should I use JSON or markdown for settings?",
-        "answer": "Markdown with YAML frontmatter is recommended for plugins - allows structured config + human-readable body."
+        "question": "What is the main security concern?",
+        "answer": "Settings are local input. Validate values before using them in hooks, paths, commands, or prompts."
       }
     ]
   },
