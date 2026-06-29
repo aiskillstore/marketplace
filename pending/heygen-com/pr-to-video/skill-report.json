@@ -1,0 +1,603 @@
+{
+  "schema_version": "2.0",
+  "meta": {
+    "generated_at": "2026-06-29T09:46:51.541Z",
+    "slug": "heygen-com-pr-to-video",
+    "source_url": "https://github.com/heygen-com/hyperframes/tree/main/skills/pr-to-video/",
+    "source_ref": "main",
+    "model": "codex",
+    "analysis_version": "3.0.0",
+    "source_type": "community",
+    "content_hash": "416d354ca3995f5545b06ed55990fe0b94b4039a06f23a840f9480ff4e424210",
+    "tree_hash": "afe14926d02a12d836aa1c8069d4f06e4125bec27fc2244a19d224ac7b6ac387"
+  },
+  "skill": {
+    "name": "pr-to-video",
+    "description": "Create a HyperFrames video that explains a GitHub pull request using PR metadata, diff hunks, contributor avatars, narration, captions, and rendered HTML compositions.",
+    "summary": "Turns a GitHub pull request into a code-change explainer video.",
+    "icon": "📦",
+    "version": "1.0.0",
+    "author": "heygen-com",
+    "license": "MIT",
+    "tags": [
+      "github",
+      "pull-request",
+      "video",
+      "hyperframes",
+      "code-review"
+    ],
+    "supported_tools": [
+      "claude",
+      "codex",
+      "claude-code"
+    ],
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "network",
+      "filesystem",
+      "env_access"
+    ],
+    "category": "coding"
+  },
+  "security_audit": {
+    "risk_level": "medium",
+    "is_blocked": false,
+    "safe_to_publish": true,
+    "summary": "Static analysis reported many critical and high patterns, but most markdown, weak-crypto, and Ruby-backtick alerts are false positives caused by documentation, code fences, regular expressions, and visual design text. Confirmed risks are legitimate workflow behavior: the skill runs external commands, reads and writes project files, fetches PR and avatar data over the network, and can pass untrusted PR text into agent-authored storyboards.",
+    "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "scripts/fetch-pr.mjs",
+            "line_start": 26,
+            "line_end": 48
+          },
+          {
+            "file": "scripts/audio.mjs",
+            "line_start": 71,
+            "line_end": 86
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 182,
+            "line_end": 206
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/fetch-pr.mjs",
+            "line_start": 106,
+            "line_end": 111
+          },
+          {
+            "file": "scripts/fetch-people-avatars.mjs",
+            "line_start": 61,
+            "line_end": 84
+          },
+          {
+            "file": "scripts/captions.mjs",
+            "line_start": 264,
+            "line_end": 265
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/fetch-pr.mjs",
+            "line_start": 139,
+            "line_end": 147
+          },
+          {
+            "file": "scripts/ingest.mjs",
+            "line_start": 519,
+            "line_end": 526
+          },
+          {
+            "file": "scripts/assemble-index.mjs",
+            "line_start": 348,
+            "line_end": 348
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "scripts/audio.mjs",
+            "line_start": 71,
+            "line_end": 72
+          }
+        ]
+      },
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/build-frame.mjs",
+            "line_start": 1,
+            "line_end": 21
+          },
+          {
+            "file": "scripts/transitions.mjs",
+            "line_start": 1,
+            "line_end": 24
+          },
+          {
+            "file": "scripts/captions.mjs",
+            "line_start": 1,
+            "line_end": 15
+          }
+        ]
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "External command execution is central to the workflow",
+        "description": "The skill intentionally runs gh, node, npx hyperframes, and a shared media engine. The gh calls use execFileSync with argument arrays, which reduces shell injection risk, but installing and running this community skill still grants it command execution in the user workspace.",
+        "locations": [
+          {
+            "file": "scripts/fetch-pr.mjs",
+            "line_start": 26,
+            "line_end": 48
+          },
+          {
+            "file": "scripts/fetch-pr.mjs",
+            "line_start": 87,
+            "line_end": 111
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 182,
+            "line_end": 206
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "Direct command execution is confirmed in JavaScript and in the workflow instructions. The commands are expected for this skill and mostly pass arguments safely, so this is an operational risk rather than confirmed malicious behavior."
+      },
+      {
+        "title": "Untrusted PR content can influence agent-authored video plans",
+        "description": "The ingest step copies PR body text, commit summaries, changed file names, and representative diff hunks into visible-text.txt. Later instructions tell the agent to use that material when writing STORYBOARD.md and SCRIPT.md, so a malicious PR description or diff could attempt prompt injection unless the user and agent treat PR content as untrusted source data.",
+        "locations": [
+          {
+            "file": "scripts/ingest.mjs",
+            "line_start": 256,
+            "line_end": 276
+          },
+          {
+            "file": "scripts/ingest.mjs",
+            "line_start": 474,
+            "line_end": 482
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 102,
+            "line_end": 104
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The data flow from PR content into agent-readable planning files is clear. I found no embedded malicious instruction in this skill, but the workflow lacks an explicit warning against following instructions found inside PR text."
+      },
+      {
+        "title": "External media and font network access may disclose project context",
+        "description": "The workflow can call GitHub through gh, download contributor avatars, and generate HTML that imports Google Fonts or loads GSAP from a CDN. These requests are consistent with video generation, but they create network dependencies and may expose repository, contributor, font, or timing context.",
+        "locations": [
+          {
+            "file": "scripts/fetch-people-avatars.mjs",
+            "line_start": 61,
+            "line_end": 84
+          },
+          {
+            "file": "scripts/captions.mjs",
+            "line_start": 264,
+            "line_end": 265
+          },
+          {
+            "file": "scripts/assemble-index.mjs",
+            "line_start": 318,
+            "line_end": 324
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "Network calls and generated external resource URLs are directly visible. They serve legitimate rendering needs, but users should understand that the workflow is not fully offline."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Path handling depends on trusted generated metadata",
+        "description": "Contributor avatar paths are derived from login names and later joined with the project directory before writing image files. GitHub login constraints make traversal unlikely in normal gh output, but the script does not independently validate that avatarFile remains inside assets/.",
+        "locations": [
+          {
+            "file": "scripts/ingest.mjs",
+            "line_start": 245,
+            "line_end": 249
+          },
+          {
+            "file": "scripts/fetch-people-avatars.mjs",
+            "line_start": 64,
+            "line_end": 84
+          }
+        ],
+        "confidence": 0.6,
+        "confidence_reasoning": "The path construction is visible and a malformed people.json could alter the write target. Normal GitHub usernames greatly limit practical exploitability, so this remains a low-severity concern."
+      },
+      {
+        "title": "Bulk static alerts are documentation and parser false positives",
+        "description": "Most Ruby backtick, weak cryptography, and system reconnaissance alerts occur in markdown instructions, code examples, visual vocabulary, regular expressions, or words such as md and sha-like fragments. I did not find evidence that those alerts represent cryptographic use, malware, or reconnaissance behavior.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 28,
+            "line_end": 30
+          },
+          {
+            "file": "references/story-design.md",
+            "line_start": 175,
+            "line_end": 185
+          },
+          {
+            "file": "scripts/lib/tokens.mjs",
+            "line_start": 25,
+            "line_end": 43
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The sampled alerts are clearly markdown formatting, shell examples, parser code, or design text. No evidence found that the reported weak-crypto or Ruby backtick patterns are used for hidden execution."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "execFileSync gh invocation",
+        "description": "fetch-pr.mjs invokes gh to read PR metadata, complete paginated file lists, and fetch diffs. It avoids shell interpolation by using execFileSync with argument arrays, but it still executes an external binary based on user-provided PR references.",
+        "locations": [
+          {
+            "file": "scripts/fetch-pr.mjs",
+            "line_start": 46,
+            "line_end": 48
+          },
+          {
+            "file": "scripts/fetch-pr.mjs",
+            "line_start": 87,
+            "line_end": 88
+          },
+          {
+            "file": "scripts/fetch-pr.mjs",
+            "line_start": 144,
+            "line_end": 147
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The external command pattern is explicit and semantically intentional. The absence of shell execution lowers injection confidence, but marketplace users should be warned about command execution."
+      },
+      {
+        "title": "Environment-selected media engine execution",
+        "description": "audio.mjs reads HF_MEDIA_ENGINE and then runs node on the selected engine path. This is useful for local overrides, but a poisoned environment could redirect the workflow to an unexpected script.",
+        "locations": [
+          {
+            "file": "scripts/audio.mjs",
+            "line_start": 71,
+            "line_end": 86
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The environment variable and spawnSync call are direct evidence. Risk depends on the local environment, so this is suspicious but not proof of malicious skill intent."
+      },
+      {
+        "title": "Untrusted PR text is copied into planning source files",
+        "description": "ingest.mjs includes PR body and representative diff content in visible-text.txt, which later guides storyboard creation. This creates a prompt-injection surface if PR content contains agent-targeted instructions.",
+        "locations": [
+          {
+            "file": "scripts/ingest.mjs",
+            "line_start": 449,
+            "line_end": 450
+          },
+          {
+            "file": "scripts/ingest.mjs",
+            "line_start": 474,
+            "line_end": 482
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 102,
+            "line_end": 104
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The source-to-agent data path is confirmed. I found no actual injection payload in the skill files, so this is a workflow exposure rather than a confirmed attack."
+      }
+    ],
+    "files_scanned": 21,
+    "total_lines": 4216,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T09:46:51.541Z",
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "network",
+      "filesystem",
+      "env_access"
+    ]
+  },
+  "content": {
+    "user_title": "Create PR Explainer Videos",
+    "value_statement": "Code changes are hard to explain quickly when reviewers only see a diff. This skill turns a GitHub pull request into a narrated HyperFrames video with storyboarded code beats, captions, audio, and rendered output.",
+    "seo_keywords": [
+      "Claude PR video skill",
+      "Codex PR explainer",
+      "Claude Code video generation",
+      "GitHub pull request video",
+      "HyperFrames PR walkthrough",
+      "code change explainer",
+      "developer changelog video",
+      "AI video composition",
+      "PR diff visualization"
+    ],
+    "actual_capabilities": [
+      "Fetches GitHub PR metadata, changed files, commits, comments, and full diffs through the gh CLI.",
+      "Builds a storyboard and narration plan for changelog, feature, fix, or refactor videos.",
+      "Creates HyperFrames HTML compositions for each storyboard frame and assembles an index video.",
+      "Generates or syncs narration, captions, background music, sound effects, and duration metadata.",
+      "Downloads contributor GitHub avatars for an optional credits frame.",
+      "Runs HyperFrames lint, validation, inspection, snapshot, preview, and render commands."
+    ],
+    "limitations": [
+      "Requires a valid GitHub PR reference and a working gh CLI authentication context.",
+      "Does not capture product websites or create product launch videos.",
+      "May call external services for avatars, fonts, media retrieval, and HyperFrames updates.",
+      "Quality depends on the clarity of the PR description, diff, and user-approved storyboard."
+    ],
+    "use_cases": [
+      {
+        "title": "Reviewer handoff",
+        "target_user": "Engineering leads",
+        "description": "Summarize a complex pull request as a short video before review or merge discussion."
+      },
+      {
+        "title": "Release communication",
+        "target_user": "Developer advocates",
+        "description": "Turn shipped feature PRs into visual changelog clips for internal teams or developer updates."
+      },
+      {
+        "title": "Fix explanation",
+        "target_user": "Support engineers",
+        "description": "Explain a bug fix by showing the symptom, the code change, and the corrected behavior."
+      }
+    ],
+    "prompt_templates": [
+      {
+        "title": "Basic PR video",
+        "scenario": "Beginner",
+        "prompt": "Create a 60 second PR explainer video for owner/repo#123. Use the default developer audience and recommend the best angle."
+      },
+      {
+        "title": "Fix walkthrough",
+        "scenario": "Intermediate",
+        "prompt": "Make a fix-explainer video for this PR. Show the broken behavior, the key diff hunk, and the final working behavior."
+      },
+      {
+        "title": "Release changelog clip",
+        "scenario": "Advanced",
+        "prompt": "Create a 90 second changelog video from this PR. Highlight three shipped changes, include captions, and add a contributor credits close if avatars are available."
+      },
+      {
+        "title": "Custom technical narrative",
+        "scenario": "Advanced",
+        "prompt": "Turn this PR into a refactor walkthrough for senior backend engineers. Keep narration concise, use two real diff hunks, and emphasize unchanged behavior with a mechanism diagram."
+      }
+    ],
+    "output_examples": [
+      {
+        "input": "A GitHub PR that adds retry logic to an API client.",
+        "output": "A short fix explainer with a bug setup, retry-flow diagram, before-and-after code beat, captions, and a rendered MP4."
+      },
+      {
+        "input": "A release PR containing several user-facing developer tooling updates.",
+        "output": "A changelog-style video with three concise feature beats, contributor context, synchronized narration, and background music."
+      },
+      {
+        "input": "A refactor PR that removes duplicate parsing paths without changing behavior.",
+        "output": "A refactor walkthrough that contrasts old and new structure, shows representative diff hunks, and ends with evidence of simpler code."
+      }
+    ],
+    "best_practices": [
+      "Review the fetched PR content before approving the storyboard, especially for private repositories.",
+      "Keep videos focused on one clear change or three related changelog items.",
+      "Run HyperFrames lint, validate, inspect, and snapshot before rendering the final MP4."
+    ],
+    "anti_patterns": [
+      "Do not use this skill for website tours, product launch promos, or topic explainers without a PR.",
+      "Do not paste secrets, tokens, or private customer data into PR descriptions used for video generation.",
+      "Do not approve a storyboard that repeats the diff file by file instead of explaining the change."
+    ],
+    "faq": [
+      {
+        "question": "What input does this skill need?",
+        "answer": "It needs a GitHub PR URL, an owner/repo#number reference, a PR number in a checked-out repo, or the phrase this PR."
+      },
+      {
+        "question": "Does it capture a website?",
+        "answer": "No. It reads PR data and diffs, then builds invented visuals and code-focused HyperFrames compositions."
+      },
+      {
+        "question": "Can it work with private repositories?",
+        "answer": "Yes, if gh is authenticated and the user has access. Private PR content may be written into local project files."
+      },
+      {
+        "question": "Does it use external network services?",
+        "answer": "Yes. It can use gh, GitHub avatar downloads, HyperFrames package commands, font CDNs, and media services when enabled."
+      },
+      {
+        "question": "Can I choose the video style?",
+        "answer": "The workflow fixes the visual preset to the Claude style and lets the user choose angle, length, aspect ratio, and language."
+      },
+      {
+        "question": "What is the final output?",
+        "answer": "The workflow assembles HyperFrames HTML and renders an MP4, normally at videos/<project>/renders/video.mp4."
+      }
+    ]
+  },
+  "file_structure": [
+    {
+      "name": "references",
+      "type": "dir",
+      "path": "references",
+      "children": [
+        {
+          "name": "code-vocabulary.md",
+          "type": "file",
+          "path": "references/code-vocabulary.md",
+          "lines": 112
+        },
+        {
+          "name": "composition.md",
+          "type": "file",
+          "path": "references/composition.md",
+          "lines": 124
+        },
+        {
+          "name": "motion-language.md",
+          "type": "file",
+          "path": "references/motion-language.md",
+          "lines": 142
+        },
+        {
+          "name": "story-design.md",
+          "type": "file",
+          "path": "references/story-design.md",
+          "lines": 208
+        },
+        {
+          "name": "visual-design.md",
+          "type": "file",
+          "path": "references/visual-design.md",
+          "lines": 107
+        }
+      ]
+    },
+    {
+      "name": "scripts",
+      "type": "dir",
+      "path": "scripts",
+      "children": [
+        {
+          "name": "lib",
+          "type": "dir",
+          "path": "scripts/lib",
+          "children": [
+            {
+              "name": "assets.mjs",
+              "type": "file",
+              "path": "scripts/lib/assets.mjs",
+              "lines": 56
+            },
+            {
+              "name": "dimensions.mjs",
+              "type": "file",
+              "path": "scripts/lib/dimensions.mjs",
+              "lines": 46
+            },
+            {
+              "name": "storyboard.mjs",
+              "type": "file",
+              "path": "scripts/lib/storyboard.mjs",
+              "lines": 250
+            },
+            {
+              "name": "tokens.mjs",
+              "type": "file",
+              "path": "scripts/lib/tokens.mjs",
+              "lines": 175
+            },
+            {
+              "name": "transition-registry.mjs",
+              "type": "file",
+              "path": "scripts/lib/transition-registry.mjs",
+              "lines": 39
+            },
+            {
+              "name": "transitions.json",
+              "type": "file",
+              "path": "scripts/lib/transitions.json",
+              "lines": 72
+            }
+          ]
+        },
+        {
+          "name": "assemble-index.mjs",
+          "type": "file",
+          "path": "scripts/assemble-index.mjs",
+          "lines": 364
+        },
+        {
+          "name": "audio.mjs",
+          "type": "file",
+          "path": "scripts/audio.mjs",
+          "lines": 254
+        },
+        {
+          "name": "build-frame.mjs",
+          "type": "file",
+          "path": "scripts/build-frame.mjs",
+          "lines": 292
+        },
+        {
+          "name": "captions.mjs",
+          "type": "file",
+          "path": "scripts/captions.mjs",
+          "lines": 513
+        },
+        {
+          "name": "fetch-people-avatars.mjs",
+          "type": "file",
+          "path": "scripts/fetch-people-avatars.mjs",
+          "lines": 120
+        },
+        {
+          "name": "fetch-pr.mjs",
+          "type": "file",
+          "path": "scripts/fetch-pr.mjs",
+          "lines": 165
+        },
+        {
+          "name": "ingest.mjs",
+          "type": "file",
+          "path": "scripts/ingest.mjs",
+          "lines": 540
+        },
+        {
+          "name": "transitions.mjs",
+          "type": "file",
+          "path": "scripts/transitions.mjs",
+          "lines": 321
+        }
+      ]
+    },
+    {
+      "name": "sub-agents",
+      "type": "dir",
+      "path": "sub-agents",
+      "children": [
+        {
+          "name": "frame-worker.md",
+          "type": "file",
+          "path": "sub-agents/frame-worker.md",
+          "lines": 80
+        }
+      ]
+    },
+    {
+      "name": "SKILL.md",
+      "type": "file",
+      "path": "SKILL.md",
+      "lines": 236
+    }
+  ]
+}
