@@ -3,21 +3,31 @@
 # behavior) -> best-of-breed verify (PK) -> LLM compose -> whole-pack verify
 # -> optionally write a candidate to Supabase (review_status=generated).
 # Clean runner HOME = accurate used-skill scoring (no personal global skills).
-# Uses `skillstore-cli plugin generate` (CLI >= 1.30.0).
+# Uses `skillstore-cli plugin generate` (CLI >= 1.41.0 for --scenario).
 
 name: Generate Pack
 
 on:
+  # Daily candidate generation: one scenario/day on a 7-day rotation. The CLI's
+  # built-in catalog (`--scenario daily-rotation`) picks today's scenario and
+  # forces a stable slug, so re-runs are idempotent and approved packs are never
+  # overwritten (an approved slug writes a rolling `-candidate` instead).
+  schedule:
+    - cron: '17 19 * * *'
   workflow_dispatch:
     inputs:
+      scenario:
+        description: 'Built-in scenario id or "daily-rotation" (fills task/keywords/slug; leave task/keywords blank)'
+        type: string
+        required: false
       task:
-        description: 'End-to-end task the pack must solve (also the PK task)'
+        description: 'End-to-end task the pack must solve (ignored when scenario is set)'
         type: string
-        required: true
+        required: false
       keywords:
-        description: 'Comma-separated candidate search terms (e.g. "code review,review,reviewer")'
+        description: 'Comma-separated candidate search terms (ignored when scenario is set)'
         type: string
-        required: true
+        required: false
       max_candidates:
         description: 'Max skills to PK (default: 5)'
         type: string
@@ -86,6 +96,8 @@ jobs:
         id: gen
         env:
           CLI: ${{ steps.cli.outputs.cli-path }}
+          EVENT: ${{ github.event_name }}
+          SCENARIO: ${{ inputs.scenario }}
           TASK: ${{ inputs.task }}
           KEYWORDS: ${{ inputs.keywords }}
           MAXC: ${{ inputs.max_candidates }}
@@ -106,20 +118,27 @@ jobs:
         run: |
           set +e  # plugin generate exits non-zero when the pack FAILs verification; that's data, not a job error
           mkdir -p pack-results
-          WRITE_FLAG=""
-          [ "${{ inputs.write }}" = "true" ] && WRITE_FLAG="--write"
 
-          "$CLI" plugin generate \
-            --task "$TASK" \
-            --keywords "$KEYWORDS" \
-            --skills-dir skills \
-            --max-candidates "$MAXC" \
-            --pick "$PICK" \
-            --model "$MODEL" \
-            --judge-model "$JUDGE" \
-            --runs "$RUNS" \
-            --threshold "$THRESHOLD" \
-            $WRITE_FLAG --json > pack-results/result.json 2> >(tee pack-results/run.log >&2)
+          ARGS=(plugin generate --skills-dir skills --json)
+          if [ "$EVENT" = "schedule" ]; then
+            # Daily rotation: today's scenario, written as a generated candidate.
+            ARGS+=(--scenario daily-rotation --write \
+              --max-candidates 8 --pick 3 \
+              --model sonnet --judge-model gpt-5.5 --runs 1 --threshold 7)
+          else
+            # Manual: a scenario id (fills task/keywords) OR explicit task+keywords.
+            if [ -n "$SCENARIO" ]; then
+              ARGS+=(--scenario "$SCENARIO")
+            else
+              ARGS+=(--task "$TASK" --keywords "$KEYWORDS")
+            fi
+            ARGS+=(--max-candidates "$MAXC" --pick "$PICK" \
+              --model "$MODEL" --judge-model "$JUDGE" \
+              --runs "$RUNS" --threshold "$THRESHOLD")
+            [ "${{ inputs.write }}" = "true" ] && ARGS+=(--write)
+          fi
+
+          "$CLI" "${ARGS[@]}" > pack-results/result.json 2> >(tee pack-results/run.log >&2)
           RC=$?
           echo "exit code: $RC"
           cat pack-results/result.json || true
@@ -132,7 +151,7 @@ jobs:
             FIT=$(jq -r '.packFitness.medianScore' "$R")
             PASS=$(jq -r 'if .packFitness.passed then "✅ PASS" else "❌ FAIL" end' "$R")
             USED=$(jq -r '(.packFitness.usedSkillRate*100)|floor' "$R")
-            WRITTEN=$(jq -r 'if .written then .written.pluginId + " (review_status=generated)" else "dry-run" end' "$R")
+            WRITTEN=$(jq -r 'if .written then (.written.pluginId + " (review_status=generated)" + (if .comparisonOf then " [comparison of " + .comparisonOf + "]" else "" end)) elif .skippedReason then ("skipped — " + .skippedReason) elif .writeError then ("write failed — " + .writeError) else "dry-run" end' "$R")
             {
               echo "## Pack Generation"
               echo ""
