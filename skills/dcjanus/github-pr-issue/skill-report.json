@@ -1,30 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T01:56:54.169Z",
+    "generated_at": "2026-06-29T17:39:09.256Z",
     "slug": "dcjanus-github-pr-issue",
     "source_url": "https://github.com/DCjanus/prompts/tree/master/skills/github-pr-issue",
     "source_ref": "master",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "586616c989845b1b48b4564e20d8424c083049a0bba8f80f4ebe07b31101e2c0",
-    "tree_hash": "285c868d0b2278a84520937a3fc847c336d7bfce6101e2ec219f4b58853a6040"
+    "tree_hash": "146cbdcf2497575519330983910ebe4404fd87b33f66203cb80fda3cd3b2925d"
   },
   "skill": {
     "name": "github-pr-issue",
     "description": "查看/更新 GitHub Issue、PR（含评论与 diff），并按团队规范非交互创建或修改 PR；涉及 GitHub Issue/PR 的操作时使用。",
-    "summary": "查看/更新 GitHub Issue、PR（含评论与 diff），并按团队规范非交互创建或修改 PR；涉及 GitHub Issue/PR 的操作时使用。",
-    "icon": "🐙",
+    "summary": "Use GitHub CLI workflows to read, create, and update GitHub issues and pull requests.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "DCjanus",
     "license": "MIT",
-    "category": "coding",
+    "category": "devops",
     "tags": [
       "github",
-      "cli",
-      "pull-request",
-      "issues"
+      "pull-requests",
+      "issues",
+      "github-cli",
+      "code-review"
     ],
     "supported_tools": [
       "claude",
@@ -37,10 +38,10 @@
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Low-risk skill that uses legitimate GitHub CLI commands and API calls to github.com. The external_commands pattern at read_pr.py:54 calls 'gh auth token' with hardcoded arguments for authentication. Network calls only target api.github.com. All cryptographic algorithm and obfuscation findings are false positives - the scanner misidentified Pydantic model field names (totalCount) as crypto functions. The backtick references in SKILL.md are documentation syntax, not executable code. This is a standard developer tool for GitHub workflow automation.",
+    "summary": "Static analysis flagged command execution, network access, weak cryptography, and entropy concerns. Review confirms legitimate GitHub CLI and GitHub API usage, while weak cryptography and entropy alerts are false positives from model names and Markdown content. The skill is publishable with a medium warning because it retrieves authenticated GitHub data and instructs agents to create or edit issues and pull requests.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -48,7 +49,22 @@
           {
             "file": "scripts/read_pr.py",
             "line_start": 54,
-            "line_end": 62
+            "line_end": 54
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 13
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 26,
+            "line_end": 31
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 45,
+            "line_end": 53
           }
         ]
       },
@@ -62,142 +78,287 @@
           },
           {
             "file": "scripts/read_pr.py",
+            "line_start": 104,
+            "line_end": 135
+          },
+          {
+            "file": "scripts/read_pr.py",
             "line_start": 337,
             "line_end": 445
+          },
+          {
+            "file": "scripts/read_pr.py",
+            "line_start": 453,
+            "line_end": 456
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 13
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 3,
-    "total_lines": 785,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T01:56:54.169Z"
+    "medium_findings": [
+      {
+        "title": "Authenticated GitHub Data Retrieval",
+        "description": "The helper script retrieves a GitHub token through the GitHub CLI and sends authenticated requests to GitHub API endpoints. This is consistent with the skill purpose, but it can expose private pull request content, comments, diffs, and reviewer data to the agent session when users provide private repository URLs.",
+        "locations": [
+          {
+            "file": "scripts/read_pr.py",
+            "line_start": 51,
+            "line_end": 82
+          },
+          {
+            "file": "scripts/read_pr.py",
+            "line_start": 337,
+            "line_end": 445
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.72,
+        "confidence_reasoning": "The token retrieval and authenticated GitHub API requests are directly present. The use appears intentional and limited to GitHub, so the risk is data exposure through legitimate capability rather than confirmed malicious exfiltration."
+      },
+      {
+        "title": "Issue and Pull Request Write Operations",
+        "description": "The skill instructs agents to use non-interactive GitHub CLI commands to create issues, create pull requests, and edit pull requests. These operations are legitimate for the skill, but they can modify repository state if used without explicit user confirmation.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 31
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 45,
+            "line_end": 53
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "The Markdown clearly directs use of `gh issue create`, `gh pr new`, and `gh pr edit`. This is intended automation, but it has repository write impact."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Weak Cryptography Alerts Are False Positives",
+        "description": "The flagged lines define Pydantic models and output fields such as comment, review, and node containers. No hashing, encryption, signing, or cryptographic algorithm use was found at the reported locations.",
+        "locations": [
+          {
+            "file": "scripts/read_pr.py",
+            "line_start": 252,
+            "line_end": 269
+          },
+          {
+            "file": "scripts/read_pr.py",
+            "line_start": 401,
+            "line_end": 435
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.94,
+        "confidence_reasoning": "The cited code contains data model and assignment logic, not cryptographic APIs. The SKILL.md line is only descriptive metadata."
+      },
+      {
+        "title": "Markdown Command Examples Are Not Hidden Execution",
+        "description": "Many external command detections in SKILL.md are documentation examples for GitHub CLI usage. They do not execute by themselves, but they should still be treated as user-approved repository operations.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 9,
+            "line_end": 22
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 53
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "The detections are inside Markdown instructions and fenced examples. They become operational only if the agent follows them in response to a user task."
+      },
+      {
+        "title": "High Entropy Alert Is Not Supported By Malicious Content",
+        "description": "The SKILL.md file is short Markdown with Chinese instructions, CLI examples, and front matter. No encoded payload, binary content, or prompt injection attempt was found.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 1,
+            "line_end": 58
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.9,
+        "confidence_reasoning": "Manual review found readable Markdown rather than obfuscated text. The entropy heuristic is likely affected by multilingual text and command syntax."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Subprocess Call To GitHub CLI",
+        "description": "The script executes `gh auth token` through subprocess.run to obtain the current user's GitHub token. Arguments are fixed, so command injection risk is low, but the pattern depends on local CLI credentials.",
+        "locations": [
+          {
+            "file": "scripts/read_pr.py",
+            "line_start": 51,
+            "line_end": 64
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The subprocess call is present and uses fixed arguments. The security concern is credential use, not shell injection."
+      },
+      {
+        "title": "Authenticated Network Requests To GitHub",
+        "description": "The script uses httpx to request GitHub API resources for pull requests, comments, reviews, files, commits, diffs, and rate limit data. The destination is constrained to GitHub API, but private repository data can be returned.",
+        "locations": [
+          {
+            "file": "scripts/read_pr.py",
+            "line_start": 104,
+            "line_end": 135
+          },
+          {
+            "file": "scripts/read_pr.py",
+            "line_start": 337,
+            "line_end": 445
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.8,
+        "confidence_reasoning": "The network request helpers and GitHub endpoint calls are explicit. URL parsing restricts user input to github.com pull request links, reducing malicious redirect risk."
+      }
+    ],
+    "files_scanned": 2,
+    "total_lines": 572,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T17:39:09.256Z",
+    "risk_factors": [
+      "external_commands",
+      "network"
+    ]
   },
   "content": {
-    "user_title": "View and manage GitHub Issues and PRs",
-    "value_statement": "Viewing GitHub Issues and PRs requires multiple CLI commands. This skill provides unified commands to view, create, and update Issues and PRs following team standards. Streamline your GitHub workflow with standardized PR descriptions and non-interactive Issue creation.",
+    "user_title": "Manage GitHub PRs and Issues",
+    "value_statement": "Teams need consistent GitHub issue and pull request workflows without repeated manual CLI steps. This skill guides Claude, Codex, and Claude Code through reading PR context and creating or updating GitHub records.",
     "seo_keywords": [
-      "GitHub PR viewer",
-      "GitHub Issue manager",
-      "Claude Code GitHub",
-      "Claude GitHub integration",
-      "Codex GitHub CLI",
-      "pull request automation",
-      "gh CLI tool",
-      "GitHub workflow automation",
-      "GitHub CLI skill"
+      "Claude GitHub pull requests",
+      "Codex GitHub issues",
+      "Claude Code PR workflow",
+      "GitHub CLI automation",
+      "pull request review",
+      "issue creation",
+      "PR diff reader",
+      "GitHub comments",
+      "developer workflow"
     ],
     "actual_capabilities": [
-      "View GitHub PR details with optional diff, comments, reviews, and stats",
-      "Create GitHub Issues non-interactively using team standards",
-      "Create GitHub PRs with semantic title and standardized description",
-      "Update Issue and PR titles or descriptions",
-      "Export PR information as structured YAML output",
-      "Check GitHub API rate limit status"
+      "Reads GitHub pull request metadata through a bundled Python helper.",
+      "Can include PR body, diff, reviews, comments, files, commits, statistics, and rate limit data.",
+      "Uses the local GitHub CLI authentication token for GitHub API requests.",
+      "Provides non-interactive patterns for creating GitHub issues.",
+      "Provides non-interactive patterns for creating and editing pull requests.",
+      "Defines a concise pull request body format for summary, changes, tradeoffs, testing, and notes."
     ],
     "limitations": [
-      "Requires GitHub CLI (gh) to be installed and authenticated",
-      "Only supports github.com domain PRs and Issues",
-      "Does not create or modify PR review comments",
-      "Rate limits apply based on GitHub API tier"
+      "Requires GitHub CLI to be installed and authenticated before the helper script works.",
+      "Only supports pull request URLs on github.com.",
+      "Does not provide thread structure for review comments.",
+      "Can expose private repository data to the active AI session when used on private repositories."
     ],
     "use_cases": [
       {
-        "target_user": "Software developers",
-        "title": "Quick PR code review",
-        "description": "Pull PR details with diff in one command to review changes without opening browser"
+        "title": "Review PR Context",
+        "description": "Fetch a focused view of a pull request with selected comments, reviews, files, commits, or diff content.",
+        "target_user": "Software engineer"
       },
       {
-        "target_user": "Team leads",
-        "title": "Standardized PR descriptions",
-        "description": "Generate consistent PR descriptions following team conventions with semantic prefixes"
+        "title": "Create Structured Pull Requests",
+        "description": "Prepare and submit a pull request with a clear title, summary, key changes, tradeoffs, and testing notes.",
+        "target_user": "Feature developer"
       },
       {
-        "target_user": "DevOps engineers",
-        "title": "Issue tracking workflow",
-        "description": "Create and update Issues programmatically in CI/CD pipelines"
+        "title": "Open Concise Issues",
+        "description": "Create GitHub issues with short, readable titles and multiline descriptions through non-interactive CLI input.",
+        "target_user": "Project maintainer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "View PR details",
-        "scenario": "When you need to see a pull request",
-        "prompt": "View this GitHub PR: https://github.com/OWNER/REPO/pull/123 with diff, stats, and all comments"
+        "title": "Read a Pull Request",
+        "scenario": "Beginner review context",
+        "prompt": "Read this GitHub pull request and summarize the title, body, changed files, and test notes: <PR URL>"
       },
       {
-        "title": "Create Issue",
-        "scenario": "When creating a new Issue",
-        "prompt": "Create a GitHub Issue titled 'feat: add user authentication' with body describing the feature requirement"
+        "title": "Review PR Comments",
+        "scenario": "Comment and review triage",
+        "prompt": "Fetch this pull request with reviews, review comments, and issue comments. Summarize unresolved reviewer concerns: <PR URL>"
       },
       {
-        "title": "Create PR",
-        "scenario": "When creating a pull request",
-        "prompt": "Create a PR from branch 'feature/new-login' to main with semantic title 'feat(auth): implement OAuth2 login' and description including summary, key changes, and testing instructions"
+        "title": "Create an Issue",
+        "scenario": "Issue creation",
+        "prompt": "Create a GitHub issue for this bug. Use a concise title and include reproduction steps, expected behavior, and impact."
       },
       {
-        "title": "Update PR title",
-        "scenario": "When PR title needs correction",
-        "prompt": "Update PR title to 'fix: resolve memory leak in connection pool' after reviewing the current title"
+        "title": "Prepare a Pull Request",
+        "scenario": "Advanced PR publishing",
+        "prompt": "Check the current branch, prepare a semantic PR title, write the PR body using the team format, and create a draft PR."
       }
     ],
     "output_examples": [
       {
-        "input": "View PR https://github.com/owner/repo/pull/456 with diff, stats, and comments",
-        "output": [
-          "PR #456: feat: add user dashboard",
-          "Author: developer | Status: open, mergeable",
-          "Additions: +245 lines, Deletions: -32 lines",
-          "Changed files: 8 | Comments: 5",
-          "Reviews: 2 approved, 1 changes requested"
-        ]
+        "input": "Read a PR with files, stats, and reviews.",
+        "output": "A concise review brief with PR title, author, changed file list, additions and deletions, reviewer states, and key discussion points."
       },
       {
-        "input": "Create a GitHub Issue about a bug in the login flow",
-        "output": [
-          "Issue created successfully",
-          "https://github.com/owner/repo/issues/789"
-        ]
+        "input": "Create a pull request after changes are pushed.",
+        "output": "A GitHub pull request URL after submitting a structured title and body with summary, key changes, constraints, and testing notes."
+      },
+      {
+        "input": "Create an issue for a regression.",
+        "output": "A GitHub issue URL after submitting a short title and a clear multiline issue description."
       }
     ],
     "best_practices": [
-      "Always use --body-file for multi-line descriptions to avoid shell escaping issues",
-      "Include the PR URL as a separate line after successful creation",
-      "Review current content before updating any Issue or PR"
+      "Confirm repository, branch, base branch, and write intent before creating or editing issues and pull requests.",
+      "Request only the PR sections needed for the task to reduce private data exposure.",
+      "Include testing evidence or clearly state why testing was not performed."
     ],
     "anti_patterns": [
-      "Using interactive editors for Issue or PR creation in automated workflows",
-      "Skipping the review step before updating titles or descriptions",
-      "Making multiple gh API calls when one script execution can gather all needed data"
+      "Do not run write commands against a repository without explicit user approval.",
+      "Do not include private diffs, comments, or review content in public summaries.",
+      "Do not create vague PR bodies that only list implementation steps."
     ],
     "faq": [
       {
-        "question": "What tools support this skill?",
-        "answer": "This skill works with Claude, OpenAI Codex, and Claude Code CLI environments."
+        "question": "Does this skill require GitHub CLI?",
+        "answer": "Yes. The helper script calls GitHub CLI to obtain the current authentication token."
       },
       {
-        "question": "What are the rate limits?",
-        "answer": "GitHub API limits vary by plan. Free tier: 60 requests per hour. Authenticated: 5,000 per hour."
+        "question": "Can it read private pull requests?",
+        "answer": "Yes, if the authenticated GitHub account has access. Private data can enter the AI session."
       },
       {
-        "question": "How does authentication work?",
-        "answer": "The skill uses 'gh auth token' to retrieve your GitHub CLI authentication token automatically."
+        "question": "Can it create pull requests?",
+        "answer": "Yes. The skill provides non-interactive GitHub CLI commands for creating and editing pull requests."
       },
       {
-        "question": "Is my GitHub token stored or logged?",
-        "answer": "No. Tokens are used only for API requests and never written to logs or disk."
+        "question": "Can it create GitHub issues?",
+        "answer": "Yes. It provides a non-interactive issue creation pattern using a body file."
       },
       {
-        "question": "Why does the script fail with 'gh command not found'?",
-        "answer": "GitHub CLI must be installed separately. Install via 'brew install gh' or from github.com/cli"
+        "question": "Does it support GitHub Enterprise Server?",
+        "answer": "No evidence found. The helper script only accepts github.com pull request URLs."
       },
       {
-        "question": "How does this differ from GitHub Copilot?",
-        "answer": "This skill focuses on PR and Issue operations via CLI, while Copilot provides code suggestions."
+        "question": "Is it safe to publish?",
+        "answer": "It is publishable with a medium warning because it uses local GitHub credentials and can modify repository state."
       }
     ]
   },

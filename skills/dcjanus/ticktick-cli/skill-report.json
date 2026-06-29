@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T02:15:20.057Z",
+    "generated_at": "2026-06-29T16:45:11.303Z",
     "slug": "dcjanus-ticktick-cli",
     "source_url": "https://github.com/DCjanus/prompts/tree/master/skills/ticktick-cli",
     "source_ref": "master",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "ca5bafd81dd0a5b2317a9697eae0b74bf30466556dd61c409fc83877094c0f7d",
-    "tree_hash": "4c827d9a714dcfae375c414c3aa129eabd9af0e509bfdcf6358db06e8e170bc2"
+    "tree_hash": "7b8e02083bb1c485e55cca9ae6f2466f1d76c6a5f7083e340e74ca03ebbb9c5b"
   },
   "skill": {
     "name": "ticktick-cli",
-    "description": "使用 Python CLI 与 Dida365 Open API 交互以管理滴答清单任务/项目，适用于需要通过脚本或命令行调用滴答清单接口的场景（如项目/任务的查询、创建、更新、完成、删除）。",
-    "summary": "使用 Python CLI 与 Dida365 Open API 交互以管理滴答清单任务/项目，适用于需要通过脚本或命令行调用滴答清单接口的场景（如项目/任务的查询、创建、更新、完成、删除）。",
-    "icon": "✓",
+    "description": "Manage Dida365 and TickTick projects and tasks from a Python command-line interface.",
+    "summary": "Use a Python CLI to list, create, update, complete, and delete Dida365 tasks and projects.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "DCjanus",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
-      "task-management",
-      "cli",
       "ticktick",
-      "dida365"
+      "dida365",
+      "tasks",
+      "cli",
+      "oauth"
     ],
     "supported_tools": [
       "claude",
@@ -32,35 +32,56 @@
       "claude-code"
     ],
     "risk_factors": [
-      "network",
       "scripts",
+      "network",
       "filesystem",
-      "env_access"
-    ]
+      "external_commands"
+    ],
+    "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "This is a legitimate CLI tool for managing TickTick/Dida365 tasks via the official Open API. The static analyzer produced 314 false positive findings by misclassifying: (1) Pydantic Field() definitions as cryptographic algorithms, (2) markdown backtick code formatting as shell execution, (3) JavaScript template literals as backtick execution. All network access is to the official Dida365 API endpoints. File read capability for JSON input and environment variable configuration are standard CLI practices appropriate for this use case.",
+    "safe_to_publish": false,
+    "summary": "Static analysis found many high-severity matches, but most weak-crypto, reconnaissance, and external-command hits are false positives from field names, Markdown examples, and template strings. AI review confirmed a real high-risk issue: the bundled OAuth Worker returns access tokens in a browser JSON response and the CLI directs users to a maintainer-hosted authorization broker. The CLI also performs authenticated network requests and can read checklist JSON from local files, so publication should wait for token-handling and user-consent improvements.",
     "risk_factor_evidence": [
-      {
-        "factor": "network",
-        "evidence": [
-          {
-            "file": "scripts/ticktick_api_client.py",
-            "line_start": 8,
-            "line_end": 8
-          }
-        ]
-      },
       {
         "factor": "scripts",
         "evidence": [
           {
             "file": "scripts/ticktick_cli.py",
             "line_start": 1,
-            "line_end": 549
+            "line_end": 10
+          },
+          {
+            "file": "scripts/ticktick_cli.py",
+            "line_start": 34,
+            "line_end": 43
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "assets/ticktick-oauth-worker.js",
+            "line_start": 4,
+            "line_end": 7
+          },
+          {
+            "file": "assets/ticktick-oauth-worker.js",
+            "line_start": 77,
+            "line_end": 83
+          },
+          {
+            "file": "scripts/ticktick_api_client.py",
+            "line_start": 173,
+            "line_end": 200
+          },
+          {
+            "file": "scripts/ticktick_cli.py",
+            "line_start": 24,
+            "line_end": 27
           }
         ]
       },
@@ -69,179 +90,353 @@
         "evidence": [
           {
             "file": "scripts/ticktick_cli.py",
-            "line_start": 215,
-            "line_end": 220
+            "line_start": 213,
+            "line_end": 219
           }
         ]
       },
       {
-        "factor": "env_access",
+        "factor": "external_commands",
         "evidence": [
           {
-            "file": "scripts/ticktick_cli.py",
-            "line_start": 247,
-            "line_end": 261
+            "file": "SKILL.md",
+            "line_start": 23,
+            "line_end": 28
+          },
+          {
+            "file": "README.md",
+            "line_start": 14,
+            "line_end": 20
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "high_findings": [
       {
-        "title": "Optional file read capability",
-        "description": "The CLI supports reading JSON input from files using the @path syntax. This is a legitimate feature for bulk operations.",
+        "title": "OAuth Access Token Exposed in Browser Response",
+        "description": "The OAuth Worker exchanges an authorization code for a token and returns the access token directly as JSON from the callback endpoint. This exposes account access tokens to browser history, logs, extensions, screenshots, and any party that can observe the callback response. This is a high-risk design issue, although I did not find evidence of confirmed malicious intent.",
         "locations": [
           {
-            "file": "scripts/ticktick_cli.py",
-            "line_start": 215,
-            "line_end": 220
+            "file": "assets/ticktick-oauth-worker.js",
+            "line_start": 144,
+            "line_end": 198
           }
-        ]
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The callback extracts access_token from the token response and returns it in a JSON response. The semantic context confirms credential exposure, not only a pattern match."
       },
       {
-        "title": "OAuth token via environment variable",
-        "description": "TICKTICK_TOKEN environment variable is used for authentication. Standard practice for CLI tools.",
+        "title": "Maintainer-Hosted OAuth Broker Handles User Authorization",
+        "description": "The CLI directs users to a hardcoded Cloudflare Worker authorization URL. That service handles OAuth callback processing and token exchange for users, which centralizes trust in the skill author infrastructure. Users cannot easily verify retention, logging, or operational controls for that broker from the skill package alone.",
         "locations": [
           {
             "file": "scripts/ticktick_cli.py",
-            "line_start": 247,
-            "line_end": 249
+            "line_start": 24,
+            "line_end": 24
+          },
+          {
+            "file": "assets/ticktick-oauth-worker.js",
+            "line_start": 6,
+            "line_end": 7
+          },
+          {
+            "file": "assets/ticktick-oauth-worker.js",
+            "line_start": 158,
+            "line_end": 167
           }
-        ]
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The hardcoded broker URL and worker callback flow are explicit. Risk depends on deployment practices, but the centralized credential handling is clear."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 7,
-    "total_lines": 2246,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T02:15:20.057Z"
+    "medium_findings": [
+      {
+        "title": "Authenticated Requests Use a Configurable Base URL",
+        "description": "The API client attaches the bearer token to every request, and the CLI allows the base URL to come from options or environment variables. This is useful for testing, but a malicious prompt or environment change could send the token to an attacker-controlled endpoint.",
+        "locations": [
+          {
+            "file": "scripts/ticktick_cli.py",
+            "line_start": 64,
+            "line_end": 84
+          },
+          {
+            "file": "scripts/ticktick_api_client.py",
+            "line_start": 173,
+            "line_end": 200
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The bearer-token header and configurable base_url are directly visible. Exploitation requires unsafe configuration or prompt-mediated command execution."
+      },
+      {
+        "title": "Local File Contents Can Be Sent as Task Checklist Data",
+        "description": "The --item-json option accepts an @path value and reads the referenced local file before sending parsed checklist data through the API. This is legitimate user-requested functionality, but it can disclose local file contents if an agent follows an untrusted instruction.",
+        "locations": [
+          {
+            "file": "scripts/ticktick_cli.py",
+            "line_start": 207,
+            "line_end": 235
+          },
+          {
+            "file": "scripts/ticktick_cli.py",
+            "line_start": 411,
+            "line_end": 418
+          },
+          {
+            "file": "scripts/ticktick_cli.py",
+            "line_start": 459,
+            "line_end": 484
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "The @path read behavior is explicit and feeds task creation or update. It is not malicious by itself, but it creates a clear prompt-driven disclosure path."
+      },
+      {
+        "title": "Destructive Task and Project Operations Lack Interactive Confirmation",
+        "description": "Project and task delete commands call the API immediately after receiving identifiers. The skill documentation warns that deletion is dangerous, but the CLI does not add a confirmation prompt or dry-run safeguard.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 21
+          },
+          {
+            "file": "scripts/ticktick_cli.py",
+            "line_start": 371,
+            "line_end": 378
+          },
+          {
+            "file": "scripts/ticktick_cli.py",
+            "line_start": 521,
+            "line_end": 529
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The delete commands directly call delete_project and delete_task. This is intended functionality, but the absence of confirmation increases operational risk."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static External Command Matches Are Mostly Documentation False Positives",
+        "description": "Many external-command alerts point to Markdown inline command examples or a JavaScript template string, not shell execution. The skill does instruct agents to run a local CLI, so command use is expected and should remain visible as a risk factor.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 23,
+            "line_end": 28
+          },
+          {
+            "file": "README.md",
+            "line_start": 14,
+            "line_end": 20
+          },
+          {
+            "file": "assets/ticktick-oauth-worker.js",
+            "line_start": 102,
+            "line_end": 106
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The cited lines are Markdown examples or a thrown JavaScript error using a template literal. I did not find Ruby-style shell backtick execution in these locations."
+      },
+      {
+        "title": "Weak Cryptography Alerts Are Field-Name False Positives",
+        "description": "The scanner reported many weak cryptography hits, but reviewed code and documentation show API field names such as id, projectId, desc, status, and token. No MD5, SHA1, DES, RC4, or custom cryptographic implementation was found in the reviewed files.",
+        "locations": [
+          {
+            "file": "references/dida365-openapi.md",
+            "line_start": 21,
+            "line_end": 29
+          },
+          {
+            "file": "references/dida365-openapi.md",
+            "line_start": 712,
+            "line_end": 719
+          },
+          {
+            "file": "scripts/ticktick_api_client.py",
+            "line_start": 41,
+            "line_end": 118
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The high-volume alerts align with ordinary API schema field names in code and reference docs. Reviewed files did not contain cryptographic algorithms at the flagged locations."
+      },
+      {
+        "title": "No Prompt Injection Attempt Found",
+        "description": "Targeted review did not find text that claims system authority, asks reviewers to ignore instructions, or requests skipped analysis. No evidence found for prompt injection in the reviewed skill files.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 1,
+            "line_end": 74
+          },
+          {
+            "file": "README.md",
+            "line_start": 1,
+            "line_end": 27
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "A targeted search for common prompt-injection phrases returned no matches, and manual review of SKILL.md and README.md did not show override language."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Bearer Token Returned to Client-Side Callback",
+        "description": "The worker returns access_token in a JSON response instead of storing it server-side or using a safer local device flow.",
+        "locations": [
+          {
+            "file": "assets/ticktick-oauth-worker.js",
+            "line_start": 180,
+            "line_end": 198
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The access token value is assigned and returned in the callback response. This is direct evidence of token exposure."
+      },
+      {
+        "title": "Untrusted @path Input Reads Local Files",
+        "description": "The CLI treats --item-json values beginning with @ as local file paths and reads them into task payload data.",
+        "locations": [
+          {
+            "file": "scripts/ticktick_cli.py",
+            "line_start": 213,
+            "line_end": 219
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The file read behavior is explicit. It is only dangerous when an agent follows untrusted path input or sends sensitive content by mistake."
+      }
+    ],
+    "files_scanned": 6,
+    "total_lines": 1927,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T16:45:11.303Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Manage TickTick tasks from CLI",
-    "value_statement": "Managing tasks in TickTick/Dida365 through the web interface is slow and repetitive. This skill provides a command-line interface to the official Open API, enabling AI agents and developers to create, update, complete, and delete tasks and projects programmatically.",
+    "user_title": "Manage TickTick Tasks from the CLI",
+    "value_statement": "Task management often needs repeatable commands instead of manual app clicks. This skill helps Claude, Codex, and Claude Code use a Python CLI to manage Dida365 projects and tasks.",
     "seo_keywords": [
-      "ticktick cli",
-      "dida365 api",
-      "task management",
-      "claude",
-      "codex",
-      "claude-code",
-      "python cli",
-      "automation",
-      "task automation",
-      "openapi"
+      "Claude TickTick CLI",
+      "Codex TickTick automation",
+      "Claude Code task management",
+      "Dida365 Open API",
+      "TickTick task CLI",
+      "Python productivity automation",
+      "OAuth task integration",
+      "AI task manager skill",
+      "command line todo management",
+      "Dida365 project automation"
     ],
     "actual_capabilities": [
-      "List, create, update, and delete projects in your TickTick account",
-      "List, create, update, complete, and delete tasks within any project",
-      "Add checklist items (subtasks) to tasks with detailed options",
-      "Query project data including tasks and kanban columns",
-      "Output results in table format or JSON for AI consumption",
-      "Configure base URL, timeout, and token via environment variables"
+      "Lists Dida365 projects for the authenticated account.",
+      "Gets project details, including tasks and kanban columns.",
+      "Creates and updates projects with name, color, order, view mode, and kind fields.",
+      "Creates, updates, completes, and deletes tasks by project and task identifiers.",
+      "Adds checklist items from repeated command flags or JSON input.",
+      "Prints either formatted tables or JSON output for agent parsing."
     ],
     "limitations": [
-      "Requires a valid OAuth token from Dida365/TickTick",
-      "Does not support batch operations beyond JSON file input",
-      "No search or filtering capabilities within the CLI itself",
-      "Output formatting is basic tables or raw JSON"
+      "Requires a valid Dida365 or TickTick OAuth access token.",
+      "Uses a hardcoded hosted OAuth helper unless users provide tokens another way.",
+      "Does not implement task search or jq-style filtering yet.",
+      "Delete commands do not include an interactive confirmation step."
     ],
     "use_cases": [
       {
-        "target_user": "AI Agents",
-        "title": "Automate task creation",
-        "description": "AI agents can create tasks, mark them complete, and manage projects without manual web interface access."
+        "title": "Automate Personal Task Updates",
+        "description": "Create, complete, or reschedule Dida365 tasks from repeatable CLI commands.",
+        "target_user": "Individual productivity users"
       },
       {
-        "target_user": "Developers",
-        "title": "Build task workflows",
-        "description": "Integrate TickTick task management into scripts, CI/CD pipelines, or productivity automation."
+        "title": "Sync Project Checklists",
+        "description": "Create tasks with checklist items from structured JSON or repeated item flags.",
+        "target_user": "Project coordinators"
       },
       {
-        "target_user": "Power Users",
-        "title": "Bulk task operations",
-        "description": "Create multiple tasks from JSON files for tracking shows, books, or any multi-item workflow."
+        "title": "Let Agents Inspect Task State",
+        "description": "Return project and task data as JSON so coding agents can reason about current work.",
+        "target_user": "Claude Code and Codex users"
       }
     ],
     "prompt_templates": [
       {
-        "title": "List all projects",
-        "scenario": "Get project overview",
-        "prompt": "Use ticktick-cli to list all projects in my TickTick account. Show the project names and IDs in a clear format."
+        "title": "List My Projects",
+        "scenario": "Beginner discovery",
+        "prompt": "Use the TickTick CLI skill to list my projects in JSON format. Do not modify anything."
       },
       {
-        "title": "Create a task",
-        "scenario": "Add new task",
-        "prompt": "Create a new task in project [PROJECT_ID] with the title 'Review PR #123' and set the due date to tomorrow. Mark it as high priority."
+        "title": "Create a Task",
+        "scenario": "Basic task creation",
+        "prompt": "Create a task named \"Prepare weekly review\" in project PROJECT_ID with a due date tomorrow. Show the created task summary."
       },
       {
-        "title": "Complete task",
-        "scenario": "Finish a task",
-        "prompt": "Mark task [TASK_ID] as complete in project [PROJECT_ID]. Use the ticktick-cli complete command."
+        "title": "Update Checklist Items",
+        "scenario": "Structured task maintenance",
+        "prompt": "Update task TASK_ID in project PROJECT_ID with checklist items for outline, draft, review, and publish. Show the final task fields."
       },
       {
-        "title": "Bulk import",
-        "scenario": "Import multiple items",
-        "prompt": "Create a batch of tasks in my 'Reading List' project. Use the --item-json option with the @/path/to/tasks.json file containing an array of task objects."
+        "title": "Audit Before Deleting",
+        "scenario": "Advanced safe workflow",
+        "prompt": "Fetch task TASK_ID from project PROJECT_ID, summarize what will be deleted, and wait for explicit confirmation before running delete."
       }
     ],
     "output_examples": [
       {
-        "input": "List all projects",
-        "output": [
-          "Projects displayed in a table with columns: id, name, color, closed, groupId, viewMode, kind, sortOrder",
-          "Or JSON output if --json flag is used"
-        ]
+        "input": "List all projects for the authenticated account.",
+        "output": "A concise project list with each project name, identifier, color, view mode, and closed status."
       },
       {
-        "input": "Create a task with due date",
-        "output": [
-          "New task created successfully with ID",
-          "Task details shown including title, priority, due date, and project association"
-        ]
+        "input": "Create a task with three checklist items.",
+        "output": "A task summary showing the new task title, project identifier, due date, priority, and checklist item titles."
       },
       {
-        "input": "Complete a task",
-        "output": [
-          "Task marked as complete with confirmation message 'OK'"
-        ]
+        "input": "Complete a task after confirming the project and task identifiers.",
+        "output": "A short success message and the identifiers used for the completed task."
       }
     ],
     "best_practices": [
-      "Store your TICKTICK_TOKEN securely in environment variables, never in scripts or version control",
-      "Use the --json flag when calling from AI agents for easier parsing of results",
-      "Test destructive operations like delete with read-only queries first to confirm project and task IDs"
+      "Provide tokens through environment variables instead of pasting them into prompts.",
+      "Use JSON output when another agent or script needs to parse results.",
+      "Fetch and confirm task identifiers before running update, complete, or delete commands."
     ],
     "anti_patterns": [
-      "Hardcoding OAuth tokens in scripts or passing them as visible command-line arguments",
-      "Using delete commands without verifying the target project or task ID first",
-      "Assuming the CLI will prompt for confirmation before destructive operations (it will not)"
+      "Do not send OAuth tokens, secrets, or private files in chat prompts.",
+      "Do not use @path checklist input unless the file contents are safe to upload.",
+      "Do not run delete commands without a separate confirmation step."
     ],
     "faq": [
       {
-        "question": "Is this skill compatible with both TickTick and Dida365?",
-        "answer": "Yes. TickTick and Dida365 are the same service. The API endpoint api.dida365.com works for both accounts."
+        "question": "Does this skill need network access?",
+        "answer": "Yes. It calls the Dida365 Open API and may use an OAuth helper URL for authorization."
       },
       {
-        "question": "How do I get an OAuth token?",
-        "answer": "Visit the Dida365 Developer Center to register an OAuth app, then use the provided credentials with the auth flow or set TICKTICK_TOKEN directly."
+        "question": "Can it work without an OAuth token?",
+        "answer": "No. The CLI requires an access token from --token or the TICKTICK_TOKEN environment variable."
       },
       {
-        "question": "Can I use this with Claude Code?",
-        "answer": "Yes. Claude Code can invoke the CLI script with appropriate arguments to manage tasks in your TickTick account."
+        "question": "Can it delete tasks and projects?",
+        "answer": "Yes. It includes delete commands, so users should confirm identifiers before running them."
       },
       {
-        "question": "Is my token data safe?",
-        "answer": "Tokens are passed via environment variables. The skill does not store or transmit tokens to any third-party services beyond the official Dida365 API."
+        "question": "Does it support JSON output?",
+        "answer": "Yes. The --json flag prints API results in JSON for scripts and agents."
       },
       {
-        "question": "Why is my request timing out?",
-        "answer": "Check your TICKTICK_TIMEOUT setting. The default is 30 seconds. Increase it with --timeout 60s for slower connections."
+        "question": "Can checklist items come from a file?",
+        "answer": "Yes. --item-json can read @path files, but only use files intended for upload."
       },
       {
-        "question": "How does this compare to the official web interface?",
-        "answer": "This CLI provides programmatic access for automation. The web interface is better for manual task management with rich editing features."
+        "question": "Is it safe to publish as reviewed?",
+        "answer": "Not yet. The OAuth helper exposes access tokens in a browser response and needs safer handling."
       }
     ]
   },
