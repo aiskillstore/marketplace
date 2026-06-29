@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T23:23:23.657Z",
+    "generated_at": "2026-06-29T01:34:27.836Z",
     "slug": "composiohq-youtube-downloader",
     "source_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/video-downloader",
     "source_ref": "master",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "093c29459a2e05eb076f64d069817d24f98e327b3dab24d9b72085b8ac2909c6",
-    "tree_hash": "037b66fa6ba77f6be1531f8dfdfd116c5e31085b20468894bfa204dc417c220d"
+    "tree_hash": "0fd001674af2b28f612a3906d60114e3495e3cf4b2b441897e753ca3b936e93b"
   },
   "skill": {
     "name": "youtube-downloader",
-    "description": "Download YouTube videos with customizable quality and format options. Use this skill when the user asks to download, save, or grab YouTube videos. Supports various quality settings (best, 1080p, 720p, 480p, 360p), multiple formats (mp4, webm, mkv), and audio-only downloads as MP3.",
-    "summary": "Download YouTube videos with customizable quality and format options. Use this skill when the user a...",
-    "icon": "📹",
+    "description": "Download single YouTube videos or audio files with selectable quality, output format, and destination folder options.",
+    "summary": "Download YouTube videos or MP3 audio through a local yt-dlp helper script.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "ComposioHQ",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
       "youtube",
-      "video",
-      "downloader",
-      "media"
+      "video-download",
+      "audio-extraction",
+      "yt-dlp",
+      "media-tools"
     ],
     "supported_tools": [
       "claude",
@@ -36,13 +36,14 @@
       "network",
       "filesystem",
       "external_commands"
-    ]
+    ],
+    "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a legitimate YouTube video downloader using the trusted yt-dlp library. All subprocess calls use list-based arguments preventing injection. The static scanner flagged C2 keywords, weak crypto, and system reconnaissance, but these are false positives triggered by benign strings in documentation and metadata files. Code behavior matches stated purpose.",
+    "summary": "The static subprocess findings in scripts/download_video.py are true positives for elevated operational risk, but no malicious intent was found. The SKILL.md shell findings are documentation examples and the weak cryptography alerts at SKILL.md:3 and scripts/download_video.py:105 are false positives. Runtime pip installation, network downloads through yt-dlp, and caller-controlled output paths warrant a medium-risk warning.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
@@ -55,36 +56,11 @@
         ]
       },
       {
-        "factor": "network",
-        "evidence": [
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 22,
-            "line_end": 30
-          }
-        ]
-      },
-      {
-        "factor": "filesystem",
-        "evidence": [
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 33,
-            "line_end": 33
-          }
-        ]
-      },
-      {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "scripts/download_video.py",
             "line_start": 16,
-            "line_end": 16
-          },
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 19,
             "line_end": 19
           },
           {
@@ -98,146 +74,365 @@
             "line_end": 92
           }
         ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 24,
+            "line_end": 25
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 77,
+            "line_end": 77
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 72,
+            "line_end": 74
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 109,
+            "line_end": 111
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 133,
+            "line_end": 138
+          }
+        ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 3,
-    "total_lines": 538,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T23:23:23.657Z"
+    "medium_findings": [
+      {
+        "title": "Runtime Package Installation Modifies Environment",
+        "description": "The helper script automatically installs yt-dlp with pip and uses --break-system-packages when the command is missing. This creates supply chain and environment integrity risk during normal skill use.",
+        "locations": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 16,
+            "line_end": 19
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The subprocess call directly invokes pip install at runtime with a package name and --break-system-packages. This is legitimate setup behavior, but it modifies the Python environment and depends on package index trust."
+      },
+      {
+        "title": "External Downloader Runs Against User-Supplied URLs",
+        "description": "The script passes the provided URL to yt-dlp for metadata retrieval and download. Argument lists avoid shell injection, but the skill performs network access and processes remote media metadata from user-provided locations.",
+        "locations": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 24,
+            "line_end": 29
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 77,
+            "line_end": 92
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The URL is caller-controlled and reaches yt-dlp through subprocess.run. The absence of shell=True reduces command injection risk, but network retrieval and third-party parser exposure are confirmed."
+      },
+      {
+        "title": "Caller-Controlled Output Directory",
+        "description": "The script accepts an output directory and interpolates it into the yt-dlp output template. This can write downloaded files outside the default output directory if the caller supplies a different path.",
+        "locations": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 72,
+            "line_end": 74
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 109,
+            "line_end": 111
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 133,
+            "line_end": 138
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The output path is an argparse option and is used directly in the output template. The behavior is documented, but there is no path restriction to the default outputs directory."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Documentation Command Examples Are Static False Positives",
+        "description": "The shell-command detections in SKILL.md are fenced usage examples for invoking the helper script. They are not executable code inside the skill file itself.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 14,
+            "line_end": 16
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 33,
+            "line_end": 36
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 46,
+            "line_end": 49
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 57
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 63,
+            "line_end": 65
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 69,
+            "line_end": 82
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The cited lines are Markdown fenced bash examples and option descriptions. They document commands that a user may choose to run, but SKILL.md does not execute them."
+      },
+      {
+        "title": "Weak Cryptography Alerts Are False Positives",
+        "description": "The reported weak cryptography locations contain descriptive text, not hashing or encryption code. No evidence of cryptographic operations was found at these locations.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 104,
+            "line_end": 105
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "SKILL.md:3 is frontmatter description text, and scripts/download_video.py:105 is an argparse description string. Neither location imports crypto libraries or calls a cryptographic algorithm."
+      },
+      {
+        "title": "Hardcoded YouTube URLs Are Benign Examples",
+        "description": "The hardcoded URLs in SKILL.md are sample YouTube links used in documentation. No evidence found that they exfiltrate data or contact unrelated endpoints.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 71,
+            "line_end": 71
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 76
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 81,
+            "line_end": 81
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The URLs appear only inside complete examples for a YouTube downloader. They point to YouTube watch URLs and are not connected to credential handling or hidden network behavior."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "subprocess.run Used For External Tooling",
+        "description": "The script uses subprocess.run to execute yt-dlp and pip. The calls use argument arrays rather than shell strings, so shell injection risk is reduced but external command execution remains a risk factor.",
+        "locations": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 16,
+            "line_end": 19
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 24,
+            "line_end": 29
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 92,
+            "line_end": 92
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The exact subprocess.run calls are present in the helper script. Their list-form arguments make the risk operational rather than a direct shell injection finding."
+      },
+      {
+        "title": "Automatic Dependency Installation",
+        "description": "The script installs yt-dlp automatically if it is not present. Runtime installation can change the environment and relies on the package source available at execution time.",
+        "locations": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 13,
+            "line_end": 20
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The installation path is explicit in check_yt_dlp. The package name is fixed, but the runtime installation behavior is confirmed."
+      },
+      {
+        "title": "Unrestricted Output Path Option",
+        "description": "The output directory option is passed into the download output template without restriction to a safe workspace path.",
+        "locations": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 72,
+            "line_end": 74
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 109,
+            "line_end": 111
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The output argument is documented and wired directly into the output template. There is no visible validation or path allowlist in the file."
+      }
+    ],
+    "files_scanned": 2,
+    "total_lines": 244,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T01:34:27.836Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Download YouTube videos in any quality",
-    "value_statement": "Save YouTube videos for offline viewing with full control over quality and format. Get the best available resolution or choose specific settings like 1080p, 720p, or extract audio as MP3.",
+    "user_title": "Download YouTube Videos and Audio",
+    "value_statement": "Saving a YouTube video or audio track often requires choosing quality, format, and destination manually. This skill wraps yt-dlp with clear options for single-video downloads and MP3 extraction.",
     "seo_keywords": [
-      "youtube video downloader",
-      "download youtube videos",
-      "claude youtube download",
-      "save youtube videos offline",
-      "youtube to mp3",
-      "video downloader skill",
-      "claude code skill",
-      "youtube downloader tool"
+      "Claude YouTube downloader",
+      "Codex YouTube downloader",
+      "Claude Code media download",
+      "yt-dlp skill",
+      "YouTube MP3 extraction",
+      "video download automation",
+      "AI media tools",
+      "download YouTube video",
+      "YouTube audio workflow",
+      "single video downloader"
     ],
     "actual_capabilities": [
-      "Download YouTube videos in best available quality",
-      "Choose specific resolution: 1080p, 720p, 480p, 360p",
-      "Select output format: MP4, WebM, MKV",
-      "Extract audio only as MP3 file",
-      "Custom output directory for saved files",
-      "Automatic yt-dlp dependency installation"
+      "Downloads a single YouTube video using a local Python helper script.",
+      "Selects quality from best, worst, 1080p, 720p, 480p, or 360p.",
+      "Saves video output as MP4, WebM, or MKV.",
+      "Extracts audio-only downloads as MP3.",
+      "Uses a custom output directory when requested.",
+      "Fetches video title, duration, and uploader before downloading."
     ],
     "limitations": [
-      "Downloads single videos only (playlists not supported)",
-      "Only works with YouTube URLs",
-      "Download speed depends on your internet connection",
-      "Very long videos may take significant time and storage"
+      "Only single videos are supported because playlists are disabled by default.",
+      "The script depends on yt-dlp and may install it at runtime.",
+      "Downloads can fail when YouTube changes access rules or blocks a video.",
+      "Users must ensure they have rights to download and store the media."
     ],
     "use_cases": [
       {
-        "target_user": "Content creators",
-        "title": "Save reference videos",
-        "description": "Download tutorial videos and presentations for offline review and backup."
+        "title": "Save reference videos for review",
+        "description": "Download a single video in a predictable format for later offline review.",
+        "target_user": "Researchers"
       },
       {
-        "target_user": "Language learners",
-        "title": "Build study libraries",
-        "description": "Save educational content and language learning videos for offline practice."
+        "title": "Extract audio for transcription",
+        "description": "Create an MP3 from a video so a separate transcription workflow can process it.",
+        "target_user": "Content teams"
       },
       {
-        "target_user": "Podcast listeners",
-        "title": "Extract audio content",
-        "description": "Convert video content to MP3 audio for listening during commutes."
+        "title": "Prepare media files for editing",
+        "description": "Choose a resolution and container format before importing a video into editing tools.",
+        "target_user": "Video editors"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic video download",
-        "scenario": "Download a YouTube video",
-        "prompt": "Download this YouTube video: [VIDEO_URL]"
+        "title": "Download one video",
+        "scenario": "Beginner single-video download",
+        "prompt": "Download this YouTube video in the best available MP4 quality and save it to the default output folder: [URL]"
       },
       {
-        "title": "Quality specified",
-        "scenario": "Download with specific quality",
-        "prompt": "Download this video in 720p quality: [VIDEO_URL]"
+        "title": "Choose video quality",
+        "scenario": "User needs a smaller video file",
+        "prompt": "Download this YouTube video as 720p MP4 and tell me the saved filename when it finishes: [URL]"
       },
       {
-        "title": "Audio extraction",
-        "scenario": "Extract audio as MP3",
-        "prompt": "Extract the audio from this video as MP3: [VIDEO_URL]"
+        "title": "Extract MP3 audio",
+        "scenario": "User needs audio for a follow-up workflow",
+        "prompt": "Download only the audio from this YouTube video as MP3 and save it in the default output folder: [URL]"
       },
       {
-        "title": "Custom format",
-        "scenario": "Download with format and quality",
-        "prompt": "Download this video in 1080p as WebM format: [VIDEO_URL]"
+        "title": "Specify format and folder",
+        "scenario": "Advanced user needs a specific output format and location",
+        "prompt": "Download this YouTube video as 1080p WebM and save it to this folder: [OUTPUT_FOLDER]. URL: [URL]"
       }
     ],
     "output_examples": [
       {
-        "input": "Download this YouTube video: https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        "output": [
-          "Downloading from: https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-          "Quality: best",
-          "Format: mp4",
-          "Output: /mnt/user-data/outputs",
-          "Title: [Video Title]",
-          "Duration: 3:45",
-          "Uploader: [Channel Name]",
-          "Download complete!"
-        ]
+        "input": "Download a YouTube video in 720p as MP4.",
+        "output": "The skill reports the video title, duration, uploader, selected quality, format, and output folder before saving the file."
       },
       {
-        "input": "Extract audio as MP3 from this video: https://www.youtube.com/watch?v=EXAMPLE",
-        "output": [
-          "Downloading from: https://www.youtube.com/watch?v=EXAMPLE",
-          "Quality: best",
-          "Format: mp3 (audio only)",
-          "Output: /mnt/user-data/outputs",
-          "Title: [Podcast Title]",
-          "Duration: 45:30",
-          "Uploader: [Channel Name]",
-          "Download complete!"
-        ]
+        "input": "Extract audio only from a YouTube video.",
+        "output": "The skill saves an MP3 file and confirms that the audio-only download completed."
+      },
+      {
+        "input": "Download a WebM file to a custom folder.",
+        "output": "The skill uses the requested output directory and format, then reports whether the download succeeded or failed."
       }
     ],
     "best_practices": [
-      "Use specific quality settings to manage file size for long videos",
-      "Choose MP3 extraction for podcasts and music content",
-      "Specify custom output directory to organize downloads by topic"
+      "Use trusted YouTube URLs and verify that the download is permitted.",
+      "Keep output paths inside a workspace or user data directory.",
+      "Choose lower resolutions when file size or download time matters."
     ],
     "anti_patterns": [
-      "Do not attempt to download copyrighted content without permission",
-      "Avoid downloading very large playlist URLs (only single videos supported)",
-      "Do not ignore download errors without checking output location"
+      "Do not use the skill to download copyrighted media without permission.",
+      "Do not point output paths at system or application directories.",
+      "Do not assume playlist downloads will work, because playlists are disabled by default."
     ],
     "faq": [
       {
-        "question": "Which YouTube URLs are supported?",
-        "answer": "Most YouTube video URLs work including youtu.be short links and standard watch URLs."
+        "question": "Does this skill download playlists?",
+        "answer": "No. The script passes a no-playlist option, so it is intended for single videos."
       },
       {
-        "question": "What quality options are available?",
-        "answer": "Best (highest available), 1080p, 720p, 480p, 360p, or worst (lowest available)."
+        "question": "Can it download audio only?",
+        "answer": "Yes. The audio-only option extracts audio and saves it as an MP3 file."
       },
       {
-        "question": "Can I use this with Claude Code?",
-        "answer": "Yes, the skill supports Claude, Codex, and Claude Code tools seamlessly."
+        "question": "Which video formats are supported?",
+        "answer": "The script exposes MP4, WebM, and MKV as output format choices."
       },
       {
-        "question": "Where are files saved?",
-        "answer": "Downloads go to /mnt/user-data/outputs by default. Use -o flag to specify a different directory."
+        "question": "Where are files saved by default?",
+        "answer": "Files are saved to /mnt/user-data/outputs unless the user supplies another output directory."
       },
       {
-        "question": "Why did download fail?",
-        "answer": "Common causes: invalid URL, video removed, network issues, or insufficient disk space."
+        "question": "Does it need internet access?",
+        "answer": "Yes. It uses yt-dlp to fetch video metadata and download media from YouTube."
       },
       {
-        "question": "How is this different from browser extensions?",
-        "answer": "This tool runs in your terminal with full quality control and audio extraction options."
+        "question": "Is this skill safe to publish?",
+        "answer": "It has medium operational risk because it runs external commands, downloads network content, and may install yt-dlp at runtime."
       }
     ]
   },
