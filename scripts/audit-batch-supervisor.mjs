@@ -287,7 +287,11 @@ async function mergePendingAuditPrsAndWaitPostMerge() {
   for (const pr of prs) {
     const merged = await mergePr(pr);
     const syncRun = await waitForWorkflowAfter('Sync to Supabase (Incremental)', merged.mergedAt);
-    await waitForWorkflowAfter('Warm KV Cache', syncRun.createdAt);
+    try {
+      await waitForWorkflowAfter('Warm KV Cache', syncRun.createdAt);
+    } catch (error) {
+      log(`Warm KV Cache failed after ${pr.url}; continuing audit batches because sync completed. ${error.message}`);
+    }
   }
 
   return true;
