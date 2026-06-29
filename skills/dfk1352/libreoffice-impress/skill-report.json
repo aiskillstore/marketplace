@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-03-19T16:01:39.820Z",
+    "generated_at": "2026-06-29T16:55:05.035Z",
     "slug": "dfk1352-libreoffice-impress",
     "source_url": "https://github.com/dfk1352/LibreOffice-skills/tree/main/skills/libreoffice-impress",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "61b449642d6142b049784a28c3e8456dad316655f882ea3db7efae9259a4bccd",
-    "tree_hash": "64ed4926a53dba8cd682f6313e4a1b1f4781810740e78c76fd7f73c039d34c1d"
+    "tree_hash": "f25e36928f8be327da0ded1bc0831ab3a5f4cf7c47c4eb208c9563d712216666"
   },
   "skill": {
     "name": "libreoffice-impress",
-    "description": "Use when creating, editing, formatting, or extracting LibreOffice Impress (.odp) presentations via UNO, including session-based slide edits, structured targets, lists, tables, charts, media, notes, master pages, patch workflows, and snapshots.",
-    "summary": "Automate LibreOffice Impress presentations with session-based editing, patch workflows, and PNG export.",
-    "icon": "📊",
-    "version": "1.0.1",
+    "description": "Create, edit, inspect, export, and snapshot LibreOffice Impress presentations through Python UNO automation.",
+    "summary": "Automate LibreOffice Impress decks with structured slide editing, patch workflows, export, and snapshots.",
+    "icon": "📦",
+    "version": "1.0.0",
     "author": "dfk1352",
     "license": "MIT",
     "tags": [
       "libreoffice",
       "impress",
-      "presentation",
-      "automation",
-      "slides"
+      "presentations",
+      "odp",
+      "automation"
     ],
     "supported_tools": [
       "claude",
@@ -34,14 +34,16 @@
     "risk_factors": [
       "external_commands",
       "scripts",
-      "filesystem"
-    ]
+      "filesystem",
+      "env_access"
+    ],
+    "category": "office"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This skill provides LibreOffice Impress presentation automation via UNO API. Static analysis flagged 210 potential issues, but manual review confirms all are false positives or legitimate office automation patterns. Subprocess calls invoke hardcoded LibreOffice commands for document processing. No network exfiltration, credential access, or persistence mechanisms detected. Risk level is LOW - appropriate for publication.",
+    "summary": "Static analysis reported many high-risk patterns, but manual review found no prompt injection, network exfiltration, credential harvesting, or malicious persistence. The confirmed risks are legitimate for this office automation skill: it launches local LibreOffice processes, reads an environment path for UNO support, and writes temporary and output files. The weak-cryptography and Ruby backtick detections appear to be false positives from documentation, UNO names, string constants, and Python code examples.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -64,7 +66,7 @@
           {
             "file": "scripts/impress/__init__.py",
             "line_start": 4,
-            "line_end": 9
+            "line_end": 12
           },
           {
             "file": "scripts/impress/patch.py",
@@ -103,6 +105,11 @@
           },
           {
             "file": "scripts/uno_bridge.py",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
+            "file": "scripts/uno_bridge.py",
             "line_start": 136,
             "line_end": 136
           },
@@ -112,174 +119,247 @@
             "line_end": 189
           }
         ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "scripts/uno_bridge.py",
+            "line_start": 69,
+            "line_end": 69
+          }
+        ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "medium_findings": [
       {
-        "title": "Legitimate Subprocess Usage for LibreOffice",
-        "description": "The skill uses subprocess to invoke LibreOffice soffice commands. These are hardcoded commands with no user input injection. This is standard office automation behavior required for UNO API integration.",
+        "title": "Controlled Local LibreOffice Process Execution",
+        "description": "The skill starts local LibreOffice processes for UNO sessions and PNG conversion. This is required for Impress automation and uses argument lists rather than shell strings, but it still executes host software and should run only on trusted presentation inputs.",
         "locations": [
-          {
-            "file": "scripts/impress/snapshot.py",
-            "line_start": 147,
-            "line_end": 147
-          },
           {
             "file": "scripts/uno_bridge.py",
             "line_start": 140,
-            "line_end": 140
-          }
-        ],
-        "confidence": 0.95,
-        "confidence_reasoning": "subprocess.run and subprocess.Popen use hardcoded soffice commands with controlled arguments. No user input flows into command arguments."
-      },
-      {
-        "title": "Safe Temporary File Handling",
-        "description": "Uses Python tempfile module for temporary files during presentation processing. This is standard practice for office automation with proper cleanup.",
-        "locations": [
-          {
-            "file": "scripts/impress/snapshot.py",
-            "line_start": 5,
-            "line_end": 5
+            "line_end": 155
           },
           {
             "file": "scripts/impress/snapshot.py",
+            "line_start": 147,
+            "line_end": 161
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The subprocess calls are explicit and semantically required for LibreOffice automation. Risk is reduced because arguments are passed as lists and no shell invocation is used."
+      },
+      {
+        "title": "Environment-Controlled UNO Module Path",
+        "description": "The skill reads LIBREOFFICE_PROGRAM_PATH and can add that directory to sys.path while resolving the UNO module. This supports nonstandard LibreOffice installs, but a hostile environment value could influence which local Python module is imported.",
+        "locations": [
+          {
+            "file": "scripts/uno_bridge.py",
+            "line_start": 69,
+            "line_end": 86
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The environment variable is directly appended to candidate import paths after directory checks. This is a legitimate configuration pattern, but it depends on a trusted runtime environment."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Temporary File and Profile Handling",
+        "description": "The skill creates temporary files and a temporary LibreOffice user profile during snapshot and UNO operations. The reviewed code uses Python tempfile helpers and removes the temporary profile during cleanup.",
+        "locations": [
+          {
+            "file": "scripts/impress/snapshot.py",
             "line_start": 73,
-            "line_end": 73
+            "line_end": 80
           },
           {
             "file": "scripts/uno_bridge.py",
             "line_start": 136,
-            "line_end": 136
+            "line_end": 137
+          },
+          {
+            "file": "scripts/uno_bridge.py",
+            "line_start": 182,
+            "line_end": 189
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Uses tempfile.TemporaryDirectory() and tempfile.mkdtemp() with proper cleanup via shutil.rmtree(). No security risk."
+        "confidence": 0.88,
+        "confidence_reasoning": "The filesystem behavior is clear and bounded to temporary processing. Cleanup is visible for the LibreOffice profile, and TemporaryDirectory handles snapshot cleanup."
+      },
+      {
+        "title": "LibreOffice Path Discovery",
+        "description": "The skill searches PATH and common install locations to find LibreOffice. This is local capability discovery for the declared feature, not broad system reconnaissance.",
+        "locations": [
+          {
+            "file": "scripts/uno_bridge.py",
+            "line_start": 19,
+            "line_end": 44
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The function only checks for expected soffice or libreoffice executable locations. No network calls, data collection, or persistence behavior is present."
+      },
+      {
+        "title": "Static High-Severity Detections Dismissed as False Positives",
+        "description": "The weak-cryptography and Ruby backtick detections do not correspond to cryptographic code or Ruby shell execution in the reviewed context. They match documentation text, UNO API strings, method names, and Python examples for the intended presentation workflow.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/impress/core.py",
+            "line_start": 24,
+            "line_end": 30
+          },
+          {
+            "file": "scripts/impress/session.py",
+            "line_start": 905,
+            "line_end": 928
+          },
+          {
+            "file": "references/troubleshooting.md",
+            "line_start": 3,
+            "line_end": 12
+          }
+        ],
+        "confidence": 0.83,
+        "confidence_reasoning": "Manual review found ordinary API documentation and UNO operations at these locations. No hashing, encryption, Ruby execution, or shell metacharacter execution was found in the cited context."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 13,
     "total_lines": 3912,
-    "audit_model": "claude",
-    "audited_at": "2026-03-19T16:01:39.820Z",
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T16:55:05.035Z",
     "risk_factors": [
       "external_commands",
       "scripts",
-      "filesystem"
+      "filesystem",
+      "env_access"
     ]
   },
   "content": {
-    "user_title": "Create and edit LibreOffice Impress presentations programmatically",
-    "value_statement": "Generate, modify, and export professional presentations with automated slide operations. This skill provides programmatic control over LibreOffice Impress for bulk presentation workflows.",
+    "user_title": "Automate LibreOffice Impress decks",
+    "value_statement": "Manual presentation updates are slow and error prone at scale. This skill uses LibreOffice UNO automation to create, edit, export, and verify Impress decks.",
     "seo_keywords": [
       "LibreOffice Impress automation",
-      "presentation creation Claude",
-      "ODP file editing",
-      "slide automation",
-      "LibreOffice macro alternative",
-      "presentation generation",
-      "Claude Code presentation",
-      "Codex presentation tool",
-      "automate slides",
-      "PDF export presentations"
+      "ODP presentation editing",
+      "Claude presentation automation",
+      "Codex presentation workflow",
+      "Claude Code slide editing",
+      "LibreOffice UNO Impress",
+      "automate slide decks",
+      "presentation patch workflow",
+      "Impress PDF export",
+      "ODP to PPTX export"
     ],
     "actual_capabilities": [
-      "Create new Impress presentations from scratch with custom layouts",
-      "Edit existing presentations: add, delete, move, duplicate slides",
-      "Insert and format text, shapes, images, tables, charts, and media",
-      "Apply patch workflows using structured DSL syntax",
-      "Export presentations to PDF or PPTX formats",
-      "Capture slide snapshots as PNG images for preview"
+      "Create new Impress presentations and count slides.",
+      "Open session-based editing workflows for existing ODP decks.",
+      "Add, delete, move, duplicate, and inspect slides with structured targets.",
+      "Insert and update text, lists, shapes, images, tables, charts, media, and speaker notes.",
+      "Apply ordered patch operations in atomic or best-effort mode.",
+      "Export decks to PDF or PPTX and capture slide PNG snapshots."
     ],
     "limitations": [
-      "Requires LibreOffice installation on the host system",
-      "Cannot process password-protected or encrypted presentations",
-      "Chart and media insertion may require additional LibreOffice components"
+      "Requires LibreOffice with Python UNO support on the host machine.",
+      "All UNO-facing presentation and asset paths must be absolute.",
+      "Snapshot rendering can differ slightly from requested pixel dimensions.",
+      "Shape names can change after native LibreOffice duplication."
     ],
     "use_cases": [
       {
-        "title": "Automated Report Generation",
-        "description": "Generate weekly or monthly reports as presentations by merging data into slide templates. Add charts, tables, and formatted text programmatically.",
-        "target_user": "Business analysts and report writers"
+        "title": "Automated Business Reports",
+        "description": "Generate recurring ODP reports with updated text, tables, charts, and exported PDFs.",
+        "target_user": "Business analysts"
       },
       {
-        "title": "Bulk Presentation Updates",
-        "description": "Apply consistent changes across multiple presentations. Update company branding, fix text across decks, or add standard footers to all slides.",
-        "target_user": "Marketing teams and content managers"
+        "title": "Bulk Deck Maintenance",
+        "description": "Apply consistent edits across slide decks, such as updated wording, speaker notes, layouts, and media.",
+        "target_user": "Marketing operations teams"
       },
       {
-        "title": "Slide Content Extraction",
-        "description": "Extract text content, speaker notes, or slide inventory from existing presentations for documentation or analysis purposes.",
-        "target_user": "Documentation specialists and educators"
+        "title": "Presentation QA Workflows",
+        "description": "Capture slide snapshots and inspect slide inventory after automated changes.",
+        "target_user": "Documentation and enablement teams"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a new presentation",
-        "prompt": "Create a new Impress presentation at /path/to/output.odp with a title slide and two content slides."
+        "title": "Create a Basic Deck",
+        "prompt": "Create a new LibreOffice Impress presentation at /absolute/path/status.odp with a title slide and two content slides.",
+        "scenario": "Beginner workflow for starting a new ODP file."
       },
       {
-        "title": "Edit existing presentation",
-        "prompt": "Open /path/to/report.odp and replace all instances of 'Q3 2024' with 'Q4 2024' in the body text."
+        "title": "Update Existing Text",
+        "prompt": "Open /absolute/path/report.odp and replace the title text on slide 0 with Monthly Operations Review.",
+        "scenario": "Simple edit to a known slide target."
       },
       {
-        "title": "Apply patch operations",
-        "prompt": "Apply this patch to /path/to/deck.odp:\n[operation]\ntype = insert_text_box\ntarget.kind = slide\ntarget.slide_index = 2\n...",
-        "scenario": "When you have a specific patch DSL to apply"
+        "title": "Patch Several Slide Changes",
+        "prompt": "Apply an atomic patch to /absolute/path/deck.odp that updates slide 2 body text, adds speaker notes, and inserts a table.",
+        "scenario": "Intermediate workflow for repeatable deck edits."
       },
       {
-        "title": "Export and capture slides",
-        "prompt": "Export /path/to/presentation.odp to PDF at /path/to/output.pdf, then capture a PNG snapshot of slide 3.",
-        "scenario": "When you need both export and preview"
+        "title": "Export and Verify Output",
+        "prompt": "Export /absolute/path/final.odp to /absolute/path/final.pdf and capture a PNG snapshot of slide 3 for layout review.",
+        "scenario": "Advanced workflow for delivery and visual verification."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a presentation with title 'Sales Report'",
-        "output": "Successfully created presentation with 1 slide using BLANK layout. The title placeholder is ready for content."
+        "input": "Create a new presentation with a title slide.",
+        "output": "The ODP file is created at the requested absolute path, and the deck contains the expected slide count."
       },
       {
-        "input": "Apply patch with two operations",
-        "output": "Patch applied successfully (atomic mode). Operations: replace_text [ok], insert_text_box [ok]. Document persisted."
+        "input": "Apply a patch that replaces text and inserts a list.",
+        "output": "The patch result reports success for each operation, and the updated deck is saved to disk."
+      },
+      {
+        "input": "Export a deck and snapshot one slide.",
+        "output": "The PDF export is written, and a PNG snapshot is available for visual inspection."
       }
     ],
     "best_practices": [
-      "Use absolute file paths for all presentation files to avoid path resolution issues",
-      "Prefer shape names over shape indices for more stable target references",
-      "Use atomic patch mode for production workflows to prevent partial document corruption"
+      "Use absolute paths for documents, images, media, and exports.",
+      "Read slide inventory before targeting shapes in decks that may change.",
+      "Use atomic patch mode when partial edits would be difficult to review."
     ],
     "anti_patterns": [
-      "Do not use relative paths when calling Impress APIs",
-      "Avoid relying on exact shape names after LibreOffice-native slide duplication",
-      "Do not skip slide inventory after mutations that change deck order"
+      "Do not rely on one-based slide numbering.",
+      "Do not use shape indexes when stable shape names are available.",
+      "Do not treat snapshots as exact pixel contracts across environments."
     ],
     "faq": [
       {
-        "question": "Does this skill require LibreOffice to be installed?",
-        "answer": "Yes. The skill uses LibreOffice UNO API for all presentation operations. LibreOffice must be installed and accessible via the soffice command."
+        "question": "Does this skill require LibreOffice?",
+        "answer": "Yes. It uses LibreOffice UNO and the soffice executable for presentation processing."
       },
       {
-        "question": "Can I edit password-protected presentations?",
-        "answer": "No. The UNO API does not support editing encrypted or password-protected presentations. You must remove protection first."
+        "question": "Which presentation formats can it export?",
+        "answer": "The documented export formats are PDF and PPTX."
       },
       {
-        "question": "What slide index system does Impress use?",
-        "answer": "Impress uses zero-based indexing. The first slide has index 0, the second has index 1, and so on."
+        "question": "How are slides numbered?",
+        "answer": "Slide indexes are zero-based. The first slide is slide 0."
       },
       {
-        "question": "How do I target a specific text element?",
-        "answer": "Use ImpressTarget with kind=text, slide_index, and optionally placeholder (title, body, subtitle) or text to narrow matches."
+        "question": "Can it work with relative paths?",
+        "answer": "No. The skill documentation states that UNO-facing paths must be absolute."
       },
       {
-        "question": "What is the difference between atomic and best_effort patch modes?",
-        "answer": "Atomic mode stops on first failure and restores the original file. Best_effort mode applies successful operations and records failures."
+        "question": "What does atomic patch mode do?",
+        "answer": "Atomic mode stops on the first failed operation and restores the original file bytes."
       },
       {
-        "question": "Can I export presentations to formats other than PDF?",
-        "answer": "Yes. Supported export formats are PDF and PPTX. PPTX export uses LibreOffice's PowerPoint 2007 XML filter."
+        "question": "Can it add media and images?",
+        "answer": "Yes. It supports image and media insertion through absolute file paths."
       }
     ]
   },

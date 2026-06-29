@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T01:38:40.128Z",
+    "generated_at": "2026-06-29T16:55:45.525Z",
     "slug": "davila7-writing-skills",
     "source_url": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/development/writing-skills",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "8d0b984df9e43873b32effc60fe6b8309e90b3e30a7ad9919036a2076ddf616a",
-    "tree_hash": "41705138ed7981f4d1497f7fdf36d0c633158d29c34ca6ce30b5a2756d1d53a0"
+    "tree_hash": "a918b1bbe6771022b4c0d545e7a934f9e1f57a2c03b2189d5f95e8cd0094fdbe"
   },
   "skill": {
     "name": "writing-skills",
-    "description": "Use when creating new skills, editing existing skills, or verifying skills work before deployment",
-    "summary": "Use when creating new skills, editing existing skills, or verifying skills work before deployment",
-    "icon": "📝",
+    "description": "Use when creating, revising, or pressure-testing AI skills with test-driven documentation practices.",
+    "summary": "Guides authors through test-driven skill creation, refinement, and deployment checks.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "davila7",
     "license": "MIT",
-    "category": "documentation",
     "tags": [
       "skill-authoring",
       "documentation",
       "testing",
-      "tdd",
-      "ai-training"
+      "claude-code",
+      "codex"
     ],
     "supported_tools": [
       "claude",
@@ -33,44 +32,46 @@
       "claude-code"
     ],
     "risk_factors": [
-      "external_commands",
       "scripts",
-      "filesystem"
-    ]
+      "network",
+      "filesystem",
+      "external_commands"
+    ],
+    "category": "writing"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Documentation skill for skill authoring methodology. Static analysis flagged 521 patterns in markdown files showing code examples (not executable) and documentation references. The only executable file (render-graphs.js) is a legitimate helper script for rendering Graphviz diagrams. No network access, no credential handling, no data exfiltration. All static findings are false positives from documentation examples.",
+    "summary": "Static analysis reported many high-risk patterns, but review found most are markdown examples, copied reference text, remote documentation images, or code-fence content rather than active malicious behavior. The confirmed risk is the bundled Node.js diagram renderer, which executes local Graphviz and writes output files when a user runs it. No evidence found of credential theft, hidden persistence, destructive commands, or instructions to skip security review.",
     "risk_factor_evidence": [
-      {
-        "factor": "external_commands",
-        "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 12,
-            "line_end": 12
-          },
-          {
-            "file": "anthropic-best-practices.md",
-            "line_start": 32,
-            "line_end": 43
-          },
-          {
-            "file": "examples/CLAUDE_MD_TESTING.md",
-            "line_start": 8,
-            "line_end": 25
-          }
-        ]
-      },
       {
         "factor": "scripts",
         "evidence": [
           {
             "file": "render-graphs.js",
             "line_start": 1,
-            "line_end": 169
+            "line_end": 18
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "render-graphs.js",
+            "line_start": 18,
+            "line_end": 18
+          },
+          {
+            "file": "render-graphs.js",
+            "line_start": 70,
+            "line_end": 75
+          },
+          {
+            "file": "render-graphs.js",
+            "line_start": 110,
+            "line_end": 112
           }
         ]
       },
@@ -79,166 +80,327 @@
         "evidence": [
           {
             "file": "render-graphs.js",
-            "line_start": 120,
+            "line_start": 101,
             "line_end": 120
           },
           {
             "file": "render-graphs.js",
-            "line_start": 131,
+            "line_start": 130,
             "line_end": 146
+          },
+          {
+            "file": "render-graphs.js",
+            "line_start": 153,
+            "line_end": 157
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "anthropic-best-practices.md",
+            "line_start": 249,
+            "line_end": 253
+          },
+          {
+            "file": "anthropic-best-practices.md",
+            "line_start": 919,
+            "line_end": 919
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "medium_findings": [
       {
-        "title": "Script executes external command",
-        "description": "render-graphs.js uses execSync to run Graphviz dot command for diagram rendering. Purpose is legitimate (visualizing skill flowcharts), output is restricted to skill subdirectory.",
+        "title": "Local Graphviz Execution in Utility Script",
+        "description": "The bundled renderer imports child_process and runs Graphviz with execSync to convert DOT blocks from a target SKILL.md into SVG. The command string is fixed, so shell injection was not confirmed, but executing Graphviz on untrusted diagram input can still expose parser, resource-use, and local execution surface if a user runs the script on untrusted content.",
         "locations": [
           {
             "file": "render-graphs.js",
+            "line_start": 18,
+            "line_end": 18
+          },
+          {
+            "file": "render-graphs.js",
+            "line_start": 70,
+            "line_end": 75
+          },
+          {
+            "file": "render-graphs.js",
+            "line_start": 110,
+            "line_end": 112
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The executable pattern is real and semantically confirmed in a utility script. Confidence is below very high because the command is fixed and input is passed through stdin, not interpolated into a shell command."
+      },
+      {
+        "title": "Filesystem Writes Controlled by User-Supplied Skill Directory",
+        "description": "The renderer resolves a command-line skill directory, reads SKILL.md, creates a diagrams directory, and writes SVG and DOT output files. This is expected for the tool, but it can write outside the marketplace skill directory if a user intentionally passes another path.",
+        "locations": [
+          {
+            "file": "render-graphs.js",
+            "line_start": 101,
+            "line_end": 120
+          },
+          {
+            "file": "render-graphs.js",
+            "line_start": 130,
+            "line_end": 146
+          },
+          {
+            "file": "render-graphs.js",
+            "line_start": 153,
+            "line_end": 157
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The file reads and writes are direct and confirmed. The risk is moderate because writes are scoped to the provided directory and file names are derived from constrained graph names or the directory basename."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Prompt-Like Test Scenarios in Documentation",
+        "description": "The documentation contains pressure-test prompts and emphatic instructions intended as examples for testing skill compliance. They do not include instructions to bypass security review, but they could influence an agent if copied into a broader instruction file without context.",
+        "locations": [
+          {
+            "file": "examples/CLAUDE_MD_TESTING.md",
+            "line_start": 8,
+            "line_end": 18
+          },
+          {
+            "file": "examples/CLAUDE_MD_TESTING.md",
+            "line_start": 100,
+            "line_end": 111
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 591,
+            "line_end": 597
+          }
+        ],
+        "confidence": 0.66,
+        "confidence_reasoning": "The prompt-like content is explicit and relevant to the skill purpose. Confidence is moderate because the examples are framed as test material, not as hidden commands to this evaluator or marketplace users."
+      },
+      {
+        "title": "Hardcoded Remote Documentation Image URLs",
+        "description": "The copied Anthropic best-practices document includes remote image URLs. These are not active network calls in executable code, but rendering the markdown in a client could load external assets.",
+        "locations": [
+          {
+            "file": "anthropic-best-practices.md",
+            "line_start": 249,
+            "line_end": 253
+          },
+          {
+            "file": "anthropic-best-practices.md",
+            "line_start": 919,
+            "line_end": 919
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The URLs are directly visible and appear to be documentation images. Confidence is high that this is a low-risk documentation artifact rather than exfiltration code."
+      },
+      {
+        "title": "Static Analyzer Markdown False Positives",
+        "description": "Many static findings for weak cryptography, command execution, system reconnaissance, and hidden file access come from markdown examples, code fences, path examples, and copied guidance. Review did not find evidence that those examples are executed automatically by the skill.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 74,
+            "line_end": 108
+          },
+          {
+            "file": "examples/CLAUDE_MD_TESTING.md",
+            "line_start": 81,
+            "line_end": 85
+          },
+          {
+            "file": "anthropic-best-practices.md",
+            "line_start": 255,
+            "line_end": 264
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "Representative locations show code-fence or documentation context rather than active execution. The high confidence applies to the static classes reviewed, not to every individual generated line item."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "child_process.execSync Usage",
+        "description": "The script uses Node.js child_process.execSync for local Graphviz execution and dependency checks. This should remain user-initiated and should not be run on untrusted skill directories without review.",
+        "locations": [
+          {
+            "file": "render-graphs.js",
+            "line_start": 18,
+            "line_end": 18
+          },
+          {
+            "file": "render-graphs.js",
             "line_start": 72,
-            "line_end": 76
+            "line_end": 72
           },
           {
             "file": "render-graphs.js",
             "line_start": 112,
-            "line_end": 118
+            "line_end": 112
           }
-        ]
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The dangerous API usage is direct and confirmed. The practical exploitability is reduced because command strings are fixed."
+      },
+      {
+        "title": "Synchronous File Creation",
+        "description": "The script creates a diagrams directory and writes generated SVG and DOT files. This is functional behavior, but marketplace users should know the skill includes a file-writing utility.",
+        "locations": [
+          {
+            "file": "render-graphs.js",
+            "line_start": 130,
+            "line_end": 146
+          },
+          {
+            "file": "render-graphs.js",
+            "line_start": 153,
+            "line_end": 157
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The file-writing behavior is direct and documented by code. It is not malicious by itself, but it is an important permission-relevant pattern."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 8,
-    "total_lines": 3189,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T01:38:40.127Z"
+    "files_scanned": 7,
+    "total_lines": 2910,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T16:55:45.525Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Create and test AI skills with TDD",
-    "value_statement": "Skills fail when not tested under pressure. This skill applies test-driven development to skill authoring, teaching you to verify skills work before deployment and close rationalization loopholes before users encounter them.",
+    "user_title": "Create Reliable AI Skills",
+    "value_statement": "Skill authors need guidance that makes documentation reliable under real agent pressure. This skill provides a test-driven process for writing, testing, and refining AI skills before deployment.",
     "seo_keywords": [
-      "Claude skill authoring",
-      "writing skills for AI",
-      "test-driven development skills",
-      "Claude Code documentation",
-      "AI skill testing",
-      "skill creation guide",
-      "TDD for documentation",
-      "Claude prompt engineering",
-      "skill documentation best practices"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "AI skill authoring",
+      "skill testing",
+      "test-driven documentation",
+      "agent skills",
+      "prompt engineering",
+      "documentation workflow",
+      "subagent testing"
     ],
     "actual_capabilities": [
-      "Apply RED-GREEN-REFACTOR cycle to skill creation",
-      "Create pressure scenarios that test skill compliance",
-      "Document agent rationalizations and close loopholes",
-      "Write skills that resist rationalization under pressure",
-      "Structure skill documentation for discoverability",
-      "Use persuasion principles effectively in documentation"
+      "Explains when to create a reusable AI skill and when to avoid one-off documentation.",
+      "Maps test-driven development concepts to skill writing and verification workflows.",
+      "Provides checklists for skill metadata, structure, deployment, and quality review.",
+      "Includes pressure-testing methods for validating agent compliance under realistic constraints.",
+      "References Anthropic skill authoring guidance and local conventions for skill files.",
+      "Includes a Graphviz rendering utility for diagrams embedded in skill markdown."
     ],
     "limitations": [
-      "Does not install or configure Claude Code itself",
-      "Does not write code to user projects without explicit prompts",
-      "Graphviz renderer requires graphviz to be installed separately",
-      "Does not provide pre-built skills or templates"
+      "The skill is guidance-heavy and does not automatically validate every marketplace requirement.",
+      "The bundled renderer requires Graphviz to be installed before diagram generation works.",
+      "Some examples are written for Claude Code paths and may need adaptation for other tools.",
+      "Pressure-testing methods can be time-consuming for simple reference-only skills."
     ],
     "use_cases": [
       {
-        "target_user": "Skill authors",
-        "title": "Create verifiable skills",
-        "description": "Document proven techniques so future Claude instances find and apply them correctly"
+        "title": "Create a New Skill",
+        "target_user": "AI workflow author",
+        "description": "Use the TDD mapping and checklist to turn a recurring technique into a reusable skill."
       },
       {
-        "target_user": "Team leads",
-        "title": "Standardize documentation",
-        "description": "Establish consistent skill authoring practices across your organization"
+        "title": "Improve a Discipline Skill",
+        "target_user": "Engineering lead",
+        "description": "Use pressure scenarios to find where agents rationalize away required practices."
       },
       {
-        "target_user": "Power users",
-        "title": "Refine existing skills",
-        "description": "Test deployed skills under pressure and close rationalization loopholes"
+        "title": "Prepare for Deployment",
+        "target_user": "Marketplace reviewer",
+        "description": "Review structure, examples, and testing evidence before publishing or sharing a skill."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create new skill",
-        "scenario": "Document a technique you use frequently",
-        "prompt": "Use writing-skills to create a skill for [technique name]. Apply TDD: first run baseline scenarios WITHOUT the skill to see how agents fail, then write skill content that addresses those failures."
+        "title": "Start a Skill Draft",
+        "scenario": "Beginner skill creation",
+        "prompt": "Help me draft a skill for this repeated workflow: [workflow]. Identify when the skill should trigger and what sections it needs."
       },
       {
-        "title": "Test existing skill",
-        "scenario": "Verify a skill works under pressure",
-        "prompt": "Use testing-skills-with-subagents to test the [skill-name] skill. Create 3+ pressure scenarios combining time pressure, sunk cost, and authority. Document exact rationalizations."
+        "title": "Check Skill Scope",
+        "scenario": "Refining an existing draft",
+        "prompt": "Review this skill draft for scope, frontmatter quality, and unnecessary narrative. Suggest concise revisions that keep it reusable."
       },
       {
-        "title": "Close loopholes",
-        "scenario": "Fix skill that failed testing",
-        "prompt": "Use writing-skills to refactor the [skill-name] skill. Agent rationalized by [specific excuse]. Add explicit counter with no exceptions rule and update rationalization table."
+        "title": "Design Pressure Tests",
+        "scenario": "Testing compliance",
+        "prompt": "Create three pressure scenarios that test whether an agent follows this skill under time, authority, and sunk-cost pressure."
       },
       {
-        "title": "Add flowchart",
-        "scenario": "Visualize decision process",
-        "prompt": "Create a Graphviz flowchart showing [decision process] using the graphviz-conventions.dot style. Render it using render-graphs.js to SVG for documentation."
+        "title": "Refactor After Failure",
+        "scenario": "Advanced skill hardening",
+        "prompt": "Given these failed test transcripts, identify the rationalizations and revise the skill to close each loophole without adding unrelated rules."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a skill for handling async race conditions in tests",
+        "input": "A user wants a skill for always checking relevant local guidance before debugging.",
+        "output": "A concise skill outline with trigger conditions, core principle, workflow steps, pressure tests, and a deployment checklist."
+      },
+      {
+        "input": "An agent ignored a TDD skill because production was down.",
         "output": [
-          "1. Write failing test: Run scenario WITHOUT skill to capture baseline behavior",
-          "2. Document failures: Note exactly how agent fails and rationalizes",
-          "3. Write skill: Address specific failures with concrete counters",
-          "4. Verify: Re-run scenarios WITH skill, apply 3+ pressures",
-          "5. Refactor: Add explicit anti-rationalization rules and rationalization table"
+          "A rationalization table naming the failure mode.",
+          "A stronger rule that addresses the exact excuse.",
+          "A re-test scenario to confirm the update works."
         ]
       },
       {
-        "input": "Test why our TDD skill keeps getting ignored",
-        "output": [
-          "RED phase: Run TDD scenarios WITHOUT skill - document all rationalizations",
-          "Common excuses: 'Already tested manually', 'Just this once', 'Deadline pressure'",
-          "GREEN phase: Write counters for each rationalization type",
-          "REFACTOR: Test again, find new holes, add counters iteratively"
-        ]
+        "input": "A long skill draft includes stories, several examples, and multiple support files.",
+        "output": "A trimmed structure that keeps the main skill focused and moves heavy reference material into separate files."
       }
     ],
     "best_practices": [
-      "Always test skills under combined pressures (time + sunk cost + exhaustion) before deploying",
-      "Write skill content BEFORE testing - the iron law: no skill without a failing test first",
-      "Close loopholes explicitly: forbid specific workarounds, do not just state rules"
+      "Run baseline pressure scenarios before writing rules, so the skill addresses observed failures.",
+      "Keep the main skill focused on triggers, core principles, workflow steps, and common mistakes.",
+      "Use supporting files only for heavy reference material, reusable tools, or complete examples."
     ],
     "anti_patterns": [
-      "Writing skill content before running baseline scenarios (skips RED phase)",
-      "Using single-pressure tests (agents resist single pressure, break under multiple)",
-      "Vague skill descriptions that summarize workflow instead of listing triggering conditions"
+      "Writing a skill for a one-off project convention that belongs in project documentation.",
+      "Adding broad rules without testing whether agents actually need them.",
+      "Treating passing examples as proof when the skill has not been tested under pressure."
     ],
     "faq": [
       {
-        "question": "Is this compatible with Claude and Claude Code?",
-        "answer": "Yes. Skills work with both platforms. Test with all models you plan to use."
+        "question": "What kind of skill does this help create?",
+        "answer": "It focuses on reusable AI skills that teach techniques, patterns, workflows, or reference guidance."
       },
       {
-        "question": "What is the file size limit for skills?",
-        "answer": "Keep SKILL.md under 500 lines. Split heavy reference material into separate files."
+        "question": "Does it work for Claude Code and Codex?",
+        "answer": "Yes. It names both Claude Code and Codex skill directories, but some examples use Claude-specific paths."
       },
       {
-        "question": "Can I reference other skills from my skill?",
-        "answer": "Yes. Use REQUIRED SUB-SKILL or REQUIRED BACKGROUND markers to link related skills."
+        "question": "Does it include executable code?",
+        "answer": "Yes. It includes a Node.js Graphviz renderer for skill diagrams, which should be reviewed before use."
       },
       {
-        "question": "Is my data safe when using these skills?",
-        "answer": "Yes. Skills only read documentation files. Helper scripts write to skill subdirectories only."
+        "question": "Can it validate a skill automatically?",
+        "answer": "No. It provides checklists and testing methods, but reviewers must still inspect final content."
       },
       {
-        "question": "Why do skills need pressure testing?",
-        "answer": "Agents under pressure find loopholes. Pressure scenarios reveal rationalizations to close."
+        "question": "Why does it use pressure scenarios?",
+        "answer": "Pressure scenarios reveal where agents ignore or rationalize around documented rules."
       },
       {
-        "question": "How is this different from writing code documentation?",
-        "answer": "Skills must resist rationalization. TDD for documentation ensures agents follow rules under pressure."
+        "question": "When should I skip this skill?",
+        "answer": "Skip it for simple reference notes, project-only instructions, or workflows that will not be reused."
       }
     ]
   },

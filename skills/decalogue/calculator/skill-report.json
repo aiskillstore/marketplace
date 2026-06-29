@@ -1,20 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-21T19:46:53.200Z",
+    "generated_at": "2026-06-29T16:53:18.231Z",
     "slug": "decalogue-calculator",
     "source_url": "https://github.com/Decalogue/creator/tree/main/src/skills/calculator",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "4bfe94e08a43e724e14be33ee28918872be6e69db9c2bb41bb6bbd5891c1373c",
-    "tree_hash": "615b621a6cbc0633338439a7ced43d0bf88ed0791a51ee71b1a258b4806c5811"
+    "tree_hash": "80c8c6194bd3e592718808edf6daff4385439e23c897f557edfa150cebbaa977"
   },
   "skill": {
     "name": "calculator",
-    "description": "Perform mathematical calculations with support for basic operations and complex expressions",
-    "summary": "Safe mathematical expression evaluator for basic arithmetic and complex calculations",
+    "description": "Performs basic arithmetic and expression calculations for AI-assisted math tasks.",
+    "summary": "Calculate arithmetic expressions with addition, subtraction, multiplication, division, powers, and parentheses.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "AI Creator",
@@ -25,7 +25,7 @@
       "calculation",
       "calculator",
       "arithmetic",
-      "Claude Code"
+      "expressions"
     ],
     "supported_tools": [
       "claude",
@@ -37,10 +37,10 @@
     ]
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "The skill uses Python eval() for mathematical expression evaluation, which is a high-risk pattern. However, the implementation includes input validation that restricts expressions to numbers and basic operators only, with an empty builtins dictionary to prevent code execution. The static findings for external_commands and network are false positives from documentation files containing example syntax and URLs. Overall risk is medium due to eval() usage, but the safeguards make it acceptable for publication with warnings.",
+    "safe_to_publish": false,
+    "summary": "The static eval finding is a true positive: calculator.py evaluates a caller-provided expression after a regex filter. The Markdown backtick and weak-crypto findings are false positives because they point to operator examples and descriptive text, not shell execution or cryptographic code. No prompt injection, network access, filesystem access, or data exfiltration evidence was found in the reviewed files.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
@@ -54,155 +54,203 @@
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
+    "high_findings": [
       {
-        "title": "Use of eval() for Expression Evaluation",
-        "description": "The calculator.py file uses Python's eval() function on line 30 to evaluate mathematical expressions. While this is mitigated by regex validation that restricts input to numbers and operators, and by passing an empty __builtins__ dictionary, eval() remains inherently risky. The regex pattern allows only digits, basic operators, parentheses, dots, and spaces. This approach is generally safe for the intended use case, but alternative parsers like ast.literal_eval or dedicated math expression libraries would be more secure.",
+        "title": "User-Controlled eval() in Calculator Helper",
+        "description": "calculator.py calls eval() on a user-supplied expression. The character filter and empty builtins reduce direct code execution risk, but eval still creates a dangerous execution surface and can allow resource exhaustion through very large arithmetic expressions.",
+        "locations": [
+          {
+            "file": "calculator.py",
+            "line_start": 24,
+            "line_end": 30
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The eval() call is direct evidence of dynamic evaluation on caller-controlled input. The surrounding regex limits the input language, so the concern is dangerous evaluation and denial of service rather than confirmed malicious intent."
+      }
+    ],
+    "medium_findings": [],
+    "low_findings": [
+      {
+        "title": "False Positive: Markdown Backticks Are Examples",
+        "description": "The external command detections point to Markdown code fences, inline operator text, and example calculations. No shell command invocation, Ruby execution, or command injection vector was found in those locations.",
+        "locations": [
+          {
+            "file": "examples.md",
+            "line_start": 6,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 30,
+            "line_end": 35
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 54
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The cited lines contain documentation formatting and arithmetic examples only. They do not contain executable shell syntax outside Markdown prose."
+      },
+      {
+        "title": "False Positive: Weak Cryptography Detection",
+        "description": "The weak cryptographic algorithm detection points to the skill description in SKILL.md. That line describes mathematical calculation support and contains no hashing, encryption, or cryptographic implementation.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          }
+        ],
+        "confidence": 0.99,
+        "confidence_reasoning": "The cited line is plain metadata text and has no cryptographic API, algorithm name, or security-sensitive operation."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Dynamic Expression Evaluation",
+        "description": "The helper uses eval() to compute arithmetic expressions. A safer parser or AST-based evaluator should replace dynamic evaluation before publication.",
         "locations": [
           {
             "file": "calculator.py",
             "line_start": 30,
             "line_end": 30
           }
-        ]
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The risky API is present at the cited line. Context confirms it processes expressions supplied to safe_calculate()."
       }
     ],
-    "low_findings": [],
-    "dangerous_patterns": [
-      {
-        "title": "Dynamic Code Evaluation Pattern",
-        "description": "Uses eval() with restricted builtins and input validation. The pattern matches ^[0-9+\\-*/().\\s**]+$ which only allows mathematical operations. While safer than unrestricted eval(), this pattern should be documented for user awareness.",
-        "locations": [
-          {
-            "file": "calculator.py",
-            "line_start": 25,
-            "line_end": 30
-          }
-        ]
-      }
-    ],
-    "files_scanned": 4,
-    "total_lines": 595,
-    "audit_model": "claude",
-    "audited_at": "2026-01-21T19:46:53.200Z"
+    "files_scanned": 3,
+    "total_lines": 153,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T16:53:18.231Z",
+    "risk_factors": [
+      "scripts"
+    ]
   },
   "content": {
-    "user_title": "Perform Safe Mathematical Calculations",
-    "value_statement": "Many users need to perform quick mathematical calculations within their AI workflows. This skill provides a safe calculator that evaluates arithmetic expressions with proper input validation and error handling.",
+    "user_title": "Calculate Math Expressions in AI Workflows",
+    "value_statement": "AI assistants often need quick arithmetic checks during planning, writing, or analysis. This skill provides a focused calculator workflow for basic expressions and documented examples.",
     "seo_keywords": [
-      "Claude",
-      "Claude Code",
-      "Codex",
-      "calculator",
-      "math",
-      "arithmetic",
-      "calculation",
-      "expression evaluator",
-      "Python calculator",
-      "safe eval"
+      "Claude calculator",
+      "Codex calculator",
+      "Claude Code calculator",
+      "AI math skill",
+      "arithmetic expressions",
+      "basic calculation",
+      "math assistant",
+      "expression calculator",
+      "productivity math",
+      "calculator skill"
     ],
     "actual_capabilities": [
-      "Evaluate basic arithmetic operations including addition, subtraction, multiplication, and division",
-      "Support for exponentiation using ** or ^ operators",
-      "Handle complex expressions with parentheses and operator precedence",
-      "Validate input to prevent code injection by restricting to mathematical operators only",
-      "Provide clear error messages for invalid expressions and division by zero",
-      "Return floating-point results for all calculations"
+      "Calculates addition, subtraction, multiplication, and division expressions.",
+      "Supports parentheses for grouped arithmetic operations.",
+      "Supports exponent notation using either caret or double-asterisk syntax.",
+      "Documents example calculations for common arithmetic tasks.",
+      "Returns clear errors for unsupported characters and division by zero."
     ],
     "limitations": [
-      "Does not support mathematical functions like sin, cos, sqrt, or logarithms",
-      "Cannot handle variables or symbolic mathematics",
-      "Limited to expressions that can be represented with basic operators",
-      "Results are always returned as floating-point numbers, which may have precision limitations for very large or very small values"
+      "Uses dynamic eval() internally and should be replaced before public deployment.",
+      "Does not support variables, named constants, or custom functions.",
+      "Does not provide symbolic algebra, graphing, or unit conversion.",
+      "May be unsafe for very large expressions that consume excessive resources."
     ],
     "use_cases": [
       {
-        "title": "Quick Financial Calculations",
-        "description": "Calculate percentages, profit margins, or simple financial formulas without leaving your coding environment.",
-        "target_user": "Business analysts and financial professionals"
+        "title": "Check Quick Arithmetic",
+        "description": "Calculate totals, percentages, or grouped expressions while drafting a response.",
+        "target_user": "General AI assistant users"
       },
       {
-        "title": "Programming Constant Computation",
-        "description": "Compute numerical constants or verify mathematical expressions while writing code that requires specific numeric values.",
-        "target_user": "Software developers"
+        "title": "Verify Documentation Examples",
+        "description": "Confirm simple numeric examples before adding them to guides or tutorials.",
+        "target_user": "Technical writers"
       },
       {
-        "title": "Data Analysis Verification",
-        "description": "Double-check calculations or verify formula results when working with data analysis tasks or spreadsheet conversions.",
-        "target_user": "Data scientists and researchers"
+        "title": "Support Coding Tasks",
+        "description": "Evaluate small numeric expressions during estimates, tests, or configuration work.",
+        "target_user": "Developers using Codex or Claude Code"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Simple Arithmetic",
-        "prompt": "Calculate 125 + 387",
-        "scenario": "Basic addition for quick verification of numbers"
+        "title": "Basic Calculation",
+        "scenario": "Beginner arithmetic check",
+        "prompt": "Use the calculator skill to solve this expression: 24 + 18 / 3."
       },
       {
-        "title": "Percentage Calculation",
-        "prompt": "What is 15% of 250? Calculate 250 * 0.15",
-        "scenario": "Computing percentages for discounts or proportions"
+        "title": "Grouped Expression",
+        "scenario": "Parentheses and operation order",
+        "prompt": "Calculate this grouped expression and explain the order of operations: (12 + 8) * 3."
       },
       {
-        "title": "Complex Expression",
-        "prompt": "Calculate (100 + 50) * 0.85 - 25",
-        "scenario": "Multi-step calculation with parentheses and multiple operations"
+        "title": "Power Calculation",
+        "scenario": "Exponent notation",
+        "prompt": "Use the calculator skill to compare 2 ^ 8 and 10 ** 2."
       },
       {
-        "title": "Power and Division",
-        "prompt": "Calculate 2 ** 10 / 4",
-        "scenario": "Advanced operations combining exponentiation and division"
+        "title": "Validate Several Results",
+        "scenario": "Advanced review of multiple examples",
+        "prompt": "Check these example results and report any mismatch: 5 + 3 = 8, 100 / 4 = 25, and (2 + 3) * 4 = 20."
       }
     ],
     "output_examples": [
       {
-        "input": "Calculate 15 * 8 + 32",
-        "output": "The result is 152.0"
+        "input": "Calculate 5 + 3.",
+        "output": "The result is 8."
       },
       {
-        "input": "What is (250 - 50) / 4?",
-        "output": "The result is 50.0"
+        "input": "Calculate (5 + 3) * 2.",
+        "output": "The result is 16 because the expression inside parentheses is evaluated first."
       },
       {
-        "input": "Calculate 2 ** 16",
-        "output": "The result is 65536.0"
+        "input": "Calculate 10 / 0.",
+        "output": "The calculation fails because division by zero is not allowed."
       }
     ],
     "best_practices": [
-      "Use parentheses to make operator precedence explicit in complex expressions",
-      "Verify expressions with known results first to ensure the calculator is working correctly",
-      "Remember that all results are floating-point numbers, so use appropriate rounding for display purposes"
+      "Use this skill for short arithmetic expressions with numbers and standard operators.",
+      "Review results manually when calculations affect financial, legal, or safety decisions.",
+      "Replace eval() with a safe expression parser before publishing or deploying this skill."
     ],
     "anti_patterns": [
-      "Do not attempt to use mathematical functions like sqrt or sin, as they are not supported",
-      "Avoid trying to assign variables or use programming constructs, as only mathematical expressions are allowed",
-      "Do not rely on this for calculations requiring arbitrary precision arithmetic or symbolic math"
+      "Do not pass untrusted long expressions into the current Python helper.",
+      "Do not use the skill for algebra, calculus, or symbolic math tasks.",
+      "Do not treat Markdown examples as executable shell commands."
     ],
     "faq": [
       {
-        "question": "Is this calculator safe to use with untrusted input?",
-        "answer": "Yes. The calculator validates all input using regex patterns to ensure only numbers and basic mathematical operators are allowed. It uses eval with an empty builtins dictionary to prevent code execution."
+        "question": "What operations does this skill support?",
+        "answer": "It supports addition, subtraction, multiplication, division, powers, and parentheses."
       },
       {
-        "question": "What operators are supported?",
-        "answer": "The calculator supports addition, subtraction, multiplication, division, exponentiation, and parentheses. Use + - * / for basic operations and ** or ^ for exponents."
+        "question": "Can it use variables or functions?",
+        "answer": "No. The skill documentation states that variables and function calls are not supported."
       },
       {
-        "question": "Can I use mathematical functions like sine or cosine?",
-        "answer": "No. This calculator only supports basic arithmetic operators. Functions like sin, cos, sqrt, or log are not available."
+        "question": "Is this skill safe to publish as written?",
+        "answer": "No. The Python helper uses eval(), so it should be rewritten before publication."
       },
       {
-        "question": "How does it handle division by zero?",
-        "answer": "Division by zero is caught and returns a clear error message indicating the problem. The calculator will not crash or produce undefined results."
+        "question": "Does it make network requests?",
+        "answer": "No evidence of network access was found in the reviewed files."
       },
       {
-        "question": "Why are results always decimal numbers?",
-        "answer": "All results are returned as floating-point numbers for consistency. Even integer calculations like 4 + 2 will return 6.0."
+        "question": "Why were Markdown examples flagged by static analysis?",
+        "answer": "The scanner misread Markdown backticks and arithmetic operators as command execution patterns."
       },
       {
-        "question": "Can I use variables in calculations?",
-        "answer": "No. The calculator only evaluates static mathematical expressions. Variable assignment and reference are not supported for security reasons."
+        "question": "Which AI tools can use this skill?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },
