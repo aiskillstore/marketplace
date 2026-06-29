@@ -1,20 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-21T15:20:28.557Z",
+    "generated_at": "2026-06-28T23:02:36.680Z",
     "slug": "cloud-officer-create-issue",
     "source_url": "https://github.com/Cloud-Officer/claude-code-plugin-dev/tree/master/skills/create-issue",
     "source_ref": "master",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "eaff6d6fe5b6f755d530139776ad5b82d8b150373230cc374c2b0dc42551726d",
-    "tree_hash": "bd5a64142950ce52f0ee9f4caca427150f0cb2f262b0fd5b2f077d266645dea8"
+    "tree_hash": "5c5f0e187d42f6320bd9a38b5199fc305e5193489d90e5477b5802ccb6a6d7d9"
   },
   "skill": {
     "name": "create-issue",
-    "description": "Create an issue in GitHub or Jira. Automatically detects if GitHub issues are enabled; if so creates a GitHub issue, otherwise creates a Jira issue.",
-    "summary": "Create GitHub or Jira issues automatically. Detects issue tracker type and uses appropriate CLI tools.",
+    "description": "Create structured GitHub or Jira issues from a user request, using the repository issue tracker configuration.",
+    "summary": "Creates structured GitHub or Jira issues with tracker detection, labels, priority, assignee handling, and issue templates.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "Cloud-Officer",
@@ -23,7 +23,8 @@
       "github",
       "jira",
       "issue-tracking",
-      "devops"
+      "project-management",
+      "automation"
     ],
     "supported_tools": [
       "claude",
@@ -31,26 +32,17 @@
       "claude-code"
     ],
     "risk_factors": [
-      "network",
-      "external_commands"
-    ]
+      "external_commands",
+      "filesystem"
+    ],
+    "category": "devops"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This skill creates issues in GitHub or Jira using standard CLI tools. All static findings are false positives: pattern matching incorrectly flagged GitHub URLs as C2 indicators and git-related terms as cryptographic algorithms. The skill uses legitimate gh and jira CLI commands for issue creation - this is standard developer tooling behavior.",
+    "summary": "The static external command findings are true positives because the skill intentionally runs git, gh, and jira commands. These commands match the issue creation purpose, but they can create real tracker records and depend on user-controlled issue text. The weak cryptography and reconnaissance findings are false positives from ordinary template words, with no evidence of malicious intent or prompt injection.",
     "risk_factor_evidence": [
-      {
-        "factor": "network",
-        "evidence": [
-          {
-            "file": "skill-report.json",
-            "line_start": 6,
-            "line_end": 6
-          }
-        ]
-      },
       {
         "factor": "external_commands",
         "evidence": [
@@ -61,144 +53,305 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 17,
+            "line_start": 16,
             "line_end": 18
           },
           {
             "file": "SKILL.md",
-            "line_start": 42,
+            "line_start": 41,
             "line_end": 45
           },
           {
             "file": "SKILL.md",
-            "line_start": 67,
+            "line_start": 66,
             "line_end": 72
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 258,
+            "line_end": 264
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 33,
+            "line_end": 37
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 58,
+            "line_end": 62
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 271,
+            "line_end": 271
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 903,
-    "audit_model": "claude",
-    "audited_at": "2026-01-21T15:20:28.557Z"
+    "medium_findings": [
+      {
+        "title": "Issue Creation Uses External CLI Commands",
+        "description": "TRUE POSITIVE: The skill instructs the agent to run git, gh, and jira commands. This is expected for an issue creation workflow, but it can create real issues in external services and should run only with user approval and configured credentials.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 13
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 18
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 45
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 66,
+            "line_end": 72
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The file directly documents concrete shell commands for git, GitHub CLI, and Jira CLI. The commands are legitimate for the stated purpose, but their external side effects are clear."
+      },
+      {
+        "title": "Temporary Issue Body File Is Written and Deleted",
+        "description": "TRUE POSITIVE: The skill writes issue content to issue-body.md and deletes it after command execution. This is a normal CLI pattern, but it can leave sensitive issue text on disk if a command fails before cleanup.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 33,
+            "line_end": 37
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 58,
+            "line_end": 62
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 271,
+            "line_end": 271
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The instructions explicitly require writing a temporary issue-body.md file and later deleting it. The residual-file risk is contextual and depends on command success."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Weak Cryptography Static Findings Are False Positives",
+        "description": "FALSE POSITIVE: The reported weak cryptography locations are ordinary issue template text such as description fields, design links, and severity wording. No cryptographic API, hashing routine, encryption operation, or credential handling was found in the skill file.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 88,
+            "line_end": 88
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 117,
+            "line_end": 130
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 146,
+            "line_end": 146
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 173,
+            "line_end": 190
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 214,
+            "line_end": 214
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 262,
+            "line_end": 262
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The cited lines contain markdown prose and template labels, not code invoking cryptographic primitives. The static pattern appears to match substrings in normal words."
+      },
+      {
+        "title": "Reconnaissance Static Findings Are False Positives",
+        "description": "FALSE POSITIVE: The reported reconnaissance lines are template sections about dependencies, blockers, and documentation context. No evidence found of system scanning, port scanning, network probing, or host enumeration.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 212,
+            "line_end": 219
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The relevant lines are plain issue template prompts for project planning. They do not instruct network reconnaissance or system discovery commands."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Shell Commands With External Side Effects",
+        "description": "The skill uses command examples that call gh issue create and jira issue create. These commands can modify external trackers, so marketplace users need a clear warning and should review issue content first.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 45
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 66,
+            "line_end": 72
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The command names and flags are explicit and create remote tracker issues. The purpose is legitimate, but the side effect is security relevant."
+      }
+    ],
+    "files_scanned": 1,
+    "total_lines": 272,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T23:02:36.680Z",
+    "risk_factors": [
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Create GitHub or Jira Issues",
-    "value_statement": "Developers spend valuable time manually creating issues across different trackers. This skill automates issue creation by detecting whether GitHub issues are enabled and using the appropriate CLI tool with proper templates.",
+    "user_title": "Create GitHub and Jira Issues",
+    "value_statement": "Teams lose time turning requests into complete tracker issues. This skill drafts structured tickets and creates them in GitHub or Jira using local CLI tools.",
     "seo_keywords": [
-      "create issue",
-      "github issues",
-      "jira issues",
-      "issue tracker",
       "Claude",
       "Codex",
       "Claude Code",
-      "bug report",
-      "task management",
-      "automation"
+      "GitHub issue creation",
+      "Jira issue creation",
+      "issue tracker automation",
+      "bug report template",
+      "task ticket workflow",
+      "project management AI",
+      "developer productivity"
     ],
     "actual_capabilities": [
-      "Detects if GitHub issues are enabled for a repository",
-      "Creates GitHub issues using the gh CLI tool",
-      "Creates Jira issues using the jira CLI tool",
-      "Uses appropriate templates for Task, Bug, or Story issue types",
-      "Maps severity levels to Jira priorities (Critical, High, Medium, Low, Info)",
-      "Cleans up temporary files after issue creation"
+      "Detects whether GitHub Issues are enabled for the current repository.",
+      "Creates GitHub issues with a title, body file, labels, and optional assignee.",
+      "Creates Jira issues with type, priority, label, summary, and optional assignee.",
+      "Maps severity levels to Jira priorities for consistent ticket triage.",
+      "Uses separate task, bug, and story templates with structured sections.",
+      "Deletes the temporary issue body file after the issue creation command runs."
     ],
     "limitations": [
-      "Requires gh CLI installed and authenticated for GitHub issues",
-      "Requires jira CLI installed and configured for Jira issues",
-      "Does not support creating issues without CLI tools",
-      "Cannot create issues on trackers other than GitHub or Jira"
+      "Requires authenticated and configured gh and jira command line tools.",
+      "Depends on the current repository and the user default Jira configuration.",
+      "Does not validate that labels, priorities, or assignees exist before creation.",
+      "Creates real issues, so users should review generated content before execution."
     ],
     "use_cases": [
       {
-        "title": "Quick Bug Reporting",
-        "description": "Rapidly document bugs with structured templates including environment details, reproduction steps, and impact assessment.",
-        "target_user": "Developers and QA engineers"
+        "title": "Create bug tickets from reports",
+        "target_user": "QA engineer",
+        "description": "Turn reproduction steps, environment details, and impact notes into a structured GitHub or Jira bug issue."
       },
       {
-        "title": "Task Definition for Sprints",
-        "description": "Create well-structured user stories with acceptance criteria, dependencies, and technical details for sprint planning.",
-        "target_user": "Product managers and team leads"
+        "title": "Capture implementation tasks",
+        "target_user": "Software engineer",
+        "description": "Convert a requested code change into a task with scope, testing notes, and technical context."
       },
       {
-        "title": "Technical Task Documentation",
-        "description": "Document technical tasks with security considerations, testing strategies, and implementation details.",
-        "target_user": "Software engineers and architects"
+        "title": "Draft product stories",
+        "target_user": "Product manager",
+        "description": "Create story issues that include stakeholders, value, acceptance criteria, dependencies, and release notes."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Bug Report",
-        "prompt": "Create a bug issue for this problem: [describe the bug]. The environment is [environment details]. The expected behavior is [what should happen].",
-        "scenario": "Quickly log a bug with essential details"
+        "title": "Create a simple task",
+        "scenario": "Beginner request for a straightforward work item.",
+        "prompt": "Create a task issue for adding a settings link to the account menu. Include scope, testing notes, and no assignee."
       },
       {
-        "title": "Feature Request",
-        "prompt": "Create a user story for: As a [user type], I want to [goal] so that [benefit]. Include acceptance criteria and technical notes.",
-        "scenario": "Formalizing feature requests for sprint planning"
+        "title": "Create a bug report",
+        "scenario": "Intermediate request with severity and reproduction details.",
+        "prompt": "Create a high severity bug issue for checkout failing on Safari. Include environment, steps to reproduce, expected behavior, and workaround."
       },
       {
-        "title": "Technical Task",
-        "prompt": "Create a technical task for [description]. Include security impact assessment, testing strategy, and technical implementation details.",
-        "scenario": "Documenting technical work with full context"
+        "title": "Create an assigned Jira story",
+        "scenario": "Advanced request with ownership and product context.",
+        "prompt": "Create a story assigned to alex for saved payment methods. Include business value, API changes, risks, and measurable acceptance criteria."
       },
       {
-        "title": "Custom Issue",
-        "prompt": "Create a [Task|Bug|Story] issue with title: [title] and body: [detailed description]. Assign to [username] if specified. Priority: [level].",
-        "scenario": "Full control over all issue parameters"
+        "title": "Create a compliance task",
+        "scenario": "Advanced request with security and release planning details.",
+        "prompt": "Create a critical task for rotating exposed staging credentials. Include security impact, mitigation steps, testing, rollback, and monitoring notes."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a bug issue: The login button does not respond when clicked in production environment.",
-        "output": "GitHub issue created successfully: #123 - Login button not responding"
+        "input": "Create a bug for users seeing a blank billing page after login.",
+        "output": "A bug issue is created with environment, actual behavior, expected behavior, reproduction steps, severity, workaround, and supporting details."
       },
       {
-        "input": "Create a user story for the new dashboard feature",
-        "output": "Jira issue created: [repo-name] User story: Dashboard feature with detailed template"
+        "input": "Create a Jira story for a new notification preferences page.",
+        "output": "A story issue is created with user groups, business value, design notes, API considerations, dependencies, acceptance criteria, and release notes."
+      },
+      {
+        "input": "Create a task to add retry logging to the payment worker.",
+        "output": "A task issue is created with scope, out-of-scope notes, security impact, testing details, and technical implementation context."
       }
     ],
     "best_practices": [
-      "Provide complete context: environment details, steps to reproduce, and expected behavior for bug reports",
-      "Use appropriate issue types (Task, Bug, Story) to match your project tracking workflow",
-      "Include security considerations in technical tasks to ensure compliance requirements are met"
+      "Review the generated issue body before allowing the creation command to run.",
+      "Provide severity, assignee, labels, and tracker preference in the request when known.",
+      "Run the skill from the target repository so tracker detection and naming are correct."
     ],
     "anti_patterns": [
-      "Creating issues without descriptions or with vague content that lacks actionable detail",
-      "Using Jira when GitHub issues are enabled instead of letting the skill auto-detect",
-      "Skipping template sections instead of marking them as N/A when not applicable"
+      "Do not use vague prompts that omit the issue type, impact, or expected outcome.",
+      "Do not include secrets, tokens, or private customer data in issue descriptions.",
+      "Do not run the skill without authenticated gh or jira CLI configuration."
     ],
     "faq": [
       {
-        "question": "What happens if both GitHub and Jira are configured?",
-        "answer": "The skill checks if GitHub issues are enabled first. If enabled, it uses GitHub. Otherwise, it defaults to Jira."
+        "question": "Does this skill create real issues?",
+        "answer": "Yes. It uses gh or jira CLI commands to create issues in the configured tracker."
       },
       {
-        "question": "Do I need to install both gh and jira CLI tools?",
-        "answer": "You only need the CLI tool for the tracker you use. The skill will detect which one to use based on your repository configuration."
+        "question": "How does it choose GitHub or Jira?",
+        "answer": "It checks whether GitHub Issues are enabled for the current repository, then falls back to Jira when they are disabled."
       },
       {
-        "question": "Can I create issues on self-hosted GitHub Enterprise?",
-        "answer": "Yes, as long as gh CLI is configured to authenticate with your GitHub Enterprise instance."
+        "question": "Can it assign issues to a user?",
+        "answer": "Yes. It adds an assignee when the user request includes an assignee name."
       },
       {
-        "question": "How are priorities mapped between severity and Jira?",
-        "answer": "Critical maps to Blocker, High to Critical, Medium to Major, and Low/Info to Minor."
+        "question": "Does it support different issue types?",
+        "answer": "Yes. It provides task, bug, and story templates with different required sections."
       },
       {
-        "question": "What if the gh or jira command hangs?",
-        "answer": "The skill sets a 15-second timeout for Jira commands. If a command appears malformed or hangs, it will time out."
+        "question": "What tools must be installed?",
+        "answer": "The repository must have git. GitHub creation requires gh, and Jira creation requires the jira CLI."
       },
       {
-        "question": "Where are temporary files created?",
-        "answer": "A temporary file named issue-body.md is created in the working directory and automatically deleted after the issue is created."
+        "question": "Does it store ticket content locally?",
+        "answer": "It writes a temporary issue-body.md file and deletes it after the issue command succeeds."
       }
     ]
   },

@@ -1,30 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-16T21:02:17.483Z",
+    "generated_at": "2026-06-29T00:01:05.352Z",
     "slug": "clementwalter-1password-credential-lookup",
     "source_url": "https://github.com/ClementWalter/rookie-marketplace/tree/main/1password-mcp/skills/credential-lookup",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "9a352f47157c2883b3f14123b1c7e7bc940b1d089171407a1c59795e8059eefd",
-    "tree_hash": "93ae8204725b50571e4299a097ea38ba3a94459674fae66c8fa72504f4cfd345"
+    "tree_hash": "9bbb9c413f0a9a37a6ce743153e501acb3ee279f0847022746999f61dd49f5ca"
   },
   "skill": {
     "name": "1password-credential-lookup",
-    "description": "This skill should be used when agents need to log into websites, retrieve passwords, or access credentials. CRITICAL - always use find_credential with the website URL, never guess item names.",
-    "summary": "This skill should be used when agents need to log into websites, retrieve passwords, or access crede...",
-    "icon": "🔐",
+    "description": "Finds 1Password login items by website URL and optional username, then returns matching credential details through the local 1Password CLI.",
+    "summary": "Looks up 1Password credentials by website domain for agent-assisted login workflows.",
+    "icon": "📦",
     "version": "2.0.0",
     "author": "ClementWalter",
     "license": "MIT",
     "category": "security",
     "tags": [
-      "credentials",
       "1password",
-      "authentication",
-      "password-manager"
+      "credentials",
+      "password-manager",
+      "login",
+      "security"
     ],
     "supported_tools": [
       "claude",
@@ -32,15 +33,14 @@
       "claude-code"
     ],
     "risk_factors": [
-      "external_commands",
-      "filesystem"
+      "external_commands"
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Legitimate credential lookup tool that uses 1Password CLI for secure retrieval. No network calls, no credential exfiltration. Subprocess calls to `op` CLI use hardcoded string arguments. Static findings are false positives triggered by expected credential access patterns.",
+    "safe_to_publish": false,
+    "summary": "The static sensitive-data findings are true positives because the script reads and prints 1Password usernames and passwords. Most markdown backtick findings are false positives, and subprocess execution uses argv without a shell, but the skill still handles secrets and has imprecise domain matching.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -48,173 +48,313 @@
           {
             "file": "scripts/find_credential.py",
             "line_start": 30,
-            "line_end": 31
-          }
-        ]
-      },
-      {
-        "factor": "filesystem",
-        "evidence": [
-          {
-            "file": "scripts/find_credential.py",
-            "line_start": 57,
-            "line_end": 87
+            "line_end": 32
           }
         ]
       }
     ],
+    "risk_factors": [
+      "external_commands"
+    ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
+    "high_findings": [
+      {
+        "title": "Plaintext Credential Disclosure",
+        "description": "TRUE POSITIVE: The script extracts username and password fields from 1Password items and prints matching credentials. This exposes secrets to the agent session output.",
+        "locations": [
+          {
+            "file": "scripts/find_credential.py",
+            "line_start": 46,
+            "line_end": 54
+          },
+          {
+            "file": "scripts/find_credential.py",
+            "line_start": 112,
+            "line_end": 128
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 50
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The code directly returns password values from 1Password item fields. The skill documentation also states that returned data includes passwords."
+      },
+      {
+        "title": "Imprecise Domain Matching Can Select Wrong Credentials",
+        "description": "TRUE POSITIVE semantic issue: The script checks whether the requested domain appears anywhere in stored URLs. A deceptive or unrelated hostname can match a sensitive domain substring.",
+        "locations": [
+          {
+            "file": "scripts/find_credential.py",
+            "line_start": 67,
+            "line_end": 75
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The matching logic uses substring containment instead of registered-domain comparison. This creates a clear credential-confusion risk for lookalike or nested domains."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Local 1Password CLI Invocation",
+        "description": "TRUE POSITIVE with mitigating context: The script invokes the external op CLI to list and retrieve vault items. It does not use a shell, but it depends on local vault access and returns secret material.",
+        "locations": [
+          {
+            "file": "scripts/find_credential.py",
+            "line_start": 27,
+            "line_end": 35
+          },
+          {
+            "file": "scripts/find_credential.py",
+            "line_start": 57,
+            "line_end": 58
+          },
+          {
+            "file": "scripts/find_credential.py",
+            "line_start": 80,
+            "line_end": 81
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "subprocess.run is confirmed and executes op commands. The argv list avoids shell injection, so the risk is secret access rather than command injection."
+      }
+    ],
     "low_findings": [
       {
-        "title": "Credentials output via stdout",
-        "description": "Script outputs credentials as JSON to stdout. This is the designed behavior for credential retrieval. Not a security flaw but expected functionality.",
+        "title": "Markdown Backtick Execution Findings Are False Positives",
+        "description": "FALSE POSITIVE: The reported SKILL.md shell execution hits are markdown code fences and inline examples. No executable Ruby or shell backtick code exists in the skill instructions.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 16
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 23
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 37,
+            "line_end": 40
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 57
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 69,
+            "line_end": 78
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 84,
+            "line_end": 84
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 91,
+            "line_end": 105
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The cited lines are documentation examples or inline tool names. They are not interpreted as code by the skill runtime."
+      },
+      {
+        "title": "Weak Cryptographic Algorithm Finding Is False Positive",
+        "description": "FALSE POSITIVE: The flagged line is skill metadata and contains no cryptographic algorithm. No evidence found for weak cryptography in the cited location.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "The line is a natural-language description that includes the word CRITICAL. It does not define or call any cryptographic function."
+      },
+      {
+        "title": "System Reconnaissance Findings Are False Positives",
+        "description": "FALSE POSITIVE: The cited script lines read credential field identifiers from a 1Password item. They do not inspect the host system or collect machine details.",
+        "locations": [
+          {
+            "file": "scripts/find_credential.py",
+            "line_start": 50,
+            "line_end": 52
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The code only compares item field metadata to username and password constants. No system APIs or environment inventory calls are present."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "External Command Access to Password Vault",
+        "description": "The script runs the op CLI to list vault items and retrieve item details. This is required for the skill but expands the impact of agent misuse.",
+        "locations": [
+          {
+            "file": "scripts/find_credential.py",
+            "line_start": 30,
+            "line_end": 32
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The subprocess call is explicit and reaches the local 1Password CLI. The risk is confirmed because the called command can access vault data."
+      },
+      {
+        "title": "Credential Values Printed to Standard Output",
+        "description": "The script serializes credential objects to stdout, including passwords for single matches or username-filtered matches.",
         "locations": [
           {
             "file": "scripts/find_credential.py",
             "line_start": 112,
             "line_end": 128
           }
-        ]
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The printed object is built from extracted username and password fields. This directly exposes secrets to the calling agent context."
+      },
+      {
+        "title": "Substring URL Matching",
+        "description": "The script treats any stored URL containing the requested domain string as a match. This can return credentials for the wrong site.",
+        "locations": [
+          {
+            "file": "scripts/find_credential.py",
+            "line_start": 70,
+            "line_end": 75
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The condition uses containment against raw URL text. It does not parse hostnames or compare domain boundaries."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 3,
-    "total_lines": 507,
-    "audit_model": "claude",
-    "audited_at": "2026-01-16T21:02:17.483Z"
+    "files_scanned": 2,
+    "total_lines": 252,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T00:01:05.352Z"
   },
   "content": {
-    "user_title": "Retrieve 1Password credentials by URL",
-    "value_statement": "AI agents need secure access to credentials for login automation. This skill provides URL-based lookup through 1Password CLI to retrieve usernames and passwords without exposing raw secrets in prompts.",
+    "user_title": "Find 1Password Credentials by Website URL",
+    "value_statement": "Agents often need accurate login credentials without guessing password item names. This skill searches 1Password by website URL and optional username.",
     "seo_keywords": [
-      "1password credential lookup",
-      "Claude Code credentials",
-      "AI password retrieval",
-      "1password CLI integration",
-      "secure credential access",
-      "password manager automation",
-      "authentication AI",
-      "credential management Claude",
-      "1password MCP",
-      "AI login automation"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "1Password credential lookup",
+      "password manager skill",
+      "website login automation",
+      "op CLI",
+      "credential retrieval",
+      "agent security",
+      "vault lookup"
     ],
     "actual_capabilities": [
-      "Find credentials by website URL such as github.com or twitter.com",
-      "Filter credentials by username when multiple accounts exist for a domain",
-      "Handle domain aliases such as x.com mapping to twitter.com",
-      "Return structured JSON with username, password, and item details",
-      "Provide clear error messages for missing items or multiple matches",
-      "Integrate with 1Password CLI for secure local credential retrieval"
+      "Searches 1Password items by stored website URL.",
+      "Filters matching credentials by username when provided.",
+      "Returns a single matching username, password, item name, and item ID.",
+      "Lists matching account usernames when several items match one domain.",
+      "Handles x.com and twitter.com as equivalent domains."
     ],
     "limitations": [
-      "Requires 1Password CLI installed and authenticated with op signin",
-      "No MCP server integration - uses CLI directly without persistent connection",
-      "Limited to Unix-like systems with 1Password CLI support",
-      "Cannot search by arbitrary item names - must use URL field"
+      "Requires the 1Password CLI to be installed and signed in.",
+      "Prints plaintext credentials to the agent output for single matches.",
+      "Uses substring URL matching and can match an unintended domain.",
+      "Does not enforce user confirmation before returning a password."
     ],
     "use_cases": [
       {
-        "target_user": "Developers",
-        "title": "CI/CD Authentication",
-        "description": "Retrieve deployment credentials for automated pipelines without hardcoding secrets"
+        "title": "Website Login Assistance",
+        "target_user": "Individual users",
+        "description": "Find the right saved login for a website before filling a browser login form."
       },
       {
-        "target_user": "DevOps Engineers",
-        "title": "Server Access",
-        "description": "Fetch SSH keys and server passwords for infrastructure management tasks"
+        "title": "Account Selection",
+        "target_user": "Support operators",
+        "description": "List available usernames for a domain when several 1Password items match one site."
       },
       {
-        "target_user": "Security Teams",
-        "title": "Credential Audit",
-        "description": "List and verify stored credentials across different services securely"
+        "title": "Agent Workflow Setup",
+        "target_user": "Automation builders",
+        "description": "Connect local agent workflows to 1Password lookups through the existing op CLI session."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Login",
-        "scenario": "Get credentials for a website",
-        "prompt": "Find credentials for github.com"
+        "title": "Find One Login",
+        "scenario": "Beginner lookup for a single website.",
+        "prompt": "Find my 1Password credential for github.com. Show only the account that matches the website URL."
       },
       {
-        "title": "With Username",
-        "scenario": "Filter by specific account",
-        "prompt": "Find credentials for github.com with username myuser"
+        "title": "Find Login by Username",
+        "scenario": "Filter a lookup when multiple accounts may exist.",
+        "prompt": "Find the 1Password credential for github.com with username alex@example.com."
       },
       {
-        "title": "Multi-Account",
-        "scenario": "Handle multiple accounts",
-        "prompt": "Get all accounts for twitter.com"
+        "title": "List Matching Accounts",
+        "scenario": "Choose between several stored accounts.",
+        "prompt": "List the saved 1Password accounts for linkedin.com, then wait for me to choose one."
       },
       {
-        "title": "Unknown Account",
-        "scenario": "Find which account to use",
-        "prompt": "List all available accounts for x.com"
+        "title": "Verify Before Login",
+        "scenario": "Advanced workflow with user confirmation.",
+        "prompt": "Find the credential for example.com, confirm the matched domain and username with me, then use it only after approval."
       }
     ],
     "output_examples": [
       {
-        "input": "Find credentials for github.com with username claude",
+        "input": "Find the credential for github.com with username alex@example.com.",
+        "output": "The skill identifies the matching 1Password item and returns the username, password, item name, and item ID."
+      },
+      {
+        "input": "List saved accounts for github.com.",
         "output": [
-          "Found credential: GitHub (claude account)",
-          "Username: claude",
-          "Password: [hidden - 16 chars]",
-          "Item ID: abc123xyz"
+          "The skill reports that multiple accounts match the domain.",
+          "It lists account usernames so the user can choose the intended login."
         ]
       },
       {
-        "input": "Find credentials for twitter.com",
-        "output": [
-          "Multiple accounts found for twitter.com:",
-          "- Username: work@company.com",
-          "- Username: personal@email.com",
-          "Specify username to filter"
-        ]
-      },
-      {
-        "input": "List all available accounts for x.com",
-        "output": [
-          "Available accounts for x.com:",
-          "- @username1 (Twitter/X account)",
-          "- @username2 (Alternative account)"
-        ]
+        "input": "Find the credential for a domain with no saved item.",
+        "output": "The skill reports that no 1Password items were found for the requested website."
       }
     ],
     "best_practices": [
-      "Use URL-based lookup with find_credential instead of guessing arbitrary item names",
-      "Filter by username when multiple accounts exist for the same domain",
-      "Ensure 1Password CLI is signed in before requesting credentials"
+      "Ask the user before retrieving or using a password.",
+      "Use the full website domain and add the username when known.",
+      "Verify the matched item name and domain before filling a login form."
     ],
     "anti_patterns": [
-      "Using item_name parameter with URLs or guessed names (item names are arbitrary and may not match domains)",
-      "Guessing item names like GitHub or my github (these do not work with the 1Password CLI)",
-      "Using get_credential with URLs instead of find_credential (violates the one rule)"
+      "Do not guess 1Password item names instead of searching by URL.",
+      "Do not paste returned passwords into logs, tickets, or chat transcripts.",
+      "Do not use this skill for domains that only partially match the target site."
     ],
     "faq": [
       {
-        "question": "Which AI tools support this skill?",
-        "answer": "Compatible with Claude, Codex, and Claude Code for credential retrieval workflows."
+        "question": "Does this skill require the 1Password CLI?",
+        "answer": "Yes. It calls the local op CLI and requires an active 1Password session."
       },
       {
-        "question": "Can I use this with multiple 1Password accounts?",
-        "answer": "Yes, but the script uses the default account. Filter by username to select the correct one."
+        "question": "Does it send credentials to a remote service?",
+        "answer": "No evidence found in the scanned files. It uses the local 1Password CLI and prints results locally."
       },
       {
-        "question": "Are credentials cached or stored?",
-        "answer": "No caching. Each request calls 1Password CLI directly and credentials stay in memory only."
+        "question": "Why is the audit risk high?",
+        "answer": "The skill retrieves and prints plaintext passwords. It also uses broad substring matching for URLs."
       },
       {
-        "question": "Does this send data externally?",
-        "answer": "No network calls. All communication is with the local 1Password CLI installation only."
+        "question": "Can it choose between multiple accounts?",
+        "answer": "Yes. It can list matching usernames when several items match one domain."
       },
       {
-        "question": "What if multiple accounts exist for a domain?",
-        "answer": "The script returns a list of accounts. Add a username filter to select the correct one."
+        "question": "What happens if op is not signed in?",
+        "answer": "The script returns an error that tells the user to run op signin."
       },
       {
-        "question": "How are credentials protected?",
-        "answer": "Credentials are retrieved via 1Password CLI and returned as JSON. Use environment variables to capture securely."
+        "question": "Should agents use this without confirmation?",
+        "answer": "No. Users should approve credential retrieval and verify the matched domain first."
       }
     ]
   },

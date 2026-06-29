@@ -1,29 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-21T15:25:07.766Z",
+    "generated_at": "2026-06-28T23:07:05.740Z",
     "slug": "cloud-officer-run-linters",
     "source_url": "https://github.com/Cloud-Officer/claude-code-plugin-dev/tree/master/skills/run-linters",
     "source_ref": "master",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "cd628231f3697ce72b1a5aebcf0bca6d7d78a8d0080f6ea1d2d6da39fcff5656",
-    "tree_hash": "c2f5ebaf3d84247d730f9ef45ff1c2c1e77de20e72d92876438c6f901566b1dc"
+    "tree_hash": "046747d95880da80c1615e9a9a218c20ef0ae260434129e300cb46f9ebcffbb3"
   },
   "skill": {
     "name": "run-linters",
-    "description": "Run linters after code changes to verify code quality. Use this skill after completing code modifications to catch and fix any linting issues.",
-    "summary": "Run linters after code changes to verify code quality. Use this skill after completing code modifica...",
+    "description": "Run repository linters after code changes, review reported issues, edit affected files, and repeat checks until lint errors are resolved.",
+    "summary": "Run configured linters after code changes and fix reported issues before completion.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "Cloud-Officer",
     "license": "MIT",
+    "category": "coding",
     "tags": [
       "linting",
       "code-quality",
-      "codex",
-      "static-analysis"
+      "automation",
+      "ci",
+      "developer-tools"
     ],
     "supported_tools": [
       "claude",
@@ -31,181 +33,244 @@
       "claude-code"
     ],
     "risk_factors": [
-      "network",
-      "external_commands"
+      "external_commands",
+      "filesystem"
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All static findings are false positives. The hardcoded URL is metadata, backticks in documentation are for command examples, and 'weak cryptographic algorithm' alerts are misidentified JSON structures. The external_commands risk factor is expected for a linting skill that runs the linters tool.",
+    "summary": "Static analysis flagged possible shell backtick execution and weak cryptography. Review found no cryptographic code and no Ruby backtick execution; the file contains Markdown examples for a fixed linter command. Risk remains medium because the skill intentionally runs repository lint tooling and edits files.",
     "risk_factor_evidence": [
-      {
-        "factor": "network",
-        "evidence": [
-          {
-            "file": "skill-report.json",
-            "line_start": 6,
-            "line_end": 6
-          }
-        ]
-      },
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "SKILL.md",
             "line_start": 19,
-            "line_end": 19
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 21,
             "line_end": 23
           },
           {
             "file": "SKILL.md",
-            "line_start": 23,
+            "line_start": 37,
             "line_end": 37
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 36
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
+    "medium_findings": [
+      {
+        "title": "Repository Linter Command Execution",
+        "description": "The skill instructs the agent to execute the fixed linters command and rerun it after fixes. This is expected behavior for the skill, but linter frameworks may execute project-local plugins or scripts.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 19,
+            "line_end": 23
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 37,
+            "line_end": 37
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "The command execution is explicit and part of the intended workflow. Confidence is not higher because the command name is fixed and no user-controlled shell string is constructed."
+      },
+      {
+        "title": "Automated Source File Modification",
+        "description": "The skill can read affected files and edit them to fix linter results. This is legitimate for lint remediation, but it can change repository contents and should be reviewed before commit.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 36
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The allowed tools and workflow both explicitly permit file reads and edits. The risk is contextual because file modification is also the core purpose of the skill."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Weak Cryptography Static Finding Dismissed",
+        "description": "The static finding points to the skill description. No evidence of weak cryptographic algorithms or cryptographic code was found at this location.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.96,
+        "confidence_reasoning": "Line 3 is plain metadata describing linting behavior. There are no hash functions, encryption calls, or cryptographic parameters present."
+      },
+      {
+        "title": "Ruby Backtick Static Findings Dismissed",
+        "description": "The reported backtick locations are Markdown inline code and a fenced bash example. They do not show Ruby backtick execution or dynamic shell interpolation.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 19,
+            "line_end": 23
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.9,
+        "confidence_reasoning": "The syntax is documentation markup around a fixed command. There is no Ruby code and no evidence of user-controlled command construction."
+      }
+    ],
     "dangerous_patterns": [],
-    "files_scanned": 2,
-    "total_lines": 248,
-    "audit_model": "claude",
-    "audited_at": "2026-01-21T15:25:07.766Z"
+    "files_scanned": 1,
+    "total_lines": 46,
+    "audit_model": "codex",
+    "audited_at": "2026-06-28T23:07:05.740Z",
+    "risk_factors": [
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Run Linters for Code Quality",
-    "value_statement": "Manual linting after code changes is time-consuming and error-prone. This skill automates running linters by auto-detecting active linters in the repository and executing them with proper configurations.",
+    "user_title": "Run Linters After Code Changes",
+    "value_statement": "Code changes can introduce style, syntax, or quality issues that are easy to miss. This skill runs configured linters and helps fix reported issues before handoff.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "linters",
-      "code quality",
-      "static analysis",
-      "code formatting",
-      "eslint",
-      "prettier"
+      "Claude linting skill",
+      "Codex lint automation",
+      "Claude Code linter workflow",
+      "run linters",
+      "code quality checks",
+      "lint error fixing",
+      "developer automation",
+      "pre commit checks",
+      "repository validation",
+      "AI coding assistant"
     ],
     "actual_capabilities": [
-      "Auto-detects active linters in the current repository",
-      "Runs linters with proper configurations",
-      "Analyzes linting results and identifies issues",
-      "Iteratively fixes linting issues until all are resolved"
+      "Runs the configured linters command after a completed set of code changes.",
+      "Reviews linter output and identifies files that need fixes.",
+      "Reads affected files to understand reported lint errors.",
+      "Edits source files to resolve linting issues.",
+      "Repeats linter execution until issues are resolved or user guidance is needed."
     ],
     "limitations": [
-      "Cannot run linters that are not already installed in the repository",
-      "Cannot modify linter configurations - only reports issues",
-      "Does not run after each edit - requires manual invocation",
-      "Cannot skip specific linting rules without user approval"
+      "Requires a working linters command in the active repository environment.",
+      "Does not define or install linter configurations.",
+      "May run project-local linter plugins or scripts through the repository toolchain.",
+      "Asks before disabling lint rules that appear incorrect."
     ],
     "use_cases": [
       {
-        "title": "Pre-commit Code Quality Check",
-        "description": "Run linters before creating a commit or pull request to ensure code meets quality standards and passes CI checks.",
-        "target_user": "Developers preparing code for review"
+        "title": "Prepare a Pull Request",
+        "description": "Run lint checks after a feature branch is complete and fix issues before review.",
+        "target_user": "Software engineer"
       },
       {
-        "title": "Post-refactoring Verification",
-        "description": "After making code changes, run linters to catch and fix any style or quality issues introduced during the refactor.",
-        "target_user": "Engineers refactoring legacy code"
+        "title": "Validate Generated Code",
+        "description": "Check AI-generated edits against repository lint rules and correct formatting or style problems.",
+        "target_user": "AI coding assistant user"
       },
       {
-        "title": "Codebase Cleanup Session",
-        "description": "Systematically run and fix linter issues across multiple files to improve overall code quality and consistency.",
-        "target_user": "Teams maintaining codebases"
+        "title": "Clean Up Before Commit",
+        "description": "Run quality checks after a focused change set and resolve problems before committing.",
+        "target_user": "Maintainer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Lint Check",
-        "prompt": "Run linters to check the code quality of my changes.",
-        "scenario": "User wants to verify code quality after making changes"
+        "title": "Run Basic Lint Check",
+        "scenario": "Beginner request after a small change set.",
+        "prompt": "Run linters for the recent code changes and tell me whether anything needs to be fixed."
       },
       {
-        "title": "Pre-commit Quality Gate",
-        "prompt": "Run linters on all modified files and fix any issues found. Report back when all linting errors are resolved.",
-        "scenario": "User wants to ensure code passes quality checks before committing"
+        "title": "Fix Lint Issues",
+        "scenario": "Standard lint remediation workflow.",
+        "prompt": "Run the repository linters, inspect any reported files, and fix lint errors without changing unrelated behavior."
       },
       {
-        "title": "Full Repository Lint",
-        "prompt": "Run linters on the entire repository. Start with the most critical issues and work through them systematically until the codebase is lint-clean.",
-        "scenario": "User wants to address accumulated linting debt"
+        "title": "Prepare For Review",
+        "scenario": "Pre-review validation for a branch.",
+        "prompt": "Run linters for this branch, fix valid issues, and summarize what changed before I open a pull request."
       },
       {
-        "title": "Incremental Quality Improvement",
-        "prompt": "Run linters and create a summary of all issues found. For each issue, read the file, understand the error, fix it, and re-run linters to verify. Continue until all issues are resolved.",
-        "scenario": "User wants thorough fixing of all linting problems with context-aware fixes"
+        "title": "Audit Linter Failures",
+        "scenario": "Advanced review when failures may be rule or configuration issues.",
+        "prompt": "Run linters, separate real code issues from questionable rule failures, fix safe issues, and ask before disabling any rule."
       }
     ],
     "output_examples": [
       {
-        "input": "Run linters to check the code quality of my changes.",
-        "output": [
-          "Running linters on your repository...",
-          "✓ Linter auto-detection complete. Found: ESLint, Prettier",
-          "Running ESLint...",
-          "Running Prettier...",
-          "✓ All linting checks passed! Your code is clean."
-        ]
+        "input": "Run linters after my API changes.",
+        "output": "Linters completed after one fix pass. Two formatting issues were corrected, and the final run reported no remaining lint errors."
       },
       {
-        "input": "Run linters and fix any issues found.",
-        "output": [
-          "Running linters on your repository...",
-          "Found 3 linting issues:",
-          "1. src/utils.js: Line 12 - Missing semicolon",
-          "2. src/components/Button.tsx: Line 45 - Prop type 'any'",
-          "3. src/api.ts: Line 8 - Unused variable 'temp'",
-          "Fixing issue 1...",
-          "Fixed! Re-running linters...",
-          "Continuing with remaining issues..."
-        ]
+        "input": "Check this branch before I commit.",
+        "output": "The linter reported one unused import and one style violation. Both were fixed, then the linter completed successfully."
+      },
+      {
+        "input": "Run linting and review any failures carefully.",
+        "output": "The linter found a rule conflict that may require a configuration decision. No rule was disabled, and user input is needed."
       }
     ],
     "best_practices": [
-      "Run linters after completing a logical set of changes, not after each small edit",
-      "Fix all reported issues before marking the task complete",
-      "Ask the user before disabling or modifying linting rules"
+      "Run this skill after a complete logical change set, not after every small edit.",
+      "Review file edits before committing because lint fixes can affect source behavior.",
+      "Use it in trusted repositories with known linter configurations."
     ],
     "anti_patterns": [
-      "Running linters after every single line change - wastes time and interrupts flow",
-      "Ignoring linting errors without understanding them",
-      "Disabling linting rules without consulting the team"
+      "Do not use it to install or redesign the repository lint stack.",
+      "Do not run it automatically on untrusted repositories without reviewing tooling.",
+      "Do not disable lint rules without explicit user approval."
     ],
     "faq": [
       {
-        "question": "What linters does this skill support?",
-        "answer": "The skill auto-detects installed linters in your repository. Common linters like ESLint, Prettier, RuboCop, Pylint, and shellcheck are supported."
+        "question": "What command does this skill run?",
+        "answer": "It runs the repository linters command, which is expected to auto-detect active linters."
       },
       {
-        "question": "Can I skip certain linting rules?",
-        "answer": "The skill will not skip rules without your approval. Ask the user before disabling any linting rule."
+        "question": "Does it fix lint errors?",
+        "answer": "Yes. It reads affected files, edits valid issues, and reruns linters to verify the fixes."
       },
       {
-        "question": "Does this modify my linter configuration files?",
-        "answer": "No. The skill only runs linters and uses the Edit tool to fix code issues. It does not change configuration files."
+        "question": "Does it install linting tools?",
+        "answer": "No. The repository must already provide the linters command and its required dependencies."
       },
       {
-        "question": "What happens if a linter is not installed?",
-        "answer": "The skill reports that the linter was not found and continues with other detected linters."
+        "question": "Can it change source files?",
+        "answer": "Yes. File editing is part of the lint remediation workflow and should be reviewed before commit."
       },
       {
-        "question": "Can I run linters on specific files only?",
-        "answer": "The skill runs all detected linters. The linters themselves may operate on changed files or the entire project depending on configuration."
+        "question": "Is it safe for untrusted repositories?",
+        "answer": "Use caution. Repository linters can load project-local plugins, scripts, or configuration."
       },
       {
-        "question": "How long does linting typically take?",
-        "answer": "Execution time depends on repository size and number of linters. Small projects take seconds; large codebases may take a minute or more."
+        "question": "Will it disable lint rules?",
+        "answer": "No. The skill says to ask the user before disabling a rule that appears incorrect."
       }
     ]
   },
