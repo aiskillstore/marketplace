@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T01:44:29.639Z",
+    "generated_at": "2026-06-29T13:44:10.396Z",
     "slug": "davila7-gene-database",
     "source_url": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/scientific/gene-database",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "a0fdd60e4e77ca2e3948926fd41463a6fbab2781b3cd4d8f737c11caeefb1b5a",
-    "tree_hash": "93b053edd49769f3276c3b6d33f776ee87da68712e495555b4aa15d4f8c64357"
+    "tree_hash": "55c1f23ce05569db4e35e414d53d0f526f9acee3af91ebbebbab2f6ec41852ed"
   },
   "skill": {
     "name": "gene-database",
-    "description": "Query NCBI Gene via E-utilities/Datasets API. Search by symbol/ID, retrieve gene info (RefSeqs, GO, locations, phenotypes), batch lookups, for gene annotation and functional analysis.",
-    "summary": "Query NCBI Gene via E-utilities/Datasets API. Search by symbol/ID, retrieve gene info (RefSeqs, GO, ...",
-    "icon": "🧬",
+    "description": "Query NCBI Gene through official E-utilities and Datasets APIs for gene search, metadata retrieval, and batch annotation workflows.",
+    "summary": "Search NCBI Gene and retrieve gene metadata, identifiers, locations, annotations, and batch lookup results.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "davila7",
     "license": "MIT",
-    "category": "research",
     "tags": [
       "genomics",
       "bioinformatics",
       "NCBI",
-      "research",
-      "data-retrieval"
+      "gene-annotation",
+      "research-data"
     ],
     "supported_tools": [
       "claude",
@@ -33,16 +32,38 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
       "network",
       "filesystem"
-    ]
+    ],
+    "category": "research"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This skill queries NCBI Gene databases via official APIs (eutils.ncbi.nlm.nih.gov and api.ncbi.nlm.nih.gov). All network requests go to legitimate government scientific databases. The static scanner flagged 366 potential issues, but evaluation reveals these are false positives: code examples in markdown documentation were misidentified as shell execution, API calls are expected for a database tool, and API key handling is standard CLI practice for NCBI authentication. No malicious patterns, data exfiltration, or suspicious behavior detected.",
+    "summary": "Static analysis reported many command, network, credential, and weak-crypto patterns, but review found no malicious intent or prompt injection. Most command and blocker alerts are documentation or substring false positives; the real residual risks are expected NCBI network access, executable scripts, CLI API-key handling, and optional local file input or output.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/query_gene.py",
+            "line_start": 205,
+            "line_end": 252
+          },
+          {
+            "file": "scripts/fetch_gene_data.py",
+            "line_start": 216,
+            "line_end": 278
+          },
+          {
+            "file": "scripts/batch_gene_lookup.py",
+            "line_start": 240,
+            "line_end": 299
+          }
+        ]
+      },
       {
         "factor": "network",
         "evidence": [
@@ -69,7 +90,7 @@
           {
             "file": "scripts/batch_gene_lookup.py",
             "line_start": 18,
-            "line_end": 37
+            "line_end": 26
           },
           {
             "file": "scripts/batch_gene_lookup.py",
@@ -81,11 +102,37 @@
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
+    "medium_findings": [
+      {
+        "title": "Expected Network Requests to NCBI APIs",
+        "description": "The scripts make outbound HTTPS requests to NCBI E-utilities and NCBI Datasets endpoints. This is required for the skill, but users should know that gene queries and optional API keys are sent to NCBI.",
+        "locations": [
+          {
+            "file": "scripts/query_gene.py",
+            "line_start": 19,
+            "line_end": 19
+          },
+          {
+            "file": "scripts/fetch_gene_data.py",
+            "line_start": 17,
+            "line_end": 17
+          },
+          {
+            "file": "scripts/batch_gene_lookup.py",
+            "line_start": 53,
+            "line_end": 53
+          }
+        ],
+        "risk_level": "medium",
+        "static_finding_verdict": "TRUE_POSITIVE",
+        "confidence": 0.9,
+        "confidence_reasoning": "The network endpoints are hardcoded official NCBI domains and match the skill purpose. I found no evidence of hidden third-party exfiltration or suspicious domains."
+      }
+    ],
     "low_findings": [
       {
-        "title": "API key visible in process arguments",
-        "description": "The --api-key argument exposes API keys in command-line arguments which may be visible in process listings. This is standard CLI practice but users should be aware that keys may be visible to other processes on shared systems.",
+        "title": "CLI API Key Exposure Risk",
+        "description": "The scripts accept NCBI API keys through command-line arguments. This is normal for simple CLI tools, but keys can be visible in shell history or process listings on shared systems.",
         "locations": [
           {
             "file": "scripts/query_gene.py",
@@ -102,142 +149,229 @@
             "line_start": 261,
             "line_end": 261
           }
-        ]
+        ],
+        "risk_level": "low",
+        "static_finding_verdict": "TRUE_POSITIVE",
+        "confidence": 0.86,
+        "confidence_reasoning": "The API-key parameters are clearly present in CLI parsers. The keys are only sent to NCBI, so this is exposure hygiene rather than malicious credential theft."
+      },
+      {
+        "title": "User-Controlled Local File Read and Write",
+        "description": "The batch lookup script can read gene identifiers from a user-provided file and write JSON results to a user-provided output path. This is expected behavior, but users should choose trusted paths.",
+        "locations": [
+          {
+            "file": "scripts/batch_gene_lookup.py",
+            "line_start": 18,
+            "line_end": 26
+          },
+          {
+            "file": "scripts/batch_gene_lookup.py",
+            "line_start": 285,
+            "line_end": 291
+          }
+        ],
+        "risk_level": "low",
+        "static_finding_verdict": "TRUE_POSITIVE",
+        "confidence": 0.84,
+        "confidence_reasoning": "Direct file read and write operations are present and controlled by CLI arguments. I found no evidence of unauthorized file traversal, persistence, or broad filesystem scanning."
+      },
+      {
+        "title": "Markdown Backtick Command Alerts Are Documentation",
+        "description": "The many external-command alerts in markdown files are examples and inline code spans, not executable Ruby or shell backtick execution. They document how to run the included scripts.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 106,
+            "line_end": 129
+          },
+          {
+            "file": "references/api_reference.md",
+            "line_start": 54,
+            "line_end": 56
+          },
+          {
+            "file": "references/common_workflows.md",
+            "line_start": 26,
+            "line_end": 29
+          }
+        ],
+        "risk_level": "low",
+        "static_finding_verdict": "FALSE_POSITIVE",
+        "confidence": 0.96,
+        "confidence_reasoning": "The flagged backticks are inside markdown documentation and fenced examples. They are not code paths executed by the skill runtime."
+      },
+      {
+        "title": "Weak-Crypto and Reconnaissance Alerts Are Substring Matches",
+        "description": "The blocker alerts correspond to benign words such as description, Datasets API, status codes, and gene metadata examples. No cryptographic API, system enumeration, or reconnaissance behavior was found.",
+        "locations": [
+          {
+            "file": "references/api_reference.md",
+            "line_start": 98,
+            "line_end": 98
+          },
+          {
+            "file": "scripts/query_gene.py",
+            "line_start": 171,
+            "line_end": 171
+          },
+          {
+            "file": "scripts/fetch_gene_data.py",
+            "line_start": 174,
+            "line_end": 174
+          },
+          {
+            "file": "scripts/batch_gene_lookup.py",
+            "line_start": 167,
+            "line_end": 167
+          }
+        ],
+        "risk_level": "low",
+        "static_finding_verdict": "FALSE_POSITIVE",
+        "confidence": 0.91,
+        "confidence_reasoning": "Manual review found no imports or calls for weak hashing, encryption, host discovery, or system inspection. The scanner appears to match benign text fragments."
       }
     ],
     "dangerous_patterns": [],
-    "files_scanned": 7,
-    "total_lines": 2140,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T01:44:29.638Z"
+    "files_scanned": 6,
+    "total_lines": 1837,
+    "audit_model": "codex",
+    "audited_at": "2026-06-29T13:44:10.396Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Query NCBI Gene database",
-    "value_statement": "Search and retrieve gene information from NCBI Gene database. Get gene symbols, RefSeq sequences, GO annotations, chromosomal locations, and phenotype associations for research and analysis.",
+    "user_title": "Query NCBI Gene Data",
+    "value_statement": "Gene research often requires precise identifiers, annotations, and organism context from trusted sources. This skill helps Claude, Codex, and Claude Code query NCBI Gene and organize results for analysis.",
     "seo_keywords": [
-      "gene database query tool",
-      "NCBI Gene API integration",
-      "genomic data retrieval",
-      "BRCA1 TP53 gene lookup",
-      "gene annotation pipeline",
-      "bioinformatics research",
-      "Claude Code skill",
-      "gene ontology GO terms",
-      "genomic research assistant",
-      "DNA sequence data"
+      "Claude gene database",
+      "Codex bioinformatics",
+      "Claude Code genomic lookup",
+      "NCBI Gene API",
+      "gene annotation tool",
+      "E-utilities gene search",
+      "Datasets API gene data",
+      "batch gene lookup",
+      "bioinformatics research assistant",
+      "gene metadata retrieval"
     ],
     "actual_capabilities": [
-      "Search genes by symbol, name, or ID across species",
-      "Retrieve gene metadata including RefSeqs, GO annotations, and chromosome locations",
-      "Batch process multiple genes with rate limiting",
-      "Fetch data from NCBI E-utilities and Datasets API",
-      "Export results in JSON, XML, or text formats",
-      "Query by disease, pathway, or biological process"
+      "Search NCBI Gene by symbol, name, organism, disease term, pathway, or Gene ID.",
+      "Retrieve gene summaries, chromosomal locations, aliases, organism details, and selected RefSeq metadata.",
+      "Use NCBI E-utilities for search, summary, fetch, link, and database information workflows.",
+      "Use NCBI Datasets API for direct gene metadata retrieval by ID or symbol and taxon.",
+      "Process batches of gene symbols or IDs with built-in rate limiting and JSON output.",
+      "Reference documented query patterns for disease discovery, annotation, ortholog review, and publication mining."
     ],
     "limitations": [
-      "Requires internet connection to access NCBI APIs",
-      "Rate limited to 3-10 requests per second without or with API key",
-      "Does not perform sequence analysis or variant calling",
-      "Limited to publicly available NCBI Gene database"
+      "Requires internet access to NCBI services and depends on NCBI availability and response formats.",
+      "Does not perform variant calling, sequence alignment, pathway enrichment, or clinical interpretation.",
+      "API keys are passed through command-line arguments, which may be visible on shared systems.",
+      "Results reflect public NCBI Gene records and may require expert review for research conclusions."
     ],
     "use_cases": [
       {
-        "target_user": "Researchers",
-        "title": "Disease gene discovery",
-        "description": "Find genes associated with specific diseases or phenotypes for research studies"
+        "target_user": "Molecular biology researcher",
+        "title": "Validate disease gene candidates",
+        "description": "Search public NCBI Gene records for candidate genes and collect identifiers, names, locations, and organism context."
       },
       {
-        "target_user": "Bioinformaticians",
-        "title": "Gene annotation pipeline",
-        "description": "Annotate gene lists with metadata, sequences, and functional information"
+        "target_user": "Bioinformatics analyst",
+        "title": "Annotate gene panels",
+        "description": "Batch lookup gene symbols or IDs and prepare consistent metadata for downstream tables and reports."
       },
       {
-        "target_user": "Students",
-        "title": "Genomics learning tool",
-        "description": "Explore gene information and understand genomic data structures"
+        "target_user": "Graduate student",
+        "title": "Explore gene records",
+        "description": "Compare gene symbols, aliases, map locations, and database links while learning NCBI query syntax."
       }
     ],
     "prompt_templates": [
       {
         "title": "Basic gene lookup",
-        "scenario": "Find gene information quickly",
-        "prompt": "Use the gene-database skill to search for the BRCA1 gene in human and show its location and description"
+        "scenario": "Find one gene in one organism.",
+        "prompt": "Use the gene-database skill to search for BRCA1 in human. Show the Gene ID, description, organism, chromosome, and map location."
       },
       {
-        "title": "Batch gene query",
-        "scenario": "Research multiple genes",
-        "prompt": "Get information for TP53, EGFR, and KRAS genes including their chromosome locations and biological function"
+        "title": "Batch annotation request",
+        "scenario": "Annotate a short gene list.",
+        "prompt": "Use the batch lookup workflow for TP53, EGFR, KRAS, and BRCA1 in human. Return a concise table with identifiers and locations."
       },
       {
-        "title": "Disease association",
-        "scenario": "Find disease-related genes",
-        "prompt": "Find all genes associated with diabetes in human and return their gene IDs and symbols"
+        "title": "Disease-focused search",
+        "scenario": "Find genes linked to a phenotype or disease term.",
+        "prompt": "Search NCBI Gene for human genes associated with diabetes. Limit results to 20 and summarize symbols, Gene IDs, and descriptions."
       },
       {
-        "title": "Cross-species comparison",
-        "scenario": "Compare genes across species",
-        "prompt": "Compare the TP53 gene between human, mouse, and rat species showing their chromosome locations"
+        "title": "Advanced workflow planning",
+        "scenario": "Design a reproducible annotation process.",
+        "prompt": "Plan a reproducible NCBI Gene annotation workflow for a 300-gene panel, including rate limits, API key handling, output format, and validation steps."
       }
     ],
     "output_examples": [
       {
-        "input": "Look up BRCA1 gene information in human",
+        "input": "Look up BRCA1 in human.",
         "output": [
           "Gene ID: 672",
           "Symbol: BRCA1",
           "Description: BRCA1 DNA repair associated",
-          "Organism: Homo sapiens (human)",
+          "Organism: Homo sapiens",
           "Chromosome: 17",
-          "Map Location: 17q21.31",
-          "Type: protein-coding"
+          "Map location: 17q21.31"
         ]
       },
       {
-        "input": "Find genes associated with diabetes in human",
+        "input": "Annotate TP53, EGFR, and KRAS for human.",
         "output": [
-          "Found 50 genes associated with diabetes",
-          "INS gene: Insulin gene on chromosome 11",
-          "TCF7L2 gene: Transcription factor 7-like 2 on chromosome 10",
-          "PPARG gene: Peroxisome proliferator-activated receptor gamma on chromosome 3"
+          "TP53: tumor protein p53, Gene ID 7157, chromosome 17.",
+          "EGFR: epidermal growth factor receptor, Gene ID 1956, chromosome 7.",
+          "KRAS: KRAS proto-oncogene, Gene ID 3845, chromosome 12."
+        ]
+      },
+      {
+        "input": "Find genes related to apoptosis in mouse.",
+        "output": [
+          "Search results include genes matching the selected biological process and organism filter.",
+          "Each result can include Gene ID, official symbol, description, organism, chromosome, and database links."
         ]
       }
     ],
     "best_practices": [
-      "Always specify organism when searching by gene symbol to avoid ambiguity between species",
-      "Use gene IDs instead of symbols for precise lookups when available",
-      "Include your NCBI API key to increase rate limits from 3 to 10 requests per second",
-      "Cache results locally to reduce redundant queries and comply with rate limits"
+      "Always include organism or taxon information when searching by gene symbol.",
+      "Use stable Gene IDs for repeatable lookups when they are already known.",
+      "Respect NCBI rate limits and use an API key only when higher request volume is needed."
     ],
     "anti_patterns": [
-      "Searching without specifying organism can return wrong gene from different species",
-      "Making too many rapid requests without API key can result in rate limiting",
-      "Using gene symbols alone without validation can introduce errors from typos",
-      "Expecting real-time variant analysis instead of using appropriate variant databases"
+      "Do not treat gene symbols as globally unique across all organisms.",
+      "Do not use this skill for clinical decisions without qualified review.",
+      "Do not paste sensitive API keys into shared prompts, logs, or public notebooks."
     ],
     "faq": [
       {
-        "question": "What gene databases can this skill access?",
-        "answer": "This skill accesses NCBI Gene database via two official APIs: E-utilities and NCBI Datasets API. These provide comprehensive gene information for all organisms."
+        "question": "Which data source does this skill use?",
+        "answer": "It uses official NCBI Gene access through E-utilities and NCBI Datasets API endpoints."
       },
       {
-        "question": "How many genes can I query at once?",
-        "answer": "The batch lookup script can process hundreds of genes. E-utilities ESummary accepts up to 500 gene IDs per request with rate limits of 3-10 per second."
+        "question": "Does it require an NCBI API key?",
+        "answer": "No. An API key is optional, but it increases allowed request rates for larger workflows."
       },
       {
-        "question": "Can I use this skill offline?",
-        "answer": "No. This skill requires internet access to query NCBI servers. You can cache results locally after retrieval for offline use."
+        "question": "Can it process many genes at once?",
+        "answer": "Yes. The batch script accepts comma-separated Gene IDs or a file of gene symbols."
       },
       {
-        "question": "Is my data safe when using this skill?",
-        "answer": "Yes. Data flows directly between your system and NCBIs servers. No third-party services are involved. Only gene queries are transmitted."
+        "question": "Can it run without internet access?",
+        "answer": "No. It queries live NCBI services, so network access is required for retrieval."
       },
       {
-        "question": "Why am I getting rate limited errors?",
-        "answer": "NCBI limits requests to 3 per second without an API key. Get a free API key from NCBI account settings and use the --api-key parameter."
+        "question": "Does it analyze variants or expression data?",
+        "answer": "No. It retrieves gene records and metadata, but it does not perform variant or expression analysis."
       },
       {
-        "question": "How does this compare to other gene databases?",
-        "answer": "NCBI Gene is the most comprehensive database for gene annotations. This skill focuses on NCBIs API for easy programmatic access to gene data."
+        "question": "What should users verify in results?",
+        "answer": "Users should verify organism, Gene ID, symbol aliases, and record currency before using results in publications."
       }
     ]
   },
