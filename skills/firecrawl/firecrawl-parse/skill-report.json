@@ -1,31 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-18T09:40:05.070Z",
+    "generated_at": "2026-06-30T00:33:11.960Z",
     "slug": "firecrawl-firecrawl-parse",
     "source_url": "https://github.com/firecrawl/cli/tree/main/skills/firecrawl-parse/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "ea22462791f067552be25f6bb13de6bab446823632362cd1e14dbbcb91347343",
-    "tree_hash": "db8fd1a142e08b11766765e579e5dc29e43f913d8e31cc717537c80af26f2aed"
+    "tree_hash": "7239e986fdb26d7ce981ff4e99fd555672399da8094931d1df1622260753b6a9"
   },
   "skill": {
     "name": "firecrawl-parse",
-    "description": "Extract and convert local documents (PDF, DOCX, DOC, ODT, RTF, XLSX, XLS, HTML) into clean, well-formatted markdown saved to disk. Supports AI-powered summaries and question-answering over parsed content.",
-    "summary": "Convert local files like PDFs and DOCX into clean markdown using the Firecrawl CLI parse command.",
-    "icon": "📄",
+    "description": "Convert supported local documents into clean Markdown files with Firecrawl. The skill can also request summaries or answers about the parsed document.",
+    "summary": "Parse local documents into Markdown files using Firecrawl.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "firecrawl",
     "license": "MIT",
     "category": "data",
     "tags": [
-      "file-parsing",
-      "pdf",
-      "docx",
+      "document-parsing",
       "markdown",
-      "document-conversion"
+      "pdf",
+      "firecrawl",
+      "file-conversion"
     ],
     "supported_tools": [
       "claude",
@@ -34,27 +34,33 @@
     ],
     "risk_factors": [
       "external_commands",
-      "filesystem"
+      "filesystem",
+      "network"
     ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All static analysis findings are false positives. The 22 'backtick execution' flags are markdown formatting in a documentation file, not actual shell commands. The 'path traversal' flag on line 61 is a relative link in markdown text. The two 'weak cryptographic algorithm' flags match DOCX/DOC file extensions in natural language descriptions, not crypto code. The skill only invokes the scoped `firecrawl` and `npx firecrawl` CLI commands and is a safe documentation wrapper.",
+    "summary": "The static Ruby backtick, weak crypto, and path traversal findings are false positives from Markdown text and a documentation link. The real risk is medium because the skill authorizes Firecrawl CLI commands that process local files and may send document contents to an external service.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 6,
+            "line_start": 5,
             "line_end": 7
           },
           {
             "file": "SKILL.md",
             "line_start": 24,
             "line_end": 36
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 57
           }
         ]
       },
@@ -70,164 +76,271 @@
             "file": "SKILL.md",
             "line_start": 46,
             "line_end": 46
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 56
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 28,
+            "line_end": 35
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 57
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "medium_findings": [
       {
-        "title": "Shell command invocation via scoped Bash tool",
-        "description": "The skill uses `allowed-tools` to restrict execution to `Bash(firecrawl *)` and `Bash(npx firecrawl *)`, which is a safe scoping pattern. The flagged backtick locations are all markdown-formatted documentation examples, not executable code injection vectors. Acceptable for a documentation skill.",
+        "title": "Local Document Contents May Be Sent to Firecrawl",
+        "description": "The skill directs users to parse local files with the Firecrawl CLI and mentions upload size and credit usage. This appears legitimate, but sensitive local documents may leave the workspace for external processing.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 6,
-            "line_end": 7
+            "line_start": 28,
+            "line_end": 35
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 57
           }
-        ]
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The command examples and upload or credit notes strongly indicate Firecrawl service processing. I found no evidence of malicious exfiltration, but local file disclosure is a real privacy risk."
+      },
+      {
+        "title": "External CLI Commands Are Authorized",
+        "description": "The skill permits Bash execution of firecrawl and npx firecrawl commands. This is expected for the skill, but it requires trust in the Firecrawl CLI and any package invoked through npx.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 5,
+            "line_end": 7
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 36
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "The allowed-tools block explicitly grants command execution for Firecrawl commands. The examples use fixed command forms, so the risk is operational rather than evidence of command injection."
       }
     ],
-    "dangerous_patterns": [],
+    "low_findings": [
+      {
+        "title": "Filesystem Writes Are Directed to Local Output Files",
+        "description": "The skill repeatedly instructs use of an output path under .firecrawl. This is normal for document conversion, but users should review output paths before writing files.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 22,
+            "line_end": 22
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 46,
+            "line_end": 46
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 56
+          }
+        ],
+        "confidence": 0.66,
+        "confidence_reasoning": "The output behavior is clearly documented and scoped to generated parse files. I did not find evidence that the skill overwrites sensitive paths by itself."
+      },
+      {
+        "title": "Static Markdown Pattern Findings Are False Positives",
+        "description": "The Ruby backtick and weak cryptography alerts point to Markdown inline code, documentation examples, or frontmatter text. No Ruby execution or cryptographic operation appears in SKILL.md.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 4
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 22
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 49
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The cited lines are Markdown prose, option tables, or inline command references. There is no source code implementing Ruby backticks or weak hashing."
+      },
+      {
+        "title": "Path Traversal Alert Is a Documentation Link",
+        "description": "The ../ sequence is used in a Markdown link to a related skill file. It is not used as runtime file input or filesystem traversal logic.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 61,
+            "line_end": 61
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "Line 61 is only a relative Markdown link under a See also section. I found no code path that consumes this link for filesystem access."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Allowed Bash Access to Firecrawl Commands",
+        "description": "The allowed-tools block permits Firecrawl CLI execution from Bash, including npx firecrawl. Marketplace users should understand that this skill invokes external tooling.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 5,
+            "line_end": 7
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The command permission is explicit in the skill metadata. It is not malicious by itself, but it is a meaningful execution capability."
+      }
+    ],
     "files_scanned": 1,
     "total_lines": 62,
-    "audit_model": "claude",
-    "audited_at": "2026-06-18T09:40:05.070Z",
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T00:33:11.960Z",
     "risk_factors": [
       "external_commands",
-      "filesystem"
+      "filesystem",
+      "network"
     ]
   },
   "content": {
-    "user_title": "Parse any local document into clean markdown",
-    "value_statement": "Manually extracting text from PDFs and DOCX files is slow and error-prone. This skill uses the Firecrawl CLI to convert local files into well-formatted markdown saved to disk for easy downstream processing.",
+    "user_title": "Convert Local Documents to Markdown",
+    "value_statement": "Local documents are hard to review when their text stays locked in PDFs, spreadsheets, or word processor files. This skill uses Firecrawl to create Markdown, summaries, and document answers for Claude, Codex, and Claude Code workflows.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "firecrawl parse",
-      "PDF to markdown",
-      "DOCX parser",
-      "document extraction",
-      "local file parsing",
+      "Firecrawl parse",
+      "document to Markdown",
+      "PDF parsing",
+      "DOCX extraction",
+      "local file conversion",
       "AI document summary",
-      "firecrawl CLI"
+      "spreadsheet text extraction"
     ],
     "actual_capabilities": [
-      "Convert PDF, DOCX, DOC, ODT, RTF, XLSX, XLS, and HTML files to clean markdown.",
-      "Save parsed output directly to disk using the `-o` output flag.",
-      "Generate AI-powered summaries of parsed documents with the `-S` flag.",
-      "Answer questions about parsed document content using the `-Q` flag.",
-      "Support a 50 MB maximum upload size per file.",
-      "Work with scoped Bash permissions restricted to firecrawl CLI commands only."
+      "Converts supported local documents into Markdown files on disk.",
+      "Supports PDF, DOCX, DOC, ODT, RTF, XLSX, XLS, HTML, HTM, and XHTML inputs.",
+      "Saves parsed output to a chosen file path, usually under .firecrawl.",
+      "Requests an AI-generated summary of a parsed document.",
+      "Asks a question about a document and saves the answer."
     ],
     "limitations": [
-      "Requires a Firecrawl account and API key configured locally.",
-      "Consumes credits per page (approximately 1 credit per PDF page).",
-      "Maximum file size is 50 MB per upload.",
-      "Only handles local files; URLs should use the `firecrawl-scrape` skill instead."
+      "Requires the Firecrawl CLI or npx Firecrawl command to be available.",
+      "May upload local document contents to Firecrawl for processing.",
+      "The documented maximum upload size is 50 MB per file.",
+      "Large parsed files should be read incrementally instead of loaded all at once."
     ],
     "use_cases": [
       {
-        "title": "Extract text from research PDFs",
-        "description": "Convert academic papers and research PDFs into markdown for analysis, summarization, or citation extraction.",
-        "target_user": "Researchers and students"
+        "title": "Review a Research PDF",
+        "description": "Convert a paper into Markdown, then ask for a short summary or main conclusions.",
+        "target_user": "Researcher"
       },
       {
-        "title": "Summarize business documents",
-        "description": "Parse DOCX reports and generate AI-powered summaries for quick review of contracts, proposals, or meeting notes.",
-        "target_user": "Business analysts and managers"
+        "title": "Extract Contract Text",
+        "description": "Turn a local DOCX or PDF contract into Markdown for review and comparison.",
+        "target_user": "Legal operations specialist"
       },
       {
-        "title": "Batch convert spreadsheets and documents",
-        "description": "Convert XLSX, HTML, and other supported formats into markdown for use in documentation pipelines or static site generators.",
-        "target_user": "Developers and technical writers"
+        "title": "Prepare Documents for Analysis",
+        "description": "Batch parse office files into Markdown before searching, summarizing, or indexing them.",
+        "target_user": "Data analyst"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic file to markdown conversion",
-        "prompt": "Parse the file at ./report.pdf and save the markdown output to .firecrawl/report.md",
-        "scenario": "Beginner — converting a single local file"
+        "title": "Parse One File",
+        "scenario": "Beginner conversion of a local document.",
+        "prompt": "Parse this local file into Markdown and save the result under .firecrawl: ./document.pdf"
       },
       {
-        "title": "AI summary of a document",
-        "prompt": "Parse ./quarterly-report.docx with the AI summary flag enabled, saving to .firecrawl/q1-summary.md",
-        "scenario": "Intermediate — generating a document summary"
+        "title": "Summarize a Document",
+        "scenario": "Create a concise summary after parsing.",
+        "prompt": "Convert ./report.docx into Markdown, then save a summary in .firecrawl/report-summary.md."
       },
       {
-        "title": "Question answering over a parsed file",
-        "prompt": "Parse ./contract.pdf and answer: 'What are the termination clauses?' Save the Q&A to .firecrawl/contract-qa.md",
-        "scenario": "Advanced — extracting specific information"
+        "title": "Ask a Document Question",
+        "scenario": "Use Firecrawl query mode for targeted extraction.",
+        "prompt": "Parse ./proposal.pdf and answer this question: What are the pricing terms and key deadlines?"
       },
       {
-        "title": "Batch parsing multiple files",
-        "prompt": "Parse all DOCX files in ./invoices/ and save each as markdown in .firecrawl/. Use parallel execution where possible.",
-        "scenario": "Advanced — batch processing workflows"
+        "title": "Prepare a Batch Workflow",
+        "scenario": "Advanced workflow for several local files.",
+        "prompt": "Create a .firecrawl output plan for these local files, avoid re-parsing existing outputs, and note credit-sensitive files."
       }
     ],
     "output_examples": [
       {
-        "input": "Parse ./paper.pdf -o .firecrawl/paper.md",
-        "output": [
-          "Creates the .firecrawl/ directory if it does not exist.",
-          "Converts the PDF to clean markdown without filling the context window.",
-          "Output saved to .firecrawl/paper.md for incremental reading with head, grep, or rg."
-        ]
+        "input": "A user asks to parse a PDF named annual-report.pdf.",
+        "output": "The assistant creates a Markdown file under .firecrawl and reports the saved path with a brief note about file size."
       },
       {
-        "input": "Parse ./report.docx -S -o .firecrawl/report-summary.md",
-        "output": [
-          "Generates an AI-powered summary of the document content.",
-          "Saves the summary as markdown to the specified output path.",
-          "Useful for quick review of long business documents."
-        ]
+        "input": "A user asks for the main conclusions from a research paper.",
+        "output": "The assistant saves a summary file and provides a concise conclusion list based on the parsed document."
       },
       {
-        "input": "Parse ./manual.pdf -Q 'How do I reset the device?' -o .firecrawl/manual-qa.md",
-        "output": [
-          "Extracts the answer to the specific question from the parsed content.",
-          "Saves the answer with relevant context to a markdown file.",
-          "Useful for technical support documentation and knowledge bases."
-        ]
+        "input": "A user asks whether a contract includes renewal terms.",
+        "output": "The assistant saves a question-answer result and highlights the relevant renewal terms found in the document."
       }
     ],
     "best_practices": [
-      "Always use the `-o` flag to save parsed output to `.firecrawl/` instead of streaming to stdout.",
-      "Add `.firecrawl/` to your `.gitignore` to prevent committing parsed output files.",
-      "Use `head`, `grep`, or `rg` to incrementally read large parsed files rather than loading them entirely."
+      "Confirm that the document can be shared with Firecrawl before parsing sensitive files.",
+      "Save outputs under .firecrawl and add that directory to .gitignore.",
+      "Read large parsed files in small sections with search tools."
     ],
     "anti_patterns": [
-      "Do not skip the `-o` flag and stream large documents to stdout; this can fill the context window.",
-      "Do not use this skill for URLs — use the `firecrawl-scrape` skill instead.",
-      "Do not attempt to parse files larger than 50 MB; split or preprocess them first."
+      "Do not parse confidential documents without user approval.",
+      "Do not stream large parsed documents directly into the chat context.",
+      "Do not use this skill for URLs; use a scraping workflow instead."
     ],
     "faq": [
       {
-        "question": "What file formats does firecrawl-parse support?",
-        "answer": "It supports PDF, DOCX, DOC, ODT, RTF, XLSX, XLS, and HTML/HTM/XHTML files."
+        "question": "What file types does this skill support?",
+        "answer": "It documents support for PDF, DOCX, DOC, ODT, RTF, XLSX, XLS, HTML, HTM, and XHTML files."
       },
       {
-        "question": "How do I avoid filling my context window with large documents?",
-        "answer": "Always use the `-o` flag to save parsed output to disk in the `.firecrawl/` directory, then read the file incrementally with head, grep, or rg."
+        "question": "Where does the parsed output go?",
+        "answer": "The skill recommends saving output files under .firecrawl with the Firecrawl output option."
       },
       {
-        "question": "Can this skill scrape URLs?",
-        "answer": "No, this skill is for local files only. Use the `firecrawl-scrape` skill for URLs."
+        "question": "Can it summarize a document?",
+        "answer": "Yes. The skill documents a summary option that saves an AI-generated summary."
       },
       {
-        "question": "What is the maximum file size?",
-        "answer": "The maximum upload size is 50 MB per file."
+        "question": "Can it answer questions about a document?",
+        "answer": "Yes. The skill documents a query option for asking a question about parsed content."
       },
       {
-        "question": "How many credits does parsing consume?",
-        "answer": "PDFs cost approximately 1 credit per page. HTML files cost 1 credit flat regardless of size."
+        "question": "Does it work for web pages?",
+        "answer": "This skill is for local files. The skill says to use a scraping workflow for URLs."
       },
       {
-        "question": "How do I generate an AI summary of a document?",
-        "answer": "Use the `-S` or `--summary` flag along with the `-o` output flag to save the AI-generated summary."
+        "question": "What security warning should users know?",
+        "answer": "Local file contents may be processed by Firecrawl, so users should avoid sensitive files unless sharing is approved."
       }
     ]
   },
