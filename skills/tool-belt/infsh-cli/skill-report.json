@@ -1,30 +1,29 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-04-14T08:43:40.900Z",
+    "generated_at": "2026-06-30T22:14:02.544Z",
     "slug": "tool-belt-infsh-cli",
     "source_url": "https://github.com/tool-belt/skills/tree/main/tools/infsh-cli/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "f227f76a2ed6346bd06377a1811342c918129be6d17912eb16985b32e74956de",
-    "tree_hash": "13ccc2aa69ab5c998642d631c08738e0698dede46cd3558bda8580733fdfb2c5"
+    "tree_hash": "78a29cf5cf6e2062121e01c54d454797b61f0ea3b760796ea7049996b99c4265"
   },
   "skill": {
     "name": "infsh-cli",
-    "description": "Run 250+ AI apps via inference.sh CLI - image generation, video creation, LLMs, search, 3D, Twitter automation. Models: FLUX, Veo, Gemini, Grok, Claude, Seedance, OmniHuman, Tavily, Exa, OpenRouter, and many more. Use when running AI apps, generating images/videos, calling LLMs, web search, or automating Twitter. Triggers: inference.sh, infsh, ai model, run ai, serverless ai, ai api, flux, veo, claude api, image generation, video generation, openrouter, tavily, exa search, twitter api, grok",
-    "summary": "Access 250+ cloud AI services through a unified CLI for image generation, video creation, LLMs, search, and automation.",
+    "description": "Use the inference.sh CLI to discover and run cloud AI apps for images, video, LLMs, search, 3D generation, and Twitter/X automation.",
+    "summary": "Run cloud AI apps through the inference.sh command line.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "tool-belt",
     "license": "MIT",
-    "category": "devops",
     "tags": [
-      "ai",
+      "inference-sh",
       "cli",
-      "inference",
-      "serverless",
+      "ai-apps",
+      "image-generation",
       "automation"
     ],
     "supported_tools": [
@@ -37,13 +36,14 @@
       "network",
       "env_access",
       "filesystem"
-    ]
+    ],
+    "category": "devops"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "All 203 static analysis findings are false positives. The skill consists entirely of markdown documentation files with bash code examples. Patterns flagged as 'external_commands' are markdown code blocks (triple-backtick syntax), not executable code. 'Network' findings are documentation URLs for the inference.sh platform. 'Pipe to shell' references show the standard documented install method (curl | sh) from the official inference.sh domain. 'API key' findings reference environment variable documentation, not actual credential exposure. 'Weak cryptographic algorithm' findings reference sha256sum checksum verification, which is appropriate. No executable code or malicious intent detected. Low risk assigned because the skill permits Bash execution of the infsh CLI, which makes network requests and requires API credentials.",
+    "safe_to_publish": false,
+    "summary": "The static findings are mostly markdown examples for a CLI skill, so many Ruby/backtick and weak-crypto matches are false positives from command formatting and SHA-256 checksum text. Confirmed risks remain high because the skill documents a curl-to-shell installer, cloud execution through infsh, API key handling, automatic local file uploads, and Twitter/X automation. No prompt injection attempt or confirmed malicious intent was found, so the skill is not blocked.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -997,131 +997,387 @@
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
+    "high_findings": [
+      {
+        "title": "Remote Shell Installer Instruction",
+        "description": "The skill tells users to install or update the CLI with curl piped directly to sh. This is a true positive because it executes network-delivered shell code before local inspection, creating supply-chain and endpoint compromise risk if the host, transport, or script is compromised.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 17
+          },
+          {
+            "file": "references/authentication.md",
+            "line_start": 5,
+            "line_end": 6
+          },
+          {
+            "file": "references/cli-reference.md",
+            "line_start": 5,
+            "line_end": 6
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.93,
+        "confidence_reasoning": "The exact pipe-to-shell install pattern appears in multiple installation sections. The skill provides a manual install alternative, but the primary instruction still asks users to execute remote code."
+      },
+      {
+        "title": "Cloud CLI Can Upload Local Files and Run External Apps",
+        "description": "The skill explains that local paths are automatically uploaded when passed as app inputs. This is a true positive for filesystem and network risk because user files can leave the local machine through cloud app execution, including media used for image, video, avatar, and social posting workflows.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 71
+          },
+          {
+            "file": "references/running-apps.md",
+            "line_start": 21,
+            "line_end": 42
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.9,
+        "confidence_reasoning": "The documentation explicitly states that local files are uploaded and shows absolute, relative, and home-directory paths. This is expected functionality, but it is a material data exposure risk."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Broad External Command Surface Through infsh",
+        "description": "The external command findings are true positives in context because the skill is designed to make the agent run infsh commands. The allowed tool scope limits execution to infsh, but that CLI can list apps, run cloud jobs, deploy apps, pull app source, save outputs, and check tasks.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
+          },
+          {
+            "file": "references/cli-reference.md",
+            "line_start": 19,
+            "line_end": 66
+          },
+          {
+            "file": "references/running-apps.md",
+            "line_start": 3,
+            "line_end": 18
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.86,
+        "confidence_reasoning": "The command surface is documented clearly and is central to the skill. The risk is moderated because commands are examples for the named CLI rather than arbitrary shell snippets."
+      },
+      {
+        "title": "API Key Handling Requires Secret Hygiene",
+        "description": "The env_access findings are true positives because the documentation instructs users to set INFSH_API_KEY and troubleshoot invalid API keys. This is legitimate authentication guidance, but users must avoid exposing the key in prompts, logs, shell history, or shared CI output.",
+        "locations": [
+          {
+            "file": "references/authentication.md",
+            "line_start": 25,
+            "line_end": 33
+          },
+          {
+            "file": "references/authentication.md",
+            "line_start": 49,
+            "line_end": 53
+          },
+          {
+            "file": "references/cli-reference.md",
+            "line_start": 68,
+            "line_end": 72
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The named API key environment variable is present and used for authentication. No evidence shows exfiltration, so this is a handling risk rather than confirmed abuse."
+      },
+      {
+        "title": "Social Media Automation Can Perform Account Actions",
+        "description": "The skill documents Twitter/X actions such as posting, creating posts with media, direct messages, follows, likes, and reposts. This is legitimate automation, but it can cause unauthorized or unintended external side effects if used without explicit user confirmation.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 50
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 96,
+            "line_end": 96
+          },
+          {
+            "file": "references/running-apps.md",
+            "line_start": 35,
+            "line_end": 36
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "The examples and capability table explicitly include Twitter/X posting and other account actions. The risk is semantic and side-effect based, not hidden malicious behavior."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Markdown Command Examples Overstated as Code Execution",
+        "description": "Many external command and Ruby backtick findings are false positives because they are markdown inline-code examples or fenced bash examples in reference documentation. They describe intended CLI usage and do not by themselves execute during skill loading.",
+        "locations": [
+          {
+            "file": "references/app-discovery.md",
+            "line_start": 5,
+            "line_end": 82
+          },
+          {
+            "file": "references/cli-reference.md",
+            "line_start": 11,
+            "line_end": 66
+          },
+          {
+            "file": "references/running-apps.md",
+            "line_start": 3,
+            "line_end": 18
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.87,
+        "confidence_reasoning": "The referenced lines are documentation tables and code fences, not executable source files. They can still guide an agent to run commands, which is covered by separate findings."
+      },
+      {
+        "title": "Hardcoded Documentation URLs Are Expected",
+        "description": "The hardcoded URL findings are mostly links to inference.sh documentation, installer, distribution assets, and an image. These are expected for a CLI documentation skill and are not evidence of hidden exfiltration by themselves.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 7,
+            "line_end": 11
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 136,
+            "line_end": 144
+          },
+          {
+            "file": "references/authentication.md",
+            "line_start": 55,
+            "line_end": 59
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.84,
+        "confidence_reasoning": "The URLs are visible user-facing documentation and installer links. No evidence found that the skill secretly sends data to unrelated endpoints."
+      },
+      {
+        "title": "Weak Cryptography Scanner Hits Are Checksum References",
+        "description": "The weak cryptographic algorithm findings appear to come from SHA-256 checksum instructions and model or app names, not from implemented cryptographic code. No evidence found of MD5, SHA-1, custom encryption, or insecure cryptographic implementation in the reviewed files.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 28
+          },
+          {
+            "file": "references/app-discovery.md",
+            "line_start": 88,
+            "line_end": 105
+          },
+          {
+            "file": "references/cli-reference.md",
+            "line_start": 89,
+            "line_end": 97
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "The relevant visible cryptographic text describes SHA-256 verification for downloads, which is not a weak algorithm finding. Some scanner line references map to app names rather than crypto logic."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Pipe Network Installer to Shell",
+        "description": "The pattern downloads an installer from a URL and immediately executes it with sh. Users should inspect the script or use the documented manual install path before execution.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 17
+          },
+          {
+            "file": "references/authentication.md",
+            "line_start": 5,
+            "line_end": 6
+          },
+          {
+            "file": "references/cli-reference.md",
+            "line_start": 5,
+            "line_end": 6
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The pipe-to-shell syntax is directly present in fenced shell examples."
+      },
+      {
+        "title": "Automatic Upload of Local Paths",
+        "description": "The CLI can treat local path inputs as files to upload for cloud processing. This can expose private media, documents, or generated artifacts if paths are chosen carelessly.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 71
+          },
+          {
+            "file": "references/running-apps.md",
+            "line_start": 21,
+            "line_end": 42
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The behavior is described explicitly and examples include absolute paths, relative paths, and home-directory paths."
+      },
+      {
+        "title": "Credential Environment Variable",
+        "description": "The documentation uses INFSH_API_KEY for CI and scripts. This requires standard secret handling and should not be placed in shared prompts or committed files.",
+        "locations": [
+          {
+            "file": "references/authentication.md",
+            "line_start": 25,
+            "line_end": 33
+          },
+          {
+            "file": "references/cli-reference.md",
+            "line_start": 68,
+            "line_end": 72
+          }
+        ],
+        "confidence": 0.83,
+        "confidence_reasoning": "The environment variable is explicitly documented as an API key. No credential theft behavior was found."
+      }
+    ],
     "files_scanned": 5,
     "total_lines": 596,
-    "audit_model": "claude",
-    "audited_at": "2026-04-14T08:43:40.900Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T22:14:02.544Z",
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "env_access",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Access 250+ AI services with the inference.sh CLI",
-    "value_statement": "Running AI models typically requires separate API integrations for each service. This skill provides unified access to over 250 AI applications through one CLI, covering image generation, video creation, LLMs, web search, and social media automation.",
+    "user_title": "Run AI Apps with inference.sh CLI",
+    "value_statement": "Developers need one command-line path to run many hosted AI models without managing GPUs. This skill guides Claude, Codex, and Claude Code through inference.sh discovery, authentication, app execution, and task tracking.",
     "seo_keywords": [
-      "inference.sh",
-      "infsh CLI",
-      "AI model access",
-      "serverless AI",
-      "FLUX image generation",
-      "Veo video generation",
-      "OpenRouter LLMs",
-      "Tavily search",
-      "Claude Codex AI tools",
-      "Claude Code automation"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "inference.sh CLI",
+      "infsh",
+      "AI app runner",
+      "image generation CLI",
+      "video generation CLI",
+      "OpenRouter models",
+      "cloud AI automation"
     ],
     "actual_capabilities": [
-      "Run 250+ cloud AI services with the infsh CLI command",
-      "Generate images using FLUX, Gemini, Grok, and Seedance models",
-      "Create videos with Veo 3.1, Seedance, Wan, and OmniHuman",
-      "Call LLMs including Claude, Gemini, and any OpenRouter model",
-      "Perform web search with Tavily and Exa services",
-      "Automate Twitter/X posts, DMs, likes, and follows"
+      "Installs or updates the inference.sh CLI using documented installer or manual steps.",
+      "Authenticates with browser login or the INFSH_API_KEY environment variable.",
+      "Lists, searches, filters, and inspects available inference.sh apps.",
+      "Runs hosted apps with inline input or saved input files.",
+      "Tracks long-running tasks and saves returned results.",
+      "Shows examples for image, video, LLM, search, 3D, and Twitter/X workflows."
     ],
     "limitations": [
-      "Requires an inference.sh account and active credits to run apps",
-      "All AI processing runs in the cloud - not usable offline",
-      "Output files are returned as download URLs, not local files",
-      "CLI installation requires internet access and shell execution permissions"
+      "Requires an inference.sh account and network access to run cloud apps.",
+      "May consume paid credits or quota when running hosted models.",
+      "Can upload local files when paths are provided as app inputs.",
+      "Does not verify the safety or policy of third-party apps before execution."
     ],
     "use_cases": [
       {
-        "title": "Rapid AI prototyping for developers",
-        "description": "Developers can quickly test and integrate multiple AI models without writing separate API integrations. One CLI command accesses image generation, video creation, and LLMs across providers.",
-        "target_user": "Software developers and ML engineers"
+        "title": "Prototype multimodal AI workflows",
+        "target_user": "Application developers",
+        "description": "Find and run hosted image, video, audio, and LLM apps from a terminal workflow."
       },
       {
-        "title": "Content creation workflow automation",
-        "description": "Content creators can generate images, videos, and 3D models through simple CLI commands, then automate social media posting without switching between multiple platforms.",
-        "target_user": "Digital content creators and marketers"
+        "title": "Automate model jobs in scripts",
+        "target_user": "DevOps engineers",
+        "description": "Use API key authentication, input files, no-wait runs, and task polling in repeatable jobs."
       },
       {
-        "title": "AI research and model comparison",
-        "description": "Researchers can compare outputs across different models and providers using consistent input formats, switching between FLUX, Gemini, and Grok for image generation experiments.",
-        "target_user": "AI researchers and data scientists"
+        "title": "Evaluate available AI services",
+        "target_user": "Technical product teams",
+        "description": "Search app categories, inspect schemas, generate sample inputs, and compare model outputs."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Generate an image with FLUX",
-        "prompt": "Generate an image of a cat astronaut floating in space using the FLUX model through inference.sh",
-        "scenario": "Beginner: First-time image generation"
+        "title": "Find a useful app",
+        "scenario": "Beginner discovery",
+        "prompt": "Use infsh to search for image generation apps. Show the most relevant options and explain what each one is for."
       },
       {
-        "title": "Create a video with Veo",
-        "prompt": "Create a short video showing a drone flying over mountains at sunset using Google Veo via the infsh CLI",
-        "scenario": "Intermediate: Video generation workflow"
+        "title": "Run a simple model job",
+        "scenario": "Basic execution",
+        "prompt": "Run an inference.sh app for text-to-image generation with a short prompt. Confirm the command before spending credits."
       },
       {
-        "title": "Search the web with Tavily",
-        "prompt": "Search for the latest developments in quantum computing using Tavily search through inference.sh and summarize the results",
-        "scenario": "Intermediate: Web research automation"
+        "title": "Create an input file workflow",
+        "scenario": "Intermediate automation",
+        "prompt": "Generate a sample input file for a video generation app, explain the fields, then run it after I approve the prompt."
       },
       {
-        "title": "Multi-step content pipeline",
-        "prompt": "Generate an image with FLUX, then create a video from it using Wan image-to-video, and post the result to Twitter. Use version pinning for reproducibility.",
-        "scenario": "Advanced: Multi-service workflow with version control"
+        "title": "Build a task tracking flow",
+        "scenario": "Advanced automation",
+        "prompt": "Submit a long-running inference.sh job without waiting, capture the task ID, poll status, and save the result when complete."
       }
     ],
     "output_examples": [
       {
-        "input": "infsh app run falai/flux-dev-lora --input '{\"prompt\": \"a cat astronaut\"}'",
-        "output": "Task completes and returns an image URL pointing to the generated PNG file on the inference.sh cloud storage"
+        "input": "Search for hosted video generation apps.",
+        "output": "A short list of matching inference.sh apps with names, categories, and notes about speed or quality."
       },
       {
-        "input": "infsh app run tavily/search-assistant --input '{\"query\": \"latest AI news\"}'",
-        "output": "Returns a list of search results with titles, URLs, and brief summaries from trusted web sources"
+        "input": "Run an image generation job from a prompt.",
+        "output": "A confirmed infsh command, task progress notes, and links or file references for generated outputs."
       },
       {
-        "input": "infsh app list --category image",
-        "output": "Displays a table of available image generation apps including FLUX, Gemini, Grok, and Seedance with their categories and featured status"
+        "input": "Prepare a CI-friendly authentication setup.",
+        "output": "Guidance to use INFSH_API_KEY securely, avoid logging secrets, and verify authentication before running jobs."
       }
     ],
     "best_practices": [
-      "Use version pinning (namespace/app-name@version) for production workflows to ensure reproducible results",
-      "Generate sample inputs with 'infsh app sample' before running unfamiliar apps to understand required parameters",
-      "Use the --no-wait flag for long-running tasks like video generation and check status later with 'infsh task get'"
+      "Review generated infsh commands before running jobs that spend credits or publish content.",
+      "Use sample input files for complex apps so fields can be checked before execution.",
+      "Keep API keys in secret managers or protected environment variables."
     ],
     "anti_patterns": [
-      "Do not hardcode API keys in prompts or scripts. Use the INFSH_API_KEY environment variable or run infsh login",
-      "Avoid running untested apps in production without first checking the input schema with 'infsh app get'",
-      "Do not skip checksum verification when manually installing the CLI, as this ensures binary integrity"
+      "Do not paste API keys into prompts, tickets, logs, or committed files.",
+      "Do not pass private local files as inputs unless cloud upload is intended.",
+      "Do not run Twitter/X actions without explicit approval for the exact text and media."
     ],
     "faq": [
       {
-        "question": "How do I install the inference.sh CLI?",
-        "answer": "Run 'curl -fsSL https://cli.inference.sh | sh' to install automatically, or download the binary manually from dist.inference.sh with checksum verification."
+        "question": "What does this skill help with?",
+        "answer": "It helps an AI assistant use the inference.sh CLI to discover apps, run model jobs, and track results."
       },
       {
-        "question": "How do I authenticate with inference.sh?",
-        "answer": "Run 'infsh login' to authenticate through your browser. For CI environments, set the INFSH_API_KEY environment variable with your API key."
+        "question": "Does it require an inference.sh account?",
+        "answer": "Yes. Running cloud apps requires authentication through login or an API key."
       },
       {
-        "question": "How many AI models are available?",
-        "answer": "Over 250 AI applications are available, covering image generation, video creation, LLMs, web search, 3D modeling, and social media automation."
+        "question": "Can it upload local files?",
+        "answer": "Yes. The CLI can upload local paths used as app inputs, so review file paths before running commands."
       },
       {
-        "question": "Can I use local files as input?",
-        "answer": "Yes. Provide a file path instead of a URL in any input field. The CLI automatically uploads local images, audio, and video files to the cloud."
+        "question": "Can it post to Twitter/X?",
+        "answer": "The referenced apps include Twitter/X actions. Confirm exact account actions before execution."
       },
       {
-        "question": "How do I check the status of a long-running task?",
-        "answer": "Use 'infsh task get <task-id>' to check status. Add --json for structured output or --save to store results in a file."
+        "question": "Is the installer risk-free?",
+        "answer": "No. The documented curl-to-shell installer is convenient but should be inspected or replaced with manual install steps."
       },
       {
-        "question": "Can I pin specific model versions?",
-        "answer": "Yes. Use the format namespace/app-name@version (for example, google/veo-3-1-fast@1.0.0) to ensure consistent behavior across runs."
+        "question": "Which AI assistants can use this skill?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },

@@ -1,31 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T08:27:53.797Z",
+    "generated_at": "2026-06-30T23:12:12.573Z",
     "slug": "wangdefou-dev-article-list-processor",
     "source_url": "https://github.com/wangdefou-dev/defou-workflow-agent/tree/main/skills/article-list-processor",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "b848b4af619902f7f31b643e25bee8f9d805bd45f2819787df46f38b10761be7",
-    "tree_hash": "0bae0a12f84f015f0ca1557b24fba3d09270d8b23027e59ac362d03dd74a06de"
+    "tree_hash": "2f8aed68dc8e52cde8cba06e92db9754c783afbba934eb5ffc87c4b4d202fa02"
   },
   "skill": {
     "name": "article-list-processor",
-    "description": "读取包含文章列表的 Markdown 文件，自动抓取原文内容并生成爆款文案。",
-    "summary": "读取包含文章列表的 Markdown 文件，自动抓取原文内容并生成爆款文案。",
-    "icon": "📄",
+    "description": "Read Markdown article lists, fetch linked pages, and generate rewritten social content with an Anthropic model.",
+    "summary": "Turns Markdown link lists into batch-generated article drafts.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "wangdefou-dev",
     "license": "MIT",
     "category": "writing",
     "tags": [
+      "article-processing",
       "content-generation",
+      "markdown",
       "web-scraping",
-      "batch-processing",
-      "ai-writing",
-      "automation"
+      "ai-writing"
     ],
     "supported_tools": [
       "claude",
@@ -33,20 +33,41 @@
       "claude-code"
     ],
     "risk_factors": [
+      "external_commands",
       "filesystem",
-      "network",
-      "env_access"
+      "env_access",
+      "network"
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "This is a legitimate content processing skill with no malicious intent. Static scanner flagged 177 issues but most are false positives from pattern misidentification. The skill reads local Markdown files, fetches article content from user-specified URLs, calls Anthropic API for content generation, and writes output files. All operations follow expected workflow patterns with no data exfiltration, no command injection risks, and no credential misuse.",
+    "safe_to_publish": false,
+    "summary": "Static analysis found many real capability risks plus many parser false positives. The Python exec, Ruby backtick, weak crypto, and hardcoded IP findings are largely false positives, but the skill still fetches arbitrary URLs, reads API credentials, writes files, watches a directory, and runs a shell command. No confirmed malicious intent or prompt injection attempt was found, but the capability mix is too risky to publish without human review.",
     "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "index.ts",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
+            "file": "index.ts",
+            "line_start": 198,
+            "line_end": 202
+          }
+        ]
+      },
       {
         "factor": "filesystem",
         "evidence": [
+          {
+            "file": "index.ts",
+            "line_start": 14,
+            "line_end": 17
+          },
           {
             "file": "index.ts",
             "line_start": 36,
@@ -60,17 +81,12 @@
           {
             "file": "index.ts",
             "line_start": 276,
-            "line_end": 276
-          }
-        ]
-      },
-      {
-        "factor": "network",
-        "evidence": [
+            "line_end": 290
+          },
           {
             "file": "index.ts",
-            "line_start": 80,
-            "line_end": 80
+            "line_start": 315,
+            "line_end": 326
           }
         ]
       },
@@ -79,144 +95,435 @@
         "evidence": [
           {
             "file": "index.ts",
-            "line_start": 25,
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "index.ts",
+            "line_start": 23,
             "line_end": 27
+          },
+          {
+            "file": "index.ts",
+            "line_start": 40,
+            "line_end": 42
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "index.ts",
+            "line_start": 6,
+            "line_end": 6
+          },
+          {
+            "file": "index.ts",
+            "line_start": 77,
+            "line_end": 85
+          },
+          {
+            "file": "index.ts",
+            "line_start": 179,
+            "line_end": 186
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 12,
+            "line_end": 15
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 4,
-    "total_lines": 958,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T08:27:53.797Z"
+    "high_findings": [
+      {
+        "title": "Arbitrary URL Fetching Without Network Restrictions",
+        "description": "Markdown links are accepted when they start with http and are fetched directly. This creates SSRF and internal network access risk if a user-provided list includes private hosts, metadata endpoints, or local services.",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 60,
+            "line_end": 67
+          },
+          {
+            "file": "index.ts",
+            "line_start": 77,
+            "line_end": 85
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The code directly extracts user-supplied HTTP links and passes them to fetch with no host allowlist or private network filtering. This is a clear risk even though fetching URLs is documented functionality.",
+        "verdict": "TRUE_POSITIVE"
+      },
+      {
+        "title": "Credential, Network, Filesystem, and Command Capabilities Combined",
+        "description": "The skill combines .env credential loading, outbound network requests, local file reads and writes, directory watching, and a spawned npm command. This does not prove malicious intent, but it is a high-risk capability set for a community marketplace skill.",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 23,
+            "line_end": 27
+          },
+          {
+            "file": "index.ts",
+            "line_start": 80,
+            "line_end": 85
+          },
+          {
+            "file": "index.ts",
+            "line_start": 198,
+            "line_end": 202
+          },
+          {
+            "file": "index.ts",
+            "line_start": 230,
+            "line_end": 290
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The individual capabilities are directly present in code and are enough to justify elevated review. I did not find evidence that the code exfiltrates credentials or executes user-controlled shell input.",
+        "verdict": "TRUE_POSITIVE"
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Project Environment File and API Key Access",
+        "description": "The skill loads a project-root .env file and reads ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL. This is expected for model access, but credentials are sensitive and the base URL is not constrained to an official endpoint.",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 14,
+            "line_end": 27
+          },
+          {
+            "file": "index.ts",
+            "line_start": 40,
+            "line_end": 42
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The environment access and Anthropic client initialization are explicit. Legitimate use is likely, but credential handling and configurable remote endpoints require review.",
+        "verdict": "TRUE_POSITIVE"
+      },
+      {
+        "title": "Hardcoded Shell Command Execution",
+        "description": "The skill invokes npm run skill:verify through child_process.spawn with shell enabled. The command and arguments are hardcoded, so command injection is not evident, but marketplace users should review the invoked project script.",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 195,
+            "line_end": 202
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The spawn call is present and uses shell: true, but the command is fixed and no user-controlled argument reaches the shell. The risk is operational and supply-chain related rather than direct injection.",
+        "verdict": "TRUE_POSITIVE"
+      },
+      {
+        "title": "Remote Article Content Is Embedded Into Model Prompts",
+        "description": "Fetched article text is inserted into the model prompt before the Anthropic request. Malicious article content could steer generated output unless downstream users treat the result as untrusted draft text.",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 119,
+            "line_end": 126
+          },
+          {
+            "file": "index.ts",
+            "line_start": 179,
+            "line_end": 186
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "The prompt construction clearly includes fetched content. This is normal for summarization and rewriting, but it creates a plausible prompt-injection path into generated content.",
+        "verdict": "TRUE_POSITIVE"
+      },
+      {
+        "title": "Automated File Watcher Reads, Writes, and Archives Local Files",
+        "description": "The watcher processes new Markdown and text files, writes generated output, and renames processed input files into an archive directory. The paths are mostly controlled, but automatic file movement can surprise users.",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 315,
+            "line_end": 326
+          },
+          {
+            "file": "index.ts",
+            "line_start": 230,
+            "line_end": 230
+          },
+          {
+            "file": "index.ts",
+            "line_start": 276,
+            "line_end": 290
+          }
+        ],
+        "confidence": 0.76,
+        "confidence_reasoning": "The filesystem operations are explicit and support the documented workflow. I did not find evidence of arbitrary path traversal from user input.",
+        "verdict": "TRUE_POSITIVE"
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Code Execution Findings Mostly Match Safe JavaScript Patterns",
+        "description": "The Python exec and process exec hits correspond to regex.exec in JavaScript, while many Ruby backtick hits are JavaScript template literals or Markdown code fences. These are scanner false positives, not direct code execution.",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 63,
+            "line_end": 63
+          },
+          {
+            "file": "index.ts",
+            "line_start": 119,
+            "line_end": 177
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 27,
+            "line_end": 39
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "Reviewed lines show regex matching, template strings, and Markdown examples rather than dynamic code execution. The separate spawn call is covered as a real medium finding.",
+        "verdict": "FALSE_POSITIVE"
+      },
+      {
+        "title": "Hardcoded IP and Weak Crypto Findings Lack Supporting Evidence",
+        "description": "The hardcoded IP hit points to a browser User-Agent string, and weak cryptography hits point to documentation or extension filtering. No cryptographic algorithm use was found in the reviewed lines.",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 82,
+            "line_end": 82
+          },
+          {
+            "file": "index.ts",
+            "line_start": 326,
+            "line_end": 326
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The cited lines do not contain IP literals or cryptographic code. These static findings appear to be pattern-matching errors.",
+        "verdict": "FALSE_POSITIVE"
+      },
+      {
+        "title": "Documentation Example URLs Are Benign",
+        "description": "The URLs in the skill documentation are example.com placeholders used to show expected Markdown input format. No evidence found that these documentation URLs receive data.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 30,
+            "line_end": 32
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The cited URLs are clearly examples inside a Markdown code block. They do not represent active exfiltration endpoints.",
+        "verdict": "FALSE_POSITIVE"
+      },
+      {
+        "title": "High Entropy and Unicode Findings Are Explained by Text Content",
+        "description": "The high entropy and Unicode findings are consistent with Chinese documentation and a Unicode range used for filename sanitization. No evidence found of encrypted payloads or obfuscated code.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 1,
+            "line_end": 3
+          },
+          {
+            "file": "index.ts",
+            "line_start": 261,
+            "line_end": 261
+          }
+        ],
+        "confidence": 0.89,
+        "confidence_reasoning": "The reviewed content is readable Markdown and a filename cleanup regex that preserves Chinese characters. The signal is weak and likely benign.",
+        "verdict": "FALSE_POSITIVE"
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Unrestricted Fetch of User-Supplied Links",
+        "description": "The skill extracts links from local input files and fetches them without host validation, private IP blocking, or protocol controls beyond startsWith('http').",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 63,
+            "line_end": 67
+          },
+          {
+            "file": "index.ts",
+            "line_start": 80,
+            "line_end": 85
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The data flow from parsed link to fetch is direct and visible. This is the strongest confirmed dangerous pattern in the skill.",
+        "verdict": "TRUE_POSITIVE"
+      },
+      {
+        "title": "Privileged Automation Pipeline",
+        "description": "Directory watching, credential loading, outbound network calls, file writes, archiving, and a spawned npm command run as one automatic workflow.",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 23,
+            "line_end": 27
+          },
+          {
+            "file": "index.ts",
+            "line_start": 198,
+            "line_end": 202
+          },
+          {
+            "file": "index.ts",
+            "line_start": 315,
+            "line_end": 326
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The capability combination is explicit in code and matches the static analyzer's dangerous-combination concern. I did not find confirmed malicious exfiltration.",
+        "verdict": "TRUE_POSITIVE"
+      }
+    ],
+    "files_scanned": 3,
+    "total_lines": 741,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T23:12:12.573Z",
+    "risk_factors": [
+      "external_commands",
+      "filesystem",
+      "env_access",
+      "network"
+    ]
   },
   "content": {
-    "user_title": "Process article lists into viral posts",
-    "value_statement": "You have a list of article links but no time to read and rewrite each one. This skill automatically fetches article content and generates viral posts using a proven content framework.",
+    "user_title": "Process Article Lists Into Drafts",
+    "value_statement": "Content teams often collect many article links but lack a repeatable way to convert them into usable drafts. This skill reads Markdown link lists, fetches source articles, and generates rewritten draft content in batches.",
     "seo_keywords": [
-      "article to post converter",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "article list processor",
+      "markdown link processor",
+      "AI writing workflow",
       "batch content generation",
-      "AI content automation",
-      "web scraping for content",
-      "viral post generator",
-      "Claude content skill",
-      "Codex writing assistant",
-      "content workflow automation",
-      "markdown to post",
-      "article rewriter"
+      "web article extraction",
+      "content rewriting",
+      "Anthropic writing skill"
     ],
     "actual_capabilities": [
-      "Parse Markdown files containing article links in standard [Title](URL) format",
-      "Fetch full article content from URLs using readability extraction",
-      "Generate viral posts using Defou x Stanley content framework",
-      "Automatically trigger verification and optimization after generation",
-      "Archive processed input files and save outputs organized by date",
-      "Watch input directory for new files and process automatically"
+      "Parses Markdown links from files placed in a local input folder.",
+      "Fetches linked article pages and extracts readable article text.",
+      "Generates rewritten article drafts with an Anthropic chat model.",
+      "Processes multiple links with a concurrency limit of two requests.",
+      "Writes each generated draft to a Markdown file with source metadata.",
+      "Archives processed input files and triggers a verification npm script."
     ],
     "limitations": [
-      "Requires valid Anthropic API key to generate content",
-      "Cannot process paywalled or blocked article content",
-      "Limited to 15,000 characters per article due to context limits",
-      "Rate limited to 2 concurrent articles to avoid overloading sources"
+      "Requires a configured Anthropic API key unless mock mode is enabled.",
+      "Cannot fetch pages that block scraping, require login, or hide content.",
+      "Does not validate source URLs against allowlists or private network ranges.",
+      "Generated drafts still need editorial, legal, and factual review."
     ],
     "use_cases": [
       {
-        "target_user": "Content Creators",
-        "title": "Batch Content Repurposing",
-        "description": "Turn a list of 20 article links into 20 viral posts in one automated session."
+        "title": "Turn Reading Lists Into Drafts",
+        "description": "Convert saved article links into first-pass drafts for later editing and publishing.",
+        "target_user": "Independent content creators"
       },
       {
-        "target_user": "Newsletter Curators",
-        "title": "Weekly Digest Generation",
-        "description": "Convert collected article links into formatted content for your newsletter subscribers."
+        "title": "Batch Process Research Links",
+        "description": "Process a curated list of web articles into structured draft material for a content calendar.",
+        "target_user": "Marketing teams"
       },
       {
-        "target_user": "Social Media Managers",
-        "title": "Social Post Pipeline",
-        "description": "Build a pipeline to transform industry articles into platform-specific viral posts."
+        "title": "Prepare Social Commentary",
+        "description": "Generate opinion-oriented rewrites from multiple source articles for review by an editor.",
+        "target_user": "Social media managers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic List Processing",
-        "scenario": "Process a simple article list",
-        "prompt": "Create a markdown file in local_inputs/ with article links in [Title](URL) format, then run the article list processor."
+        "title": "Process My Link List",
+        "scenario": "Beginner batch run",
+        "prompt": "Process the Markdown article list I placed in the local input folder and create draft posts for each valid link."
       },
       {
-        "title": "Single Article Test",
-        "scenario": "Test with one article",
-        "prompt": "Create test_list.md with one article link to verify the full workflow works correctly."
+        "title": "Test The Workflow",
+        "scenario": "Dry run before using API credits",
+        "prompt": "Run the article list workflow in mock mode and confirm that my Markdown links are detected correctly."
       },
       {
-        "title": "Batch Processing",
-        "scenario": "Process multiple articles",
-        "prompt": "Drop multiple markdown files into local_inputs/ and the processor will handle each file sequentially."
+        "title": "Review Generated Drafts",
+        "scenario": "Editorial review after generation",
+        "prompt": "Review the generated article drafts for factual accuracy, tone, source attribution, and reuse risk."
       },
       {
-        "title": "Custom Content Style",
-        "scenario": "Modify content framework",
-        "prompt": "Edit the generateContent function prompts to customize the output style for your specific audience."
+        "title": "Audit A Batch Setup",
+        "scenario": "Advanced operational review",
+        "prompt": "Inspect the article list workflow configuration, URL inputs, output paths, and verification step before I run a large batch."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a file reading_list.md with content:\n\n# My Articles\n- [AI Trends 2024](https://example.com/ai-trends)\n- [Remote Work Guide](https://example.com/remote-work)",
+        "input": "A Markdown reading list with three public article links.",
         "output": [
-          "Processing starts automatically when file is detected",
-          "Each article is fetched and rewritten in viral style",
-          "Generated posts saved to outputs/defou-stanley-posts/",
-          "Input file archived after processing"
+          "The skill detects the file in the input folder.",
+          "It fetches each article and extracts readable text.",
+          "It saves separate rewritten drafts with source metadata."
         ]
       },
       {
-        "input": "Drop multiple markdown files into local_inputs/ directory",
+        "input": "A list that includes one inaccessible article link.",
         "output": [
-          "Processor watches for new files continuously",
-          "Each file processed with 2 concurrent workers",
-          "Success and failure logged for each article",
-          "Verification skill triggered after generation completes"
+          "The inaccessible article is skipped after the fetch fails.",
+          "Other reachable articles continue processing.",
+          "The input list is archived after the batch completes."
         ]
       }
     ],
     "best_practices": [
-      "Use clear, descriptive article titles in your markdown files for better generated content.",
-      "Test with a single article first to verify API configuration before batch processing.",
-      "Keep article lists under 50 links per file to maintain manageable processing times."
+      "Use only URLs you are allowed to fetch and transform.",
+      "Run small batches first to confirm output quality and source handling.",
+      "Review generated drafts for attribution, accuracy, and copyright risk."
     ],
     "anti_patterns": [
-      "Do not process articles from paywalled sites without permission.",
-      "Avoid processing extremely long articles that may exceed context limits.",
-      "Do not modify the input directory path while the watcher is running."
+      "Do not process private, paywalled, or login-protected articles without permission.",
+      "Do not place sensitive internal URLs in the input Markdown file.",
+      "Do not publish generated drafts without human editorial review."
     ],
     "faq": [
       {
-        "question": "What file formats are supported?",
-        "answer": "Only .md and .txt files in local_inputs/ are processed. Other files are ignored."
+        "question": "What input format does this skill use?",
+        "answer": "It expects Markdown files with links written as titled Markdown links."
       },
       {
-        "question": "How long does processing take?",
-        "answer": "Each article takes 30-60 seconds. With 2 concurrent workers, 10 articles take about 5 minutes."
+        "question": "Does it need internet access?",
+        "answer": "Yes. It fetches source article pages and sends prompts to an Anthropic-compatible API endpoint."
       },
       {
-        "question": "What happens to failed fetches?",
-        "answer": "Failed articles are skipped with an error log. The processor continues with remaining articles."
+        "question": "Where are generated drafts saved?",
+        "answer": "The implementation writes generated Markdown files under the configured project output directory."
       },
       {
-        "question": "Can I use this without an API key?",
-        "answer": "Set MOCK_MODE=true in .env to test without API calls. No content will be generated."
+        "question": "Can it process many links at once?",
+        "answer": "Yes. It processes multiple links from one input file with a concurrency limit of two."
       },
       {
-        "question": "Where are output files saved?",
-        "answer": "Generated posts are saved to outputs/defou-stanley-posts/ with timestamped filenames."
+        "question": "Does it verify the generated content?",
+        "answer": "After successful generation, it runs a hardcoded npm verification script from the project root."
       },
       {
-        "question": "How do I stop the watcher?",
-        "answer": "Press Ctrl+C in the terminal. Use npm run skill:list to restart anytime."
+        "question": "Is it safe for sensitive sources?",
+        "answer": "No. Avoid private URLs because fetched content may be sent to a remote model endpoint."
       }
     ]
   },

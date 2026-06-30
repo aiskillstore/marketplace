@@ -1,30 +1,29 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-03-22T08:15:00.086Z",
+    "generated_at": "2026-06-30T22:06:27.312Z",
     "slug": "supercent-io-plannotator",
     "source_url": "https://github.com/supercent-io/skills-template/tree/main/.agent-skills/plannotator/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "6b04c43272726a909eea0e0a7451ac919571df02818f501489010834280b15e8",
-    "tree_hash": "66dfb9c2dcb6c730b3e902f7ceb86c5e5e81c62f6c6d06ae198d8f7f317ab087"
+    "tree_hash": "59a4c092016780623a594b1e5c96ac3aa0eed750de2f20a63219cc394ad22dc1"
   },
   "skill": {
     "name": "plannotator",
-    "description": "Interactive plan and diff review for AI coding agents with visual browser UI for annotating plans, approving or requesting changes with structured feedback, and auto-save to Obsidian or Bear Notes.",
-    "summary": "Visual plan review and code annotation tool for Claude Code, Codex, Gemini CLI, and OpenCode with structured feedback loops.",
+    "description": "Interactive plan and diff review for AI coding agents. It opens a browser UI for annotating plans and git diffs, then returns structured feedback to the agent.",
+    "summary": "Review, annotate, approve, or request changes on AI agent plans and code diffs.",
     "icon": "📦",
-    "version": "0.9.2",
+    "version": "1.0.0",
     "author": "supercent-io",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
       "plan-review",
+      "diff-review",
       "code-review",
-      "Claude Code",
-      "Codex",
+      "agent-workflows",
       "annotation"
     ],
     "supported_tools": [
@@ -36,32 +35,39 @@
       "scripts",
       "network",
       "filesystem",
+      "env_access",
       "external_commands"
-    ]
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Legitimate plan review tool for AI coding agents. Static analysis flagged 380 patterns across 10 files, but most are false positives for standard installer/hook functionality. The curl | bash installation pattern presents supply chain risk but is common practice. All filesystem access targets standard AI tool config locations. No credential exfiltration or command injection vectors detected.",
+    "safe_to_publish": false,
+    "summary": "Static findings are largely true positives for a high-risk integration skill: it installs external software, writes persistent AI-agent hooks, and modifies hidden home-directory configuration files. I found no evidence of malicious prompt injection, but the curl-to-shell installer, persistent command hooks, and shell profile writes require human review before publishing.",
     "risk_factor_evidence": [
       {
-        "factor": "external_commands",
+        "factor": "scripts",
         "evidence": [
           {
             "file": "scripts/install.sh",
-            "line_start": 105,
-            "line_end": 105
-          },
-          {
-            "file": "scripts/install.sh",
-            "line_start": 110,
-            "line_end": 110
+            "line_start": 1,
+            "line_end": 1
           },
           {
             "file": "scripts/setup-hook.sh",
-            "line_start": 71,
-            "line_end": 73
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
+            "file": "scripts/setup-codex-hook.sh",
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
+            "file": "scripts/review.sh",
+            "line_start": 1,
+            "line_end": 1
           }
         ]
       },
@@ -74,9 +80,19 @@
             "line_end": 105
           },
           {
-            "file": "SKILL.md",
-            "line_start": 73,
-            "line_end": 73
+            "file": "scripts/install.sh",
+            "line_start": 117,
+            "line_end": 117
+          },
+          {
+            "file": "scripts/setup-opencode-plugin.sh",
+            "line_start": 76,
+            "line_end": 77
+          },
+          {
+            "file": "scripts/check-status.sh",
+            "line_start": 218,
+            "line_end": 219
           }
         ]
       },
@@ -90,23 +106,67 @@
           },
           {
             "file": "scripts/setup-gemini-hook.sh",
-            "line_start": 30,
-            "line_end": 31
+            "line_start": 43,
+            "line_end": 45
           },
           {
             "file": "scripts/setup-codex-hook.sh",
             "line_start": 37,
             "line_end": 40
+          },
+          {
+            "file": "scripts/configure-remote.sh",
+            "line_start": 174,
+            "line_end": 178
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "scripts/configure-remote.sh",
+            "line_start": 51,
+            "line_end": 72
+          },
+          {
+            "file": "scripts/check-status.sh",
+            "line_start": 85,
+            "line_end": 106
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "scripts/install.sh",
+            "line_start": 105,
+            "line_end": 105
+          },
+          {
+            "file": "scripts/setup-codex-hook.sh",
+            "line_start": 71,
+            "line_end": 71
+          },
+          {
+            "file": "scripts/setup-opencode-plugin.sh",
+            "line_start": 135,
+            "line_end": 143
+          },
+          {
+            "file": "scripts/review.sh",
+            "line_start": 73,
+            "line_end": 77
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
+    "high_findings": [
       {
-        "title": "Pipe to Shell Installation Pattern",
-        "description": "The install.sh script uses curl | bash pattern to download and execute remote scripts. This presents supply chain risk if the remote server is compromised. Commands are executed from plannotator.ai/install.sh without integrity verification.",
+        "title": "Remote Installer Executes Downloaded Shell Code",
+        "description": "TRUE_POSITIVE: The install script pipes https://plannotator.ai/install.sh directly into bash and suggests a PowerShell irm pipe to iex on Windows. This pattern executes unaudited remote code with the user privileges of the shell running the installer.",
         "locations": [
           {
             "file": "scripts/install.sh",
@@ -115,18 +175,16 @@
           },
           {
             "file": "scripts/install.sh",
-            "line_start": 110,
-            "line_end": 110
+            "line_start": 117,
+            "line_end": 117
           }
         ],
         "confidence": 0.95,
-        "confidence_reasoning": "Direct evidence of curl piped to bash without hash verification - classic supply chain attack vector, though commonly used for convenience."
-      }
-    ],
-    "low_findings": [
+        "confidence_reasoning": "The dangerous pattern is explicit at the cited lines and directly executes network-fetched installer content. The only uncertainty is the content served by plannotator.ai, which is outside this repository."
+      },
       {
-        "title": "AI Tool Configuration File Modification",
-        "description": "Scripts modify configuration files for Claude Code, Gemini CLI, and Codex CLI. This is intended functionality but grants persistent access to AI tool behavior.",
+        "title": "Persistent AI Agent Hooks Execute plannotator",
+        "description": "TRUE_POSITIVE: Setup scripts write Claude, Gemini, and Codex configuration under hidden home directories so agent workflows automatically run plannotator commands during plan review. This is intended behavior, but it creates persistent command execution inside trusted agent configuration.",
         "locations": [
           {
             "file": "scripts/setup-hook.sh",
@@ -134,171 +192,371 @@
             "line_end": 35
           },
           {
+            "file": "scripts/setup-hook.sh",
+            "line_start": 90,
+            "line_end": 96
+          },
+          {
             "file": "scripts/setup-gemini-hook.sh",
-            "line_start": 30,
-            "line_end": 31
+            "line_start": 43,
+            "line_end": 45
+          },
+          {
+            "file": "scripts/setup-gemini-hook.sh",
+            "line_start": 109,
+            "line_end": 130
           },
           {
             "file": "scripts/setup-codex-hook.sh",
             "line_start": 37,
             "line_end": 40
+          },
+          {
+            "file": "scripts/setup-codex-hook.sh",
+            "line_start": 71,
+            "line_end": 83
           }
         ],
         "confidence": 0.9,
-        "confidence_reasoning": "Files explicitly target AI tool config locations with hardcoded JSON paths - legitimate hook setup but persistent modification of AI behavior."
+        "confidence_reasoning": "Multiple scripts intentionally create or modify agent configuration files and add commands that invoke plannotator. The behavior is documented, but the persistence and command execution risk are confirmed."
       },
       {
-        "title": "Remote Shell Configuration",
-        "description": "configure-remote.sh modifies shell profile files (.zshrc, .bashrc) and SSH configuration for remote mode. This is intended for devcontainer/WSL support but modifies persistent shell environment.",
+        "title": "Agent Slash Commands Invoke Local Shell Commands",
+        "description": "TRUE_POSITIVE: The OpenCode setup writes slash command files containing shell-style command invocations for plannotator review and annotation. If installed, these commands become part of the agent workflow and can execute local tools.",
+        "locations": [
+          {
+            "file": "scripts/setup-opencode-plugin.sh",
+            "line_start": 126,
+            "line_end": 143
+          },
+          {
+            "file": "scripts/setup-opencode-plugin.sh",
+            "line_start": 152,
+            "line_end": 163
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The script clearly writes OpenCode command files with command invocations. Risk depends on user installation and OpenCode command handling, so confidence is high but not absolute."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Shell Profile Writes Use Unvalidated Interactive Values",
+        "description": "TRUE_POSITIVE: configure-remote.sh appends user-provided port, browser, and share URL values to the detected shell profile. The port is unquoted and quoted string values are not escaped, so a malicious or malformed value could affect later shell startup.",
         "locations": [
           {
             "file": "scripts/configure-remote.sh",
-            "line_start": 130,
-            "line_end": 130
+            "line_start": 124,
+            "line_end": 124
+          },
+          {
+            "file": "scripts/configure-remote.sh",
+            "line_start": 140,
+            "line_end": 148
+          },
+          {
+            "file": "scripts/configure-remote.sh",
+            "line_start": 174,
+            "line_end": 178
           }
         ],
-        "confidence": 0.85,
-        "confidence_reasoning": "Script modifies shell profiles for remote development support - legitimate use case but persistent environment modification warrants user awareness."
-      }
-    ],
-    "dangerous_patterns": [
+        "confidence": 0.78,
+        "confidence_reasoning": "The write path and unvalidated values are visible in the script. Exploitation requires a user to enter or pass unsafe values, so the severity is moderate rather than critical."
+      },
       {
-        "title": "Remote Script Execution",
-        "description": "Installation downloads and executes scripts from remote server without integrity checks. Users should verify the source before running.",
+        "title": "Hidden Home Directory Configuration Access",
+        "description": "TRUE_POSITIVE: The setup and status scripts read and write hidden home-directory files for Claude, Gemini, Codex, OpenCode, and shell profiles. This access is legitimate for integration setup but security-sensitive because these files influence future agent behavior.",
+        "locations": [
+          {
+            "file": "scripts/check-status.sh",
+            "line_start": 45,
+            "line_end": 70
+          },
+          {
+            "file": "scripts/check-status.sh",
+            "line_start": 130,
+            "line_end": 175
+          },
+          {
+            "file": "scripts/setup-gemini-hook.sh",
+            "line_start": 224,
+            "line_end": 238
+          },
+          {
+            "file": "scripts/setup-codex-hook.sh",
+            "line_start": 196,
+            "line_end": 203
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The scanner findings are confirmed by direct home-directory config paths and writes. The behavior is purposeful setup logic, so it is a controlled but real risk."
+      },
+      {
+        "title": "External Service Dependence and Share URL Configuration",
+        "description": "TRUE_POSITIVE: The skill references plannotator.ai for installation and default sharing behavior, and lets users configure a custom PLANNOTATOR_SHARE_URL. This may send plans, diffs, or review metadata to external services depending on the installed CLI behavior.",
         "locations": [
           {
             "file": "scripts/install.sh",
             "line_start": 105,
             "line_end": 105
+          },
+          {
+            "file": "scripts/configure-remote.sh",
+            "line_start": 69,
+            "line_end": 72
+          },
+          {
+            "file": "scripts/configure-remote.sh",
+            "line_start": 145,
+            "line_end": 148
           }
-        ]
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "Repository scripts confirm external installation and share URL configuration. The exact data sent by the external CLI is not present in this repository, so the data exposure risk requires human review."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Benign Command Substitutions in Status and Review Scripts",
+        "description": "FALSE_POSITIVE: Several static command-substitution hits collect local status, paths, git branch names, or command versions. These uses are mostly quoted or status-only and do not show direct user-controlled shell construction.",
+        "locations": [
+          {
+            "file": "scripts/check-status.sh",
+            "line_start": 31,
+            "line_end": 34
+          },
+          {
+            "file": "scripts/check-status.sh",
+            "line_start": 239,
+            "line_end": 243
+          },
+          {
+            "file": "scripts/review.sh",
+            "line_start": 39,
+            "line_end": 50
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The cited lines run standard local discovery commands and git status checks. I did not find evidence that these substitutions execute attacker-provided shell fragments."
+      },
+      {
+        "title": "Documentation URL and Backtick Matches Are Mostly Static Text",
+        "description": "FALSE_POSITIVE: Many SKILL.md and SKILL.toon hits are examples, documentation, or command snippets rather than code executed by the skill file itself. They remain relevant user instructions, but they are not direct execution paths until a user runs the scripts or commands.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 33,
+            "line_end": 44
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 72,
+            "line_end": 82
+          },
+          {
+            "file": "SKILL.toon",
+            "line_start": 13,
+            "line_end": 20
+          }
+        ],
+        "confidence": 0.8,
+        "confidence_reasoning": "The files contain instructional text and examples, not executable script bodies. The underlying commands may still be risky, but these specific static matches are documentation-level evidence."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Pipe to Shell Installer",
+        "description": "The installer executes a script fetched over HTTPS directly through bash, and the Windows instructions recommend the analogous PowerShell pattern.",
+        "locations": [
+          {
+            "file": "scripts/install.sh",
+            "line_start": 105,
+            "line_end": 105
+          },
+          {
+            "file": "scripts/install.sh",
+            "line_start": 117,
+            "line_end": 117
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The exact pipe-to-shell and irm-to-iex patterns are present on the cited lines."
+      },
+      {
+        "title": "Persistent Agent Configuration Writes",
+        "description": "Setup scripts create or modify configuration files that control future AI agent behavior and add plannotator command execution.",
+        "locations": [
+          {
+            "file": "scripts/setup-hook.sh",
+            "line_start": 90,
+            "line_end": 96
+          },
+          {
+            "file": "scripts/setup-gemini-hook.sh",
+            "line_start": 109,
+            "line_end": 130
+          },
+          {
+            "file": "scripts/setup-codex-hook.sh",
+            "line_start": 71,
+            "line_end": 83
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The scripts directly create or update persistent configuration locations and command strings."
+      },
+      {
+        "title": "Shell Profile Append",
+        "description": "The remote configuration script appends generated export lines into the detected shell profile.",
+        "locations": [
+          {
+            "file": "scripts/configure-remote.sh",
+            "line_start": 113,
+            "line_end": 124
+          },
+          {
+            "file": "scripts/configure-remote.sh",
+            "line_start": 140,
+            "line_end": 148
+          },
+          {
+            "file": "scripts/configure-remote.sh",
+            "line_start": 174,
+            "line_end": 178
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The generated lines and final append to the shell profile are visible. The main risk comes from unvalidated values persisted into startup files."
       }
     ],
     "files_scanned": 10,
     "total_lines": 2251,
-    "audit_model": "claude",
-    "audited_at": "2026-03-22T08:15:00.086Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T22:06:27.312Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Review AI Agent Plans Visually Before Coding",
-    "value_statement": "Catch implementation mistakes before code is written by reviewing AI agent plans in a visual browser interface. Annotate plans with structured feedback, approve or request changes, and auto-save to Obsidian or Bear Notes.",
+    "user_title": "Review AI Plans and Diffs Visually",
+    "value_statement": "AI coding agents can start work from incomplete or risky plans. This skill adds a visual review loop for plans and diffs before work continues.",
     "seo_keywords": [
-      "Claude Code plan review",
-      "Codex CLI annotations",
-      "AI agent feedback",
-      "plan approval workflow",
-      "Claude Code hook",
-      "code review tool",
-      "Obsidian integration",
-      "AI coding assistant"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "AI plan review",
+      "diff review",
+      "code annotation",
+      "plannotator",
+      "agent workflow",
+      "OpenCode",
+      "Gemini CLI"
     ],
     "actual_capabilities": [
-      "Opens visual browser UI when AI agents exit plan mode for interactive plan review",
-      "Annotates plans with delete, insert, replace, and comment markers for structured feedback",
-      "Reviews git diffs after implementation with unified or split view comparison",
-      "Auto-saves approved plans to Obsidian vaults with YAML frontmatter and tags",
-      "Integrates with Claude Code, Gemini CLI, Codex CLI, and OpenCode via hooks or plugins",
-      "Supports remote development via SSH port forwarding and devcontainer mode"
+      "Launches plannotator for browser-based plan review before implementation.",
+      "Opens a visual git diff review flow for uncommitted changes, commits, or branch ranges.",
+      "Adds optional Claude Code, Gemini CLI, Codex CLI, and OpenCode integration scripts.",
+      "Supports annotation actions such as delete, insert, replace, and comment.",
+      "Provides status checks for installed CLI, hooks, environment variables, and git state.",
+      "Documents optional Obsidian and Bear Notes export workflows."
     ],
     "limitations": [
-      "Requires browser access for visual UI - headless or automated browser sessions cannot configure settings",
-      "Export and Notes save features only work in hook mode, not in standalone CLI review mode",
-      "Bear Notes integration requires macOS or iOS - not available on Linux or Windows",
-      "Settings persist in browser cookies, not localStorage - different browser profiles do not share configuration"
+      "The skill depends on the external plannotator CLI and service installation flow.",
+      "Several setup scripts modify user home directory configuration files.",
+      "Remote review and sharing behavior depends on local ports, browser access, and user environment variables.",
+      "It does not independently verify that plannotator.ai installer contents are safe."
     ],
     "use_cases": [
       {
-        "title": "Pre-Implementation Plan Review",
-        "description": "Review AI agent implementation plans before any code is written. Annotate risky steps, add missing requirements, and approve only when the approach aligns with project goals.",
-        "target_user": "Engineering leads managing AI-assisted development teams"
+        "title": "Review an implementation plan before coding",
+        "description": "Open the proposed plan in a browser, annotate weak steps, and send structured feedback before implementation starts.",
+        "target_user": "Software engineer using an AI coding agent"
       },
       {
-        "title": "Post-Implementation Code Review",
-        "description": "Review git diffs after AI agents complete coding. Annotate specific line ranges with expected behavior changes and attach screenshots for UI feedback.",
-        "target_user": "Developers using Claude Code or Codex for rapid prototyping"
+        "title": "Annotate a code diff after agent changes",
+        "description": "Review a git diff visually, mark exact lines that need changes, and return focused feedback to the agent.",
+        "target_user": "Tech lead reviewing generated changes"
       },
       {
-        "title": "Team Knowledge Sharing",
-        "description": "Share annotated plan reviews with teammates via link. Auto-save approved plans to Obsidian for team documentation and future reference.",
-        "target_user": "Technical architects documenting system design decisions"
+        "title": "Set up plan review in remote environments",
+        "description": "Configure fixed ports and environment variables for SSH, WSL, or devcontainer workflows.",
+        "target_user": "Developer working in remote development sessions"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Plan Review",
-        "prompt": "Review this implementation plan and annotate any steps that seem risky or incomplete. Mark steps to delete, insert, or replace with specific feedback.",
-        "scenario": "First-time user reviewing a simple feature plan"
+        "title": "Review a simple plan",
+        "scenario": "Beginner plan review before implementation",
+        "prompt": "Use plannotator to review this implementation plan before coding. Ask me to approve or request changes after annotation."
       },
       {
-        "title": "Architecture Review Request",
-        "prompt": "Review this plan focusing on architectural implications. Check for: database schema changes, API contract modifications, backward compatibility, and migration requirements. Add comments for any missing considerations.",
-        "scenario": "Senior developer reviewing a complex refactor plan"
+        "title": "Review current changes",
+        "scenario": "Intermediate code review after edits exist",
+        "prompt": "Open plannotator code review for my current git changes. Summarize the review feedback before making fixes."
       },
       {
-        "title": "Security Review Checklist",
-        "prompt": "Review this plan for security concerns. Verify: input validation, authentication checks, authorization boundaries, data sanitization, and logging requirements. Request changes for any security gaps.",
-        "scenario": "Security-conscious review of authentication feature"
+        "title": "Configure remote review",
+        "scenario": "Remote or devcontainer setup",
+        "prompt": "Set up plannotator for remote use with a fixed port. Show me the files and environment variables that will change first."
       },
       {
-        "title": "Team Review Workflow",
-        "prompt": "Create a plan review session that can be shared with the team. Include: project context, acceptance criteria, performance requirements, and testing strategy. Enable Obsidian auto-save for documentation.",
-        "scenario": "Tech lead preparing a plan for team alignment"
+        "title": "Run a full agent feedback loop",
+        "scenario": "Advanced plan, implementation, and post-change review",
+        "prompt": "Use plannotator to review the plan, wait for approval, implement only approved steps, then run a diff review and address feedback."
       }
     ],
     "output_examples": [
       {
-        "input": "AI agent submits a plan to add user authentication with JWT tokens",
-        "output": [
-          "Plan opened in browser UI at localhost:19432",
-          "Reviewer annotates step 3: 'Replace - Add rate limiting to login endpoint'",
-          "Reviewer adds comment: 'Include password complexity requirements'",
-          "Reviewer clicks Approve - agent proceeds with implementation"
-        ]
+        "input": "A proposed migration plan needs review before database changes begin.",
+        "output": "The browser review highlights risky migration ordering, missing rollback steps, and acceptance criteria to add before approval."
       },
       {
-        "input": "Developer runs plannotator review after agent completes coding",
-        "output": [
-          "Git diff loaded with 5 file changes",
-          "Line 42-48 annotated: 'This validation should happen before database write'",
-          "Image attached showing expected UI layout",
-          "Feedback exported to markdown for agent reference"
-        ]
+        "input": "A feature branch contains uncommitted changes from an AI agent.",
+        "output": "The diff review identifies exact lines needing test coverage, naming changes, and simpler error handling."
+      },
+      {
+        "input": "A developer works through SSH and needs plan review in a local browser.",
+        "output": "Remote mode is configured with a fixed port and clear port-forwarding instructions for browser access."
       }
     ],
     "best_practices": [
-      "Review plans before implementation starts to catch wrong approaches early and save iteration time",
-      "Keep each annotation tied to one concrete actionable change for clarity",
-      "Include acceptance criteria when requesting changes so the agent knows what success looks like"
+      "Review setup scripts before running them because they modify home directory configuration files.",
+      "Use dry-run options where available before installing hooks or changing agent settings.",
+      "Keep each annotation focused on one requested change with clear acceptance criteria."
     ],
     "anti_patterns": [
-      "Approving plans without reading - defeats the purpose of catching mistakes before coding",
-      "Vague annotations like 'fix this' without explaining what change is needed",
-      "Requesting major scope changes after approval - create a new plan review instead"
+      "Do not pipe remote installer scripts into a shell without reviewing the downloaded content first.",
+      "Do not enable every agent integration unless each tool is actively used and trusted.",
+      "Do not expose review ports or share URLs without checking the remote access configuration."
     ],
     "faq": [
       {
-        "question": "How do I install plannotator for Claude Code?",
-        "answer": "Run ./install.sh --with-plugin for CLI and plugin commands, then run /plugin marketplace add backnotprop/plannotator inside Claude Code. Alternatively run ./setup-hook.sh for manual hook configuration. Restart Claude Code after setup."
+        "question": "What does this skill add to an AI coding workflow?",
+        "answer": "It adds a human review checkpoint for plans and diffs before an agent continues work."
       },
       {
-        "question": "Does plannotator work with Gemini CLI and Codex CLI?",
-        "answer": "Yes. Run ./setup-gemini-hook.sh for Gemini CLI or ./setup-codex-hook.sh for Codex CLI. You can also run ./install.sh --all to configure all AI tool integrations at once."
+        "question": "Which AI tools does it document?",
+        "answer": "The skill documents Claude, Claude Code, Codex CLI, Gemini CLI, and OpenCode workflows."
       },
       {
-        "question": "How does the Obsidian auto-save feature work?",
-        "answer": "Enable Obsidian integration in Settings gear icon then Saving tab. Select your vault from the dropdown. Approved plans auto-save with YAML frontmatter including tags for project name, title words, and detected languages."
+        "question": "Does it modify local files?",
+        "answer": "Yes. Setup scripts can write hook, prompt, plugin, and shell profile configuration files under the user home directory."
       },
       {
-        "question": "Can I use plannotator on a remote server or devcontainer?",
-        "answer": "Yes. Run ./configure-remote.sh to set up SSH port forwarding. Set PLANNOTATOR_REMOTE=1 to disable auto-browser-open and PLANNOTATOR_PORT to use a fixed port. Forward the port via SSH and access via browser."
+        "question": "Does it use network access?",
+        "answer": "Yes. The installer downloads from plannotator.ai, and sharing behavior references plannotator-hosted URLs."
       },
       {
-        "question": "What happens if I deny a plan?",
-        "answer": "Your annotations are sent back as structured feedback to the AI agent. The agent can then revise the plan based on your comments and resubmit for another review cycle."
+        "question": "Can it review code changes?",
+        "answer": "Yes. The review script opens plannotator against current git changes, a commit, or a branch range."
       },
       {
-        "question": "Do I need Obsidian to use plannotator?",
-        "answer": "No. Obsidian integration is optional. You can review and approve plans without it. Auto-save can be enabled later via the Settings UI if you install Obsidian."
+        "question": "What should users verify first?",
+        "answer": "Users should inspect installer and setup scripts, then run dry-run modes before enabling persistent hooks."
       }
     ]
   },
