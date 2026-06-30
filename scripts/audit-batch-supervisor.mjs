@@ -19,6 +19,7 @@ const batchSize = Number(process.env.BATCH_SIZE || getArg('--batch-size', '200')
 const shardSize = Number(process.env.SHARD_SIZE || getArg('--shard-size', '25'));
 const maxParallel = Number(process.env.MAX_PARALLEL || getArg('--max-parallel', '8'));
 const pollSeconds = Number(process.env.POLL_SECONDS || getArg('--poll-seconds', '180'));
+const auditPrGraceSeconds = Number(process.env.AUDIT_PR_GRACE_SECONDS || getArg('--audit-pr-grace-seconds', '120'));
 const maxBatches = Number(process.env.MAX_BATCHES || getArg('--max-batches', '0'));
 const autoMerge = process.env.AUTO_MERGE === '1' || args.has('--auto-merge');
 const dryRun = args.has('--dry-run');
@@ -26,6 +27,9 @@ const once = args.has('--once');
 
 if (!Number.isFinite(cutoffMs)) {
   throw new Error(`Invalid FRESH_CUTOFF: ${cutoffIso}`);
+}
+if (!Number.isFinite(auditPrGraceSeconds) || auditPrGraceSeconds < 0) {
+  throw new Error(`Invalid AUDIT_PR_GRACE_SECONDS: ${auditPrGraceSeconds}`);
 }
 
 function log(message) {
@@ -202,6 +206,21 @@ function listOpenAuditPrs() {
     .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
 }
 
+async function waitForOpenAuditPrsToSurface() {
+  const deadlineMs = Date.now() + auditPrGraceSeconds * 1000;
+
+  while (true) {
+    const prs = listOpenAuditPrs();
+    if (prs.length > 0) return prs;
+
+    const remainingMs = deadlineMs - Date.now();
+    if (remainingMs <= 0) return [];
+
+    log(`No open audit PR found yet; waiting ${Math.ceil(remainingMs / 1000)}s before starting another batch.`);
+    await sleep(Math.min(15_000, remainingMs));
+  }
+}
+
 async function mergePr(pr) {
   if (!autoMerge) {
     throw new Error(`Audit PR is waiting for merge: ${pr.url}. Re-run with --auto-merge to let the supervisor merge audit PRs.`);
@@ -280,8 +299,7 @@ async function waitForWorkflowAfter(workflow, afterIso) {
   }
 }
 
-async function mergePendingAuditPrsAndWaitPostMerge() {
-  const prs = listOpenAuditPrs();
+async function mergePendingAuditPrsAndWaitPostMerge(prs = listOpenAuditPrs()) {
   if (prs.length === 0) return false;
 
   for (const pr of prs) {
@@ -375,6 +393,7 @@ async function printStatus() {
         batchSize,
         shardSize,
         maxParallel,
+        auditPrGraceSeconds,
         autoMerge,
         dryRun,
         all: state.all,
@@ -416,7 +435,8 @@ async function main() {
   let triggered = 0;
   while (true) {
     await waitForNoActiveAuditRuns();
-    const mergedAny = await mergePendingAuditPrsAndWaitPostMerge();
+    const pendingPrs = await waitForOpenAuditPrsToSurface();
+    const mergedAny = await mergePendingAuditPrsAndWaitPostMerge(pendingPrs);
     if (mergedAny) {
       updateLocalMain();
     } else {
