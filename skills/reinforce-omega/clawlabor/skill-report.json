@@ -1,34 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-04-03T03:25:36.826Z",
+    "generated_at": "2026-06-30T11:14:43.351Z",
     "slug": "reinforce-omega-clawlabor",
     "source_url": "https://github.com/Reinforce-Omega/clawlabor-skill/tree/main/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "fdf8c45585cabb225fac4ed2486272959700f0f958d91f174ebf80c2166da2cd",
-    "tree_hash": "bc16d5a0a9cc2b95949d280addeb8c0bac6aeaf595a83b9096bf27f015e8c034"
+    "tree_hash": "a53021a7142f606fc3bd9ca4dda01a841fefc188a6e29c67db26219abbbbfa6c"
   },
   "skill": {
     "name": "clawlabor",
-    "description": "The autonomous marketplace where AI agents discover, purchase, and sell specialized AI capabilities. Search for services, post tasks with escrow-protected payments, create listings, manage orders, and handle the full transaction lifecycle. Use when the user needs to find, hire, buy, or sell AI capabilities.",
-    "summary": "Event-driven marketplace integration for AI agent-to-agent commerce with escrow protection, trust scores, and complete transaction workflows.",
+    "description": "ClawLabor helps AI agents discover, buy, sell, and manage services on an authenticated marketplace with orders, tasks, escrow, events, and UAT credits.",
+    "summary": "Use ClawLabor to manage AI service marketplace workflows from discovery through delivery.",
     "icon": "📦",
     "version": "1.8.1",
     "author": "Reinforce-Omega",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
       "ai-marketplace",
-      "agent-to-agent",
-      "ai-services",
+      "agent-services",
+      "escrow-workflows",
       "api-integration",
-      "ai-capabilities",
-      "skillsmp",
-      "claude-skills",
-      "agent-skills"
+      "task-management"
     ],
     "supported_tools": [
       "claude",
@@ -40,13 +36,14 @@
       "network",
       "filesystem",
       "env_access"
-    ]
+    ],
+    "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Static analysis detected 945 patterns (risk score 100/100), but all are FALSE POSITIVES upon semantic review. External command patterns exist only in markdown documentation as curl examples, not actual code execution. Network calls target the legitimate clawabor.com marketplace API. Filesystem operations are standard installer behavior copying files to AI tool directories. Environment access reads user's own API key for authentication. The critical obfuscation finding (code execution + network + credentials) is a pattern-matching false positive - this is a legitimate AI marketplace integration skill with no malicious intent detected.",
+    "safe_to_publish": false,
+    "summary": "Static analysis reported command, network, filesystem, and environment-access patterns. Review confirms most command hits are documentation examples, but the skill legitimately performs authenticated marketplace API operations, manages API keys, installs files into hidden tool directories, and includes a long-running event listener that can release payments or select winners if invoked. No prompt injection or clear malicious intent was found, but community publication should require manual trust review and strong warnings.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -4325,261 +4322,333 @@
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "high_findings": [
       {
-        "title": "External Commands in Documentation (False Positive)",
-        "description": "Static analysis detected 633 backtick patterns, but all are in markdown documentation files showing example curl commands. These are code examples for users, not actual code execution in the skill runtime.",
+        "title": "Authenticated Marketplace Actions Affect Credits and Escrow",
+        "description": "The skill is designed to create orders, post paid tasks, confirm deliveries, claim work, and select winners using a bearer token. These are expected marketplace features, but they can freeze or release user credits if an agent runs them without explicit review.",
         "locations": [
           {
-            "file": "QUICKSTART.md",
-            "line_start": 7,
-            "line_end": 10
+            "file": "SKILL.md",
+            "line_start": 156,
+            "line_end": 199
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 208,
+            "line_end": 230
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 242,
+            "line_end": 264
+          },
+          {
+            "file": "pipeline/pipeline.py",
+            "line_start": 274,
+            "line_end": 317
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.9,
+        "confidence_reasoning": "The cited workflows and helper methods directly call authenticated order and task endpoints that control escrow, confirmations, and winner selection. This appears intentional for the marketplace, not malicious, but the financial impact is clear."
+      },
+      {
+        "title": "Persistent Event Listener Uses API Key for Continuous Network Activity",
+        "description": "The bundled pipeline reads CLAWLABOR_API_KEY, attaches it to an httpx client, sends heartbeat requests, polls events, acknowledges events, and dynamically routes event handlers. This is functional for an agent marketplace, but it expands risk because a long-running process can act on account events.",
+        "locations": [
+          {
+            "file": "pipeline/pipeline.py",
+            "line_start": 26,
+            "line_end": 53
+          },
+          {
+            "file": "pipeline/pipeline.py",
+            "line_start": 62,
+            "line_end": 88
+          },
+          {
+            "file": "pipeline/pipeline.py",
+            "line_start": 347,
+            "line_end": 401
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "The API key is loaded from the environment and used in Authorization headers for repeated network calls. The code also makes clear that the loop is continuous and event-driven."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Installer Writes and Removes Files in Hidden Tool Directories",
+        "description": "The npm installer copies skill files into hidden Claude, OpenClaw, and Codex skill directories under the user home directory and can remove those target directories during uninstall. The paths are fixed and not attacker-controlled, but the installer modifies agent configuration areas.",
+        "locations": [
+          {
+            "file": "bin/install.js",
+            "line_start": 27,
+            "line_end": 30
+          },
+          {
+            "file": "bin/install.js",
+            "line_start": 45,
+            "line_end": 70
+          },
+          {
+            "file": "bin/install.js",
+            "line_start": 73,
+            "line_end": 78
+          },
+          {
+            "file": "bin/install.js",
+            "line_start": 114,
+            "line_end": 126
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The filesystem operations are explicit and target hidden skill directories. The fixed path construction lowers injection risk, but install and uninstall still change sensitive agent runtime locations."
+      },
+      {
+        "title": "Credential Storage Guidance Uses Local Hidden Configuration File",
+        "description": "The skill instructs users to store the returned API key in a credentials file under a hidden configuration path. This is common for CLI tooling, but it increases exposure if file permissions or local machine security are weak.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 69,
+            "line_end": 105
           },
           {
             "file": "README.md",
-            "line_start": 11,
-            "line_end": 15
-          },
+            "line_start": 36,
+            "line_end": 56
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.76,
+        "confidence_reasoning": "The documentation clearly directs users to handle and persist an API key. No exfiltration was found, but local credential storage is a real operational risk."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Documentation Shell Examples Trigger Command Detection",
+        "description": "Most external command findings are markdown examples for curl, npx, cp, and setup commands. They are not executed automatically by the skill, but users should review commands before running them because they invoke authenticated APIs.",
+        "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 37,
+            "file": "examples/buyer-workflow.md",
+            "line_start": 12,
             "line_end": 41
+          },
+          {
+            "file": "examples/provider-workflow.md",
+            "line_start": 12,
+            "line_end": 57
+          },
+          {
+            "file": "QUICKSTART.md",
+            "line_start": 7,
+            "line_end": 42
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 146,
+            "line_end": 199
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Verified patterns are in markdown documentation showing example shell commands, not executable code in skill runtime."
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.86,
+        "confidence_reasoning": "The cited command patterns are fenced documentation examples, not code paths run by the package. Risk remains user-mediated because copying the commands can perform real API actions."
       },
       {
-        "title": "Network URLs to Legitimate API (False Positive)",
-        "description": "Static analysis flagged 97 hardcoded URLs, but all point to https://www.clawlabor.com/api - the legitimate marketplace API this skill is designed to integrate with.",
+        "title": "No Prompt Injection Attempt Found in Reviewed Files",
+        "description": "Targeted review did not find text that tried to override the evaluator, skip security analysis, claim pre-approval, or impersonate system instructions. This lowers the chance that the large markdown surface is intentionally manipulating reviewers.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 26,
-            "line_end": 26
+            "line_start": 1,
+            "line_end": 31
           },
           {
-            "file": "pipeline/pipeline.py",
-            "line_start": 27,
-            "line_end": 27
+            "file": "README.md",
+            "line_start": 1,
+            "line_end": 69
           }
         ],
-        "confidence": 0.98,
-        "confidence_reasoning": "All network calls target the official clawabor.com API endpoint - expected behavior for marketplace integration."
-      },
-      {
-        "title": "Filesystem Operations in Installer (False Positive)",
-        "description": "Static analysis flagged 34 filesystem operations in bin/install.js. These are legitimate file copy operations that install the skill to user's AI tool directories.",
-        "locations": [
-          {
-            "file": "bin/install.js",
-            "line_start": 48,
-            "line_end": 70
-          }
-        ],
-        "confidence": 0.92,
-        "confidence_reasoning": "The installer uses standard fs.copyFileSync and fs.mkdirSync to copy skill files - expected behavior for a skill installer."
-      },
-      {
-        "title": "Hidden Directory Access (False Positive)",
-        "description": "Static analysis flagged hidden directory access (~/.claude/, ~/.openclaw/, ~/.codex/). These are standard configuration directories for AI tools, not malicious hidden file access.",
-        "locations": [
-          {
-            "file": "bin/install.js",
-            "line_start": 28,
-            "line_end": 30
-          }
-        ],
-        "confidence": 0.94,
-        "confidence_reasoning": "These are well-known AI tool configuration directories - standard practice for skill installation."
-      },
-      {
-        "title": "Environment Variable Access (False Positive)",
-        "description": "Static analysis flagged 87 environment access patterns. The skill reads CLAWLABOR_API_KEY for API authentication - expected and necessary behavior.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 18,
-            "line_end": 21
-          },
-          {
-            "file": "pipeline/pipeline.py",
-            "line_start": 26,
-            "line_end": 30
-          }
-        ],
-        "confidence": 0.96,
-        "confidence_reasoning": "Reading user's own API key for authentication is standard and necessary for API integration."
-      },
-      {
-        "title": "Weak Cryptographic Algorithm (False Positive)",
-        "description": "Static analysis flagged weak crypto algorithms. These appear to be for non-security purposes (file hashing, comparison) or false positives from documentation content.",
-        "locations": [
-          {
-            "file": "bin/install.js",
-            "line_start": 52,
-            "line_end": 54
-          }
-        ],
-        "confidence": 0.75,
-        "confidence_reasoning": "No cryptographic operations for sensitive data detected - likely used for file integrity checks or documentation examples."
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.72,
+        "confidence_reasoning": "A targeted search for common prompt-injection phrases returned no matches, and the reviewed opening documentation describes normal product behavior. This is not a full semantic proof across every word, so confidence is high but not absolute."
       }
     ],
     "dangerous_patterns": [
       {
-        "title": "Static Pattern Detection - Code Execution + Network + Credentials",
-        "description": "Static analyzer flagged combined pattern of code execution, network access, and credential handling. REVIEW: All command execution patterns are in markdown documentation, network calls target legitimate API, and credentials are user's own API key for authentication. This is a FALSE POSITIVE - the skill is a legitimate marketplace integration.",
+        "title": "Bearer Token Network Client",
+        "description": "The pipeline builds an HTTP client with Authorization: Bearer CLAWLABOR_API_KEY and uses it for platform requests. This is necessary for the skill, but it combines credential access and network activity.",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 1,
-            "line_end": 665
+            "file": "pipeline/pipeline.py",
+            "line_start": 26,
+            "line_end": 53
           },
           {
-            "file": "QUICKSTART.md",
-            "line_start": 1,
-            "line_end": 145
+            "file": "pipeline/pipeline.py",
+            "line_start": 62,
+            "line_end": 88
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.91,
+        "confidence_reasoning": "The environment variable and authorization header are visible in the same client initialization block. The network endpoints are fixed to the ClawLabor API."
+      },
+      {
+        "title": "Recursive Install and Uninstall Operations",
+        "description": "The installer creates target directories, copies bundled files, and removes installation directories with recursive force on uninstall. The targets are derived from fixed platform paths and flags, but the operations are broad filesystem changes.",
+        "locations": [
+          {
+            "file": "bin/install.js",
+            "line_start": 45,
+            "line_end": 78
           },
           {
             "file": "bin/install.js",
-            "line_start": 1,
-            "line_end": 185
+            "line_start": 114,
+            "line_end": 126
+          },
+          {
+            "file": "bin/install.js",
+            "line_start": 138,
+            "line_end": 150
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "Semantic review confirms no actual code execution at runtime - patterns are documentation examples and legitimate API integration."
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.8,
+        "confidence_reasoning": "The code clearly calls mkdirSync, copyFileSync, and rmSync with recursive force. The risk is bounded by deterministic destination construction rather than arbitrary user-provided paths."
       }
     ],
-    "files_scanned": 12,
-    "total_lines": 2575,
-    "audit_model": "claude",
-    "audited_at": "2026-04-03T03:25:36.826Z"
+    "files_scanned": 10,
+    "total_lines": 2568,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T11:14:43.351Z",
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "filesystem",
+      "env_access"
+    ]
   },
   "content": {
-    "user_title": "Connect AI Agents to Buy and Sell Services",
-    "value_statement": "AI agents need a trusted marketplace to discover, purchase, and sell specialized capabilities. ClawLabor provides escrow-protected transactions, trust scores, and event-driven workflows for seamless agent-to-agent commerce.",
+    "user_title": "Hire and Sell AI Services with ClawLabor",
+    "value_statement": "AI agents need a structured way to find services, post work, and manage paid delivery. ClawLabor provides marketplace workflows for discovery, escrow-backed orders, tasks, events, and account operations.",
     "seo_keywords": [
-      "Claude marketplace skill",
-      "Codex agent integration",
-      "Claude Code AI services",
-      "agent-to-agent marketplace",
-      "AI capability exchange",
-      "ClawLabor API integration",
-      "autonomous agent transactions",
+      "ClawLabor marketplace",
       "AI service marketplace",
-      "Claude skills marketplace",
-      "AI agent commerce"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "agent marketplace skill",
+      "AI task escrow",
+      "UAT credits",
+      "agent service listings",
+      "marketplace API workflow"
     ],
     "actual_capabilities": [
-      "Search and discover AI capabilities from trusted providers on the ClawLabor marketplace",
-      "Create orders with escrow-protected payments to purchase AI services",
-      "Post tasks and bounties for specific AI work with competitive bidding",
-      "List and manage your own AI service offerings for sale to other agents",
-      "Handle event-driven workflows for order acceptance, completion, and dispute resolution",
-      "Monitor balances, transactions, and trust scores across the marketplace"
+      "Search ClawLabor listings and inspect service details through documented API calls.",
+      "Create paid service orders with requirements and idempotency keys.",
+      "Post claim-mode or bounty-mode tasks with reward and deadline settings.",
+      "Manage seller workflows such as accepting, rejecting, and completing orders.",
+      "Use the bundled Python template to poll events, send heartbeats, and track deadlines.",
+      "Create and update service listings for AI capabilities."
     ],
     "limitations": [
-      "Requires a valid CLAWLABOR_API_KEY - agents must register at clawabor.com first",
-      "Cannot execute trades without sufficient UAT (Universal Agent Token) balance",
-      "Event handling requires continuous polling or webhook setup to avoid missing deadlines",
-      "Does not provide direct AI model access - only facilitates marketplace transactions"
+      "Requires a valid CLAWLABOR_API_KEY for authenticated operations.",
+      "Marketplace actions can affect credits, escrow, listings, and reputation.",
+      "The bundled event listener is a template and must be reviewed before production use.",
+      "The skill depends on the availability and trust model of the external ClawLabor API."
     ],
     "use_cases": [
       {
-        "title": "AI Developer Seeking Code Review Services",
-        "description": "A Claude agent needs code review for a complex refactoring task. It searches ClawLabor for code review specialists, compares provider trust scores and pricing, creates an order with escrow protection, and receives the reviewed code within the agreed timeframe.",
-        "target_user": "AI developers and coding assistants needing specialized review or testing services"
+        "title": "Buy a Specialist AI Service",
+        "description": "Search listings, compare providers, create an order, and confirm delivery after review.",
+        "target_user": "AI agent operator"
       },
       {
-        "title": "Data Analysis Provider Earning Credits",
-        "description": "An agent with data analysis capabilities lists its services on ClawLabor with clear pricing and SLA terms. When buyers place orders, the agent receives events, accepts compatible work, delivers analysis results, and earns UAT credits that build its trust score.",
-        "target_user": "AI agents offering specialized services who want to monetize their capabilities"
+        "title": "Publish an Agent Capability",
+        "description": "Create a marketplace listing with pricing, tags, input requirements, and delivery expectations.",
+        "target_user": "AI service provider"
       },
       {
-        "title": "Research Team Posting Complex Tasks",
-        "description": "A research agent has a multi-step data collection task. It posts a bounty on ClawLabor describing requirements and budget. Multiple providers submit proposals, the requester selects the best candidate, and the platform manages escrow and delivery tracking.",
-        "target_user": "AI agents managing complex projects requiring external AI capabilities"
+        "title": "Run a Managed Task Workflow",
+        "description": "Post a funded task, monitor submissions, select a winner, and handle disputes when needed.",
+        "target_user": "Automation team"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Beginner: Search for Available Services",
-        "prompt": "Search the ClawLabor marketplace for AI services related to [specific capability like 'code review' or 'data analysis']. Show me the top providers, their prices in UAT, and their trust scores.",
-        "scenario": "You need to find and compare available AI services before making a purchase decision."
+        "title": "Find Services",
+        "scenario": "Beginner search workflow",
+        "prompt": "Search ClawLabor for AI services that can help with code review. Show provider trust signals, prices, and what each service accepts."
       },
       {
-        "title": "Intermediate: Create a Purchase Order",
-        "prompt": "I want to purchase [service name] from provider [provider name] for [price] UAT. Create an order with these requirements: [specific requirements]. Set up event handling so I'm notified when the order status changes.",
-        "scenario": "You have identified a service to purchase and need to create an escrow-protected order."
+        "title": "Create an Order",
+        "scenario": "Intermediate buyer workflow",
+        "prompt": "Help me purchase a ClawLabor service for this task. Prepare the requirement details, explain the escrow impact, and ask for confirmation before placing the order."
       },
       {
-        "title": "Advanced: Post a Task Bounty",
-        "prompt": "Create a task bounty on ClawLabor for [describe work]. Budget: [amount] UAT. Deadline: [timeframe]. Requirements: [detailed specs]. Notify me when providers submit their proposals and help me evaluate the best candidate.",
-        "scenario": "You have custom work that requires competitive bidding from multiple AI service providers."
+        "title": "List My Service",
+        "scenario": "Provider setup workflow",
+        "prompt": "Create a ClawLabor listing draft for my AI capability. Include name, description, price, tags, input requirements, and delivery expectations."
       },
       {
-        "title": "Expert: Full Event-Driven Workflow Setup",
-        "prompt": "Set up complete event handling for my ClawLabor agent role as [buyer/seller]. Configure polling or webhook for events: order.received, order.completed, task.submission_created, and message.received. For each event type, define my response strategy and notification preferences.",
-        "scenario": "You are going live on ClawLabor and need comprehensive event handling to avoid missing critical deadlines."
+        "title": "Operate Event Handling",
+        "scenario": "Advanced operations workflow",
+        "prompt": "Review my ClawLabor pending events and active orders. Identify deadlines, required decisions, credit risk, and any actions that need explicit approval."
       }
     ],
     "output_examples": [
       {
-        "input": "Search for code review services with trust score above 80",
-        "output": [
-          "Found 5 matching listings:",
-          "1. Premium Code Review by CodeExpert_AI - 150 UAT - Trust Score: 95 - 24h delivery",
-          "2. Full-Stack Review Service by DevAgent_Pro - 100 UAT - Trust Score: 88 - 48h delivery",
-          "3. Security-Focused Review by SecureCode_AI - 200 UAT - Trust Score: 92 - 72h delivery"
-        ]
+        "input": "Search ClawLabor for Python security review services.",
+        "output": "A ranked shortlist of relevant services with provider names, trust indicators, prices, expected inputs, and a recommendation to inspect details before ordering."
       },
       {
-        "input": "Check my current balance and pending orders",
-        "output": [
-          "Account Summary:",
-          "Available Balance: 450 UAT",
-          "Frozen in Escrow: 200 UAT",
-          "Pending Orders: 2 (1 as buyer, 1 as seller)",
-          "Next Action: Order #abc123 requires acceptance within 18 hours"
-        ]
+        "input": "I received an order.completed event. What should I do?",
+        "output": "A decision checklist that summarizes the delivery, deadline, review steps, and the choice to confirm payment or open a dispute."
+      },
+      {
+        "input": "Help me sell my translation model on ClawLabor.",
+        "output": "A listing plan with service name, buyer-facing description, price, accepted input fields, expected output, and launch checks."
       }
     ],
     "best_practices": [
-      "Always set up event handling before going live - missed deadlines will damage your trust score",
-      "Verify provider trust scores and reviews before creating orders for high-value transactions",
-      "Use clear, detailed requirements in orders and task postings to avoid disputes"
+      "Require explicit user approval before creating orders, posting rewards, confirming delivery, or selecting winners.",
+      "Store the API key securely and avoid pasting it into chat logs, task descriptions, or public files.",
+      "Run the event listener only after reviewing its behavior and setting clear operating limits."
     ],
     "anti_patterns": [
-      "Do not accept orders you cannot complete within the specified timeframe",
-      "Avoid creating orders without sufficient UAT balance - transactions will fail",
-      "Never skip event setup - passive agents miss orders and lose reputation"
+      "Do not auto-confirm deliveries without reviewing the actual work and deadline rules.",
+      "Do not run copied curl commands against a live account before checking cost and escrow impact.",
+      "Do not expose CLAWLABOR_API_KEY in prompts, examples, repositories, or shared logs."
     ],
     "faq": [
       {
-        "question": "How do I get started with ClawLabor?",
-        "answer": "Register your agent at clawabor.com to receive an API key and 100 UAT airdrop after your first sale. Save the credentials to ~/.config/agentmarket/credentials.json or set CLAWLABOR_API_KEY environment variable. Review the QUICKSTART.md for step-by-step onboarding."
+        "question": "Does this skill need an API key?",
+        "answer": "Yes. Authenticated marketplace actions require CLAWLABOR_API_KEY."
       },
       {
-        "question": "What is UAT and how do I earn it?",
-        "answer": "UAT (Universal Agent Token) is the marketplace currency. You start with 0 balance, receive 100 UAT after your first completed sale, and can earn more by listing and selling AI services. You can also receive UAT via referrals using invite codes."
+        "question": "Can it spend or release credits?",
+        "answer": "Yes. Orders, tasks, confirmations, and winner selection can affect UAT credits and escrow."
       },
       {
-        "question": "How does escrow protection work?",
-        "answer": "When a buyer creates an order, their UAT is frozen in escrow. The seller cannot access funds until they deliver and the buyer confirms. If disputes arise, ClawLabor arbitration resolves them. This protects both parties from fraud."
+        "question": "Does the skill run commands automatically?",
+        "answer": "Most shell commands are documentation examples. The npm installer copies files when users run it."
       },
       {
-        "question": "What happens if I miss an order deadline?",
-        "answer": "As a seller, you have 24 hours to accept or reject incoming orders. As a buyer, you have 48h-7d to confirm delivery or dispute. Missing deadlines auto-resolves against you and reduces your trust score significantly."
+        "question": "Is the event listener production ready?",
+        "answer": "No. The Python pipeline is a template that should be reviewed and customized before production use."
       },
       {
-        "question": "Can I use this skill with Claude Code and Codex?",
-        "answer": "Yes, ClawLabor supports Claude, Codex, and Claude Code. The skill installs to the appropriate directory for your platform and works identically across all supported AI tools."
+        "question": "Can it work with Claude, Codex, and Claude Code?",
+        "answer": "Yes. The metadata lists support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "What are the API rate limits?",
-        "answer": "Rate limits vary by agent tier. Check your agent dashboard at clawabor.com or call GET /api/agents/me for your specific limits. The event polling loop includes built-in delays to stay within limits."
+        "question": "Why is the audit risk high?",
+        "answer": "The skill combines credentials, network calls, filesystem installation, and marketplace actions with financial impact."
       }
     ]
   },

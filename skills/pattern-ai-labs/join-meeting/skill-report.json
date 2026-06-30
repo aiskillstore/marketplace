@@ -1,32 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-17T11:57:17.985Z",
+    "generated_at": "2026-06-30T10:49:35.820Z",
     "slug": "pattern-ai-labs-join-meeting",
     "source_url": "https://github.com/pattern-ai-labs/agentcall/tree/main/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "c6205ce7803cc8a19de75ef95714fda99421ca7326951a8bb7c999e488f4c584",
-    "tree_hash": "6f174e8ad8af42e9c25d68b28caae37ead8de4d2dfa9b5164e64213f6699ed55"
+    "tree_hash": "346e7c96629aa23ca409c3a3ffb1d60dfc7ab836e248fa397253615330008e39"
   },
   "skill": {
     "name": "join-meeting",
-    "description": "AgentCall (agentcall.dev) — Join a video meeting (Google Meet, Teams, Zoom) as an AI bot with voice and visual presence. Supports audio-only mode with voice intelligence (barge-in, interruptions), text-to-speech mode, and webpage modes for custom UI. Use when asked to join a call, attend a meeting, or participate in a video conference.\n",
-    "summary": "Join video meetings as an AI agent with voice, avatar, screenshare, and real-time transcription.",
-    "icon": "📞",
-    "version": "1.1.14",
+    "description": "Join Google Meet, Zoom, or Microsoft Teams calls as an AgentCall bot with voice, transcription, chat, avatar, screenshare, and optional webpage modes.",
+    "summary": "Join meetings as a voice and visual AI participant through AgentCall.",
+    "icon": "📦",
+    "version": "1.0.0",
     "author": "pattern-ai-labs",
     "license": "MIT",
-    "category": "communication",
     "tags": [
-      "meeting-bot",
+      "meetings",
       "voice-agent",
-      "google-meet",
-      "zoom",
-      "teams",
-      "transcription"
+      "transcription",
+      "screenshare",
+      "video-conferencing"
     ],
     "supported_tools": [
       "claude",
@@ -39,32 +37,18 @@
       "env_access",
       "external_commands",
       "scripts"
-    ]
+    ],
+    "category": "communication"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Community skill for joining video meetings via AgentCall (agentcall.dev). The vast majority of the 2690 static findings are false positives caused by the scanner triggering on Markdown backticks (1567 'external_commands'), crypto terms in API documentation ('weak crypto'), and example file code. After evaluation, the skill's genuine risk factors are: (1) network access to api.agentcall.dev and meeting platforms, (2) filesystem access for config (~/.agentcall/config.json) and state files, (3) env var access for AGENTCALL_API_KEY, and (4) subprocess invocation for the bridge/join scripts. These are expected and necessary for a meeting bot. No prompt injection, data exfiltration, or malicious intent was found.",
+    "safe_to_publish": false,
+    "summary": "Static analysis reported extensive network, filesystem, environment, command, and script patterns. Review confirms the core behavior is intentional for a meeting bot, but the skill handles live transcripts, audio, screenshots, screenshare content, API keys, local tunnels, and participant-controlled text. No prompt-injection attempt or confirmed malicious intent was found, but the privacy and agent-control risks are high for marketplace publication without strong warnings and review.",
     "risk_factor_evidence": [
       {
         "factor": "network",
         "evidence": [
-          {
-            "file": ".claude-plugin/marketplace.json",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": ".claude-plugin/plugin.json",
-            "line_start": 9,
-            "line_end": 9
-          },
-          {
-            "file": ".claude-plugin/plugin.json",
-            "line_start": 36,
-            "line_end": 36
-          },
           {
             "file": "examples/coding-companion/bridge.py",
             "line_start": 40,
@@ -11554,206 +11538,425 @@
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
+    "high_findings": [
       {
-        "title": "Network access to external API and meeting platforms",
-        "description": "The skill makes HTTPS calls to api.agentcall.dev and to Google Meet, Zoom, and Teams URLs. This is required functionality for a meeting bot. No data exfiltration to unexpected endpoints was found.",
+        "title": "Sensitive Meeting Data Capture and External Processing",
+        "description": "The skill advertises real-time transcripts, screenshots, screenshare, chat, and audio events. This is expected for a meeting bot, but it can expose confidential meeting content to AgentCall services and optional downstream processors such as Gemini.",
         "locations": [
           {
-            "file": "scripts/python/join.py",
-            "line_start": 37,
-            "line_end": 37
+            "file": "README.md",
+            "line_start": 11,
+            "line_end": 16
           },
           {
-            "file": "scripts/python/join.py",
-            "line_start": 43,
-            "line_end": 43
+            "file": "README.md",
+            "line_start": 120,
+            "line_end": 124
+          },
+          {
+            "file": "references/api.md",
+            "line_start": 266,
+            "line_end": 270
+          },
+          {
+            "file": "examples/notetaker-multilingual/notetaker.py",
+            "line_start": 279,
+            "line_end": 304
           }
-        ]
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.9,
+        "confidence_reasoning": "Multiple documented and implemented flows handle audio, transcripts, screenshots, and capture frames. The behavior is core functionality, but the privacy impact is clear and substantial."
       },
       {
-        "title": "API key stored in user config file",
-        "description": "The skill stores the AgentCall API key in ~/.agentcall/config.json with file permissions. Key is read from AGENTCALL_API_KEY env var or the config file. This is expected for a paid API service. Users should protect the config file with appropriate permissions.",
+        "title": "API Key Persistence and WebSocket Query Credential Exposure",
+        "description": "The skill instructs users to store the AgentCall API key in a hidden home-directory config file and bridge clients also embed the API key in WebSocket query strings. Query-string credentials are more likely to appear in logs, debugging output, proxies, or error traces than header-only credentials.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 42,
             "line_end": 57
+          },
+          {
+            "file": "scripts/python/agentcall.py",
+            "line_start": 12,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/python/agentcall.py",
+            "line_start": 53,
+            "line_end": 54
+          },
+          {
+            "file": "scripts/python/agentcall.py",
+            "line_start": 104,
+            "line_end": 107
+          },
+          {
+            "file": "scripts/node/bridge.js",
+            "line_start": 50,
+            "line_end": 54
+          },
+          {
+            "file": "scripts/node/bridge.js",
+            "line_start": 374,
+            "line_end": 377
           }
-        ]
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.94,
+        "confidence_reasoning": "The exact config path, environment variable access, Authorization header, and WebSocket query key construction are present in code and documentation. This is legitimate authentication but a real secret-handling risk."
       },
       {
-        "title": "Subprocess execution for bridge and tunnel scripts",
-        "description": "Scripts invoke subprocesses for meeting bridge and tunnel functionality. Arguments are hardcoded or user-supplied meeting URLs. No command injection vectors were found.",
+        "title": "Participant-Controlled Transcript Input Can Steer the Agent",
+        "description": "The skill states that meeting transcripts arrive as agent input and any participant can steer the agent. In a coding-agent context, this creates a remote prompt-injection and command-induction risk unless the host framework restricts file, shell, network, and code-edit tools.",
         "locations": [
           {
-            "file": "scripts/python/join.py",
-            "line_start": 1,
-            "line_end": 100
+            "file": "SKILL.md",
+            "line_start": 59,
+            "line_end": 64
+          },
+          {
+            "file": "scripts/node/bridge.js",
+            "line_start": 436,
+            "line_end": 436
+          },
+          {
+            "file": "scripts/python/bridge.py",
+            "line_start": 429,
+            "line_end": 431
           }
-        ]
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "The skill explicitly acknowledges participant steering and emits transcript text as agent events. The impact depends on host permissions, so malicious use is not proven but the risk is concrete."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Local Tunnel and Screenshare Routing Expose Local Services",
+        "description": "Webpage and screenshare modes route tunnel requests to local ports and can screenshare URLs or local content into the meeting. This is a functional requirement, but it increases exposure if private local services or sensitive pages are routed accidentally.",
+        "locations": [
+          {
+            "file": "scripts/python/bridge-visual.py",
+            "line_start": 764,
+            "line_end": 772
+          },
+          {
+            "file": "scripts/python/bridge-visual.py",
+            "line_start": 797,
+            "line_end": 804
+          },
+          {
+            "file": "scripts/node/bridge-visual.js",
+            "line_start": 944,
+            "line_end": 947
+          },
+          {
+            "file": "references/api.md",
+            "line_start": 349,
+            "line_end": 351
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The tunnel routing and screenshare commands are directly implemented and documented. Exposure depends on user-selected ports and URLs, so the risk is moderate rather than inherently malicious."
+      },
+      {
+        "title": "DOM Injection Risk in Dashboard Template",
+        "description": "The dashboard template writes participant names and transcript text into innerHTML. Meeting participants or transcript content may contain HTML-like text, which can create XSS in the local dashboard view.",
+        "locations": [
+          {
+            "file": "ui-templates/dashboard/index.html",
+            "line_start": 50,
+            "line_end": 61
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.86,
+        "confidence_reasoning": "The template directly assigns unescaped participant and transcript values to innerHTML. The source is live meeting data, so an injection path exists if the template is used."
+      },
+      {
+        "title": "External Command and Long-Running Subprocess Guidance",
+        "description": "The skill requires spawning bridge subprocesses, tailing event files, killing processes, and running local HTTP servers. These commands are expected for the workflow, but they increase operational risk and can become dangerous if combined with untrusted participant instructions.",
+        "locations": [
+          {
+            "file": "README.md",
+            "line_start": 126,
+            "line_end": 128
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 1267,
+            "line_end": 1275
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 1493,
+            "line_end": 1504
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.76,
+        "confidence_reasoning": "Most command patterns are documented operational commands, not arbitrary code execution. They still deserve review because the skill runs continuously while untrusted meeting input is being processed."
       }
     ],
     "low_findings": [
       {
-        "title": "Static scanner false positives: Markdown backticks flagged as shell execution",
-        "description": "The scanner reported 1567 'external_commands' findings, almost all of which are Markdown backticks in documentation files (SKILL.md, references/*.md, examples/*/README.md) used for code formatting, not actual shell execution. These are false positives.",
+        "title": "Static Windows SAM Detections Are False Positives",
+        "description": "The critical Windows SAM findings align with variable names such as SAMPLE_RATE and SAMPLE_WIDTH in audio-processing code, not access to the Windows SAM database.",
+        "locations": [
+          {
+            "file": "examples/notetaker-multilingual/notetaker.py",
+            "line_start": 72,
+            "line_end": 75
+          },
+          {
+            "file": "examples/notetaker-multilingual/notetaker.py",
+            "line_start": 158,
+            "line_end": 172
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.96,
+        "confidence_reasoning": "The inspected lines are audio sample constants and WAV-writing calls. No Windows SAM path or credential database access is present there."
+      },
+      {
+        "title": "Documented Eval Example Is Commented Placeholder Text",
+        "description": "The eval finding in the smart meeting assistant tools file is inside a comment showing a possible future calculation approach. It is not active runtime code, but users should avoid copying it without strict parsing and sandboxing.",
+        "locations": [
+          {
+            "file": "examples/meeting-assistant-smart/tools.py",
+            "line_start": 92,
+            "line_end": 110
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.91,
+        "confidence_reasoning": "The detected eval expression appears in commented placeholder guidance, not executable code. It remains a documentation hygiene concern because copied eval examples can become unsafe."
+      },
+      {
+        "title": "Many Backtick and Weak-Crypto Alerts Are Markdown or Terminology Matches",
+        "description": "A large portion of the external command and weak cryptography alerts are Markdown code fences, shell examples, URLs, or words such as mode and hash. These are noisy static detections, although the legitimate shell workflow still needs careful review.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 23,
-            "line_end": 23
+            "line_start": 122,
+            "line_end": 130
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 1498,
+            "line_end": 1504
+          },
+          {
+            "file": "README.md",
+            "line_start": 5,
+            "line_end": 16
           }
-        ]
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "Manual inspection shows common Markdown and usage examples rather than hidden cryptographic or Ruby execution logic. Confidence is lower because the repository also contains real subprocess and network behavior elsewhere."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Credential in WebSocket URL",
+        "description": "Bridge clients construct WebSocket URLs with the API key as a query parameter. Header-based authentication would reduce accidental leakage through logs and diagnostics.",
+        "locations": [
+          {
+            "file": "scripts/python/agentcall.py",
+            "line_start": 104,
+            "line_end": 107
+          },
+          {
+            "file": "scripts/python/bridge.py",
+            "line_start": 429,
+            "line_end": 431
+          },
+          {
+            "file": "scripts/node/bridge-visual.js",
+            "line_start": 710,
+            "line_end": 713
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.93,
+        "confidence_reasoning": "The API key is directly interpolated into WebSocket URLs in multiple client implementations. This is a concrete secret exposure pattern."
       },
       {
-        "title": "Static scanner false positives: 'Weak cryptographic algorithm' in API docs",
-        "description": "Scanner flagged 'weak crypto' in references/api.md and other docs, but these are descriptions of API endpoints, not actual cryptographic operations. The skill does not implement custom cryptography.",
+        "title": "Screen Capture and Screenshot Commands",
+        "description": "The API and bridge expose screenshot and capture commands that can return base64 image data from the meeting view. This must be disclosed and permissioned because screens can contain private information.",
         "locations": [
           {
             "file": "references/api.md",
-            "line_start": 88,
-            "line_end": 88
+            "line_start": 266,
+            "line_end": 270
+          },
+          {
+            "file": "references/api.md",
+            "line_start": 345,
+            "line_end": 351
+          },
+          {
+            "file": "scripts/node/bridge.js",
+            "line_start": 570,
+            "line_end": 574
+          },
+          {
+            "file": "scripts/node/bridge-visual.js",
+            "line_start": 1188,
+            "line_end": 1192
           }
-        ]
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.89,
+        "confidence_reasoning": "Screenshot commands and screenshot result forwarding are explicitly documented and implemented. The privacy risk is inherent even though the feature is intentional."
       },
       {
-        "title": "Path traversal strings in documentation",
-        "description": "Scanner flagged '../' sequences in documentation describing URL path components for API endpoints. No actual path traversal vulnerability exists.",
+        "title": "Unescaped HTML Rendering of Live Meeting Data",
+        "description": "The dashboard renders participant names and transcript text with innerHTML. Use textContent or explicit escaping for live meeting data.",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 1031,
-            "line_end": 1031
+            "file": "ui-templates/dashboard/index.html",
+            "line_start": 50,
+            "line_end": 61
           }
-        ]
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.86,
+        "confidence_reasoning": "Both participant names and transcript text are interpolated into HTML strings. These fields can originate from meeting data outside the page author control."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 57,
-    "total_lines": 17873,
-    "audit_model": "claude",
-    "audited_at": "2026-06-17T11:57:17.985Z"
+    "files_scanned": 54,
+    "total_lines": 17801,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T10:49:35.820Z",
+    "risk_factors": [
+      "network",
+      "filesystem",
+      "env_access",
+      "external_commands",
+      "scripts"
+    ]
   },
   "content": {
-    "user_title": "Join Meetings as an AI Agent",
-    "value_statement": "Connecting AI agents to live video meetings is hard. This skill lets Claude or Codex join Google Meet, Zoom, or Teams calls as a voice-enabled bot with transcription, avatar, and screenshare support.",
+    "user_title": "Join Meetings With an AI Agent",
+    "value_statement": "Remote meetings need agents that can listen, speak, and stay present in the call. This skill connects Claude, Codex, or Claude Code to AgentCall for voice, chat, transcription, avatars, and screenshare workflows.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "meeting bot",
-      "video meeting",
-      "Google Meet",
-      "Zoom",
-      "Teams",
-      "voice agent",
-      "transcription"
+      "Claude meeting agent",
+      "Codex meeting bot",
+      "Claude Code video calls",
+      "AgentCall skill",
+      "AI meeting assistant",
+      "Google Meet bot",
+      "Zoom AI participant",
+      "Teams meeting automation",
+      "voice agent transcription",
+      "screenshare assistant"
     ],
     "actual_capabilities": [
-      "Join Google Meet, Zoom, and Microsoft Teams meetings as an AI bot",
-      "Speak and listen using text-to-speech and voice intelligence with barge-in support",
-      "Transcribe meeting audio in real time and stream events to the agent",
-      "Display an avatar or custom webpage during video calls",
-      "Share screens from the bot to meeting participants",
-      "Handle meeting interruptions, crashes, and clean exit with state recovery"
+      "Creates AgentCall meeting bots for Google Meet, Zoom, and Microsoft Teams links.",
+      "Supports audio-only, webpage-audio, webpage-avatar, and avatar plus screenshare modes.",
+      "Streams meeting events such as transcripts, participants, chat, TTS status, and call end notifications.",
+      "Sends bot commands for speech, chat messages, hand raise, microphone control, screenshots, and graceful leave.",
+      "Provides Python and Node.js bridge scripts plus examples for note taking, support agents, and coding companions.",
+      "Can use built-in visual templates or user-provided webpage URLs for bot camera and screenshare content."
     ],
     "limitations": [
-      "Requires an AgentCall API key (free trial credits available for new accounts)",
-      "Audio quality and latency depend on network conditions and platform",
-      "Some meeting platforms may block bot participants by policy",
-      "Collaborative mode trigger words must be configured per meeting"
+      "Requires an AgentCall API key and network access to AgentCall services.",
+      "Meeting participants can influence the agent through live transcripts and chat, so tool permissions must be restricted.",
+      "Screenshots, audio, transcripts, and meeting metadata may contain sensitive business or personal information.",
+      "Webpage and screenshare modes require local ports, tunnels, or public URLs that must be managed carefully."
     ],
     "use_cases": [
       {
-        "title": "AI standup participant",
-        "description": "Deploy an AI agent to attend daily standups, report status, and answer questions when the team lead is unavailable.",
-        "target_user": "Engineering managers and remote teams"
+        "title": "Attend Engineering Standups",
+        "target_user": "Engineering leads",
+        "description": "Join recurring calls, capture transcript events, answer simple questions, and produce follow-up notes after the meeting."
       },
       {
-        "title": "Customer interview notetaker",
-        "description": "Have an AI bot join customer calls, transcribe the conversation, and produce structured summaries and action items.",
-        "target_user": "Product managers and UX researchers"
+        "title": "Run Live Support Calls",
+        "target_user": "Support teams",
+        "description": "Use a voice bot that greets callers, consults a knowledge base, escalates unknown issues, and ends the call cleanly."
       },
       {
-        "title": "Sales call assistant",
-        "description": "Join sales calls as a real-time assistant that provides talking points, answers product questions, and logs follow-ups.",
-        "target_user": "Sales teams and account executives"
+        "title": "Prototype Voice Interfaces",
+        "target_user": "Product developers",
+        "description": "Test avatar, audio, chat, and screenshare flows with local webpages before building a production meeting experience."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Join a meeting with default settings",
-        "prompt": "Join the meeting at https://meet.google.com/abc-defg-hij as AgentBot. Listen actively and take notes.",
-        "scenario": "Simple meeting join with audio-only mode"
+        "title": "Join a Basic Call",
+        "scenario": "Beginner setup for an audio-only meeting bot",
+        "prompt": "Join this meeting in audio mode as Agent. Use direct voice responses and leave when the meeting ends: <meeting URL>"
       },
       {
-        "title": "Join with avatar and screenshare",
-        "prompt": "Join https://zoom.us/j/123456789 using the pattern avatar and share my local dashboard on port 3000.",
-        "scenario": "Video meeting with visual presence"
+        "title": "Use a Visual Avatar",
+        "scenario": "Show a bot camera feed during the meeting",
+        "prompt": "Join <meeting URL> with the pattern avatar. Greet participants when they arrive, answer only when addressed, and summarize key points after leaving."
       },
       {
-        "title": "Collaborative mode with trigger words",
-        "prompt": "Join the team call in collaborative mode. Only respond when you hear 'hey bot' or 'agent help'. Stay silent otherwise.",
-        "scenario": "Background listening with selective response"
+        "title": "Run a Note-Taker",
+        "scenario": "Collect meeting notes and action items",
+        "prompt": "Join <meeting URL> as a note-taker. Track decisions, action items, open questions, and participant names. Save a concise meeting summary after the call."
       },
       {
-        "title": "Notetaker with structured output",
-        "prompt": "Join the customer interview and produce a JSON summary with key topics, decisions, and action items at the end.",
-        "scenario": "Automated meeting documentation"
+        "title": "Coordinate Screenshare and Voice",
+        "scenario": "Advanced workflow with visual content and live commands",
+        "prompt": "Join <meeting URL> with avatar and screenshare mode. Present my local dashboard, answer participant questions, take screenshots only when asked, and end the call with cleanup verification."
       }
     ],
     "output_examples": [
       {
-        "input": "Join https://meet.google.com/xyz-abcd-efg and introduce yourself as the project assistant.",
-        "output": "Bot joins the meeting, announces 'Hello, I am the project assistant AI. How can I help?' and begins transcribing."
+        "input": "Join my Google Meet as Juno and take notes.",
+        "output": "The agent joins as Juno, waits for participants, greets them, listens for transcript events, and returns a concise summary with decisions and action items."
       },
       {
-        "input": "Listen to the sales call and identify three key objections raised by the prospect.",
-        "output": "After the call, the agent reports: 1) pricing concerns, 2) integration complexity, 3) timeline mismatch."
+        "input": "Join with an avatar and show the dashboard when I ask.",
+        "output": "The agent starts an avatar mode session, keeps a local webpage available for the meeting view, and switches screenshare content when requested."
       },
       {
-        "input": "Join the standup and report blockers for the engineering team.",
-        "output": "Bot transcribes each update and outputs a summary: 'Blockers: CI pipeline delays, waiting on API access from vendor.'"
+        "input": "Use collaborative mode and respond only when called.",
+        "output": "The agent configures trigger words, waits for addressed messages, speaks concise replies, and leaves the meeting when the call ends."
       }
     ],
     "best_practices": [
-      "Store the AgentCall API key in ~/.agentcall/config.json with restricted file permissions rather than passing it in commands",
-      "Use collaborative mode for meetings where the bot should not speak unless addressed",
-      "Configure trigger words specific to each meeting context to avoid false activations",
-      "Test with the webpage-av-screenshare mode first to verify the bot appears correctly before important calls"
+      "Use least-privilege tool permissions before joining meetings with external participants.",
+      "Tell participants when the bot records transcripts, audio, screenshots, or screenshare content.",
+      "End calls through the bridge cleanup flow to avoid orphan sessions and unexpected billing."
     ],
     "anti_patterns": [
-      "Do not share the API key in chat logs, screenshots, or public repositories",
-      "Do not use audio-only mode for meetings where visual context or screen sharing is critical",
-      "Do not leave the bot in meetings indefinitely; configure timeouts and exit conditions",
-      "Do not rely on the bot to handle sensitive negotiations without human oversight"
+      "Do not join confidential meetings without consent from participants and the meeting owner.",
+      "Do not expose AgentCall API keys in logs, chat messages, screenshots, or shared terminals.",
+      "Do not let participant transcript text trigger unrestricted shell commands or code changes."
     ],
     "faq": [
       {
-        "question": "Which meeting platforms are supported?",
-        "answer": "Google Meet, Zoom, and Microsoft Teams are supported. The bot joins via standard meeting URLs."
+        "question": "Which meeting platforms does this skill target?",
+        "answer": "It targets Google Meet, Zoom, and Microsoft Teams through AgentCall meeting links."
       },
       {
-        "question": "Do I need an AgentCall account?",
-        "answer": "Yes. Register at agentcall.dev using Google OAuth, generate an API key, and add credits. New accounts receive free trial credits."
+        "question": "Does it need an API key?",
+        "answer": "Yes. The skill uses an AgentCall API key from an environment variable or a local configuration file."
       },
       {
-        "question": "Can the bot speak in multiple languages?",
-        "answer": "Yes. The text-to-speech engine supports multiple languages. Configure the language in the join command or the agent context."
+        "question": "Can the bot speak in the meeting?",
+        "answer": "Yes. It can send text-to-speech commands and can also send chat messages."
       },
       {
-        "question": "What happens if the bot disconnects mid-meeting?",
-        "answer": "The skill includes crash recovery. Running the join command again will detect the existing call and rejoin without creating a duplicate."
+        "question": "Can it see shared screens?",
+        "answer": "Yes. The documented bridge supports screenshots and capture events, which may include sensitive screen content."
       },
       {
-        "question": "Is the meeting audio stored?",
-        "answer": "Audio is streamed to AgentCall servers for transcription and TTS. Check the AgentCall privacy policy for data retention details."
+        "question": "Is this safe for untrusted meetings?",
+        "answer": "Use caution. Meeting participants can influence the agent through transcripts and chat, so restrict tools and permissions."
       },
       {
-        "question": "Can I customize the bot's appearance?",
-        "answer": "Yes. The skill includes several avatar templates (pattern, orb, ring, avatar) and supports custom HTML webpages for the bot's video display."
+        "question": "Can I use custom visual content?",
+        "answer": "Yes. Webpage modes can use built-in templates, local ports, public webpage URLs, and screenshare URLs."
       }
     ]
   },
