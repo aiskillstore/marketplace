@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-02-25T09:09:03.839Z",
+    "generated_at": "2026-06-30T03:49:54.608Z",
     "slug": "inference-sh-8-agent-browser",
     "source_url": "https://github.com/inference-sh-8/skills/tree/main/skills/agentic-browser/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "34b272b9449c4893a8b7c3d4f0278ecd567745f1b480df3c20e281314dfcc404",
-    "tree_hash": "d3c0ecd02ffadc0f4ab2986660e0957123e381b5ad7c7d57d0b3f9b846906979"
+    "tree_hash": "d2b12d9d47016731205358958ca1ed67e96cc6ead751e8e50f30cdd3c920ab4c"
   },
   "skill": {
     "name": "agent-browser",
-    "description": "Browser automation for AI agents via inference.sh. Navigate web pages, interact with elements using @e refs, take screenshots, record video. Capabilities: web scraping, form filling, clicking, typing, drag-drop, file upload, JavaScript execution. Use for: web automation, data extraction, testing, agent browsing, research. Triggers: browser, web automation, scrape, navigate, click, fill form, screenshot, browse web, playwright, headless browser, web agent, surf internet, record video",
-    "summary": "Browser automation for AI agents via inference.sh with Playwright",
-    "icon": "🌐",
+    "description": "Automates browser sessions through inference.sh with navigation, element refs, form interaction, screenshots, video recording, proxy settings, file upload, and page JavaScript execution.",
+    "summary": "Control browser sessions for web testing, capture, and data extraction through inference.sh.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "inference-sh-8",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
       "browser-automation",
-      "web-scraping",
-      "playwright",
-      "ai-agent",
-      "inference"
+      "web-testing",
+      "screenshots",
+      "data-extraction",
+      "playwright"
     ],
     "supported_tools": [
       "claude",
@@ -33,42 +32,58 @@
       "claude-code"
     ],
     "risk_factors": [
-      "external_commands",
+      "scripts",
       "network",
-      "filesystem"
-    ]
+      "filesystem",
+      "external_commands"
+    ],
+    "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "This is a legitimate browser automation skill using inference.sh CLI with Playwright. All 609 static findings are false positives - they detect patterns in documentation code blocks (shell command substitution examples, example URLs, placeholder paths) rather than actual executable code. The skill provides proper security best practices including credential handling via environment variables.",
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 10,
-    "total_lines": 2312,
-    "audit_model": "claude",
-    "audited_at": "2026-02-25T09:09:03.839Z",
-    "risk_factors": [
-      "external_commands",
-      "network",
-      "filesystem"
-    ],
+    "safe_to_publish": false,
+    "summary": "Static analysis found many command, network, filesystem, and credential patterns. Most Markdown backtick and hardcoded URL hits are documentation examples, but the skill still exposes high-risk browser automation capabilities, including a remote shell installer, authenticated workflows, cookie extraction, JavaScript execution, screenshots, video, file upload, and proxy routing. No prompt injection or confirmed malicious intent was found, so this is not blocked, but it should not publish without strong warnings and review.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "templates/authenticated-session.sh",
+            "line_start": 1,
+            "line_end": 20
+          },
+          {
+            "file": "templates/capture-workflow.sh",
+            "line_start": 1,
+            "line_end": 18
+          },
+          {
+            "file": "templates/form-automation.sh",
+            "line_start": 1,
+            "line_end": 16
+          }
+        ]
+      },
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 34,
-            "line_end": 58
+            "line_start": 15,
+            "line_end": 20
+          },
+          {
+            "file": "references/commands.md",
+            "line_start": 7,
+            "line_end": 15
+          },
+          {
+            "file": "templates/capture-workflow.sh",
+            "line_start": 54,
+            "line_end": 60
           }
-        ],
-        "evaluation": "FALSE_POSITIVE - Shell command substitution in documentation code blocks showing example CLI usage, not executable code",
-        "confidence": 0.95
+        ]
       },
       {
         "factor": "network",
@@ -76,140 +91,388 @@
           {
             "file": "SKILL.md",
             "line_start": 9,
-            "line_end": 11
+            "line_end": 23
+          },
+          {
+            "file": "references/commands.md",
+            "line_start": 21,
+            "line_end": 49
+          },
+          {
+            "file": "references/proxy-support.md",
+            "line_start": 149,
+            "line_end": 168
           }
-        ],
-        "evaluation": "FALSE_POSITIVE - Example/demo URLs in documentation (example.com, app.example.com) not production endpoints",
-        "confidence": 0.95
+        ]
       },
       {
         "factor": "filesystem",
         "evidence": [
           {
+            "file": "references/commands.md",
+            "line_start": 87,
+            "line_end": 97
+          },
+          {
+            "file": "templates/capture-workflow.sh",
+            "line_start": 89,
+            "line_end": 116
+          },
+          {
+            "file": "templates/authenticated-session.sh",
+            "line_start": 86,
+            "line_end": 104
+          }
+        ]
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [
+      {
+        "title": "Remote Installer Piped To Shell",
+        "description": "The quick start instructs users to download a remote script and pipe it directly to sh before login. This is a supply-chain risk because the fetched installer executes immediately if the endpoint, TLS path, or script is compromised. The later checksum note reduces risk but does not protect the pipe-to-shell command itself.",
+        "locations": [
+          {
             "file": "SKILL.md",
-            "line_start": 160,
-            "line_end": 166
+            "line_start": 15,
+            "line_end": 23
           }
         ],
-        "evaluation": "FALSE_POSITIVE - Placeholder paths like /path/to/file.pdf in documentation examples",
-        "confidence": 0.95
+        "confidence": 0.92,
+        "confidence_reasoning": "The pipe-to-shell command is explicit on SKILL.md line 17. The surrounding install note confirms this is an intended installation path, not a scanner artifact."
+      },
+      {
+        "title": "Credential And Cookie Exposure Workflows",
+        "description": "The skill documents login automation, credential filling, and cookie extraction. This is legitimate for browser automation, but it creates a high risk of exposing session cookies, usernames, passwords, or authenticated page data through command output, screenshots, files, or downstream tools.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 48
+          },
+          {
+            "file": "templates/authenticated-session.sh",
+            "line_start": 66,
+            "line_end": 84
+          },
+          {
+            "file": "references/authentication.md",
+            "line_start": 213,
+            "line_end": 224
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The documentation explicitly fills password fields and prints cookies extracted with JavaScript. The behavior is user-directed, but the sensitive-data exposure risk is direct."
+      },
+      {
+        "title": "Combined Browser Control, Network Access, And Page Execution",
+        "description": "The skill can navigate arbitrary URLs, interact with forms, capture screenshots, upload files, and execute page JavaScript through the inference.sh CLI. This combination can collect or submit sensitive data if used on private or authenticated sites.",
+        "locations": [
+          {
+            "file": "references/commands.md",
+            "line_start": 21,
+            "line_end": 49
+          },
+          {
+            "file": "references/commands.md",
+            "line_start": 87,
+            "line_end": 97
+          },
+          {
+            "file": "references/commands.md",
+            "line_start": 162,
+            "line_end": 176
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The command reference clearly lists URL navigation, proxy credentials, file upload paths, and arbitrary page JavaScript. These are expected features but form a high-risk capability set."
       }
+    ],
+    "medium_findings": [
+      {
+        "title": "Proxy Routing Can Bypass Network Assumptions",
+        "description": "The proxy documentation supports HTTP, HTTPS, and SOCKS5 routing. Proxy support is useful for testing, but it can hide traffic origin, bypass regional controls, or route sensitive sessions through untrusted infrastructure.",
+        "locations": [
+          {
+            "file": "references/proxy-support.md",
+            "line_start": 149,
+            "line_end": 168
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "SOCKS5 and other proxy examples are explicitly documented. The risk depends on user configuration, so this is a medium concern rather than confirmed abuse."
+      },
+      {
+        "title": "Screenshots, Video, And Extracted Page Data Saved To Files",
+        "description": "The capture workflow saves screenshots, element text, body text, links, and optional video files. This is useful for audits and research, but it can persist private page contents on disk if used with sensitive pages.",
+        "locations": [
+          {
+            "file": "templates/capture-workflow.sh",
+            "line_start": 89,
+            "line_end": 116
+          },
+          {
+            "file": "references/video-recording.md",
+            "line_start": 21,
+            "line_end": 31
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The template writes captured browser outputs to local files and the video guide enables session recording. The data sensitivity depends on the target website."
+      },
+      {
+        "title": "Shell Templates Execute External CLI Commands With User Input",
+        "description": "The shell templates pass user-supplied URLs and output paths into infsh commands. The scripts use strict shell settings and quote key variables, but they still run external browser automation based on user input.",
+        "locations": [
+          {
+            "file": "templates/authenticated-session.sh",
+            "line_start": 22,
+            "line_end": 43
+          },
+          {
+            "file": "templates/capture-workflow.sh",
+            "line_start": 52,
+            "line_end": 60
+          },
+          {
+            "file": "templates/form-automation.sh",
+            "line_start": 17,
+            "line_end": 33
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The scripts clearly run infsh with user-provided URLs. Quoting and use of a single CLI reduce command-injection evidence, so the remaining concern is controlled external execution."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Markdown Backticks Misclassified As Ruby Execution",
+        "description": "Many static external-command findings come from Markdown code fences and inline command examples. These are instructional examples rather than hidden Ruby backtick execution in application code.",
+        "locations": [
+          {
+            "file": "references/commands.md",
+            "line_start": 7,
+            "line_end": 15
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 39
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The cited lines are Markdown command examples and fenced documentation. No Ruby source file or runtime backtick execution was found in those locations."
+      },
+      {
+        "title": "Relative Documentation Links Misclassified As Path Traversal",
+        "description": "The path traversal findings point to relative Markdown links such as ../SKILL.md. These links navigate documentation and do not read arbitrary filesystem paths at runtime.",
+        "locations": [
+          {
+            "file": "references/commands.md",
+            "line_start": 1,
+            "line_end": 3
+          },
+          {
+            "file": "references/snapshot-refs.md",
+            "line_start": 1,
+            "line_end": 5
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The evidence is documentation linking to another file in the skill package. There is no path concatenation or filesystem access in these Markdown links."
+      },
+      {
+        "title": "SHA-256 Mention Misclassified As Weak Cryptography",
+        "description": "The weak cryptography findings include documentation about SHA-256 checksum verification. SHA-256 checksums are not a weak algorithm in this context, although checksums do not remove the risk of piping an installer to a shell.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 17,
+            "line_end": 23
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The cited text describes checksum verification for a CLI installer. This is not evidence of weak cryptographic use in skill code."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Pipe To Shell Installation",
+        "description": "Remote installer execution appears in the quick start and should be replaced with manual download and checksum verification instructions before publication.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 23
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The command directly pipes a remote HTTPS response into sh. This is a known risky installation pattern."
+      },
+      {
+        "title": "Arbitrary Page JavaScript Execution",
+        "description": "The execute function accepts a code string and runs it in the current page. This can extract page data, cookies visible to JavaScript, or DOM content from sensitive sessions.",
+        "locations": [
+          {
+            "file": "references/commands.md",
+            "line_start": 162,
+            "line_end": 176
+          },
+          {
+            "file": "references/authentication.md",
+            "line_start": 213,
+            "line_end": 224
+          }
+        ],
+        "confidence": 0.89,
+        "confidence_reasoning": "The reference explicitly documents a code field for JavaScript and shows document.cookie extraction. This is a real browser-context execution capability."
+      },
+      {
+        "title": "Browser Capture And Recording Of User Sessions",
+        "description": "Screenshots and videos can record private data from pages. The capability is expected for this skill but requires strong user consent and secure handling.",
+        "locations": [
+          {
+            "file": "references/commands.md",
+            "line_start": 136,
+            "line_end": 150
+          },
+          {
+            "file": "references/video-recording.md",
+            "line_start": 21,
+            "line_end": 31
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The command reference and video guide both document visual capture. The risk depends on the sensitivity of the pages being automated."
+      }
+    ],
+    "files_scanned": 9,
+    "total_lines": 2107,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T03:49:54.608Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "external_commands"
     ]
   },
   "content": {
-    "user_title": "Automate Browser Tasks with AI Agents",
-    "value_statement": "This skill enables AI agents to automate web browsers for tasks like web scraping, form filling, and testing through a simple @e ref system.",
+    "user_title": "Automate Browser Tasks With Agent Browser",
+    "value_statement": "Browser testing and web capture often require repeatable clicks, form fills, screenshots, and page extraction. This skill gives Claude, Codex, and Claude Code a structured browser workflow through inference.sh.",
     "seo_keywords": [
-      "browser automation",
-      "web scraping",
-      "Playwright",
-      "AI agent",
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "headless browser",
-      "web automation",
-      "inference.sh"
+      "Claude browser automation",
+      "Codex browser automation",
+      "Claude Code browser skill",
+      "agent browser",
+      "web automation skill",
+      "Playwright automation",
+      "screenshot capture",
+      "form automation",
+      "web scraping workflow",
+      "inference.sh browser"
     ],
     "actual_capabilities": [
-      "Navigate to URLs and capture interactive element references using @e syntax",
-      "Perform actions on elements: click, fill, type, select, drag-drop, upload files",
-      "Take screenshots and record browser sessions as video",
-      "Execute custom JavaScript in the browser context",
-      "Configure proxy servers with authentication",
-      "Manage persistent browser sessions for authenticated workflows"
+      "Open browser sessions and navigate to a target URL through the infsh CLI.",
+      "Use @e element refs to click, fill, select, hover, drag, scroll, and upload files.",
+      "Refresh snapshots after page changes to get updated URL, title, elements, and screenshots.",
+      "Capture viewport or full-page screenshots and optionally record session video.",
+      "Execute JavaScript in the current page to extract text, links, counts, or DOM state.",
+      "Configure viewport size, user agent, proxy URL, and proxy credentials for a session."
     ],
     "limitations": [
-      "Requires inference.sh CLI installation and authentication",
-      "Element refs become invalid after page navigation - must re-snapshot",
-      "Cannot bypass CAPTCHAs or advanced bot detection",
-      "Video recording may capture sensitive data - use only for debugging"
+      "Requires the inference.sh CLI, account login, and network access to the service.",
+      "Element refs become invalid after navigation or dynamic page updates and need new snapshots.",
+      "Browser automation can expose credentials, cookies, screenshots, and private page content if misused.",
+      "The skill does not include policy checks for target website terms, consent, or rate limits."
     ],
     "use_cases": [
       {
-        "title": "Web Data Extraction",
-        "description": "Automate extraction of structured data from websites by navigating pages, interacting with elements, and capturing content.",
-        "target_user": "Data engineers, researchers, and developers building data pipelines"
+        "title": "Validate Web Forms",
+        "description": "Run repeatable form discovery, field filling, submission, and result verification for staging or internal applications.",
+        "target_user": "QA engineer"
       },
       {
-        "title": "Automated Form Filling",
-        "description": "Automate submission of repetitive forms like contact forms, surveys, or data entry tasks across multiple pages.",
-        "target_user": "QA testers and operations teams automating manual workflows"
+        "title": "Capture Research Pages",
+        "description": "Collect page text, links, screenshots, and optional video evidence from public pages for review workflows.",
+        "target_user": "Research analyst"
       },
       {
-        "title": "Authenticated Session Management",
-        "description": "Login once and reuse authenticated sessions for repeated tasks like monitoring dashboards or extracting user-specific content.",
-        "target_user": "Developers building AI agents that need authenticated access"
+        "title": "Debug Authenticated Flows",
+        "description": "Walk through login, dashboard navigation, screenshots, and post-login checks while keeping session state in one browser session.",
+        "target_user": "Developer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Open and Snapshot",
-        "prompt": "Use the agent-browser skill to open https://example.com and get the element references.",
-        "scenario": "Basic page navigation"
+        "title": "Open And Inspect A Page",
+        "scenario": "Beginner page discovery",
+        "prompt": "Open this URL with agent-browser, summarize the page title, visible text, and available @e element refs: [URL]."
       },
       {
-        "title": "Form Submission",
-        "prompt": "Navigate to the login page, fill in the email and password fields using element refs, and submit the form. Then verify login success.",
-        "scenario": "Automated login flow"
+        "title": "Fill A Public Form",
+        "scenario": "Basic interaction workflow",
+        "prompt": "Use agent-browser to inspect this form, identify the field refs, fill the provided non-sensitive test values, submit it, and report the final page state: [URL]."
       },
       {
-        "title": "Data Extraction with Screenshot",
-        "prompt": "Open the page, take a full-page screenshot, extract all the text content from elements, and save the results.",
-        "scenario": "Content extraction for analysis"
+        "title": "Capture Page Evidence",
+        "scenario": "Screenshot and extraction workflow",
+        "prompt": "Use agent-browser to capture a full-page screenshot, extract the main visible text and links, and note any missing or blocked content: [URL]."
       },
       {
-        "title": "Authenticated Workflow",
-        "prompt": "Create a new session, login to the application with credentials from environment variables, navigate to the dashboard, extract specific data, and keep the session open for reuse.",
-        "scenario": "Persistent authenticated session"
+        "title": "Test A Multi-Step Flow",
+        "scenario": "Advanced authenticated or stateful workflow",
+        "prompt": "Use agent-browser to run this authorized multi-step flow, re-snapshot after each navigation, record important screenshots, and avoid printing secrets: [FLOW DETAILS]."
       }
     ],
     "output_examples": [
       {
-        "input": "Open https://example.com and get element references",
-        "output": "Session started with ID: abc123. Elements found: @e1 [a] \"Home\", @e2 [a] \"About\", @e3 [a] \"Contact\", @e4 [p] \"Welcome to Example Domain\""
+        "input": "Inspect a product page and capture a full-page screenshot.",
+        "output": "The result includes the page title, current URL, visible interaction refs, a saved full-page screenshot, and a short summary of key page sections."
       },
       {
-        "input": "Fill and submit contact form",
-        "output": "Successfully filled @e1 with \"John Doe\", @e2 with \"john@example.com\", @e3 with \"Hello\". Clicked @e4. Form submitted successfully."
+        "input": "Run a contact form test with sample data.",
+        "output": "The result identifies form field refs, confirms each fill action, records the submit action, and reports whether the final page shows success or an error."
+      },
+      {
+        "input": "Extract links from a documentation page.",
+        "output": "The result lists visible links with nearby text, notes duplicate or empty labels, and includes the page screenshot for review."
       }
     ],
     "best_practices": [
-      "Always re-snapshot after navigation or form submissions to get fresh element refs",
-      "Use environment variables for credentials instead of hardcoding them",
-      "Enable video recording only during debugging - it may capture sensitive data",
-      "Implement error handling and verify actions succeeded before proceeding"
+      "Use only authorized sites and non-sensitive test accounts unless explicit permission exists.",
+      "Re-snapshot after clicks, form submissions, route changes, and dynamic content loading.",
+      "Close every browser session and store screenshots, videos, cookies, and logs securely."
     ],
     "anti_patterns": [
-      "Assuming element refs persist across page navigation without re-snapshotting",
-      "Hardcoding credentials in scripts instead of using environment variables",
-      "Not checking for login success - always verify you reached the expected page",
-      "Leaving sessions open indefinitely - always close or implement proper cleanup"
+      "Do not pipe remote installers to a shell in automated workflows without independent verification.",
+      "Do not print passwords, cookies, tokens, or authenticated page data into shared logs.",
+      "Do not use proxies, file uploads, or JavaScript execution to bypass website rules or access controls."
     ],
     "faq": [
       {
-        "question": "What is element ref invalidation?",
-        "answer": "After navigating to a new page or submitting forms, all @e refs become invalid. You must call snapshot again to get new refs for the current page state."
+        "question": "Does this skill require an external service?",
+        "answer": "Yes. It uses the inference.sh CLI and service to run browser automation sessions."
       },
       {
-        "question": "How do I handle 2FA during login?",
-        "answer": "Enable video recording to see the 2FA prompt, then either use TOTP generation tools or pause to manually enter the code from stdin."
+        "question": "Can it interact with forms and buttons?",
+        "answer": "Yes. It uses @e element refs for clicks, fills, selections, checks, drags, scrolling, and uploads."
       },
       {
-        "question": "Can I reuse authenticated sessions?",
-        "answer": "Yes, sessions maintain cookies and state. Start with --session new, then use the returned session_id for subsequent calls. Do not call close if you want to reuse."
+        "question": "Can it capture screenshots or video?",
+        "answer": "Yes. It can capture viewport or full-page screenshots and can record video when enabled."
       },
       {
-        "question": "What proxies are supported?",
-        "answer": "HTTP, HTTPS, and SOCKS5 proxies are supported. Configure proxy_url, proxy_username, and proxy_password in the open function input."
+        "question": "Can it run JavaScript on a page?",
+        "answer": "Yes. The execute function runs JavaScript in the current page context and returns the result."
       },
       {
-        "question": "How do I take a full-page screenshot?",
-        "answer": "Use the screenshot function with full_page: true. For very long pages, this captures the entire scrollable area."
+        "question": "Is it safe for passwords and cookies?",
+        "answer": "Use caution. The skill can handle credentials and extract cookies, so avoid shared logs and protect all outputs."
       },
       {
-        "question": "Is this skill safe for production use?",
-        "answer": "Yes, but follow security best practices: use environment variables for credentials, disable video recording in production, and implement proper session cleanup."
+        "question": "Why is this report marked high risk?",
+        "answer": "It combines remote installation, browser control, authenticated workflows, page capture, JavaScript execution, file upload, and proxy support."
       }
     ]
   },
@@ -236,12 +499,6 @@
           "type": "file",
           "path": "references/proxy-support.md",
           "lines": 296
-        },
-        {
-          "name": "session-management.md",
-          "type": "file",
-          "path": "references/session-management.md",
-          "lines": 205
         },
         {
           "name": "snapshot-refs.md",
