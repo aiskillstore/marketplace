@@ -1,33 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-04-13T04:42:42.533Z",
+    "generated_at": "2026-06-30T07:46:29.016Z",
     "slug": "mguozhen-dingtalk-bridge",
     "source_url": "https://github.com/mguozhen/dingtalk-bridge/tree/main/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "46346e1433fed717a08b1595e802469c6de4d74db12819ad1bc00626b970e8d5",
-    "tree_hash": "39177166c894eab8d5441d75437ff1d0425d8369c4ae96ea4ae58d66b7b09e90"
+    "tree_hash": "3aa41614f963696b004ef0827656f0266e476c684a46733235ffda75b2fef060"
   },
   "skill": {
     "name": "dingtalk-bridge",
-    "description": "DingTalk group chat bridge for Claude Code. Send markdown/text messages to DingTalk groups, receive @mentions and auto-execute via Claude CLI, run a 24/7 Stream bot. Triggers: dingtalk, send dingtalk, dingtalk bot, dingtalk message, send group message, 钉钉, 发群消息, 钉钉机器人",
-    "summary": "Bridge Claude Code with DingTalk group chat for bi-directional messaging and automated task execution",
-    "icon": "🔔",
+    "description": "DingTalk group chat bridge for Claude Code that sends messages, listens for @mentions, and can run a persistent Stream bot.",
+    "summary": "Bridge Claude Code workflows with DingTalk group chat messages and bot replies.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "mguozhen",
     "license": "MIT",
-    "category": "communication",
     "tags": [
       "dingtalk",
-      "messaging",
-      "chat",
-      "notification",
-      "bot",
-      "automation",
-      "webhook"
+      "chatops",
+      "notifications",
+      "claude-code",
+      "bot"
     ],
     "supported_tools": [
       "claude",
@@ -36,18 +33,27 @@
     ],
     "risk_factors": [
       "network",
-      "external_commands"
-    ]
+      "external_commands",
+      "filesystem",
+      "scripts",
+      "env_access"
+    ],
+    "category": "communication"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Static analysis detected 208 patterns, mostly false positives from documentation code examples and legitimate API usage. The skill intentionally executes subprocess commands to run the Claude CLI with user prompts, which is properly sandboxed using list arguments (no shell injection). No hardcoded credentials, no prompt injection attempts, no malicious intent detected. All network activity is to official DingTalk API endpoints.",
+    "safe_to_publish": false,
+    "summary": "Static analysis produced many false positives from documentation examples, URLs, and tests, and no prompt injection attempt was found. The main confirmed risk is the intended Stream bot behavior: DingTalk @mentions are executed by the local Claude CLI with --dangerously-skip-permissions and can be kept alive through LaunchAgent persistence. This is not confirmed malicious, but it is too risky to publish without strong warnings, permission controls, and deployment guidance.",
     "risk_factor_evidence": [
       {
         "factor": "network",
         "evidence": [
+          {
+            "file": "src/send.py",
+            "line_start": 16,
+            "line_end": 16
+          },
           {
             "file": "src/send.py",
             "line_start": 33,
@@ -65,8 +71,8 @@
           },
           {
             "file": "src/send.py",
-            "line_start": 106,
-            "line_end": 106
+            "line_start": 105,
+            "line_end": 110
           }
         ]
       },
@@ -76,12 +82,42 @@
           {
             "file": "src/stream_bot.py",
             "line_start": 63,
-            "line_end": 75
+            "line_end": 69
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 85,
+            "line_end": 85
           },
           {
             "file": "scripts/install.sh",
             "line_start": 4,
             "line_end": 4
+          },
+          {
+            "file": "scripts/install.sh",
+            "line_start": 85,
+            "line_end": 85
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "README.md",
+            "line_start": 60,
+            "line_end": 60
+          },
+          {
+            "file": "README.md",
+            "line_start": 84,
+            "line_end": 84
+          },
+          {
+            "file": "scripts/install.sh",
+            "line_start": 11,
+            "line_end": 11
           },
           {
             "file": "scripts/install.sh",
@@ -91,17 +127,17 @@
         ]
       },
       {
-        "factor": "filesystem",
+        "factor": "scripts",
         "evidence": [
           {
-            "file": "src/send.py",
-            "line_start": 54,
-            "line_end": 56
+            "file": "src/config.py",
+            "line_start": 44,
+            "line_end": 44
           },
           {
-            "file": "src/config.py",
-            "line_start": 23,
-            "line_end": 24
+            "file": "tests/test_dingtalk.py",
+            "line_start": 253,
+            "line_end": 253
           }
         ]
       },
@@ -117,181 +153,374 @@
             "file": "src/stream_bot.py",
             "line_start": 74,
             "line_end": 74
+          },
+          {
+            "file": "tests/test_dingtalk.py",
+            "line_start": 25,
+            "line_end": 25
           }
         ]
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
+    "high_findings": [
       {
-        "title": "Subprocess Execution with User Input",
-        "description": "The stream_bot.py executes the Claude CLI with user-controlled prompt content via subprocess.run. While this is intentional functionality for a chat bot bridge, it allows arbitrary command execution through the Claude CLI. The implementation uses proper list arguments to prevent shell injection, and the --dangerously-skip-permissions flag is used which is documented.",
+        "title": "Permission-Skipping Remote Prompt Execution",
+        "description": "TRUE_POSITIVE: The Stream bot takes DingTalk group @mention text and runs it through the Claude CLI with --dangerously-skip-permissions. Anyone who can message the bot can cause local Claude execution in the configured work directory, which creates a high-impact remote action surface even though subprocess arguments are not shell-expanded.",
         "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 17,
+            "line_end": 17
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 85,
+            "line_end": 85
+          },
           {
             "file": "src/stream_bot.py",
             "line_start": 63,
-            "line_end": 75
+            "line_end": 69
+          },
+          {
+            "file": "src/stream_bot.py",
+            "line_start": 104,
+            "line_end": 121
           }
         ],
-        "confidence": 0.6,
-        "confidence_reasoning": "This is intentional functionality for a bot bridge - the subprocess execution is the core feature. Properly implemented with list arguments to prevent injection, but users should understand this executes Claude CLI with their prompts."
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.96,
+        "confidence_reasoning": "The code directly passes received chat text into claude -p and explicitly includes --dangerously-skip-permissions. Documentation confirms this is the intended bot behavior, so the risk is semantic and not just a scanner pattern."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Optional LaunchAgent Persistence",
+        "description": "TRUE_POSITIVE with legitimate purpose: The installer can create a macOS LaunchAgent that starts the bot automatically and keeps it running. This is documented and prompted, but it persists a high-risk bot that accepts chat-driven execution.",
+        "locations": [
+          {
+            "file": "README.md",
+            "line_start": 70,
+            "line_end": 70
+          },
+          {
+            "file": "scripts/install.sh",
+            "line_start": 60,
+            "line_end": 67
+          },
+          {
+            "file": "scripts/install.sh",
+            "line_start": 78,
+            "line_end": 88
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "LaunchAgent creation is explicit in the installer and documentation. It requires user consent, so it is not proof of malicious persistence, but it materially increases exposure when paired with remote prompt execution."
+      },
+      {
+        "title": "Credentialed Network Bridge to DingTalk",
+        "description": "TRUE_POSITIVE with expected functionality: The skill reads DingTalk credentials from environment variables or config.json and sends authenticated requests to DingTalk API and webhook endpoints. This is necessary for the bridge, but compromise of the local process or work directory can expose app credentials and conversation metadata.",
+        "locations": [
+          {
+            "file": "src/config.py",
+            "line_start": 35,
+            "line_end": 44
+          },
+          {
+            "file": "src/send.py",
+            "line_start": 24,
+            "line_end": 34
+          },
+          {
+            "file": "src/send.py",
+            "line_start": 100,
+            "line_end": 110
+          },
+          {
+            "file": "scripts/install.sh",
+            "line_start": 17,
+            "line_end": 49
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The code clearly handles app keys, app secrets, local config files, and outgoing DingTalk requests. The behavior is expected for this skill, but it is security-sensitive because it combines credentials, filesystem state, and network calls."
       }
     ],
     "low_findings": [
       {
-        "title": "macOS LaunchAgent Persistence",
-        "description": "The install.sh script optionally creates a macOS LaunchAgent for 24/7 bot operation. This is a legitimate persistence mechanism for a long-running service, properly documented and requires user consent.",
+        "title": "Documentation Command Examples and Hardcoded URLs",
+        "description": "FALSE_POSITIVE for most repeated static hits: README.md and SKILL.md contain many shell snippets, URLs, and markdown examples that describe installation and usage. These examples do not execute by themselves, and the hardcoded URLs are DingTalk, Claude Code, badges, or repository links rather than hidden exfiltration endpoints.",
         "locations": [
           {
-            "file": "scripts/install.sh",
-            "line_start": 62,
-            "line_end": 111
+            "file": "README.md",
+            "line_start": 60,
+            "line_end": 74
+          },
+          {
+            "file": "README.md",
+            "line_start": 98,
+            "line_end": 110
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 26,
+            "line_end": 34
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 65
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "LaunchAgent creation is user-consented, documented, and appropriate for a 24/7 bot service. No malicious persistence pattern detected."
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.91,
+        "confidence_reasoning": "The flagged lines are prose or fenced examples in documentation, not runtime code. They explain the same installation and messaging workflow visible in the implementation."
       },
       {
-        "title": "Credential Storage in Config File",
-        "description": "App credentials are stored in config.json with chmod 600 permissions. This is a standard practice for local development tools.",
+        "title": "Weak Cryptographic Algorithm Static Matches",
+        "description": "FALSE_POSITIVE: The reported weak cryptographic algorithm hits in marketplace.json, README.md, SKILL.md, and src/send.py do not correspond to cryptographic operations in the reviewed code. No evidence found of MD5, SHA1, DES, or similar weak algorithms being used for security decisions.",
         "locations": [
           {
-            "file": "scripts/install.sh",
-            "line_start": 42,
-            "line_end": 50
+            "file": "marketplace.json",
+            "line_start": 4,
+            "line_end": 8
+          },
+          {
+            "file": "README.md",
+            "line_start": 43,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 13
+          },
+          {
+            "file": "src/send.py",
+            "line_start": 115,
+            "line_end": 115
           }
         ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.86,
+        "confidence_reasoning": "Manual review found no weak cryptographic primitive at the cited locations. The hits appear to be keyword collisions in product text or message examples rather than executable crypto code."
+      },
+      {
+        "title": "Test-Only Dynamic Import and Subprocess Mocks",
+        "description": "FALSE_POSITIVE: tests/test_dingtalk.py uses __import__ and subprocess.run patches to test timeout and bot execution behavior. These are test harness constructs and do not add runtime behavior to the installed skill.",
+        "locations": [
+          {
+            "file": "tests/test_dingtalk.py",
+            "line_start": 190,
+            "line_end": 190
+          },
+          {
+            "file": "tests/test_dingtalk.py",
+            "line_start": 214,
+            "line_end": 214
+          },
+          {
+            "file": "tests/test_dingtalk.py",
+            "line_start": 233,
+            "line_end": 233
+          },
+          {
+            "file": "tests/test_dingtalk.py",
+            "line_start": 253,
+            "line_end": 253
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
         "confidence": 0.9,
-        "confidence_reasoning": "Proper permission model (chmod 600) used for credential file. Standard practice for CLI tools requiring API credentials."
+        "confidence_reasoning": "The cited subprocess and __import__ usage is inside unit tests with mocks. It validates behavior instead of creating an execution path for users."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 12,
-    "total_lines": 1446,
-    "audit_model": "claude",
-    "audited_at": "2026-04-13T04:42:42.533Z",
+    "dangerous_patterns": [
+      {
+        "title": "Permission-Skipping Remote Prompt Execution",
+        "description": "TRUE_POSITIVE: The Stream bot takes DingTalk group @mention text and runs it through the Claude CLI with --dangerously-skip-permissions. Anyone who can message the bot can cause local Claude execution in the configured work directory, which creates a high-impact remote action surface even though subprocess arguments are not shell-expanded.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 17,
+            "line_end": 17
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 85,
+            "line_end": 85
+          },
+          {
+            "file": "src/stream_bot.py",
+            "line_start": 63,
+            "line_end": 69
+          },
+          {
+            "file": "src/stream_bot.py",
+            "line_start": 104,
+            "line_end": 121
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.96,
+        "confidence_reasoning": "The code directly passes received chat text into claude -p and explicitly includes --dangerously-skip-permissions. Documentation confirms this is the intended bot behavior, so the risk is semantic and not just a scanner pattern."
+      },
+      {
+        "title": "Optional LaunchAgent Persistence",
+        "description": "TRUE_POSITIVE with legitimate purpose: The installer can create a macOS LaunchAgent that starts the bot automatically and keeps it running. This is documented and prompted, but it persists a high-risk bot that accepts chat-driven execution.",
+        "locations": [
+          {
+            "file": "README.md",
+            "line_start": 70,
+            "line_end": 70
+          },
+          {
+            "file": "scripts/install.sh",
+            "line_start": 60,
+            "line_end": 67
+          },
+          {
+            "file": "scripts/install.sh",
+            "line_start": 78,
+            "line_end": 88
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "LaunchAgent creation is explicit in the installer and documentation. It requires user consent, so it is not proof of malicious persistence, but it materially increases exposure when paired with remote prompt execution."
+      }
+    ],
+    "files_scanned": 11,
+    "total_lines": 1424,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T07:46:29.016Z",
     "risk_factors": [
       "network",
       "external_commands",
       "filesystem",
+      "scripts",
       "env_access"
     ]
   },
   "content": {
-    "user_title": "Connect Claude Code to DingTalk Chat",
-    "value_statement": "Bridge your Claude Code agent with DingTalk group chat for bi-directional messaging. Send notifications and execute commands through @mentions in group conversations.",
+    "user_title": "Connect DingTalk to Claude Code",
+    "value_statement": "Teams need a direct way to send Claude Code updates into DingTalk. This skill adds DingTalk messaging, @mention handling, and bot replies for controlled chat workflows.",
     "seo_keywords": [
-      "Claude Code",
       "Claude",
       "Codex",
-      "DingTalk",
-      "钉钉",
-      "chat bot",
-      "messaging bridge",
-      "team communication",
-      "automation"
+      "Claude Code",
+      "DingTalk bot",
+      "DingTalk bridge",
+      "chatops automation",
+      "team notifications",
+      "AI coding agent",
+      "enterprise chat",
+      "message bridge"
     ],
     "actual_capabilities": [
-      "Send rich markdown messages to DingTalk groups from Claude Code",
-      "Receive @mentions in DingTalk groups and auto-execute as Claude Code prompts",
-      "Run 24/7 stream bot with crash recovery and WebSocket keepalive",
-      "Auto-save conversation IDs on first @mention",
-      "Configure via environment variables or JSON file",
-      "Support for both webhook and OpenAPI reply paths"
+      "Send Markdown messages to a configured DingTalk group through OpenAPI.",
+      "Send plain text notifications from the command line or Python module.",
+      "Listen for DingTalk group @mentions with the Stream SDK.",
+      "Save conversation metadata after the first bot mention.",
+      "Run a persistent Stream bot with keepalive and retry behavior.",
+      "Reply to group messages through a webhook or DingTalk OpenAPI."
     ],
     "limitations": [
-      "Requires DingTalk Enterprise Internal App credentials (app_key and app_secret)",
-      "Only supports one active conversation per configuration file",
-      "Stream bot requires continuous process execution (use LaunchAgent or systemd)",
-      "5-minute timeout on Claude CLI execution",
-      "Replies truncated to 3000 characters by default"
+      "Requires a DingTalk Enterprise Internal App with robot capability enabled.",
+      "The default configuration stores one conversation target at a time.",
+      "The Stream bot runs local Claude CLI commands from incoming chat text.",
+      "The optional LaunchAgent setup is macOS-specific."
     ],
     "use_cases": [
       {
-        "title": "Development Team Notifications",
-        "description": "Send build status, deployment alerts, or test results from Claude Code directly to your team's DingTalk group",
-        "target_user": "DevOps engineers and development teams"
+        "title": "Share Build and Deploy Updates",
+        "description": "Send concise status messages from Claude Code into a DingTalk engineering group.",
+        "target_user": "Release engineers"
       },
       {
-        "title": "Interactive Task Automation",
-        "description": "Team members can @mention the bot in DingTalk to trigger Claude Code tasks like code review, documentation generation, or data analysis",
-        "target_user": "Product teams and project managers"
+        "title": "Run ChatOps Requests",
+        "description": "Let a trusted team mention the bot and receive Claude Code responses in the same group.",
+        "target_user": "Platform teams"
       },
       {
-        "title": "24/7 Monitoring Bot",
-        "description": "Deploy the stream bot as a persistent service to handle asynchronous requests and execute tasks through Claude Code",
-        "target_user": "Site reliability engineers and system administrators"
+        "title": "Monitor Agent Workflows",
+        "description": "Keep a persistent DingTalk bridge online for long-running agent notifications and replies.",
+        "target_user": "Engineering managers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Send a Simple Message",
-        "prompt": "Send a DingTalk message: The production deployment completed successfully",
-        "scenario": "Quick notification to team members about deployment status"
+        "title": "Send a Basic Update",
+        "scenario": "Beginner notification",
+        "prompt": "Send a DingTalk message that says the staging build completed successfully."
       },
       {
-        "title": "Send Markdown with Title",
-        "prompt": "Send a DingTalk message with title 'Build Alert' saying: Build #142 failed in the integration tests. 3 tests failing.",
-        "scenario": "Structured notification with title and detailed message"
+        "title": "Post a Markdown Summary",
+        "scenario": "Formatted team update",
+        "prompt": "Send a DingTalk markdown message titled Daily Build Summary with test count, failures, and next action."
       },
       {
         "title": "Start the Stream Bot",
-        "prompt": "Start the DingTalk stream bot in the background so it can receive @mentions",
-        "scenario": "Launch the 24/7 listener for interactive commands"
+        "scenario": "Interactive group workflow",
+        "prompt": "Start the DingTalk Stream bot for this project and explain what credentials and conversation setup are required."
       },
       {
-        "title": "Configure via Environment Variables",
-        "prompt": "Set up DingTalk credentials using environment variables DINGTALK_APP_KEY and DINGTALK_APP_SECRET",
-        "scenario": "Secure configuration without storing credentials in files"
+        "title": "Design a Safe ChatOps Flow",
+        "scenario": "Advanced deployment planning",
+        "prompt": "Review my DingTalk Bridge setup and propose controls for trusted groups, least privilege, credential storage, and bot runtime isolation."
       }
     ],
     "output_examples": [
       {
-        "input": "Send a DingTalk message: Today's build passed all 142 tests",
-        "output": "Message sent successfully to DingTalk group"
+        "input": "Send a DingTalk message: production deploy finished.",
+        "output": "The skill posts a short DingTalk group message confirming that the production deploy finished."
       },
       {
-        "input": "What is the current configuration?",
-        "output": "DingTalk Bridge is configured with app_key, conversation ID saved, and workdir set to /home/user/project"
+        "input": "Summarize today's test results in DingTalk markdown.",
+        "output": "The skill sends a formatted group update with a title, passing tests, failed tests, and follow-up owners."
+      },
+      {
+        "input": "Run the bot so the team can mention it for help.",
+        "output": "The skill starts the Stream bot and waits for trusted DingTalk group mentions before replying with Claude Code output."
       }
     ],
     "best_practices": [
-      "Use environment variables for credentials instead of config.json when possible",
-      "Start the stream bot using systemd or LaunchAgent for 24/7 operation",
-      "Test message sending with the CLI before setting up the stream bot",
-      "Keep the Claude CLI updated to ensure compatibility with --dangerously-skip-permissions flag"
+      "Use the Stream bot only in trusted DingTalk groups with limited membership.",
+      "Store DingTalk credentials in environment variables or a permission-restricted config file.",
+      "Run the bot in a dedicated project directory with the least privileges possible."
     ],
     "anti_patterns": [
-      "Do not hardcode app_key or app_secret in source code or version control",
-      "Avoid sending messages longer than 3000 characters without adjusting max_reply configuration",
-      "Do not run the stream bot with elevated privileges unless necessary",
-      "Never share the config.json file or commit it to version control"
+      "Do not expose the bot to broad or public group chats.",
+      "Do not run the Stream bot with administrator permissions.",
+      "Do not commit config.json or conversation metadata to version control."
     ],
     "faq": [
       {
-        "question": "How do I get DingTalk app credentials?",
-        "answer": "Go to DingTalk Open Platform (open-dev.dingtalk.com), create an Enterprise Internal App, enable Robot capability, set message mode to Stream, and copy the App Key and App Secret."
+        "question": "What does this skill connect?",
+        "answer": "It connects Claude Code workflows with DingTalk group chat messages and bot replies."
       },
       {
-        "question": "Can I use this with multiple DingTalk groups?",
-        "answer": "The default configuration supports one group. For multiple groups, create separate config files with different DINGTALK_CONV_FILE paths or modify the skill to support multiple conversation IDs."
+        "question": "Do I need DingTalk credentials?",
+        "answer": "Yes. You need an Enterprise Internal App with an app key, app secret, and robot capability."
       },
       {
-        "question": "Is it safe to execute Claude commands from chat?",
-        "answer": "The bot uses subprocess.run with list arguments to prevent shell injection. However, Claude CLI will execute with your permissions. Only use this in trusted groups and be aware that anyone who can @mention the bot can trigger Claude execution."
+        "question": "Can it send plain text and Markdown?",
+        "answer": "Yes. The send script supports both plain text and Markdown group messages."
       },
       {
-        "question": "What happens if the stream bot crashes?",
-        "answer": "The bot has exponential backoff retry logic (5s to 60s) and will auto-reconnect. For additional reliability, use systemd or LaunchAgent to auto-restart the process on exit."
+        "question": "Why is this skill high risk?",
+        "answer": "The Stream bot can run local Claude CLI commands from DingTalk @mentions with permission checks skipped."
       },
       {
-        "question": "Does this work on Linux and Windows?",
-        "answer": "The Python code works on Linux and Windows. The install.sh LaunchAgent setup is macOS-only, but you can use systemd on Linux or create a Windows service equivalent."
+        "question": "Does it support multiple groups by default?",
+        "answer": "No. The default conversation file stores one group conversation target at a time."
       },
       {
-        "question": "How do I stop the stream bot?",
-        "answer": "Press Ctrl+C in the terminal running the bot, or use launchctl stop com.dingtalk-bridge.bot (macOS) or systemctl stop dingtalk-bridge (Linux) if running as a service."
+        "question": "Is the LaunchAgent required?",
+        "answer": "No. The LaunchAgent is optional and only applies to macOS persistent bot operation."
       }
     ]
   },

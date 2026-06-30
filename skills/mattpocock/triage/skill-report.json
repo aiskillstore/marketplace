@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-05-02T08:39:39.169Z",
+    "generated_at": "2026-06-30T07:46:52.171Z",
     "slug": "mattpocock-triage",
     "source_url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/triage/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "507fea974af8e36c5e077650d5eada8977162ed0202d8e1f9706576119bcacdc",
-    "tree_hash": "413035c5e42b4b641f5c7505a63b0db8c8e03c5bdd12505a344701cce4be977f"
+    "tree_hash": "84de766cb7a6fad970ad2949c633b345aa783f32285d391924dd902de4b893b8"
   },
   "skill": {
     "name": "triage",
-    "description": "Triage issues through a state machine driven by triage roles. Use when user wants to create an issue, triage issues, review incoming bugs or feature requests, prepare issues for an AFK agent, or manage issue workflow.",
-    "summary": "State machine-driven issue triage skill for managing bug reports and feature requests through a structured workflow.",
+    "description": "Guides maintainers through issue triage, label decisions, agent-ready briefs, and out-of-scope records for rejected feature requests.",
+    "summary": "Triage GitHub issues into clear workflow states and prepare durable briefs for follow-up work.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "mattpocock",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
-      "issue-management",
-      "triage",
-      "workflow-automation",
-      "github-integration"
+      "issue-triage",
+      "github-issues",
+      "bug-review",
+      "agent-briefs",
+      "workflow"
     ],
     "supported_tools": [
       "claude",
@@ -33,20 +33,32 @@
     ],
     "risk_factors": [
       "network",
-      "filesystem"
-    ]
+      "filesystem",
+      "external_commands"
+    ],
+    "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is a documentation-only skill that guides issue triage workflows. Static analysis flagged 115 potential issues, but all are false positives: Markdown code fences were misidentified as Ruby shell execution, and documentation examples mentioning 'algorithm' were misidentified as weak cryptography. The skill uses standard GitHub API tools to manage issue states - legitimate functionality with no malicious intent.",
+    "summary": "The static analyzer reported many high-risk matches, but review shows they are Markdown fences, inline code, examples, and issue-template text rather than executable Ruby, shell, or cryptographic code. The real risk is medium because the skill directs an assistant to query and update an issue tracker, write repository records under `.out-of-scope/`, and run local tests or commands during bug reproduction with maintainer oversight.",
     "risk_factor_evidence": [
       {
         "factor": "network",
         "evidence": [
           {
-            "file": "OUT-OF-SCOPE.md",
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 59
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 71,
+            "line_end": 76
+          },
+          {
+            "file": "AGENT-BRIEF.md",
             "line_start": 3,
             "line_end": 3
           }
@@ -57,13 +69,33 @@
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 19,
-            "line_end": 19
+            "line_start": 63,
+            "line_end": 63
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 76
           },
           {
             "file": "OUT-OF-SCOPE.md",
-            "line_start": 10,
-            "line_end": 15
+            "line_start": 84,
+            "line_end": 93
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 67
+          },
+          {
+            "file": "AGENT-BRIEF.md",
+            "line_start": 30,
+            "line_end": 30
           }
         ]
       }
@@ -72,18 +104,79 @@
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "Static Analysis False Positives - Backtick Pattern Misidentification",
-        "description": "Static analyzer flagged 84 instances of 'Ruby/shell backtick execution' but these are actually Markdown code fences (``` ```) used in documentation files to display example code. No shell execution occurs.",
+        "title": "Issue Tracker Read and Write Workflow",
+        "description": "The skill instructs the assistant to query issues, post comments, apply workflow roles, and close issues. This is legitimate for triage, but it can affect external project state and should require authenticated user approval before mutations.",
         "locations": [
           {
-            "file": "AGENT-BRIEF.md",
-            "line_start": 39,
-            "line_end": 39
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 59
           },
+          {
+            "file": "SKILL.md",
+            "line_start": 71,
+            "line_end": 76
+          },
+          {
+            "file": "AGENT-BRIEF.md",
+            "line_start": 3,
+            "line_end": 3
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The workflow explicitly describes issue tracker queries and comments. The purpose is legitimate, but external state changes are clearly in scope."
+      },
+      {
+        "title": "Local Command Execution During Bug Reproduction",
+        "description": "The bug workflow tells the assistant to run tests or commands before asking for more information. This is normal engineering work, but commands should stay within the repository and be reviewed when they may alter state.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 67
+          },
+          {
+            "file": "AGENT-BRIEF.md",
+            "line_start": 30,
+            "line_end": 30
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The instruction to run tests or commands is direct evidence. No malicious command string is present, so the risk depends on user-approved execution context."
+      },
+      {
+        "title": "Repository Knowledge Base File Writes",
+        "description": "For rejected enhancements, the skill directs the assistant to create or update `.out-of-scope/` Markdown records. This is expected behavior, but it modifies repository files and should be limited to maintainer-approved triage outcomes.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 76
+          },
+          {
+            "file": "OUT-OF-SCOPE.md",
+            "line_start": 84,
+            "line_end": 93
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The write behavior is explicitly documented in both the main skill and reference guide. The file target is narrow and project-local, which limits severity."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Analyzer Markdown False Positives",
+        "description": "The reported Ruby backtick execution and weak cryptography findings are false positives caused by Markdown code fences, inline code names, examples, and issue text. I found no executable source file, shell script, crypto implementation, or prompt injection attempt in the reviewed files.",
+        "locations": [
           {
             "file": "SKILL.md",
             "line_start": 12,
             "line_end": 14
+          },
+          {
+            "file": "AGENT-BRIEF.md",
+            "line_start": 39,
+            "line_end": 66
           },
           {
             "file": "OUT-OF-SCOPE.md",
@@ -91,152 +184,168 @@
             "line_end": 54
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Markdown code fences are clearly visible as triple-backtick blocks in documentation files with language annotations - standard documentation practice"
-      },
-      {
-        "title": "Static Analysis False Positives - Algorithm Term Misidentification",
-        "description": "Static analyzer flagged 30 instances of 'weak cryptographic algorithm' but these are examples using the word 'algorithm' in its general sense (approach/method). SKILL.md:3 uses 'algorithm' to mean a methodical approach to triage, not cryptography.",
-        "locations": [
-          {
-            "file": "AGENT-BRIEF.md",
-            "line_start": 11,
-            "line_end": 15
-          },
-          {
-            "file": "AGENT-BRIEF.md",
-            "line_start": 19,
-            "line_end": 24
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
-          }
-        ],
-        "confidence": 0.92,
-        "confidence_reasoning": "The flagged context shows 'algorithm' used in documentation discussing approaches and methods, not cryptographic operations"
+        "confidence": 0.93,
+        "confidence_reasoning": "The flagged content is Markdown documentation and examples, not executable code. The files contain no script entrypoint or dynamic evaluation path."
       }
     ],
-    "low_findings": [],
-    "dangerous_patterns": [],
+    "dangerous_patterns": [
+      {
+        "title": "External Issue Tracker Mutations",
+        "description": "The skill can lead an assistant to post comments, change roles, and close issues after maintainer confirmation. This is a controlled but real external action pattern.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 71,
+            "line_end": 76
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The mutation steps are named directly in the workflow. They are not malicious, but they require permission boundaries."
+      },
+      {
+        "title": "Local Test or Command Execution",
+        "description": "The skill may run project tests or commands to reproduce bugs. This should be constrained to transparent, relevant commands in the checked-out project.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 67
+          }
+        ],
+        "confidence": 0.8,
+        "confidence_reasoning": "The command execution instruction is explicit but generic. No concrete harmful command is provided."
+      }
+    ],
     "files_scanned": 3,
     "total_lines": 375,
-    "audit_model": "claude",
-    "audited_at": "2026-05-02T08:39:39.169Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T07:46:52.171Z",
+    "risk_factors": [
+      "network",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Triage GitHub Issues with a State Machine",
-    "value_statement": "Managing incoming issues without a structured workflow leads to bottlenecks and missed priorities. This skill provides a state machine-driven triage system that categorizes issues as bugs or enhancements and routes them through defined states from needs-triage to ready-for-agent or wontfix.",
+    "user_title": "Triage Issues Into Actionable Work",
+    "value_statement": "Issue backlogs lose context when labels, decisions, and follow-up notes drift apart. This skill gives Claude, Codex, and Claude Code a structured triage workflow for clear decisions and agent-ready briefs.",
     "seo_keywords": [
-      "Claude Codex triage skill",
-      "issue triage Claude Code",
-      "GitHub issue management automation",
-      "bug report triage workflow",
-      "feature request routing",
-      "AI-assisted issue management",
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "state machine workflow"
+      "Claude issue triage",
+      "Codex issue triage",
+      "Claude Code triage workflow",
+      "GitHub issue management",
+      "bug triage assistant",
+      "agent brief generator",
+      "needs-info workflow",
+      "ready-for-agent issues",
+      "out-of-scope knowledge base",
+      "maintainer productivity"
     ],
     "actual_capabilities": [
-      "Query GitHub issues and present unlabeled, needs-triage, and needs-info issues requiring re-evaluation",
-      "Apply category labels (bug/enhancement) and state labels (needs-triage, needs-info, ready-for-agent, ready-for-human, wontfix) to issues",
-      "Generate structured agent briefs with behavioral specifications for issues ready for AI agents",
-      "Write durable agent briefs that avoid file paths and line numbers for longevity",
-      "Maintain an out-of-scope knowledge base for rejected feature requests to prevent re-litigation",
-      "Check existing triage notes and resume sessions without re-asking resolved questions"
+      "Classifies issues as bugs or enhancements with one workflow state.",
+      "Surfaces unlabeled, needs-triage, and needs-info issues that need maintainer attention.",
+      "Guides bug reproduction before asking reporters for more information.",
+      "Drafts durable agent briefs with behavior, interfaces, acceptance criteria, and scope boundaries.",
+      "Creates triage notes for reporters with established facts and specific questions.",
+      "Records rejected enhancement decisions in `.out-of-scope/` knowledge files."
     ],
     "limitations": [
-      "Requires GitHub API access and appropriate repository permissions",
-      "Does not automatically close issues or take action without maintainer direction",
-      "Cannot grill reporters without the grill-with-docs skill being available",
-      "Cannot verify bug reproduction without a working development environment"
+      "Requires access to the project issue tracker and the project repository.",
+      "Depends on a provided mapping between canonical roles and actual issue labels.",
+      "Does not decide unusual state transitions without maintainer confirmation.",
+      "Does not automatically reopen old issues when an out-of-scope decision changes."
     ],
     "use_cases": [
       {
-        "title": "Weekly Issue Triage",
-        "description": "Review incoming issues once a week, categorize them as bugs or enhancements, and route them to appropriate states. Present a prioritized list to the maintainer for direction.",
-        "target_user": "Project maintainers with regular incoming issue volume"
+        "title": "Review Incoming Issues",
+        "description": "A maintainer can ask for issues needing attention and receive sorted triage buckets with concise summaries.",
+        "target_user": "Open source maintainer"
       },
       {
-        "title": "Preparing Work for AFK Agents",
-        "description": "When an issue is fully specified and ready for autonomous work, generate a durable agent brief that will remain useful even as the codebase evolves.",
-        "target_user": "Team leads delegating work to AI agents"
+        "title": "Prepare Agent Work",
+        "description": "An engineering lead can move clear bugs or enhancements into ready-for-agent with a durable implementation brief.",
+        "target_user": "Engineering lead"
       },
       {
-        "title": "Deduplicating Feature Requests",
-        "description": "When a new feature request arrives, check the out-of-scope knowledge base and surface prior rejections that match the concept.",
-        "target_user": "Maintainers managing feature request fatigue"
+        "title": "Track Rejected Features",
+        "description": "A product owner can preserve out-of-scope decisions so repeated feature requests use prior reasoning.",
+        "target_user": "Product owner"
       }
     ],
     "prompt_templates": [
       {
         "title": "Show Issues Needing Attention",
-        "prompt": "/triage - Show me anything that needs my attention",
-        "scenario": "Beginner: Quick overview of pending triage items"
+        "scenario": "Beginner triage review",
+        "prompt": "Use the triage workflow to show issues that need my attention. Group unlabeled, needs-triage, and needs-info issues separately."
       },
       {
-        "title": "Triage a Specific Issue",
-        "prompt": "/triage - Let's look at #42",
-        "scenario": "Beginner: Focus on a single issue for evaluation"
+        "title": "Triage One Issue",
+        "scenario": "Focused issue review",
+        "prompt": "Use the triage workflow on issue #42. Read the full issue, summarize context, and recommend a category and state before making changes."
       },
       {
-        "title": "Move Issue to Ready-for-Agent",
-        "prompt": "/triage - Move #42 to ready-for-agent",
-        "scenario": "Intermediate: Apply a specific state transition"
+        "title": "Prepare an Agent Brief",
+        "scenario": "Delegating implementation",
+        "prompt": "Move issue #42 toward ready-for-agent. Draft an agent brief with current behavior, desired behavior, key interfaces, acceptance criteria, and out-of-scope items."
       },
       {
-        "title": "Prepare Issue with Agent Brief",
-        "prompt": "/triage - #67 is ready, write an agent brief for it",
-        "scenario": "Advanced: Generate complete agent brief for autonomous work"
+        "title": "Record an Out-of-Scope Decision",
+        "scenario": "Advanced rejection workflow",
+        "prompt": "Triage issue #42 as an enhancement that may be out of scope. Check existing `.out-of-scope/` records, propose a decision, and wait before writing or closing anything."
       }
     ],
     "output_examples": [
       {
-        "input": "/triage - Show me anything that needs my attention",
-        "output": "3 issues need your attention:\n\n**Unlabeled (3)**\n- #142: App crashes on startup with large datasets\n- #143: Export to PDF not working\n- #144: Add dark mode support\n\n**Needs-triage (1)**\n- #139: Memory leak in worker process (evaluation in progress)\n\n**Needs-info with recent activity (1)**\n- #87: @user replied to your questions about the API"
+        "input": "Show me anything that needs my attention.",
+        "output": [
+          "Unlabeled: three issues, oldest first, each with a one-line summary.",
+          "Needs triage: two issues that need category and state decisions.",
+          "Needs info with reporter activity: one issue ready for re-evaluation."
+        ]
       },
       {
-        "input": "/triage - #67 is ready, write an agent brief for it",
-        "output": "## Agent Brief\n\n**Category:** enhancement\n**Summary:** Add keyboard shortcut support for common actions\n\n**Current behavior:** Users must navigate menus to perform frequent actions like save, copy, and paste.\n\n**Desired behavior:** Keyboard shortcuts for save (Ctrl+S), copy (Ctrl+C), paste (Ctrl+V), and undo (Ctrl+Z) should work globally.\n\n**Acceptance criteria:**\n- [ ] Ctrl+S saves the current document\n- [ ] Ctrl+C copies selected content\n- [ ] Ctrl+V pastes clipboard content\n- [ ] Ctrl+Z undoes the last action\n- [ ] Shortcuts work even when focus is on nested widgets"
+        "input": "Move issue #42 to ready-for-agent.",
+        "output": "The skill confirms the intended label changes, asks whether to write an agent brief if needed, and prepares a brief with testable acceptance criteria."
+      },
+      {
+        "input": "Close this rejected feature request as wontfix.",
+        "output": "The skill checks for a matching out-of-scope record, proposes an update or new record, drafts a comment, and waits for maintainer approval."
       }
     ],
     "best_practices": [
-      "Start with the full triage view to get context before drilling into specific issues",
-      "Always verify bug reproduction before marking an issue as ready-for-agent",
-      "Write agent briefs that describe interfaces and behaviors, not file paths or implementation details"
+      "Provide the mapping between canonical roles and real issue tracker labels before triage starts.",
+      "Require maintainer confirmation before comments, label changes, file writes, or issue closure.",
+      "Keep agent briefs behavioral and durable instead of tying them to current file paths or line numbers."
     ],
     "anti_patterns": [
-      "Don't reference file paths or line numbers in agent briefs - they go stale",
-      "Don't skip the needs-info step when reporters provide vague bug reports",
-      "Don't mark enhancement requests as wontfix without documenting the reason in .out-of-scope/"
+      "Do not apply multiple category roles or conflicting state roles to one issue.",
+      "Do not ask reporters vague questions when specific missing facts can be named.",
+      "Do not reject enhancements without recording durable reasoning when the workflow requires it."
     ],
     "faq": [
       {
-        "question": "What is the difference between ready-for-agent and ready-for-human?",
-        "answer": "Ready-for-agent issues have complete specifications that an AI can work on autonomously. Ready-for-human issues need human judgment, design decisions, external access, or manual testing that AI cannot perform."
+        "question": "What issue states does this skill use?",
+        "answer": "It uses needs-triage, needs-info, ready-for-agent, ready-for-human, and wontfix as canonical states."
       },
       {
-        "question": "How do I resume a triage session after a reporter replies?",
-        "answer": "Call /triage on the issue. The skill will detect existing triage notes, check if the reporter answered your questions, and present an updated picture before continuing."
+        "question": "Can it handle bugs and feature requests?",
+        "answer": "Yes. It classifies each issue as either bug or enhancement, then applies one workflow state."
       },
       {
-        "question": "What makes an agent brief durable?",
-        "answer": "Durable agent briefs describe interfaces, types, and behavioral contracts rather than file paths or line numbers. They work even as the codebase is refactored and files are renamed."
+        "question": "Does it post comments automatically?",
+        "answer": "The workflow includes posting comments, but marketplace users should require confirmation before external changes."
       },
       {
-        "question": "When should I use the out-of-scope knowledge base?",
-        "answer": "Use it when rejecting feature requests that might recur. Documenting the decision and reasoning prevents re-litigating the same discussion with future contributors."
+        "question": "What is an agent brief?",
+        "answer": "An agent brief is a structured issue comment that defines behavior, interfaces, acceptance criteria, and scope boundaries."
       },
       {
-        "question": "What if the issue has conflicting state roles?",
-        "answer": "Flag the conflict and ask the maintainer before taking any action. The skill will not proceed with triage until the conflict is resolved."
+        "question": "What is the out-of-scope knowledge base?",
+        "answer": "It is a repository directory that records rejected enhancement concepts and links prior requests."
       },
       {
-        "question": "Can I override the triage workflow?",
-        "answer": "Yes. A maintainer can directly request a specific state transition (e.g., 'move #42 to ready-for-agent'). The skill trusts the maintainer and applies the change directly."
+        "question": "Does it include executable code?",
+        "answer": "No. The reviewed files are Markdown instructions and examples, but the workflow may ask the assistant to run project tests."
       }
     ]
   },
