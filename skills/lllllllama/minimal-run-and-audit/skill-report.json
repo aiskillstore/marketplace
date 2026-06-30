@@ -1,31 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-04-09T08:41:33.429Z",
+    "generated_at": "2026-06-30T08:53:17.015Z",
     "slug": "lllllllama-minimal-run-and-audit",
     "source_url": "https://github.com/lllllllama/ai-paper-reproduction-skill/tree/main/skills/minimal-run-and-audit/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "11393dacfb81ab4ca14d307f0951f01911b12f2032467473968f4c62b196835d",
-    "tree_hash": "c277928fe7ad54495c7d3d62a8cdd1f78a009d893e8c0ac3bfed1cacac72c636"
+    "tree_hash": "6e2038a87d0bf3587e24ee318cbbe759fc26f69b4d5caa57d50c6574ca36a896"
   },
   "skill": {
     "name": "minimal-run-and-audit",
-    "description": "Trusted-lane execution and reporting skill for README-first AI repo reproduction with standardized output generation.",
-    "summary": "Executes smoke tests, inference runs, or evaluation commands and writes standardized reproduction outputs to repro_outputs/ directory.",
+    "description": "Runs a selected short reproduction command, captures execution evidence, and standardizes README-first AI repository audit outputs.",
+    "summary": "Capture and report evidence from selected AI reproduction commands.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "lllllllama",
     "license": "MIT",
-    "category": "devops",
+    "category": "coding",
     "tags": [
-      "command-execution",
       "reproducibility",
-      "testing",
-      "audit",
-      "Claude Code"
+      "smoke-tests",
+      "execution-audit",
+      "reporting",
+      "ai-research"
     ],
     "supported_tools": [
       "claude",
@@ -37,10 +37,10 @@
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static analysis flagged 16 patterns, but 15 are false positives from misidentified file types (markdown docs flagged as Ruby, YAML config flagged as crypto). One true positive: Python subprocess.run for command execution is legitimate and properly sandboxed with timeout handling and shlex parsing. External command execution is the intended function of this skill.",
+    "summary": "The static findings were reviewed against the cited files. One medium-risk issue is confirmed: scripts/run_command.py intentionally executes a caller-selected command in the target repository. The weak-crypto, Ruby backtick, and reconnaissance detections are false positives caused by prose, markdown backticks, or hardcoded status checks.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -58,151 +58,247 @@
         ]
       }
     ],
+    "risk_factors": [
+      "external_commands"
+    ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "medium_findings": [
       {
-        "title": "External Command Execution",
-        "description": "Script executes user-provided commands via subprocess.run with shlex.split parsing. Commands run with timeout protection (default 60s) and capture stdout/stderr. Risk is mitigated by timeout limits and lack of shell=True flag.",
+        "title": "Caller-Supplied Command Execution",
+        "description": "TRUE POSITIVE: scripts/run_command.py runs the --command argument in the target repository with subprocess.run after shlex splitting. The implementation avoids shell metacharacter expansion, but it still launches arbitrary commands chosen by the caller.",
         "locations": [
           {
             "file": "scripts/run_command.py",
-            "line_start": 55,
-            "line_end": 55
+            "line_start": 145,
+            "line_end": 155
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The command is supplied through the required --command argument and passed to subprocess.run. This is legitimate for reproduction work, but it is still untrusted code execution."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Hardcoded Git Status Subprocess",
+        "description": "FALSE POSITIVE for command injection: run_git invokes git with an argument list for repository status capture. The cited call does not use shell=True and is limited to internal git status checks.",
+        "locations": [
+          {
+            "file": "scripts/run_command.py",
+            "line_start": 54,
+            "line_end": 62
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The subprocess target is git and the observed call sites provide fixed status-related arguments. No evidence found that this path accepts arbitrary shell text."
+      },
+      {
+        "title": "Markdown Backtick False Positives",
+        "description": "FALSE POSITIVE: the Ruby backtick detections are markdown formatting or literal command text in output strings. No Ruby execution context or shell backtick evaluation appears at the cited locations.",
+        "locations": [
+          {
+            "file": "references/reporting-policy.md",
+            "line_start": 13,
+            "line_end": 13
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 47
           },
           {
             "file": "scripts/run_command.py",
-            "line_start": 148,
-            "line_end": 148
+            "line_start": 238,
+            "line_end": 238
           }
         ],
-        "confidence": 0.85,
-        "confidence_reasoning": "subprocess.run is called with split_command output (shlex.split), no shell=True, and timeout enforcement - legitimate command execution pattern"
+        "confidence": 0.94,
+        "confidence_reasoning": "The cited SKILL.md and reporting-policy.md lines are documentation, and the Python line only formats a log message. None of these lines run Ruby or evaluate shell backticks."
+      },
+      {
+        "title": "Weak Crypto and Reconnaissance False Positives",
+        "description": "FALSE POSITIVE: the cited lines are descriptions, headings, or timeout status text. No cryptographic algorithm use or system reconnaissance command is present at those locations.",
+        "locations": [
+          {
+            "file": "agents/openai.yaml",
+            "line_start": 2,
+            "line_end": 2
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "scripts/run_command.py",
+            "line_start": 244,
+            "line_end": 244
+          },
+          {
+            "file": "references/reporting-policy.md",
+            "line_start": 23,
+            "line_end": 23
+          },
+          {
+            "file": "scripts/run_command.py",
+            "line_start": 220,
+            "line_end": 220
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "Manual review found natural language and status strings at the cited lines. No evidence found of MD5, SHA-1, host probing, environment probing, or similar behavior."
       }
     ],
-    "dangerous_patterns": [],
+    "dangerous_patterns": [
+      {
+        "title": "Arbitrary Process Launch",
+        "description": "The helper starts the selected command as a subprocess in the target repository. This is expected behavior for the skill, but users should treat it as untrusted repository execution.",
+        "locations": [
+          {
+            "file": "scripts/run_command.py",
+            "line_start": 148,
+            "line_end": 155
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The subprocess.run call receives the parsed --command value. The risk is bounded by shell=False, but arbitrary binaries can still be launched."
+      }
+    ],
     "files_scanned": 5,
     "total_lines": 384,
-    "audit_model": "claude",
-    "audited_at": "2026-04-09T08:41:33.429Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T08:53:17.015Z"
   },
   "content": {
-    "user_title": "Execute and audit AI repository reproduction commands",
-    "value_statement": "Running AI paper reproduction experiments requires consistent command execution and standardized reporting. This skill executes smoke tests, inference runs, or evaluation commands while automatically generating structured output bundles for audit trails.",
+    "user_title": "Run and Audit Reproduction Commands",
+    "value_statement": "AI repository reproduction work often needs concise evidence from a selected smoke, inference, or evaluation command. This skill runs that chosen command and organizes the result into standardized audit outputs.",
     "seo_keywords": [
-      "Claude Code skill",
-      "Claude Agent SDK",
-      "Codex reproduction",
-      "AI paper reproduction",
-      "command execution",
-      "experiment audit",
-      "smoke test runner",
-      "Claude automation",
-      "research reproducibility",
-      "evaluation pipeline"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "AI reproduction",
+      "smoke test audit",
+      "repository evaluation",
+      "execution evidence",
+      "reproducibility report",
+      "README verification",
+      "command audit"
     ],
     "actual_capabilities": [
-      "Execute user-specified commands with timeout protection and capture execution evidence",
-      "Generate standardized output bundles including SUMMARY.md, COMMANDS.md, LOG.md, and status.json",
-      "Track repository state changes via git status diff before and after command execution",
-      "Parse metrics from command output and identify best-performing results",
-      "Create PATCHES.md when repository files are modified during execution",
-      "Report clear execution status: success, partial, or blocked with actionable details"
+      "Runs a selected short non-training command in a target repository.",
+      "Captures stdout, stderr, return code, timeout state, and launch errors.",
+      "Extracts simple numeric metrics from command output.",
+      "Compares git status before and after execution to identify changed paths.",
+      "Produces structured evidence for SUMMARY.md, COMMANDS.md, LOG.md, and status output."
     ],
     "limitations": [
-      "Does not execute training jobs or manage long-running training state",
-      "Does not perform initial repository setup or environment configuration",
-      "Does not select reproduction targets autonomously - requires user-specified commands",
-      "Command timeout defaults to 60 seconds, suitable for smoke tests but not full evaluations"
+      "Does not choose the reproduction target or research question.",
+      "Does not perform training runs or manage long-running jobs.",
+      "Does not install missing dependencies or prepare datasets by itself.",
+      "Runs caller-selected commands, so untrusted repositories require sandboxing."
     ],
     "use_cases": [
       {
-        "title": "Smoke Test Execution",
-        "description": "Quickly verify a reproduction repository is functional by running documented smoke commands and generating standardized evidence bundles.",
-        "target_user": "AI researchers validating reproduction candidates"
+        "title": "Validate a README Smoke Test",
+        "description": "Run the documented quick command and record whether it completed, failed, or timed out.",
+        "target_user": "Research engineer"
       },
       {
-        "title": "Evaluation Run Normalization",
-        "description": "Execute evaluation commands from a paper's README and produce consistent output format for comparison across multiple reproduction attempts.",
-        "target_user": "Reproducibility engineers building evaluation datasets"
+        "title": "Audit a Model Inference Command",
+        "description": "Capture command output, metrics, and changed files from a short inference check.",
+        "target_user": "Machine learning reviewer"
       },
       {
-        "title": "Patch-Aware Execution Audit",
-        "description": "Run inference commands that may modify repository files, automatically tracking changes and generating patch documentation for audit trails.",
-        "target_user": "Open source maintainers tracking AI-assisted modifications"
+        "title": "Normalize Reproduction Evidence",
+        "description": "Convert execution results into consistent reports for review or handoff.",
+        "target_user": "Open source maintainer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Smoke Test",
-        "prompt": "Run the smoke test command from the README and generate standardized outputs in repro_outputs/",
-        "scenario": "You need to quickly verify a repository is functional before deeper reproduction work."
+        "title": "Run a Basic Smoke Test",
+        "scenario": "Beginner",
+        "prompt": "Run this selected smoke command in the repository and summarize the result in the standard reproduction output files."
       },
       {
-        "title": "Inference Execution with Metrics",
-        "prompt": "Execute the inference command specified in docs/evaluation.md with 120 second timeout and capture all metrics from stdout.",
-        "scenario": "Running a documented evaluation command and need structured metric extraction."
+        "title": "Capture Inference Evidence",
+        "scenario": "Intermediate",
+        "prompt": "Run the documented inference command with a short timeout, capture stdout and stderr, and report observed metrics."
       },
       {
-        "title": "Git-Aware Command with Patch Report",
-        "prompt": "Run the fine-tuning verification command and generate PATCHES.md documenting any repository modifications made during execution.",
-        "scenario": "Command may modify config files or generate checkpoints that should be tracked."
+        "title": "Audit Repository Changes",
+        "scenario": "Intermediate",
+        "prompt": "Run the selected evaluation command and compare git status before and after execution to identify changed files."
       },
       {
-        "title": "Multi-Command Audit Pipeline",
-        "prompt": "Execute these three verification commands in sequence: sanity check, inference test, and metric validation. Generate a consolidated SUMMARY.md with pass/fail status for each command.",
-        "scenario": "Running a multi-stage verification pipeline and need unified reporting."
+        "title": "Create a Review-Ready Bundle",
+        "scenario": "Advanced",
+        "prompt": "Execute the approved non-training command, classify the outcome, extract metrics, and prepare concise reproduction evidence for reviewer handoff."
       }
     ],
     "output_examples": [
       {
-        "input": "Smoke test command that completes successfully",
-        "output": "status.json reports success status, SUMMARY.md shows command completed with zero exit code, LOG.md contains captured stdout/stderr, COMMANDS.md lists the executed command for reproducibility"
+        "input": "A selected README smoke command with a 60 second timeout.",
+        "output": "A concise report states whether the command succeeded, failed, or timed out, with the main blocker and relevant log excerpts."
       },
       {
-        "input": "Inference command that times out after 60 seconds",
-        "output": "status.json reports partial status with timeout indicator, SUMMARY.md shows command ran for full timeout period, execution log contains partial output before timeout"
+        "input": "A short inference command that prints accuracy and loss values.",
+        "output": "The output highlights observed metrics, identifies the best available metric, and records any changed repository paths."
       },
       {
-        "input": "Evaluation command that modifies configuration files",
-        "output": "status.json includes changed_files list, PATCHES.md documents git diff of modifications, SUMMARY.md notes patch state with reference to full audit"
+        "input": "A documented evaluation command that exits with a nonzero status.",
+        "output": "The result is marked partial, the exit code is explained, and the captured stderr is preserved for review."
       }
     ],
     "best_practices": [
-      "Always specify explicit timeout values appropriate for your command type - smoke tests need 30-60s, inference may need 120-300s",
-      "Review generated PATCHES.md before committing any repository modifications made during execution",
-      "Use git status verification to understand what files changed during command execution"
+      "Run only short, documented, non-training commands.",
+      "Use a clean sandbox when executing untrusted repository code.",
+      "Record dependency, asset, and timeout assumptions before execution."
     ],
     "anti_patterns": [
-      "Do not use this skill for training execution - it is designed for short non-training commands only",
-      "Do not run untrusted commands without reviewing them first - while sandboxed, commands still execute with your user permissions",
-      "Do not ignore partial status reports - timeout or non-zero exit codes indicate the command did not complete as expected"
+      "Using the skill to start training or long background jobs.",
+      "Letting the skill choose the research target without prior context.",
+      "Treating a failed smoke run as proof that the full repository is invalid."
     ],
     "faq": [
       {
-        "question": "What types of commands should I run with this skill?",
-        "answer": "Use this for smoke tests, inference runs, evaluation commands, and sanity checks that complete within minutes. Do not use for training jobs or long-running processes."
+        "question": "Does this skill choose which command to run?",
+        "answer": "No. It expects a selected smoke, inference, evaluation, or sanity command."
       },
       {
-        "question": "How does the skill handle command timeouts?",
-        "answer": "Commands timeout after the specified duration (default 60 seconds). The skill captures partial output and reports status as partial with timeout details in the execution log."
+        "question": "Can it run training jobs?",
+        "answer": "No. It is designed for short non-training verification commands."
       },
       {
-        "question": "What files does the skill generate?",
-        "answer": "Standard outputs go to repro_outputs/ directory: SUMMARY.md for human-readable results, COMMANDS.md for reproducibility, LOG.md for full output, and status.json for machine-readable state."
+        "question": "What evidence does it capture?",
+        "answer": "It captures process output, exit status, timeout state, simple metrics, and git status changes."
       },
       {
-        "question": "Does this skill work with non-Git repositories?",
-        "answer": "Yes, but git-based change tracking will be unavailable. The skill detects if a directory is a git worktree and adjusts evidence collection accordingly."
+        "question": "Is it safe for untrusted repositories?",
+        "answer": "Only with sandboxing. The skill runs the command selected by the caller."
       },
       {
-        "question": "How are metrics extracted from command output?",
-        "answer": "The skill parses key=value or key:number patterns from stdout/stderr, filters out noise like loss/lr/time/mem, and identifies the best metric for summary reporting."
+        "question": "Does it install dependencies?",
+        "answer": "No. Environment setup should happen before using this skill."
       },
       {
-        "question": "What happens if my command modifies repository files?",
-        "answer": "The skill detects file changes via git status diff and generates PATCHES.md documenting modifications. This enables audit trails for AI-assisted code changes."
+        "question": "Which assistants can use it?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },

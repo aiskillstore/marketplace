@@ -1,30 +1,29 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-09T09:19:47.313Z",
+    "generated_at": "2026-06-30T09:03:04.979Z",
     "slug": "lllllllama-run-train",
     "source_url": "https://github.com/lllllllama/rigorpilot-skills/tree/main/skills/run-train/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "a99bf7b94b9c3c63ea9e0365cea0668208b0ec4b77e2ea604eccca8fff6414f8",
-    "tree_hash": "404cb45a098e515d4b0afb3ed2f9b3fa4a884a39ef4dd499aad8bcb2460a44e7"
+    "tree_hash": "35e29887f524974ed4dd4f36d1babb4e5ea304f1794b59ddc36895747dc9d0ad"
   },
   "skill": {
     "name": "run-train",
-    "description": "Conservative training command executor for deep learning research repositories. Captures startup verification, short-run verification, full kickoff, or resume runs with structured evidence in train_outputs/.",
-    "summary": "Execute a selected training command conservatively and write standardized training evidence to train_outputs/.",
-    "icon": "🚂",
+    "description": "Conservative training command executor for deep learning research repositories. It captures startup checks, short runs, full kickoffs, and resume runs with structured evidence in train_outputs/.",
+    "summary": "Run a selected training command and collect reproducible training evidence.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "lllllllama",
     "license": "MIT",
-    "category": "devops",
     "tags": [
       "training",
       "deep-learning",
-      "experiment-tracking",
       "mlops",
+      "experiment-tracking",
       "reproducibility"
     ],
     "supported_tools": [
@@ -33,16 +32,33 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
       "external_commands",
       "filesystem"
-    ]
+    ],
+    "category": "devops"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All 29 static findings evaluated and dismissed as false positives. The 'weak cryptographic algorithm' detections trigger on natural language (hash, summary) in YAML/Markdown, not on actual crypto. The 'shell backtick' detections are markdown code formatting characters. The 'path traversal' detections are documentation path references (../../references/...). The 'subprocess.run' usages are intentional and safe: git commands use hardcoded arguments, and the training command executor uses shlex.split() for safe argument parsing with timeouts and output capture. No prompt injection, data exfiltration, or malicious intent detected.",
+    "summary": "Static findings were reviewed in context. Markdown backticks, relative documentation paths, natural-language crypto terms, and the system reconnaissance flag are false positives, but the skill intentionally executes user-selected training commands and loads a shared writer module. No prompt injection, network exfiltration, credential harvesting, or confirmed malicious intent was found.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/run_training.py",
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
+            "file": "scripts/write_outputs.py",
+            "line_start": 1,
+            "line_end": 1
+          }
+        ]
+      },
       {
         "factor": "external_commands",
         "evidence": [
@@ -62,35 +78,87 @@
         "factor": "filesystem",
         "evidence": [
           {
-            "file": "scripts/run_training.py",
-            "line_start": 82,
-            "line_end": 82
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 52
+          },
+          {
+            "file": "scripts/write_outputs.py",
+            "line_start": 10,
+            "line_end": 16
+          },
+          {
+            "file": "scripts/write_outputs.py",
+            "line_start": 20,
+            "line_end": 22
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "medium_findings": [
       {
-        "title": "Subprocess execution of user-selected training command",
-        "description": "execute_command() runs the user-selected training command via subprocess.run with shlex.split() parsing. The command is the core input of the skill; timeouts, capture_output, and git status diffs are used as safeguards. This is by design for a training executor skill.",
+        "title": "User-Selected Training Command Execution",
+        "description": "The runner executes the selected training command with subprocess.run. This is the stated purpose of the skill and uses shlex.split, capture_output, timeouts, and a working-directory constraint, but it still runs arbitrary user-provided process arguments in the target repository.",
         "locations": [
           {
             "file": "scripts/run_training.py",
             "line_start": 161,
             "line_end": 171
+          },
+          {
+            "file": "scripts/run_training.py",
+            "line_start": 322,
+            "line_end": 340
           }
         ],
         "confidence": 0.9,
-        "confidence_reasoning": "The code clearly shows subprocess.run with shlex.split on user-provided command, but with proper timeout and output capture. Intent is legitimate training execution."
+        "confidence_reasoning": "The command is supplied through --command and passed to subprocess.run after shlex.split. The behavior is intentional and bounded, but it is a real external execution capability."
+      },
+      {
+        "title": "Dynamic Shared Writer Module Loading",
+        "description": "The output wrapper loads a Python module from a computed shared scripts path and executes it with exec_module. This appears to be a local shared helper dependency, not malicious behavior, but it expands trust to code outside this skill file.",
+        "locations": [
+          {
+            "file": "scripts/write_outputs.py",
+            "line_start": 10,
+            "line_end": 16
+          },
+          {
+            "file": "scripts/write_outputs.py",
+            "line_start": 20,
+            "line_end": 22
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The dynamic import and module execution are explicit. The path is deterministic and local, so the risk is dependency trust rather than evidence of malicious intent."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Hardcoded Git Status Commands",
+        "description": "The runner calls git through subprocess.run to collect repository status before and after training. Arguments are fixed by the script, so the static external-command finding at this location does not show command injection.",
+        "locations": [
+          {
+            "file": "scripts/run_training.py",
+            "line_start": 71,
+            "line_end": 79
+          },
+          {
+            "file": "scripts/run_training.py",
+            "line_start": 82,
+            "line_end": 97
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The git executable and argument lists are constructed from hardcoded values. The repository path is user supplied, but it is used as cwd rather than interpolated into a shell command."
       }
     ],
     "dangerous_patterns": [
       {
-        "title": "Static false positive: subprocess.run flagged",
-        "description": "Static analyzer flagged subprocess.run at scripts/run_training.py:72 and :164. The line 72 usage calls hardcoded git commands ('rev-parse', 'status') with no injection vector. The line 164 usage runs the user-selected training command which is the explicit purpose of the skill. Both use shlex.split() for safe argument parsing and capture_output=True for safety.",
+        "title": "Confirmed External Command Execution With Bounded Controls",
+        "description": "subprocess.run is used for hardcoded git probes and for the selected training command. The git probes are false positives for injection, while the training command execution is a legitimate but sensitive core capability that requires user trust.",
         "locations": [
           {
             "file": "scripts/run_training.py",
@@ -103,12 +171,12 @@
             "line_end": 164
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Both subprocess calls are clearly safe: hardcoded args for git, and shlex-parsed training command with timeout for the executor. No injection risk."
+        "confidence": 0.91,
+        "confidence_reasoning": "The exact subprocess calls are present at the flagged lines. Context shows no shell=True use, but line 164 still executes user-selected arguments."
       },
       {
-        "title": "Static false positive: markdown backticks flagged as shell execution",
-        "description": "Static analyzer flagged markdown code formatting (backtick characters in SKILL.md and training-policy.md) as Ruby/shell backtick execution. These are standard markdown inline code formatting, not shell command substitution.",
+        "title": "Static False Positive: Markdown Backticks",
+        "description": "The Ruby or shell backtick findings are markdown inline-code markers in SKILL.md and references/training-policy.md. They are documentation formatting, not executable Ruby or shell command substitution.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -117,8 +185,23 @@
           },
           {
             "file": "SKILL.md",
+            "line_start": 8,
+            "line_end": 8
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 12,
+            "line_end": 12
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 47,
             "line_end": 52
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 56
           },
           {
             "file": "references/training-policy.md",
@@ -127,11 +210,11 @@
           }
         ],
         "confidence": 0.98,
-        "confidence_reasoning": "Backticks in markdown files are formatting characters. No shell interpretation occurs in .md files."
+        "confidence_reasoning": "The flagged files are markdown or YAML text, and the backticks delimit inline code names. No interpreter executes these characters."
       },
       {
-        "title": "Static false positive: path traversal flagged in documentation",
-        "description": "Static analyzer flagged ../../ path references in SKILL.md as path traversal. These are relative documentation references to shared skill files (e.g., ../../references/agent-operating-principles.md), not filesystem access patterns.",
+        "title": "Static False Positive: Documentation Path References",
+        "description": "The path traversal findings are relative links to shared reference files in SKILL.md. They are not used by code to open, read, or write arbitrary paths.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -144,12 +227,12 @@
             "line_end": 56
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Relative path references in markdown documentation are standard cross-references, not path traversal attacks."
+        "confidence": 0.96,
+        "confidence_reasoning": "Both findings are in prose documentation lines that name reference files. No filesystem API call appears at those locations."
       },
       {
-        "title": "Static false positive: weak cryptographic algorithm flagged",
-        "description": "Static analyzer flagged words like 'hash', 'summary', and 'CHECKPOINT' as weak cryptographic algorithms. These are natural language terms in YAML descriptions and Python variable names (e.g., checkpoint_candidates list, argparse help text). No actual cryptographic operations are performed.",
+        "title": "Static False Positive: Weak Cryptographic Algorithm Terms",
+        "description": "The weak cryptography findings match natural language and training terminology, including summary text, checkpoint wording, and an argparse description. No cryptographic function, hashing routine, or credential protection logic is present.",
         "locations": [
           {
             "file": "agents/openai.yaml",
@@ -173,161 +256,161 @@
           }
         ],
         "confidence": 0.97,
-        "confidence_reasoning": "No hash functions or crypto code found. All matches are natural language in descriptions and variable names."
+        "confidence_reasoning": "The reviewed lines contain descriptions or training workflow language. No evidence of MD5, SHA1, DES, or similar algorithm use was found in the inspected code."
       },
       {
-        "title": "Static false positive: system reconnaissance flagged",
-        "description": "Static analyzer flagged training-policy.md:19 as system reconnaissance. The line is part of a markdown '## Avoid' section listing items to avoid (exploratory sweeps, speculative architecture changes). It is documentation, not code execution.",
+        "title": "Static False Positive: System Reconnaissance Heading",
+        "description": "The system reconnaissance finding is a markdown section heading and avoid list in references/training-policy.md. It does not inspect host details, enumerate files, or collect system information.",
         "locations": [
           {
             "file": "references/training-policy.md",
             "line_start": 19,
-            "line_end": 19
+            "line_end": 23
           }
         ],
         "confidence": 0.95,
-        "confidence_reasoning": "Markdown documentation listing anti-patterns. No system calls or reconnaissance code present."
+        "confidence_reasoning": "The content is plain policy text listing behaviors to avoid. There are no commands or APIs for reconnaissance at the flagged location."
       }
     ],
     "files_scanned": 5,
     "total_lines": 496,
-    "audit_model": "claude",
-    "audited_at": "2026-06-09T09:19:47.313Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T09:03:04.979Z",
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Run Training Commands with Structured Evidence",
-    "value_statement": "Deep learning training runs often lack reproducible evidence and clear status reporting. This skill executes a selected training command conservatively and writes standardized training evidence to train_outputs/.",
+    "user_title": "Run Training Commands with Evidence",
+    "value_statement": "Deep learning runs often lack clear status and reproducible evidence. This skill runs one selected command and records structured training outputs.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "training",
-      "deep learning",
+      "training command runner",
+      "deep learning training",
+      "MLOps evidence",
       "experiment tracking",
-      "MLOps",
-      "reproducibility",
-      "checkpoint",
-      "PyTorch"
+      "checkpoint tracking",
+      "training logs",
+      "reproducibility"
     ],
     "actual_capabilities": [
-      "Execute a user-selected training command with configurable timeout",
-      "Capture startup verification, short-run verification, full kickoff, and resume run modes",
-      "Parse training output to extract epoch, step, checkpoint, and metric progress",
-      "Write structured evidence files to train_outputs/ (SUMMARY.md, COMMANDS.md, LOG.md, status.json)",
-      "Snapshot git status before and after execution to track changed files",
-      "Classify outcomes as blocked, partial, success, or resumed with stop reasons"
+      "Runs one selected training command with a configurable timeout.",
+      "Supports startup verification, short-run verification, full kickoff, and resume modes.",
+      "Captures standard output and standard error from the training process.",
+      "Extracts visible epoch, step, metric, and checkpoint hints from logs.",
+      "Records git status differences before and after the run.",
+      "Produces standardized training evidence under train_outputs/."
     ],
     "limitations": [
-      "Does not perform environment setup or asset download",
-      "Does not run exploratory sweeps or multi-variant experiments",
-      "Does not choose the overall research goal or architecture",
-      "Monitoring is bounded by the configured timeout window"
+      "It does not install dependencies or download datasets.",
+      "It does not choose research goals, models, or training strategy.",
+      "It is not designed for exploratory sweeps or multiple variants.",
+      "Its conclusions are limited by the configured monitoring window."
     ],
     "use_cases": [
       {
-        "title": "Startup verification of a training pipeline",
-        "description": "Run a training command for a short window to confirm it launches without errors before committing to a full run.",
-        "target_user": "ML researchers validating a new training script"
+        "title": "Verify a training startup",
+        "description": "Run a short launch check and record whether the selected command starts cleanly.",
+        "target_user": "ML researcher"
       },
       {
-        "title": "Resume from checkpoint with evidence",
-        "description": "Continue training from a saved checkpoint and record the resume event, completed steps, and best metric.",
-        "target_user": "Engineers resuming interrupted long training jobs"
+        "title": "Resume an interrupted run",
+        "description": "Continue from a known checkpoint and capture status, metrics, and checkpoint evidence.",
+        "target_user": "Research engineer"
       },
       {
-        "title": "Conservative full kickoff with status reporting",
-        "description": "Launch a full training run within a monitoring window and capture structured status and log evidence.",
-        "target_user": "Research leads needing reproducible run records"
+        "title": "Kick off a documented run",
+        "description": "Start a selected full training command and collect bounded monitoring evidence.",
+        "target_user": "MLOps practitioner"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Startup verification",
-        "prompt": "Run startup verification for the training command `python train.py --config configs/exp1.yaml` in repo `/home/user/project` with a 60-second monitoring window.",
-        "scenario": "Quickly check that a training script launches correctly"
+        "title": "Run startup verification",
+        "prompt": "Run startup verification for this selected training command with a 60 second monitoring window. Record the command, logs, status, and any early metric evidence.",
+        "scenario": "Beginner check before a longer training run"
       },
       {
-        "title": "Short-run verification",
-        "prompt": "Execute a short-run verification of `python train.py --config configs/exp2.yaml` for 120 seconds and report the first checkpoint and loss curve.",
-        "scenario": "Validate training progress over a brief window"
+        "title": "Run a short verification window",
+        "prompt": "Run the selected training command in short-run verification mode for 120 seconds. Capture completed steps, visible metrics, checkpoints, and stop reason.",
+        "scenario": "Confirm that training progresses beyond startup"
       },
       {
-        "title": "Resume from checkpoint",
-        "prompt": "Resume training from `checkpoints/exp3_step5000.ckpt` using `python train.py --resume checkpoints/exp3_step5000.ckpt` in resume mode.",
-        "scenario": "Continue an interrupted training run from a saved checkpoint"
+        "title": "Resume from a checkpoint",
+        "prompt": "Resume the selected training command from the provided checkpoint. Mark the run as resume mode and record checkpoint, metric, and git status evidence.",
+        "scenario": "Continue an interrupted training job"
       },
       {
-        "title": "Full kickoff with evidence",
-        "prompt": "Launch the full training kickoff for `python train.py --config configs/final.yaml` with a 600-second monitoring window and write all evidence to train_outputs/.",
-        "scenario": "Start a full training run and capture complete run records"
+        "title": "Launch a full kickoff",
+        "prompt": "Launch the selected full training command with a bounded monitoring window. Write the standard train_outputs evidence bundle and report any blockers.",
+        "scenario": "Advanced documented run kickoff"
       }
     ],
     "output_examples": [
       {
-        "input": "Run startup verification for `python train.py --config configs/exp1.yaml` with 60s timeout",
+        "input": "Startup verification request for a selected training command.",
         "output": [
-          "train_outputs/SUMMARY.md — run summary with status, completed steps, best metric",
-          "train_outputs/COMMANDS.md — exact command executed and arguments",
-          "train_outputs/LOG.md — captured stdout and stderr from the run",
-          "train_outputs/status.json — machine-readable status with stop_reason and evidence_capture"
+          "A summary states whether startup succeeded, failed, or timed out.",
+          "A command record lists the selected run mode and exact command context.",
+          "A log file includes captured standard output and standard error.",
+          "A status report names the stop reason and visible progress evidence."
         ]
       },
       {
-        "input": "Resume from checkpoints/exp3_step5000.ckpt in resume mode",
+        "input": "Resume request from a known checkpoint.",
         "output": [
-          "status: success (resume_checkpoint_verified)",
-          "completed_steps: 5120",
-          "best_checkpoint: checkpoints/exp3_step5120.ckpt",
-          "best_metric: {name: val_loss, value: 0.342}",
-          "changed_files: [checkpoints/exp3_step5120.ckpt, logs/train.log]"
+          "The report identifies the resume source and the latest visible checkpoint.",
+          "The status notes completed steps when they appear in the logs.",
+          "The evidence bundle separates successful resume evidence from partial progress."
         ]
       },
       {
-        "input": "Launch full training kickoff with 600s monitoring window",
+        "input": "Full kickoff request with a monitoring window.",
         "output": [
-          "status: partial (monitoring_window_elapsed) or success (full_training_command_completed)",
-          "monitoring_scope: timeout:600s or process_completion",
-          "evidence_capture: git-status-diff with before/after file change tracking",
-          "observed_metrics: {loss: 0.45, val_loss: 0.48, lr: 0.0001}"
+          "The report explains whether the command completed or exceeded the monitoring window.",
+          "The logs preserve visible metrics and checkpoint hints.",
+          "The file-change summary lists changed, new, and deleted repository paths."
         ]
       }
     ],
     "best_practices": [
-      "Always state the run mode explicitly (startup verification, short-run, full kickoff, or resume) before launching",
-      "Set a monitoring timeout that matches the expected early-progress window for your experiment",
-      "Review the git status diff in the evidence output to confirm only expected files were modified",
-      "Use the trusted lane for verified training commands and explore lane for experimental runs"
+      "Provide a selected, reviewed training command before invoking the skill.",
+      "Set a timeout that matches the expected early progress window.",
+      "Review the captured file changes before treating the run as reproducible evidence."
     ],
     "anti_patterns": [
-      "Using this skill for environment setup, dependency installation, or asset download",
-      "Running exploratory sweeps or multi-variant experiments through this skill",
-      "Treating startup verification results as evidence of full reproduction success",
-      "Invoking speculative architecture changes or autonomous idea implementation through this skill"
+      "Using this skill to install dependencies or download assets.",
+      "Running exploratory sweeps or many training variants through this skill.",
+      "Treating startup verification as proof of full reproduction success."
     ],
     "faq": [
       {
         "question": "What run modes does this skill support?",
-        "answer": "The skill supports startup verification, short-run verification, full kickoff, and resume modes, each with its own stop reason classification."
+        "answer": "It supports startup verification, short-run verification, full kickoff, and resume modes."
       },
       {
-        "question": "Where are the training evidence files written?",
-        "answer": "All evidence is written to the train_outputs/ directory inside the target repository, including SUMMARY.md, COMMANDS.md, LOG.md, SCIENTIFIC_CHANGELOG.md, COMPARABILITY_REPORT.md, and status.json."
+        "question": "Where does it write evidence?",
+        "answer": "It writes standardized evidence under train_outputs/ in the target repository."
       },
       {
-        "question": "How does the skill track file changes during a run?",
-        "answer": "The skill captures git status before and after execution and computes changed, new, and deleted files to include in the evidence bundle."
+        "question": "Does it choose the training command?",
+        "answer": "No. The skill expects a documented or selected command before execution."
       },
       {
-        "question": "Can I use this skill for exploratory hyperparameter sweeps?",
-        "answer": "No. The skill is designed for conservative execution of a single selected training command. Exploratory sweeps should use a dedicated experiment planning skill."
+        "question": "Can it run hyperparameter sweeps?",
+        "answer": "No. It is scoped to one selected command, not exploratory sweeps or variants."
       },
       {
-        "question": "What happens if the training command exceeds the monitoring window?",
-        "answer": "The subprocess is terminated at the timeout, and the run is classified as partial with stop_reason set to monitoring_window_elapsed or startup_verification_window_elapsed."
+        "question": "What happens when the timeout is reached?",
+        "answer": "The run is reported as partial, with the monitoring window recorded as the stop reason."
       },
       {
-        "question": "Does this skill install dependencies or download datasets?",
-        "answer": "No. The skill only executes the selected training command. Environment setup and asset download are explicitly out of scope and should be handled before invoking this skill."
+        "question": "Why is there a security warning?",
+        "answer": "The skill intentionally runs external training commands, so users must review commands before execution."
       }
     ]
   },

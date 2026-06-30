@@ -1,177 +1,302 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-02-20T08:51:46.040Z",
+    "generated_at": "2026-06-30T09:48:20.498Z",
     "slug": "microsoft-azure-kusto",
     "source_url": "https://github.com/microsoft/github-copilot-for-azure/tree/main/plugin/skills/azure-kusto/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "e8b567fb689a397d77f6c87e3f420da599194408fa2a5e692bc58017839ef5f8",
-    "tree_hash": "0492c96d67d1d7c78a0ab3a5a6d8cabcd6fb2de65c4004df1ab06e59c189f65b"
+    "tree_hash": "13bc54360d41311dbb0cf7254a4291402513a066a430487dfb72cba2cafecc09"
   },
   "skill": {
     "name": "azure-kusto",
-    "description": "Query and analyze data in Azure Data Explorer (Kusto/ADX) using KQL for log analytics, telemetry, and time series analysis.\nUSE FOR: KQL queries, Kusto database queries, Azure Data Explorer, ADX clusters, log analytics, time series data, IoT telemetry, anomaly detection\nDO NOT USE FOR: SQL databases (use azure-postgres), NoSQL queries (use azure-storage), Elasticsearch, AWS analytics tools\n",
-    "summary": "Query and analyze Azure Data Explorer databases using KQL for log analytics, telemetry, and time series analysis.",
-    "icon": "📊",
+    "description": "Query and analyze Azure Data Explorer data with KQL. This skill helps inspect Kusto clusters, databases, schemas, logs, telemetry, and time series data.",
+    "summary": "Run KQL analysis for Azure Data Explorer logs, telemetry, schemas, and time series data.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "microsoft",
     "license": "MIT",
     "tags": [
-      "azure",
+      "azure-data-explorer",
       "kusto",
       "kql",
-      "data-analytics",
-      "log-analytics"
+      "log-analytics",
+      "telemetry"
     ],
     "supported_tools": [
       "claude",
       "codex",
       "claude-code"
     ],
-    "risk_factors": []
+    "risk_factors": [
+      "external_commands",
+      "network"
+    ],
+    "category": "data"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "This is an official Microsoft skill for Azure Data Explorer (Kusto). Static findings are false positives: KQL query syntax (pipe operator) misinterpreted as shell commands, Azure CLI examples are legitimate API documentation, and the REST URL is a standard Azure endpoint template. No malicious patterns confirmed.",
-    "risk_factor_evidence": [],
+    "summary": "Static analysis reported many Ruby backtick, weak cryptography, and reconnaissance indicators, but manual review confirms most are false positives caused by KQL examples, the ADX abbreviation, and KQL operator names. The real risk is moderate: the skill documents Azure CLI and Kusto REST fallbacks that execute external commands and send queries to Azure services using user credentials. No prompt injection attempt, malware intent, credential theft, or hidden data exfiltration evidence was found.",
+    "risk_factor_evidence": [
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 184,
+            "line_end": 204
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 200,
+            "line_end": 204
+          }
+        ]
+      }
+    ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
+    "medium_findings": [
+      {
+        "title": "External Azure CLI and Kusto REST Fallback",
+        "description": "TRUE_POSITIVE: The skill instructs users to run Azure CLI commands and an az rest call against a Kusto endpoint if MCP tools fail. This is legitimate Azure Data Explorer functionality, but it can execute external commands and submit queries to Azure using the user's current credentials, so users should review cluster, database, and query parameters before running fallback commands.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 184,
+            "line_end": 204
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The command examples are explicit and semantically tied to Azure Kusto operations, not hidden execution. Risk remains because they invoke az commands and post query bodies to a remote Kusto service with user-provided parameters."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "KQL Examples Misclassified as Ruby Backticks",
+        "description": "FALSE_POSITIVE: Most static external command hits occur inside fenced KQL examples or inline KQL function names. These are documentation examples for querying Azure Data Explorer and are not Ruby backtick execution or shell command substitution.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 58,
+            "line_end": 150
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The referenced lines are KQL code fences, KQL operators, or inline function names such as ago, bin, summarize, and percentiles. No Ruby execution context exists in the skill file."
+      },
+      {
+        "title": "ADX Text Misclassified as Weak Cryptography",
+        "description": "FALSE_POSITIVE: The high-severity weak cryptography alerts map to descriptive Azure Data Explorer text and the ADX abbreviation. No MD5, SHA1, DES, RC4, or cryptographic operation is present at the reported locations.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 6
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 37,
+            "line_end": 37
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 73,
+            "line_end": 73
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "Manual review of the cited lines shows Azure service descriptions and KQL ordering syntax, not crypto APIs or algorithm use. The static match is lexical rather than semantic."
+      },
+      {
+        "title": "Templated Kusto Service URL",
+        "description": "TRUE_POSITIVE: The skill includes a hardcoded URL template for the official Kusto REST query endpoint. This network destination is expected for Azure Data Explorer usage, but query contents may contain sensitive operational data and should be scoped to approved clusters.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 200,
+            "line_end": 204
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The URL template clearly targets a Kusto service endpoint and is part of documented Azure fallback behavior. It is not suspicious by itself, but it confirms network interaction."
+      },
+      {
+        "title": "KQL Take Operator Misclassified as Reconnaissance",
+        "description": "FALSE_POSITIVE: The system reconnaissance alert maps to the KQL take operator used to limit query output. It does not inspect the host system, enumerate files, or collect local environment details.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 155,
+            "line_end": 155
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The cited line is a best practice about limiting Azure Data Explorer result sets. There is no local system command or reconnaissance behavior at that location."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "External Azure CLI and Kusto REST Fallback",
+        "description": "TRUE_POSITIVE: The skill instructs users to run Azure CLI commands and an az rest call against a Kusto endpoint if MCP tools fail. This is legitimate Azure Data Explorer functionality, but it can execute external commands and submit queries to Azure using the user's current credentials, so users should review cluster, database, and query parameters before running fallback commands.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 184,
+            "line_end": 204
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The command examples are explicit and semantically tied to Azure Kusto operations, not hidden execution. Risk remains because they invoke az commands and post query bodies to a remote Kusto service with user-provided parameters."
+      },
+      {
+        "title": "Templated Kusto Service URL",
+        "description": "TRUE_POSITIVE: The skill includes a hardcoded URL template for the official Kusto REST query endpoint. This network destination is expected for Azure Data Explorer usage, but query contents may contain sensitive operational data and should be scoped to approved clusters.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 200,
+            "line_end": 204
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The URL template clearly targets a Kusto service endpoint and is part of documented Azure fallback behavior. It is not suspicious by itself, but it confirms network interaction."
+      }
+    ],
     "files_scanned": 1,
     "total_lines": 230,
-    "audit_model": "claude",
-    "audited_at": "2026-02-20T08:51:46.040Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T09:48:20.498Z",
+    "risk_factors": [
+      "external_commands",
+      "network"
+    ]
   },
   "content": {
     "user_title": "Query Azure Data Explorer with KQL",
-    "value_statement": "This skill enables Claude and Codex to query Azure Data Explorer (Kusto) databases using KQL for log analytics, telemetry analysis, and time series data exploration.",
+    "value_statement": "Azure telemetry and log data can be hard to explore without the right KQL patterns. This skill guides Claude, Codex, and Claude Code through Kusto schema discovery, query design, and safe Azure fallback commands.",
     "seo_keywords": [
-      "Azure Data Explorer",
-      "Kusto",
-      "KQL",
-      "Azure analytics",
-      "Log analytics",
-      "Telemetry analysis",
-      "ADX",
-      "Claude",
-      "Codex",
-      "Claude Code"
+      "Claude Azure Kusto",
+      "Codex Azure Data Explorer",
+      "Claude Code KQL",
+      "Kusto query assistant",
+      "Azure Data Explorer skill",
+      "ADX log analytics",
+      "KQL telemetry analysis",
+      "Azure Monitor Kusto",
+      "Kusto schema discovery",
+      "KQL time series analysis"
     ],
     "actual_capabilities": [
-      "Execute KQL queries against Azure Data Explorer clusters",
-      "List clusters and databases in Azure subscription",
-      "Retrieve table schemas for data exploration",
-      "Perform time series analysis and aggregation queries",
-      "Analyze log and telemetry data with Kusto Query Language",
-      "Use Azure CLI fallback for direct API queries"
+      "Guides KQL query creation for Azure Data Explorer tables and databases.",
+      "Supports schema discovery with Kusto table and database inspection tools.",
+      "Provides query patterns for filtering, aggregation, joins, and time series analysis.",
+      "Documents Azure MCP tools for listing clusters, databases, schemas, and query execution.",
+      "Provides Azure CLI and Kusto REST fallback commands when MCP tools are unavailable."
     ],
     "limitations": [
-      "Requires valid Azure subscription with Kusto clusters",
-      "Query performance depends on cluster size and data volume",
-      "Does not support data modification or ingestion operations",
-      "Authentication requires Azure AD credentials with appropriate permissions"
+      "Requires valid Azure credentials and permissions for target Kusto resources.",
+      "Does not replace database access controls or approval workflows.",
+      "Fallback commands depend on Azure CLI availability and correct tenant context.",
+      "Query quality depends on accurate table names, schema details, and time filters."
     ],
     "use_cases": [
       {
-        "title": "Log Analytics",
-        "description": "Query application logs, system logs, and audit logs from Azure Data Explorer for debugging and compliance.",
-        "target_user": "DevOps engineers, SREs, security analysts"
+        "title": "Investigate Application Logs",
+        "description": "Build focused KQL queries that filter recent events, group errors, and identify high-impact services.",
+        "target_user": "Site reliability engineer"
       },
       {
-        "title": "IoT Telemetry Analysis",
-        "description": "Analyze sensor data and device telemetry for real-time monitoring and anomaly detection.",
-        "target_user": "IoT developers, data engineers, operations teams"
+        "title": "Analyze Device Telemetry",
+        "description": "Explore IoT telemetry with time buckets, percentiles, and trend summaries for operational monitoring.",
+        "target_user": "Data analyst"
       },
       {
-        "title": "Performance Monitoring",
-        "description": "Query APM data and performance metrics to identify trends, bottlenecks, and application issues.",
-        "target_user": "Application developers, performance engineers"
+        "title": "Review Security Events",
+        "description": "Correlate Kusto tables with joins and severity filters to support threat investigation workflows.",
+        "target_user": "Security operations analyst"
       }
     ],
     "prompt_templates": [
       {
-        "title": "List Kusto Clusters",
-        "prompt": "List all Azure Data Explorer clusters in my subscription.",
-        "scenario": "Discover available Kusto clusters"
+        "title": "Find Recent Events",
+        "scenario": "Beginner query creation",
+        "prompt": "Use Azure Kusto to inspect recent records in my table. Ask for the cluster, database, table, and time range if missing."
       },
       {
-        "title": "Explore Database Schema",
-        "prompt": "Show me the schema for the Events table in my Kusto database.",
-        "scenario": "Understand table structure before querying"
+        "title": "Summarize Errors by Service",
+        "scenario": "Intermediate log aggregation",
+        "prompt": "Create a KQL query that counts errors by service and one-hour time bucket. Include a safe limit and explain each step."
       },
       {
-        "title": "Query Recent Events",
-        "prompt": "Run a KQL query to get the last 100 error events from the last hour.",
-        "scenario": "Retrieve recent error events for debugging"
+        "title": "Correlate Tables for Root Cause",
+        "scenario": "Advanced incident analysis",
+        "prompt": "Help me join event and log tables by correlation identifier, filter critical failures, and project the fields needed for triage."
       },
       {
-        "title": "Analyze Time Series Data",
-        "prompt": "Calculate the average and p95 response time over the last 24 hours, bucketed by 5 minutes.",
-        "scenario": "Performance analysis and trend detection"
+        "title": "Optimize a Slow KQL Query",
+        "scenario": "Advanced performance tuning",
+        "prompt": "Review my KQL query for performance. Recommend earlier filters, smaller projections, time limits, and safer fallback commands if needed."
       }
     ],
     "output_examples": [
       {
-        "input": "Show me errors in the last hour",
-        "output": [
-          "Query executed successfully",
-          "Results: 47 error events found",
-          "Top error types: Timeout (18), InvalidInput (12), ConnectionFailed (9), Unknown (8)",
-          "Time range: 2024-01-15 14:00:00 to 15:00:00"
-        ]
+        "input": "Show the last hour of failed sign-in events and summarize them by result type.",
+        "output": "The assistant asks for the target cluster, database, and table if missing, then returns a time-bounded KQL plan with result grouping and a short explanation of expected columns."
       },
       {
-        "input": "List databases on my cluster",
-        "output": [
-          "Cluster: mycluster.eastus",
-          "Databases:",
-          "- TelemetryDB (1.2TB, 45 days retention)",
-          "- AppLogs (340GB, 30 days retention)",
-          "- SecurityEvents (890GB, 90 days retention)"
-        ]
+        "input": "My telemetry query is timing out. Help me improve it.",
+        "output": "The assistant recommends adding a narrow time range, filtering before joins, projecting only needed fields, and using a small sample before running the full query."
+      },
+      {
+        "input": "List the databases in my Kusto cluster when the MCP tool is unavailable.",
+        "output": "The assistant describes the Azure CLI fallback, identifies required parameters, and reminds the user to verify subscription, resource group, cluster, and tenant context."
       }
     ],
     "best_practices": [
-      "Always filter by time range using ago() or between() to optimize query performance",
-      "Use take or limit for exploratory queries to avoid large result sets",
-      "Leverage summarize for aggregations instead of processing results client-side"
+      "Start every exploratory query with a clear time range and result limit.",
+      "Inspect table schemas before writing joins, projections, or aggregations.",
+      "Review Azure CLI fallback commands before execution, especially cluster, database, and tenant values."
     ],
     "anti_patterns": [
-      "Avoid running queries without time filters on large tables",
-      "Do not select all columns with * when only specific fields are needed",
-      "Avoid nested joins without intermediate aggregation steps"
+      "Do not run broad queries across long time ranges without filters.",
+      "Do not paste sensitive query results into prompts unless they are approved for analysis.",
+      "Do not use fallback REST commands without confirming the target Azure tenant and cluster."
     ],
     "faq": [
       {
-        "question": "What is Azure Data Explorer?",
-        "answer": "Azure Data Explorer (also called Kusto or ADX) is a fast and scalable data exploration service optimized for log and telemetry data. It uses Kusto Query Language (KQL) for queries."
+        "question": "What is this skill for?",
+        "answer": "It helps create and run KQL workflows for Azure Data Explorer logs, telemetry, schemas, and time series data."
       },
       {
-        "question": "What tools does this skill use?",
-        "answer": "The skill uses Azure MCP tools: kusto_cluster_list, kusto_database_list, kusto_query, and kusto_table_schema_get. It also includes Azure CLI fallback commands."
+        "question": "Does it work with SQL databases?",
+        "answer": "No. It is focused on Kusto Query Language and Azure Data Explorer resources, not relational SQL databases."
       },
       {
-        "question": "Do I need special permissions to query Kusto?",
-        "answer": "Yes, you need at least Viewer role on the database. Contact your Azure administrator to request access."
+        "question": "Does it need Azure credentials?",
+        "answer": "Yes. Query execution and resource discovery require Azure credentials with permission to access the target Kusto resources."
       },
       {
-        "question": "Why is my query timing out?",
-        "answer": "Queries may timeout on large datasets. Add time range filters, reduce result size with take, or increase the timeout setting."
+        "question": "Can it use Azure CLI?",
+        "answer": "Yes. The skill documents Azure CLI fallback commands for cases where MCP Kusto tools fail or are unavailable."
       },
       {
-        "question": "Can I insert or update data with this skill?",
-        "answer": "No, this skill is read-only for querying. Use Azure portal or other tools for data ingestion and modification."
+        "question": "Why is the audit risk medium?",
+        "answer": "The skill includes legitimate external commands and network calls to Azure services. Users should verify parameters before running them."
       },
       {
-        "question": "What is the difference between KQL and SQL?",
-        "answer": "KQL uses a pipe-based syntax (table | where condition | summarize) unlike SQL's SELECT-FROM-WHERE. KQL is optimized for time series and log data."
+        "question": "Can it help optimize KQL performance?",
+        "answer": "Yes. It includes guidance for time filters, projections, aggregations, materialized views, and result limits."
       }
     ]
   },
