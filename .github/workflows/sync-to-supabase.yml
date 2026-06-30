@@ -698,20 +698,28 @@ jobs:
           if [ "$SLUG_COUNT" -le "$THRESHOLD" ]; then
             # Small batch: pass slugs directly via input
             echo "   Mode: direct (≤$THRESHOLD slugs)"
-            gh workflow run warm-cache.yml \
+            if ! gh workflow run warm-cache.yml \
+              --repo "${{ github.repository }}" \
               -f mode=warm \
               -f type=skills \
               -f slugs="$SYNCED_SLUGS" \
-              -f warm_zip=false
+              -f warm_zip=false; then
+              echo "::warning::Could not trigger warm-cache workflow for synced skills; sync already completed and cache will refresh naturally."
+              exit 0
+            fi
             MODE="direct"
           else
             # Large batch: use artifact to avoid input size limits
             echo "   Mode: artifact (>$THRESHOLD slugs)"
-            gh workflow run warm-cache.yml \
+            if ! gh workflow run warm-cache.yml \
+              --repo "${{ github.repository }}" \
               -f mode=warm \
               -f type=skills \
               -f source_run_id=${{ github.run_id }} \
-              -f warm_zip=false
+              -f warm_zip=false; then
+              echo "::warning::Could not trigger warm-cache workflow for synced skills; sync already completed and cache will refresh naturally."
+              exit 0
+            fi
             MODE="artifact (source: ${{ github.run_id }})"
           fi
 
