@@ -1,29 +1,29 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T07:28:11.086Z",
+    "generated_at": "2026-06-30T10:40:53.144Z",
     "slug": "notedit-task-execution-engine",
     "source_url": "https://github.com/notedit/happy-coding-agent/tree/main/skills/task-execution-engine",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "747fd918dd4b77c9f4c4257a67f0810edebaccadad2c2e336b1748a748cc33b2",
-    "tree_hash": "472fd5c1620d22b87171d46540426e56c09da4b3f1f526e5c6b49fc1c0715fde"
+    "tree_hash": "772b9de1bc53e94cdea9ab53d2841422dccd7134efb2e2bef844672e0bd581f5"
   },
   "skill": {
     "name": "task-execution-engine",
-    "description": "Execute implementation tasks from design documents using markdown checkboxes. Use when (1) implementing features from feature-design-assistant output, (2) resuming interrupted work, (3) batch executing tasks. Triggers on 'start implementation', 'run tasks', 'resume'.",
-    "summary": "Execute implementation tasks from design documents using markdown checkboxes. Use when (1) implement...",
-    "icon": "⚙️",
+    "description": "Executes implementation tasks from markdown design documents by parsing checkboxes, selecting the next available task, and updating task status.",
+    "summary": "Run and resume markdown-based implementation task lists.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "notedit",
     "license": "MIT",
-    "category": "coding",
     "tags": [
       "task-management",
-      "automation",
       "implementation",
+      "markdown",
+      "automation",
       "workflow"
     ],
     "supported_tools": [
@@ -32,178 +32,304 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
       "filesystem"
-    ]
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "The static analyzer produced severe false positives due to misinterpreting markdown documentation as executable Ruby code. The actual Python script (task_manager.py) only performs file I/O operations on explicitly specified files. No network access, no external command execution, no code execution capabilities. Behavior matches stated purpose as a markdown-based task manager.",
+    "summary": "Static command-execution and weak-cryptography alerts were reviewed and are false positives caused by markdown examples, inline backticks, and documentation text. The skill does include a Python script that reads and rewrites user-supplied markdown files, and its instructions encourage autonomous implementation loops, so publication should include a medium-risk warning.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/task_manager.py",
+            "line_start": 1,
+            "line_end": 14
+          },
+          {
+            "file": "scripts/task_manager.py",
+            "line_start": 364,
+            "line_end": 414
+          }
+        ]
+      },
       {
         "factor": "filesystem",
         "evidence": [
           {
             "file": "scripts/task_manager.py",
             "line_start": 258,
-            "line_end": 258
+            "line_end": 259
           },
           {
             "file": "scripts/task_manager.py",
-            "line_start": 293,
-            "line_end": 296
-          },
-          {
-            "file": "scripts/task_manager.py",
-            "line_start": 306,
+            "line_start": 292,
             "line_end": 310
           },
           {
             "file": "scripts/task_manager.py",
-            "line_start": 322,
-            "line_end": 323
+            "line_start": 320,
+            "line_end": 354
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 5,
-    "total_lines": 1008,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T07:28:11.085Z"
+    "medium_findings": [
+      {
+        "title": "User-Supplied Markdown File Is Rewritten",
+        "description": "The task manager accepts a file path from the command line, reads that file, and writes updated task status back to the same path. This is legitimate for a task manager, but it can alter the wrong file if the caller supplies an unintended path.",
+        "locations": [
+          {
+            "file": "scripts/task_manager.py",
+            "line_start": 292,
+            "line_end": 310
+          },
+          {
+            "file": "scripts/task_manager.py",
+            "line_start": 320,
+            "line_end": 354
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The read and write operations are direct and tied to the caller-provided --file argument. The behavior matches the skill purpose, so the concern is controlled file mutation rather than malicious activity."
+      },
+      {
+        "title": "Autonomous Implementation Loop Requires User Oversight",
+        "description": "The skill instructs the agent to continue implementation tasks without stopping for clarification and to make autonomous decisions from codebase patterns. This can cause unintended code changes when task requirements are incomplete or ambiguous.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 64,
+            "line_end": 69
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 52,
+            "line_end": 61
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The unattended execution instructions are explicit in the skill text. The risk depends on how the user invokes the skill, so medium severity is appropriate."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "False Positive: Markdown Backticks Reported as Shell Execution",
+        "description": "The static analyzer reported many Ruby or shell backtick execution findings. Reviewed locations are markdown fences, inline formatting, task examples, or Python regular expressions that parse backtick-delimited attributes, with no subprocess or shell execution evidence found.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 12,
+            "line_end": 24
+          },
+          {
+            "file": "references/task-format.md",
+            "line_start": 5,
+            "line_end": 18
+          },
+          {
+            "file": "references/workflow-guide.md",
+            "line_start": 93,
+            "line_end": 115
+          },
+          {
+            "file": "scripts/task_manager.py",
+            "line_start": 34,
+            "line_end": 64
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The cited contexts are documentation formatting or regex parsing, not execution APIs. No evidence found of os.system, subprocess, eval, exec, or network-backed command execution in the inspected files."
+      },
+      {
+        "title": "False Positive: Weak Cryptography Alerts in Documentation Text",
+        "description": "The static analyzer reported weak cryptographic algorithm indicators, but the reviewed locations describe markdown files, task examples, or hypothetical authentication work. No cryptographic implementation or weak hash algorithm usage was found in the audited files.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 1,
+            "line_end": 8
+          },
+          {
+            "file": "references/task-format.md",
+            "line_start": 20,
+            "line_end": 26
+          },
+          {
+            "file": "references/workflow-guide.md",
+            "line_start": 7,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/task_manager.py",
+            "line_start": 365,
+            "line_end": 366
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The flagged files do not implement hashing, encryption, or token signing. References to authentication-related tasks are examples for user projects, not executable crypto code in the skill."
+      },
+      {
+        "title": "False Positive: System Reconnaissance Alert",
+        "description": "The reported system reconnaissance finding points to a task example in the skill documentation. No evidence found of host enumeration, environment collection, process listing, or network discovery behavior.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 44
+          }
+        ],
+        "confidence": 0.87,
+        "confidence_reasoning": "The referenced lines are markdown examples for implementation tasks. The inspected script only parses and updates task lists, with no reconnaissance APIs or commands present."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Filesystem Writes to Caller-Selected Path",
+        "description": "The script writes updated markdown content back to the path supplied through the command line. This is expected behavior, but it should be limited to trusted design documents.",
+        "locations": [
+          {
+            "file": "scripts/task_manager.py",
+            "line_start": 292,
+            "line_end": 310
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The file write calls are visible and deterministic. The risk is bounded because the script does not execute file contents or contact external services."
+      }
+    ],
+    "files_scanned": 4,
+    "total_lines": 772,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T10:40:53.144Z",
+    "risk_factors": [
+      "scripts",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Execute implementation tasks from design documents",
-    "value_statement": "Managing feature implementation across scattered todo lists and design documents wastes time and causes missed tasks. Task execution engine reads structured task lists directly from markdown design files and executes them one by one with automatic checkbox updates.",
+    "user_title": "Execute Markdown Task Lists",
+    "value_statement": "Implementation plans often stall when task state lives outside the design document. This skill parses markdown checkboxes, selects the next task, and records completion or failure in place.",
     "seo_keywords": [
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "markdown task runner",
+      "implementation workflow",
       "task execution engine",
-      "feature implementation",
-      "markdown task management",
-      "Claude Code skill",
-      "automated coding workflow",
-      "task tracking",
-      "design to code",
-      "implementation automation",
-      "feature pipeline",
-      "structured development"
+      "design document automation",
+      "AI coding assistant",
+      "resume coding tasks",
+      "checkbox task management"
     ],
     "actual_capabilities": [
-      "Read task lists from markdown design documents",
-      "Execute tasks in priority order with dependency checking",
-      "Mark tasks as completed or failed with reasons",
-      "Show progress status and next task to execute",
-      "Resume interrupted work from any point",
-      "Support nested task criteria with checkboxes"
+      "Parse implementation tasks from a markdown section named Implementation Tasks.",
+      "Select the next pending task based on priority and completed dependencies.",
+      "Mark tasks as completed, failed, or pending in the source document.",
+      "Update acceptance criteria checkboxes when a task is completed.",
+      "Print task status summaries and list parsed tasks.",
+      "Support JSON output for automation around task selection and status checks."
     ],
     "limitations": [
-      "Only works with markdown files in the specified task format",
-      "Does not execute the actual implementation code itself",
-      "Requires design document to be written first",
-      "No built-in code review or testing integration"
+      "It only understands the documented markdown checkbox format.",
+      "It does not implement application features by itself.",
+      "It can rewrite the wrong file if given the wrong path.",
+      "It does not validate whether completed code meets product requirements."
     ],
     "use_cases": [
       {
-        "target_user": "Individual developers",
-        "title": "Implement features from designs",
-        "description": "Turn feature designs into working code using structured task checklists that track progress automatically"
+        "title": "Resume Interrupted Feature Work",
+        "target_user": "Software engineer",
+        "description": "Continue from the first pending task in a design document after an interrupted coding session."
       },
       {
-        "target_user": "Team leads",
-        "title": "Coordinate team implementations",
-        "description": "Create shared design documents with task breakdowns that multiple developers can execute independently"
+        "title": "Run Structured Implementation Plans",
+        "target_user": "Technical lead",
+        "description": "Turn a design document into an ordered execution loop with visible status updates."
       },
       {
-        "target_user": "AI coding assistants",
-        "title": "Run automated implementation pipelines",
-        "description": "Enable AI agents to work through feature implementations step by step with verifiable completion criteria"
+        "title": "Track AI Coding Progress",
+        "target_user": "AI workflow operator",
+        "description": "Keep task state inside the same markdown document used to guide an AI coding assistant."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Start implementation",
-        "scenario": "Begin executing from design file",
-        "prompt": "Start implementation from docs/designs/[feature-name].md"
+        "title": "Start a Task List",
+        "scenario": "Begin implementation from a prepared design document.",
+        "prompt": "Start implementation from docs/designs/example.md and work through the next available task."
       },
       {
-        "title": "Check progress",
-        "scenario": "View current task status",
-        "prompt": "Show status of docs/designs/[feature-name].md"
+        "title": "Resume Work",
+        "scenario": "Continue after previous tasks were completed or failed.",
+        "prompt": "Resume the implementation tasks in docs/designs/example.md and report the next task before editing files."
       },
       {
-        "title": "Resume work",
-        "scenario": "Continue interrupted implementation",
-        "prompt": "Resume implementation from docs/designs/[feature-name].md"
+        "title": "Check Progress First",
+        "scenario": "Review task state before making changes.",
+        "prompt": "Show the current task status for docs/designs/example.md, then identify the next unblocked task."
       },
       {
-        "title": "Batch execute",
-        "scenario": "Run multiple tasks automatically",
-        "prompt": "Run all pending tasks from docs/designs/[feature-name].md until completion"
+        "title": "Execute With Failure Tracking",
+        "scenario": "Run tasks while preserving reasons for blocked or failed work.",
+        "prompt": "Execute the remaining tasks in docs/designs/example.md. Mark any blocked task as failed with a short reason and continue."
       }
     ],
     "output_examples": [
       {
-        "input": "Start implementation from docs/designs/user-auth.md",
-        "output": [
-          "Next task: Create User model",
-          "Priority: 1 | Phase: model",
-          "Files: src/models/user.py, tests/models/test_user.py",
-          "Criteria:",
-          "  - User model has email and password_hash fields",
-          "  - Email validation implemented",
-          "  - Password hashing uses bcrypt"
-        ]
+        "input": "A design document contains three implementation tasks. The first task has the highest priority and no dependencies.",
+        "output": "The skill identifies the first task, lists its target files and acceptance criteria, then starts implementation."
       },
       {
-        "input": "Show status of docs/designs/user-auth.md",
-        "output": [
-          "Progress: 2/5 (40%)",
-          "Completed: 2",
-          "Pending: 2",
-          "Blocked: 0",
-          "Failed: 1",
-          "Next: Create auth API"
-        ]
+        "input": "A task is completed after its files are updated and acceptance criteria are verified.",
+        "output": "The skill marks the task and its criteria as completed in the markdown document and moves to the next available task."
+      },
+      {
+        "input": "A task cannot be completed because a required package is missing.",
+        "output": "The skill marks the task as failed, records the reason, and continues with any unblocked remaining task."
       }
     ],
     "best_practices": [
-      "Break down each task into specific, verifiable acceptance criteria before implementation",
-      "Review the full task list and dependencies before starting to understand the architecture",
-      "Use the fail command with clear reasons when blocked to help with recovery later"
+      "Review the design document before starting unattended execution.",
+      "Keep each task small enough to verify with focused tests.",
+      "Use clear dependency names that exactly match task titles."
     ],
     "anti_patterns": [
-      "Skipping the task list and jumping directly into coding without a plan",
-      "Using design files that do not follow the markdown checkbox format",
-      "Implementing tasks without checking the acceptance criteria for each one"
+      "Do not point the task manager at files that are not task documents.",
+      "Do not use vague acceptance criteria that cannot be verified.",
+      "Do not run unattended mode on high-risk production changes without review."
     ],
     "faq": [
       {
-        "question": "Which AI coding tools support this skill?",
-        "answer": "This skill works with Claude, OpenAI Codex, and any Claude Code compatible interface. No special configuration required."
+        "question": "Does this skill create implementation plans?",
+        "answer": "No. It executes task lists that already exist in a markdown design document."
       },
       {
-        "question": "How many tasks can this manage at once?",
-        "answer": "The skill can handle any number of tasks. Performance depends on file size and reading speed of the markdown file."
+        "question": "Can it resume work after an interruption?",
+        "answer": "Yes. It reads the markdown checkboxes and selects the first pending task with satisfied dependencies."
       },
       {
-        "question": "How does this integrate with other skills?",
-        "answer": "This skill reads output from feature-design-assistant. Provide the design file path and it will execute all listed tasks automatically."
+        "question": "Does it run shell commands from the task file?",
+        "answer": "No evidence found that it executes task file contents. The included script parses and updates markdown task status."
       },
       {
-        "question": "Is my data safe with this skill?",
-        "answer": "Yes. This skill only reads and writes files you explicitly specify. No data is sent to external servers or third parties."
+        "question": "What file format does it require?",
+        "answer": "It expects a markdown section named Implementation Tasks with checkbox task lines and optional attributes."
       },
       {
-        "question": "What if implementation gets interrupted?",
-        "answer": "Simply run the command again with the same design file. The skill automatically finds the first incomplete task and continues from there."
+        "question": "Can it damage files?",
+        "answer": "It can rewrite the path supplied to the script, so users should provide only trusted markdown design files."
       },
       {
-        "question": "How is this different from regular todo apps?",
-        "answer": "This skill integrates directly with design documents. Tasks stay with the design specifications, enabling Git-friendly diffs and single source of truth."
+        "question": "Is it safe to publish?",
+        "answer": "Yes, with a medium-risk warning for local file writes and autonomous implementation behavior."
       }
     ]
   },
