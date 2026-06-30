@@ -1,63 +1,167 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-04-21T08:47:19.359Z",
+    "generated_at": "2026-06-30T02:57:38.966Z",
     "slug": "googleworkspace-gws-gmail-watch",
     "source_url": "https://github.com/googleworkspace/cli/tree/main/skills/gws-gmail-watch/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "2dc42b59d7b9de3b8836becde4e1645057a425459ed0ff53e265239e1a26cc0e",
-    "tree_hash": "b46f7897e46fd76c1ba4dbc4f18f164bed7521b0a1f31eee44e866ffd696034d"
+    "tree_hash": "0a4654bf5d86cdecc67ecf8421e5a434de4eb44f5404ae2bbb101b7324910b2d"
   },
   "skill": {
     "name": "gws-gmail-watch",
-    "description": "Gmail: Watch for new emails and stream them as NDJSON.",
-    "summary": "Monitor Gmail for new messages and receive real-time NDJSON output via Google Workspace CLI.",
+    "description": "Watch Gmail for new messages with the Google Workspace CLI and stream matching email events as NDJSON.",
+    "summary": "Monitor Gmail inbox changes and stream new messages for automation workflows.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "googleworkspace",
     "license": "MIT",
-    "category": "productivity",
+    "category": "communication",
     "tags": [
       "gmail",
-      "email-monitoring",
       "google-workspace",
-      "ndjson",
-      "pubsub"
+      "email-monitoring",
+      "pubsub",
+      "ndjson"
     ],
     "supported_tools": [
       "claude",
       "codex",
       "claude-code"
     ],
-    "risk_factors": []
+    "risk_factors": [
+      "network",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static analysis detected 20 potential security issues, all of which are false positives after manual review. The external_commands detections are documentation code blocks (bash examples), filesystem detections are markdown hyperlink references (../ paths), and weak crypto detections are false positives on version numbers. This is documentation-only content with no executable code.",
-    "risk_factor_evidence": [],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "summary": "The static command-execution, path-traversal, and weak-cryptography alerts are false positives in Markdown documentation, command examples, and relative documentation links. The real risk is operational: the documented command monitors Gmail, uses Google Pub/Sub resources, and can write message content to local files.",
+    "risk_factor_evidence": [
       {
-        "title": "Documentation Code Blocks Trigger Static Scanner",
-        "description": "Static scanner flagged 15 external_commands patterns in SKILL.md lines 16, 22-39, 43. These are markdown code blocks containing bash command examples (gws gmail +watch), not executable code. No actual command execution occurs.",
-        "locations": [
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 30,
+            "line_end": 32
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 44,
+            "line_end": 46
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
           {
             "file": "SKILL.md",
             "line_start": 22,
+            "line_end": 24
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
             "line_end": 48
           }
         ]
       },
       {
-        "title": "Markdown Hyperlinks Trigger Path Traversal Scanner",
-        "description": "Static scanner flagged 3 filesystem patterns at SKILL.md lines 16, 58, 59. These are relative path references in markdown links (e.g., ../gws-shared/SKILL.md) for navigation, not actual filesystem operations.",
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 16
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 39
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 47
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 58,
+            "line_end": 59
+          }
+        ]
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Sensitive Gmail Message Streaming",
+        "description": "TRUE_POSITIVE: The skill documents watching Gmail and streaming new emails as NDJSON. This can expose personal or business message content if used with broad labels, shared terminals, logs, or downstream processors.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 18
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 33,
+            "line_end": 39
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The documented purpose is to stream Gmail messages, and the flags control message filters, formats, and file output. This is a clear data exposure risk, but it is expected functionality rather than malicious behavior."
+      },
+      {
+        "title": "Google Pub/Sub Resource Use",
+        "description": "TRUE_POSITIVE: The command can create or use Pub/Sub topics and subscriptions for Gmail push notifications. Incorrect project or cleanup choices can leave resources active after the workflow ends.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 30,
+            "line_end": 32
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 52,
+            "line_end": 53
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The flags and tips explicitly reference GCP project, Pub/Sub resources, cleanup, and persistence. The risk depends on user configuration and permissions."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Markdown Command Examples Flagged as Shell Execution",
+        "description": "FALSE_POSITIVE: The static analyzer flagged shell execution, but the evidence is Markdown documentation showing how a user may run the gws CLI. The skill file does not contain executable script code.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 22,
+            "line_end": 24
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 48
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The flagged lines are fenced bash examples in documentation. No Ruby backtick execution or dynamic command construction appears in the file."
+      },
+      {
+        "title": "Relative Documentation Links Flagged as Path Traversal",
+        "description": "FALSE_POSITIVE: The ../ sequences point to sibling skill documentation files. They are static Markdown links, not runtime file access with user-controlled paths.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -69,141 +173,174 @@
             "line_start": 58,
             "line_end": 59
           }
-        ]
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The locations are prerequisite and see-also links in Markdown. There is no evidence of filesystem traversal at runtime."
+      },
+      {
+        "title": "Weak Cryptography Alert Has No Supporting Evidence",
+        "description": "FALSE_POSITIVE: The reported weak cryptographic algorithm alerts at lines 3 and 28 do not correspond to cryptographic code. Line 3 is a description, and line 28 is a table header.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 28,
+            "line_end": 28
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The cited lines contain descriptive text and Markdown table labels only. No hash, cipher, signature, or password handling code is present."
       }
     ],
-    "dangerous_patterns": [],
+    "dangerous_patterns": [
+      {
+        "title": "Optional Local Email File Output",
+        "description": "TRUE_POSITIVE: The --output-dir flag writes each message to a separate JSON file. Users should choose protected directories and avoid storing sensitive mail in shared workspaces.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 39
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 47
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The flag description and example explicitly show message files being written locally. The risk is data persistence, not arbitrary file write evidence."
+      }
+    ],
     "files_scanned": 1,
     "total_lines": 60,
-    "audit_model": "claude",
-    "audited_at": "2026-04-21T08:47:19.359Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T02:57:38.966Z",
+    "risk_factors": [
+      "network",
+      "filesystem",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Monitor Gmail for New Emails",
-    "value_statement": "Stop missing important emails. This skill helps you monitor Gmail in real-time and stream new messages as structured data for automated processing.",
+    "user_title": "Monitor Gmail Messages with GWS",
+    "value_statement": "Teams need a reliable way to react when important Gmail messages arrive. This skill guides Claude, Codex, and Claude Code through the GWS Gmail watch workflow.",
     "seo_keywords": [
       "Claude",
-      "Claude Code",
       "Codex",
-      "Gmail monitoring",
-      "email automation",
+      "Claude Code",
+      "Gmail watch",
       "Google Workspace CLI",
-      "NDJSON streaming",
-      "Pub/Sub email push",
-      "Gmail watch API"
+      "email monitoring",
+      "Gmail NDJSON",
+      "Pub/Sub email automation",
+      "GWS Gmail",
+      "message streaming"
     ],
     "actual_capabilities": [
-      "Watch Gmail inbox for new messages in real-time",
-      "Stream incoming emails as NDJSON format for parsing",
-      "Filter by Gmail labels (INBOX, UNREAD, custom labels)",
-      "Configure Pub/Sub topics and subscriptions for push notifications",
-      "Control message batching with max-messages and poll-interval flags",
-      "Write individual email messages to separate JSON files"
+      "Shows the basic command for starting a Gmail watch stream.",
+      "Documents filters for labels such as INBOX and UNREAD.",
+      "Explains message format options for full, metadata, minimal, and raw output.",
+      "Covers Pub/Sub project, topic, and subscription options.",
+      "Shows one-time pulls, cleanup behavior, and local message file output."
     ],
     "limitations": [
-      "Requires the gws CLI tool to be installed separately",
-      "Requires Google Cloud Platform project for Pub/Sub resources",
-      "Gmail watch subscriptions expire after 7 days and must be renewed",
-      "Only works with Gmail accounts via Google Workspace API",
-      "Pub/Sub resources persist unless --cleanup flag is used",
-      "Cannot modify or delete emails through this skill"
+      "Requires the gws CLI and the shared Google Workspace authentication setup.",
+      "Requires Gmail and Google Cloud permissions for the selected account and project.",
+      "Does not define parsing, alerting, or downstream automation logic.",
+      "Gmail watches expire after seven days and must be renewed."
     ],
     "use_cases": [
       {
-        "title": "Automated Email Processing Pipeline",
-        "description": "Set up real-time monitoring to catch important emails and trigger automated workflows like extracting data from receipts, invoices, or notifications.",
-        "target_user": "Data engineer building email automation"
+        "title": "Inbox Triage Automation",
+        "description": "Monitor selected Gmail labels and stream new messages for review or routing workflows.",
+        "target_user": "Operations teams"
       },
       {
-        "title": "Customer Support Response Monitor",
-        "description": "Watch for high-priority support emails and alert the team instantly when critical messages arrive in the support inbox.",
-        "target_user": "Support team lead"
+        "title": "Support Queue Monitoring",
+        "description": "Pull new support emails once or continuously while preserving control over batch size.",
+        "target_user": "Support engineers"
       },
       {
-        "title": "Personal Inbox Watchdog",
-        "description": "Monitor personal Gmail for specific senders or labels and receive NDJSON output for logging or analysis in productivity tools.",
-        "target_user": "Productivity-focused user"
+        "title": "Email Data Collection",
+        "description": "Write received messages to local files for controlled analysis or archival workflows.",
+        "target_user": "Data analysts"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Inbox Watch",
-        "prompt": "Watch my Gmail inbox for new emails and show them as they arrive. I want to see the output in the terminal.",
-        "scenario": "Get started with real-time email monitoring"
+        "title": "Start a Basic Watch",
+        "scenario": "Beginner setup",
+        "prompt": "Help me run a basic Gmail watch with gws. Explain the required authentication and the simplest command."
       },
       {
-        "title": "Filter by Label",
-        "prompt": "Watch only unread emails in my Gmail INBOX label. Pull messages every 10 seconds and stop after finding 5 messages.",
-        "scenario": "Monitor specific label with custom polling"
+        "title": "Watch a Specific Label",
+        "scenario": "Filtered monitoring",
+        "prompt": "Create a gws gmail watch command that monitors only INBOX unread messages and pulls one batch."
       },
       {
-        "title": "Save to Files",
-        "prompt": "Watch my Gmail for new emails and save each message to a separate JSON file in the ./emails directory. Clean up resources when done.",
-        "scenario": "Archive incoming emails to files"
+        "title": "Use Existing Pub/Sub Resources",
+        "scenario": "Managed infrastructure",
+        "prompt": "Help me use an existing Pub/Sub subscription for Gmail watch without creating new resources."
       },
       {
-        "title": "Use Existing Pub/Sub Subscription",
-        "prompt": "Connect to my existing Pub/Sub subscription at projects/my-project/subscriptions/email-sub and pull messages once.",
-        "scenario": "Integrate with already configured GCP infrastructure"
+        "title": "Design a Safe Email Capture Workflow",
+        "scenario": "Advanced operations",
+        "prompt": "Plan a secure Gmail watch workflow that writes message files locally, limits labels, and cleans up temporary resources."
       }
     ],
     "output_examples": [
       {
-        "input": "Watch my Gmail inbox for new emails",
-        "output": [
-          "Setting up Gmail watch for INBOX...",
-          "Pub/Sub topic created: projects/my-project/topics/gmail-watch",
-          "Subscription created: projects/my-project/subscriptions/gmail-watch-sub",
-          "Watching for new emails (press Ctrl-C to stop)...",
-          "Received message: {\"historyId\":\"12345\",\"email\":{\"id\":\"msg123\",\"threadId\":\"thread456\",\"snippet\":\"Hello...\"}}"
-        ]
+        "input": "User asks how to watch Gmail once for unread inbox messages.",
+        "output": "The assistant recommends a one-time watch using the INBOX and UNREAD labels, then explains expected streaming output."
       },
       {
-        "input": "Watch unread emails once and exit",
-        "output": [
-          "Pulling messages from label INBOX,UNREAD...",
-          "Pulled 3 messages",
-          "Processing complete",
-          "Run again to renew watch (expires in 7 days)"
-        ]
+        "input": "User asks how to keep Pub/Sub resources after stopping the watch.",
+        "output": "The assistant explains that resources persist unless cleanup is requested, and advises documenting ownership and renewal timing."
+      },
+      {
+        "input": "User asks how to store watched messages safely.",
+        "output": "The assistant recommends a protected output directory, limited labels, minimal retention, and careful handling of message files."
       }
     ],
     "best_practices": [
-      "Use the --cleanup flag when testing to avoid leaving orphaned Pub/Sub resources in your GCP project",
-      "Renew your Gmail watch every 7 days to maintain uninterrupted monitoring",
-      "Start with --once flag to test your configuration before running the continuous watcher",
-      "Specify --label-ids to filter messages and reduce noise from irrelevant labels"
+      "Use narrow label filters before streaming message data.",
+      "Use protected output directories when saving email files.",
+      "Clean up temporary Pub/Sub resources when they are no longer needed."
     ],
     "anti_patterns": [
-      "Do not run without --cleanup in production tests unless you want Pub/Sub resources to persist",
-      "Do not set --max-messages too high as it may cause memory issues with large email batches",
-      "Do not forget to set up proper GCP project permissions before running the watch command",
-      "Do not use --poll-interval below 1 second to avoid Gmail API rate limiting"
+      "Do not stream all mailbox data when a narrow label filter is enough.",
+      "Do not write Gmail message files into shared or public folders.",
+      "Do not leave temporary Pub/Sub resources unmanaged after testing."
     ],
     "faq": [
       {
-        "question": "What does this skill actually do?",
-        "answer": "This skill monitors your Gmail inbox and streams new emails as NDJSON data. It uses Google Workspace CLI to set up push notifications via Pub/Sub and pulls messages as they arrive."
+        "question": "What does this skill help with?",
+        "answer": "It helps run gws commands that watch Gmail for new messages and stream results as NDJSON."
       },
       {
-        "question": "Do I need to install anything?",
-        "answer": "Yes, you need the gws CLI tool installed. This skill requires an external binary that is not included with Claude Code."
+        "question": "Does it require Google authentication?",
+        "answer": "Yes. It depends on the shared Google Workspace authentication setup referenced by the skill."
       },
       {
-        "question": "How long does the watch last?",
-        "answer": "Gmail watch subscriptions expire after 7 days. You must re-run the command to renew monitoring and continue receiving new emails."
+        "question": "Can it filter which messages are watched?",
+        "answer": "Yes. The documented label IDs option can filter messages by labels such as INBOX or UNREAD."
       },
       {
-        "question": "What is NDJSON output format?",
-        "answer": "NDJSON means Newline-Delimited JSON. Each email appears as a separate JSON object on its own line, making it easy to parse with scripts or data tools."
+        "question": "Can it save messages to files?",
+        "answer": "Yes. The output directory option writes each message to a separate JSON file."
       },
       {
-        "question": "Can I filter specific email labels?",
-        "answer": "Yes, use the --label-ids flag with comma-separated label names like INBOX,UNREAD, or custom label IDs to filter which emails trigger notifications."
+        "question": "Does the Gmail watch run forever?",
+        "answer": "No. The skill notes that Gmail watch expires after seven days and must be renewed."
       },
       {
-        "question": "What happens to Pub/Sub resources when I stop?",
-        "answer": "By default, Pub/Sub topics and subscriptions persist for reconnection. Use --cleanup to delete them automatically when you exit the watcher."
+        "question": "Is this safe for sensitive email?",
+        "answer": "Use caution. Limit labels, protect local output files, and avoid sending streamed data to untrusted systems."
       }
     ]
   },
