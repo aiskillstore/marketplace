@@ -1,20 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-24T08:29:00.169Z",
+    "generated_at": "2026-06-30T19:28:57.480Z",
     "slug": "softaworks-dependency-updater",
     "source_url": "https://github.com/softaworks/agent-toolkit/tree/main/skills/dependency-updater/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "72f66b1c6664d627f5284f6790d2689bc12ac8df367f2257dceb014c338e491c",
-    "tree_hash": "5a4ea7c5be1317ba0ac6ee29a7adbd18abb66d4c78585c066466be8f2d563674"
+    "tree_hash": "de2fc213544869447e3bdb0209e35c83fbffc869517707f751cabe8f0ccdae54"
   },
   "skill": {
     "name": "dependency-updater",
-    "description": "Smart dependency management for any language. Auto-detects project type, applies safe updates automatically, prompts for major versions, diagnoses and fixes dependency issues.",
-    "summary": "Smart dependency management for any language. Auto-detects project type, applies safe updates automatically.",
+    "description": "Smart dependency management for multi-language projects. It detects package files, applies safe dependency updates, prompts for major versions, and runs ecosystem audit tools.",
+    "summary": "Update and audit project dependencies across common language ecosystems.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "softaworks",
@@ -22,7 +22,7 @@
     "tags": [
       "dependencies",
       "package-management",
-      "security",
+      "security-audit",
       "automation",
       "devops"
     ],
@@ -34,41 +34,178 @@
     "risk_factors": [
       "scripts",
       "external_commands",
+      "network",
       "filesystem"
-    ]
+    ],
+    "category": "devops"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate dependency management skill. Static findings are false positives: scanner misidentified YAML frontmatter and version documentation as cryptographic algorithms. External commands are documentation examples and scripts use hardcoded package manager operations with no injection vectors.",
+    "summary": "The static analyzer reported many command, network, filesystem, and weak-crypto patterns. Review found the weak-crypto and URL findings are documentation false positives, but the skill intentionally runs package manager and audit commands that can modify project files and fetch packages. No malicious intent, exfiltration, or prompt injection evidence was found.",
+    "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/check-tool.sh",
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
+            "file": "scripts/run-taze.sh",
+            "line_start": 1,
+            "line_end": 1
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 96,
+            "line_end": 104
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 123,
+            "line_end": 127
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 144,
+            "line_end": 160
+          },
+          {
+            "file": "scripts/check-tool.sh",
+            "line_start": 12,
+            "line_end": 14
+          },
+          {
+            "file": "scripts/run-taze.sh",
+            "line_start": 24,
+            "line_end": 27
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "README.md",
+            "line_start": 282,
+            "line_end": 286
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 487,
+            "line_end": 491
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 232,
+            "line_end": 246
+          },
+          {
+            "file": "scripts/run-taze.sh",
+            "line_start": 17,
+            "line_end": 21
+          }
+        ]
+      }
+    ],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "External Command Execution in Documentation",
-        "description": "Documentation contains 151 instances of shell commands (npm, pip, cargo, etc.) shown as examples. These are documentation only, not executable code. Scripts use hardcoded commands without user input.",
+        "title": "Dependency Tool Commands Modify Project State",
+        "description": "The skill directs agents to run package manager commands such as taze, pip-review, go get, cargo update, bundle update, Maven, and dotnet tooling. This is expected for a dependency updater, but it can change manifests, lock files, and installed dependency trees.",
         "locations": [
           {
+            "file": "SKILL.md",
+            "line_start": 96,
+            "line_end": 160
+          },
+          {
             "file": "README.md",
-            "line_start": 31,
-            "line_end": 33
+            "line_start": 126,
+            "line_end": 158
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The commands are explicitly documented as the main workflow and are intended to update dependencies. The risk is real operational impact, not evidence of malicious behavior."
+      },
+      {
+        "title": "Security Fix and Install Commands May Execute Ecosystem Behavior",
+        "description": "The workflow recommends install and audit-fix commands after updates. Package manager installs and fixes can reach registries, run lifecycle scripts, or alter lock files depending on the ecosystem and project configuration.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 203,
+            "line_end": 212
           },
           {
             "file": "SKILL.md",
-            "line_start": 17,
-            "line_end": 19
+            "line_start": 247,
+            "line_end": 275
+          },
+          {
+            "file": "README.md",
+            "line_start": 174,
+            "line_end": 188
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "All 151 instances are documentation examples. Script files use hardcoded package manager commands with no user input injection vectors."
+        "confidence": 0.82,
+        "confidence_reasoning": "The referenced commands are standard dependency operations with known side effects. The skill frames them as legitimate maintenance steps and does not hide their purpose."
       }
     ],
     "low_findings": [
       {
-        "title": "Hardcoded Documentation URLs",
-        "description": "Documentation contains hardcoded URLs to GitHub repositories (taze, npm-check-updates, pip-review). These are reference links, not network requests.",
+        "title": "Shell Wrapper Invokes Requested Tool",
+        "description": "The check-tool helper accepts a tool name and runs its version command. This is a limited diagnostic helper, but it still executes a command chosen by the caller.",
+        "locations": [
+          {
+            "file": "scripts/check-tool.sh",
+            "line_start": 4,
+            "line_end": 14
+          }
+        ],
+        "confidence": 0.66,
+        "confidence_reasoning": "The wrapper is simple and transparent, and a local caller could already run shell commands. The concern is limited to expected local command execution."
+      },
+      {
+        "title": "Static Weak-Crypto Matches Are False Positives",
+        "description": "The reported weak cryptographic algorithm locations are front matter, prose, or dependency-resolution examples. No cryptographic hashing or encryption implementation was found at those locations.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 224,
+            "line_end": 224
+          },
+          {
+            "file": "README.md",
+            "line_start": 7,
+            "line_end": 7
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "Manual review of the cited lines shows ordinary documentation text. There is no algorithm call, cryptographic API, or security-sensitive implementation."
+      },
+      {
+        "title": "Hardcoded URLs Are Documentation References",
+        "description": "The hardcoded URLs point to public GitHub pages for related dependency tools. They are not used in executable code and do not receive local data.",
         "locations": [
           {
             "file": "README.md",
@@ -81,230 +218,190 @@
             "line_end": 491
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "These are legitimate documentation links to related tools on GitHub, not executable network requests."
-      },
-      {
-        "title": "Tool Existence Checks",
-        "description": "Scripts use command -v to check if tools are installed. Standard practice for prerequisite validation.",
-        "locations": [
-          {
-            "file": "scripts/check-tool.sh",
-            "line_start": 12,
-            "line_end": 12
-          },
-          {
-            "file": "scripts/run-taze.sh",
-            "line_start": 9,
-            "line_end": 9
-          }
-        ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.98,
-        "confidence_reasoning": "command -v is a safe POSIX command that checks tool existence without executing code or accessing device files."
+        "confidence": 0.93,
+        "confidence_reasoning": "The URLs appear only in related-tool tables. No network request code or data transfer path was found."
       }
     ],
     "dangerous_patterns": [
       {
-        "title": "Scanner Misidentification - YAML Frontmatter",
-        "description": "Static scanner flagged 'Weak cryptographic algorithm' at YAML frontmatter locations (README.md:7, SKILL.md:3, 224, 432, 436). These are actually 'license: MIT' and version conflict resolution JSON snippets, not cryptographic code.",
+        "title": "External Package Manager Execution",
+        "description": "The skill relies on external package tools to inspect, update, install, and audit dependencies. These commands should be run only in trusted repositories with user review for major updates.",
         "locations": [
           {
-            "file": "README.md",
-            "line_start": 7,
-            "line_end": 7
+            "file": "SKILL.md",
+            "line_start": 96,
+            "line_end": 212
           },
           {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
+            "file": "scripts/run-taze.sh",
+            "line_start": 24,
+            "line_end": 27
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.98,
-        "confidence_reasoning": "Scanner pattern matched 'MD5' in 'MIT' YAML frontmatter and version numbers. No cryptographic algorithms exist in this skill."
+        "confidence": 0.9,
+        "confidence_reasoning": "The command execution pattern is central to the skill and clearly documented. It is risky by capability, but consistent with the declared purpose."
+      },
+      {
+        "title": "Destructive Cleanup Examples",
+        "description": "The emergency repair guidance includes removal of dependency directories, lock files, virtual environments, and module sums. These commands can delete local project state if used without review.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 232,
+            "line_end": 246
+          },
+          {
+            "file": "README.md",
+            "line_start": 231,
+            "line_end": 248
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The listed commands are explicit cleanup examples. They are legitimate recovery actions but can cause data loss in a repository if applied casually."
       }
     ],
     "files_scanned": 4,
     "total_lines": 833,
-    "audit_model": "claude",
-    "audited_at": "2026-01-24T08:29:00.169Z",
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T19:28:57.480Z",
     "risk_factors": [
       "scripts",
       "external_commands",
+      "network",
       "filesystem"
-    ],
-    "risk_factor_evidence": [
-      {
-        "factor": "external_commands",
-        "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 17,
-            "line_end": 19
-          }
-        ]
-      },
-      {
-        "factor": "filesystem",
-        "evidence": [
-          {
-            "file": "scripts/check-tool.sh",
-            "line_start": 12,
-            "line_end": 12
-          },
-          {
-            "file": "scripts/run-taze.sh",
-            "line_start": 9,
-            "line_end": 9
-          }
-        ]
-      },
-      {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "scripts/check-tool.sh",
-            "line_start": 1,
-            "line_end": 23
-          },
-          {
-            "file": "scripts/run-taze.sh",
-            "line_start": 1,
-            "line_end": 27
-          }
-        ]
-      }
     ]
   },
   "content": {
-    "user_title": "Update dependencies across any project",
-    "value_statement": "Managing dependencies across multiple languages is time-consuming and error-prone. This skill automatically detects your project type, applies safe updates while protecting against breaking changes, and runs security audits.",
+    "user_title": "Update Dependencies Safely",
+    "value_statement": "Dependency maintenance is slow and inconsistent across language ecosystems. This skill detects project types, applies safe updates, prompts for risky changes, and runs audit tools.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "dependency updater",
-      "package manager",
+      "package management",
+      "security audit",
       "npm audit",
-      "dependency management",
-      "software dependencies",
-      "update packages",
-      "security audit"
+      "pip audit",
+      "taze updates",
+      "multi-language DevOps"
     ],
     "actual_capabilities": [
-      "Auto-detects project type by scanning for package files (package.json, go.mod, Cargo.toml, etc.)",
-      "Applies safe updates automatically (minor and patch versions) while prompting for major versions",
-      "Respects intentionally pinned versions by skipping fixed dependencies",
-      "Runs security vulnerability audits using ecosystem-specific tools",
-      "Diagnoses and resolves common dependency issues like conflicts and version mismatches"
+      "Detects common package files for Node.js, Python, Go, Rust, Ruby, Java, and .NET projects.",
+      "Classifies dependency changes as fixed, patch, minor, or major updates.",
+      "Applies minor and patch updates automatically when the package ecosystem supports it.",
+      "Prompts users before applying major version updates that may contain breaking changes.",
+      "Runs or recommends ecosystem audit tools such as npm audit, pip-audit, govulncheck, cargo audit, and bundle audit.",
+      "Provides diagnosis guidance for conflicts, peer dependencies, unused dependencies, and duplicate packages."
     ],
     "limitations": [
-      "Does not modify code to fix breaking changes from major version upgrades",
-      "Requires pre-installed package managers and tools for each language ecosystem",
-      "Cannot recover from corrupted node_modules without manual intervention"
+      "It depends on local package managers and update tools being installed.",
+      "It cannot guarantee that minor or patch updates are fully backward compatible.",
+      "It may modify manifests, lock files, and installed dependency directories.",
+      "It does not replace test suites, changelog review, or human approval for major upgrades."
     ],
     "use_cases": [
       {
-        "title": "Maintain personal projects",
-        "description": "Keep your personal projects up-to-date with the latest dependency versions while avoiding breaking changes.",
-        "target_user": "Individual developers"
+        "title": "Routine Project Maintenance",
+        "target_user": "Application developer",
+        "description": "Update routine dependencies, refresh lock files, and review major version prompts before opening a maintenance pull request."
       },
       {
-        "title": "Security compliance",
-        "description": "Regularly audit dependencies for vulnerabilities and receive severity-based recommendations for remediation.",
-        "target_user": "Security-conscious developers"
+        "title": "Security Remediation",
+        "target_user": "Security engineer",
+        "description": "Run dependency audit tools, identify vulnerable packages, and apply safer upgrade paths based on severity."
       },
       {
-        "title": "Team dependency governance",
-        "description": "Apply consistent update policies across multiple repositories with safe-by-default update behavior.",
-        "target_user": "Engineering teams"
+        "title": "Multi-Language Repository Cleanup",
+        "target_user": "Platform engineer",
+        "description": "Detect package ecosystems in a repository and choose the right update workflow for each project area."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Quick update",
-        "prompt": "update my dependencies",
-        "scenario": "Basic dependency update for the current project"
+        "title": "Check for Updates",
+        "scenario": "Beginner dependency scan",
+        "prompt": "Check this project for outdated dependencies. Show what can be updated safely and what needs my approval."
       },
       {
-        "title": "Security audit",
-        "prompt": "audit my dependencies for security vulnerabilities",
-        "scenario": "Check project dependencies for known security issues"
+        "title": "Apply Safe Updates",
+        "scenario": "Routine maintenance",
+        "prompt": "Update minor and patch dependencies only. Do not apply major updates without asking me first."
       },
       {
-        "title": "Diagnosis",
-        "prompt": "my npm install keeps failing, diagnose the issue",
-        "scenario": "Fix broken dependency installation"
+        "title": "Audit Dependencies",
+        "scenario": "Security review",
+        "prompt": "Audit dependencies for vulnerabilities, summarize severity, and recommend the safest fix path."
       },
       {
-        "title": "Specific language",
-        "prompt": "check for outdated Python packages and update them safely",
-        "scenario": "Target a specific language ecosystem"
+        "title": "Resolve Dependency Failure",
+        "scenario": "Advanced troubleshooting",
+        "prompt": "Diagnose why dependency installation is failing. Inspect conflicts, peer dependencies, lock files, and propose a minimal fix."
       }
     ],
     "output_examples": [
       {
-        "input": "update my dependencies",
+        "input": "Update my dependencies in this Node.js project.",
         "output": [
-          "Detected Node.js project with package.json",
-          "Scanning for updates...",
-          "Auto-applied 5 PATCH updates: express (4.19.2 -> 4.19.3), lodash (4.17.21 -> 4.17.24), etc.",
-          "Found 2 MAJOR updates:",
-          "  - react: ^18.0.0 -> ^19.0.0 (breaking changes expected)",
-          "  - axios: ^1.0.0 -> ^1.0.0",
-          "Do you want to update react? [y/N]"
+          "Detected a Node.js project with package.json.",
+          "Applied available patch and minor updates.",
+          "Found two major updates that require approval.",
+          "Recommended running the test suite before committing lock file changes."
         ]
       },
       {
-        "input": "audit my dependencies for security vulnerabilities",
+        "input": "Audit my Python dependencies for security issues.",
         "output": [
-          "Running security audit...",
-          "Critical: 1 vulnerability found",
-          "  - CVE-2024-1234: Prototype pollution in lodash",
-          "  - Fix: Update lodash to >=4.17.24",
-          "High: 2 vulnerabilities found",
-          "  - CVE-2024-5678: XSS in express",
-          "  - CVE-2024-9012: DoS in axios",
-          "Recommendation: Update affected packages immediately"
+          "Detected Python dependency files.",
+          "Checked available audit tooling.",
+          "Reported vulnerabilities by severity.",
+          "Suggested targeted package upgrades and verification steps."
+        ]
+      },
+      {
+        "input": "My dependency install fails after an update.",
+        "output": [
+          "Reviewed the package manager error.",
+          "Identified likely version or peer dependency conflicts.",
+          "Suggested a minimal resolution path.",
+          "Listed cleanup steps only when simpler fixes are not enough."
         ]
       }
     ],
     "best_practices": [
-      "Run dependency updates in a clean git branch and review changes before merging",
-      "Always run tests after major updates to verify compatibility",
-      "Commit lock files (package-lock.json, yarn.lock, go.sum) alongside dependency changes"
+      "Commit or stash work before running dependency updates.",
+      "Review changelogs and migration notes before approving major versions.",
+      "Run installation, audits, and tests before merging dependency changes."
     ],
     "anti_patterns": [
-      "Automatically approving all major version updates without reviewing changelogs",
-      "Ignoring security audit results due to low severity",
-      "Updating fixed/pinned versions that were intentionally locked"
+      "Do not approve every major update without reviewing breaking changes.",
+      "Do not ignore lock file changes after updating dependencies.",
+      "Do not run cleanup commands in a repository with uncommitted work."
     ],
     "faq": [
       {
-        "question": "Does this skill modify my code?",
-        "answer": "No. This skill only updates dependency version numbers in package files. It does not modify application code to adapt to breaking changes from major version upgrades."
+        "question": "Does this skill update dependencies automatically?",
+        "answer": "It can apply minor and patch updates automatically. It should ask before applying major versions."
       },
       {
-        "question": "Is it safe to auto-apply minor and patch updates?",
-        "answer": "Yes. By semantic versioning convention, minor and patch updates are backward compatible. They add features or fix bugs without breaking existing functionality."
+        "question": "Which ecosystems does it support?",
+        "answer": "It covers Node.js, Python, Go, Rust, Ruby, Java, and .NET workflows described in the skill files."
       },
       {
-        "question": "What happens if a major update breaks my application?",
-        "answer": "The skill prompts you to approve each major update individually. Review the changelog before approving. If something breaks, you can revert the change in version control."
+        "question": "Can it fix security vulnerabilities?",
+        "answer": "It can run or recommend ecosystem audit tools and suggest update paths. Some vulnerabilities require manual migration work."
       },
       {
-        "question": "Does this work with monorepos?",
-        "answer": "Yes. For Node.js projects, the skill supports recursive mode via taze -r. For other languages, run the skill in each subdirectory containing a package file."
+        "question": "Will it change my lock files?",
+        "answer": "Yes. Dependency updates and installs can change lock files, manifests, and installed packages."
       },
       {
-        "question": "What security tools does this skill use?",
-        "answer": "It uses ecosystem-specific tools: npm audit (Node.js), pip-audit and safety (Python), govulncheck (Go), cargo audit (Rust), bundle audit (Ruby), and dotnet list package --vulnerable (.NET)."
+        "question": "Is it safe for production repositories?",
+        "answer": "Use it with source control, review major updates, and run tests before merging changes."
       },
       {
-        "question": "Can I use this offline?",
-        "answer": "Partial. Checking for outdated packages works offline. Security audits require network access to fetch vulnerability databases. Tool installation requires internet access."
+        "question": "Does it install missing tools automatically?",
+        "answer": "The skill suggests installation commands for missing tools. Users should approve installations before running them."
       }
     ]
   },
