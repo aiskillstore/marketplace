@@ -1,49 +1,96 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-02-24T19:03:58.936Z",
+    "generated_at": "2026-06-30T17:36:14.190Z",
     "slug": "sickn33-performance-profiling",
     "source_url": "https://github.com/sickn33/antigravity-awesome-skills/tree/main/skills/performance-profiling",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "94658dfcfb6827fa27c8a41bca95f4b1d6b889363667fcf67711981e1efa3e43",
-    "tree_hash": "c06a630e3ef4a6ded2e70dbccfe06ab98eaab7394139d8909dc2d21ad97ede59"
+    "content_hash": "49e685a8fa75c4b110926ea72a2b6033834acdba73f6960483ab85c7c09a0cf0",
+    "tree_hash": "f53e429f20b7b754432e297401e924fb0f89d79dfbc774103c13799444a8d142"
   },
   "skill": {
     "name": "performance-profiling",
-    "description": "Performance profiling principles. Measurement, analysis, and optimization techniques.",
-    "summary": "Measure, analyze, and optimize web application performance using Lighthouse and browser developer tools.",
-    "icon": "📊",
-    "version": "1.0.1",
+    "description": "Performance profiling guidance for measuring web speed, finding bottlenecks, and validating targeted optimizations.",
+    "summary": "Measure Core Web Vitals, analyze bottlenecks, and validate performance improvements.",
+    "icon": "📦",
+    "version": "1.0.0",
     "author": "sickn33",
     "license": "MIT",
     "tags": [
       "performance",
-      "optimization",
+      "profiling",
       "lighthouse",
       "web-vitals",
-      "profiling"
+      "optimization"
     ],
     "supported_tools": [
       "claude",
       "codex",
       "claude-code"
     ],
-    "risk_factors": []
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "filesystem"
+    ],
+    "category": "devops"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Evaluated 11 static security findings. All patterns detected are false positives. The subprocess.run call uses list arguments (not shell=True), preventing command injection. Temp file operations use the safe tempfile module. Documentation examples in SKILL.md are not executable code. The 'cryptographic algorithm' alerts were misidentified keywords. This is a legitimate performance profiling skill with no security concerns.",
-    "risk_factor_evidence": [],
-    "critical_findings": [],
-    "high_findings": [
+    "summary": "Static analysis found external command, network, filesystem, and weak cryptography patterns. Review confirmed legitimate Lighthouse profiling behavior with medium risk from running an external CLI against user-supplied URLs; markdown backticks, example URLs, and the weak cryptography flag are false positives.",
+    "risk_factor_evidence": [
       {
-        "title": "Subprocess Execution",
-        "description": "subprocess.run called at line 22 to execute lighthouse CLI. Arguments passed as list (not shell=True), preventing command injection. User input (URL) is safely passed as direct argument.",
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "scripts/lighthouse_audit.py",
+            "line_start": 22,
+            "line_end": 34
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/lighthouse_audit.py",
+            "line_start": 24,
+            "line_end": 25
+          },
+          {
+            "file": "scripts/lighthouse_audit.py",
+            "line_start": 75,
+            "line_end": 75
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/lighthouse_audit.py",
+            "line_start": 19,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/lighthouse_audit.py",
+            "line_start": 36,
+            "line_end": 39
+          }
+        ]
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "External Lighthouse Command Execution",
+        "description": "The script invokes the hardcoded Lighthouse CLI with subprocess.run and shell execution disabled. This appears legitimate for profiling, but it still runs local external software and depends on the installed Lighthouse binary.",
         "locations": [
           {
             "file": "scripts/lighthouse_audit.py",
@@ -51,44 +98,37 @@
             "line_end": 34
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.9,
-        "confidence_reasoning": "subprocess.run with list arguments is safe from shell injection. No user-controlled command concatenation occurs."
+        "confidence": 0.72,
+        "confidence_reasoning": "The subprocess call is directly present and semantically tied to the skill purpose. The hardcoded executable and shell=False behavior reduce command injection risk."
       },
       {
-        "title": "Cryptographic Algorithm Detection",
-        "description": "Scanner flagged 'measure, analyze, optimize' keywords as cryptographic algorithms. This is a false positive from keyword pattern matching.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 148,
-            "line_end": 148
-          }
-        ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.85,
-        "confidence_reasoning": "Keywords 'measure', 'analyze', 'optimize' are performance terminology, not cryptographic algorithms."
-      }
-    ],
-    "medium_findings": [
-      {
-        "title": "File System Operations",
-        "description": "Temp file creation and cleanup using os module. Legitimate use for storing Lighthouse report output.",
+        "title": "User-Supplied URL Network Access",
+        "description": "The script passes the command-line URL into Lighthouse, causing browser-based network requests to the supplied target. This is expected for audits, but it can reach internal or sensitive URLs if a user provides them.",
         "locations": [
           {
             "file": "scripts/lighthouse_audit.py",
-            "line_start": 14,
-            "line_end": 14
+            "line_start": 24,
+            "line_end": 25
           },
+          {
+            "file": "scripts/lighthouse_audit.py",
+            "line_start": 75,
+            "line_end": 75
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The URL argument is passed directly into the Lighthouse command. The behavior is legitimate for performance testing, but the network target is user controlled."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Temporary Lighthouse Report File",
+        "description": "The script creates a temporary JSON report and deletes it after parsing. If Lighthouse or parsing fails before cleanup, a local report file may remain.",
+        "locations": [
           {
             "file": "scripts/lighthouse_audit.py",
             "line_start": 19,
-            "line_end": 19
+            "line_end": 20
           },
           {
             "file": "scripts/lighthouse_audit.py",
@@ -96,165 +136,230 @@
             "line_end": 39
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "Uses Python's tempfile module for safe temporary file handling with proper cleanup."
+        "confidence": 0.63,
+        "confidence_reasoning": "The temp file lifecycle is visible in the script. The risk is low because the file contains Lighthouse output and is normally removed."
       },
       {
-        "title": "Documentation Shell Examples",
-        "description": "Backtick syntax in documentation showing example commands. These are documentation, not executable code.",
+        "title": "False Positive: Markdown Backticks",
+        "description": "The static analyzer flagged markdown backticks in SKILL.md as shell execution. These lines are documentation examples and workflow text, not executable Ruby or shell code.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 19,
-            "line_end": 19
+            "line_start": 17,
+            "line_end": 17
           },
           {
             "file": "SKILL.md",
-            "line_start": 47,
-            "line_end": 52
+            "line_start": 45,
+            "line_end": 50
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "SKILL.md contains documentation and example syntax, not actual executable shell commands."
-      }
-    ],
-    "low_findings": [
+        "confidence": 0.9,
+        "confidence_reasoning": "The cited content is inside a markdown table and a fenced workflow block. No executable code is present at those locations."
+      },
       {
-        "title": "Hardcoded URL in Documentation",
-        "description": "URL string appears in docstring as usage example. Not actual network code.",
+        "title": "False Positive: Example URL",
+        "description": "The hardcoded https://example.com values are usage examples in documentation and script help text. No evidence found that the skill sends data to that domain.",
         "locations": [
           {
             "file": "scripts/lighthouse_audit.py",
             "line_start": 6,
             "line_end": 6
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 17,
+            "line_end": 17
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "This is a docstring example, not network request code."
+        "confidence": 0.92,
+        "confidence_reasoning": "Both instances are user-facing usage examples. The active network target comes from the user-provided URL, not a hidden hardcoded endpoint."
+      },
+      {
+        "title": "False Positive: Weak Cryptography Pattern",
+        "description": "The static analyzer flagged SKILL.md line 3, but that line is only the skill description. No evidence found of cryptographic code or weak cryptographic algorithm use.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The cited line contains descriptive text only. The reviewed files do not show hashing, encryption, or cryptographic API use."
       }
     ],
-    "dangerous_patterns": [],
+    "dangerous_patterns": [
+      {
+        "title": "subprocess.run Invokes External CLI",
+        "description": "The script runs Lighthouse through subprocess.run. Arguments are passed as a list with no shell, so command injection risk is reduced, but external execution remains a publish-time risk factor.",
+        "locations": [
+          {
+            "file": "scripts/lighthouse_audit.py",
+            "line_start": 22,
+            "line_end": 34
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "The exact external command pattern is present. The surrounding context supports a legitimate audit use case rather than malicious execution."
+      },
+      {
+        "title": "Arbitrary Audit Target URL",
+        "description": "The audit target is taken from the command line and supplied to Lighthouse. Users should avoid running it against internal services or targets they are not authorized to test.",
+        "locations": [
+          {
+            "file": "scripts/lighthouse_audit.py",
+            "line_start": 24,
+            "line_end": 25
+          },
+          {
+            "file": "scripts/lighthouse_audit.py",
+            "line_start": 75,
+            "line_end": 75
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The user-controlled URL path is clear from the script entry point to the Lighthouse arguments. This is normal for the skill, but still requires user caution."
+      }
+    ],
     "files_scanned": 2,
-    "total_lines": 226,
-    "audit_model": "claude",
-    "audited_at": "2026-02-24T19:03:58.936Z",
-    "risk_factors": []
+    "total_lines": 221,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T17:36:14.190Z",
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Profile Web Performance with Lighthouse",
-    "value_statement": "This skill helps developers measure and optimize web application performance using Lighthouse audits and browser developer tools. It provides a structured workflow for identifying bottlenecks and improving Core Web Vitals scores.",
+    "user_title": "Profile Web Performance Bottlenecks",
+    "value_statement": "Slow web experiences reduce engagement and make optimization decisions unclear. This skill guides measurement, bottleneck analysis, Lighthouse audits, and validation steps.",
     "seo_keywords": [
+      "Claude",
+      "Codex",
+      "Claude Code",
       "performance profiling",
       "Lighthouse audit",
       "Core Web Vitals",
-      "web optimization",
-      "LCP INP CLS",
-      "Claude Code",
-      "Codex",
-      "performance testing",
+      "web performance optimization",
       "bundle analysis",
-      "runtime profiling"
+      "runtime profiling",
+      "site speed diagnostics"
     ],
     "actual_capabilities": [
-      "Run Lighthouse performance audits via CLI script",
-      "Analyze Core Web Vitals metrics (LCP, INP, CLS)",
-      "Identify bundle size issues and optimization opportunities",
-      "Apply runtime profiling techniques using DevTools",
-      "Follow a structured 4-step profiling workflow",
-      "Prioritize performance fixes for maximum impact"
+      "Explains Core Web Vitals targets for loading, interactivity, and layout stability.",
+      "Provides a measure, identify, fix, and validate workflow for performance work.",
+      "Maps common symptoms to profiling tools such as Lighthouse and DevTools.",
+      "Guides bundle analysis for large dependencies, duplicate code, and missing splits.",
+      "Includes a Lighthouse helper script that summarizes category scores for a URL.",
+      "Lists quick optimization priorities such as compression, lazy loading, and caching."
     ],
     "limitations": [
-      "Requires Lighthouse CLI to be installed separately",
-      "Cannot profile local development servers without running them",
-      "Performance results vary based on network conditions",
-      "Does not provide real-time monitoring in production"
+      "The helper script requires the Lighthouse CLI to be installed separately.",
+      "The Lighthouse script makes network requests to the URL supplied by the user.",
+      "It provides guidance and basic audit output, not continuous production monitoring.",
+      "It does not replace detailed application-specific profiling or load testing."
     ],
     "use_cases": [
       {
-        "title": "Frontend Developer Optimizing Load Speed",
-        "description": "A frontend developer wants to improve their web app's loading performance. They use the skill to run Lighthouse audits, identify the biggest performance bottlenecks, and apply targeted optimizations.",
-        "target_user": "Frontend developers"
+        "title": "Diagnose a Slow Landing Page",
+        "description": "Run a structured audit and identify whether loading, JavaScript, images, or caching cause the main delay.",
+        "target_user": "Frontend developer"
       },
       {
-        "title": "DevOps Engineer Setting Up CI Performance Checks",
-        "description": "A DevOps engineer wants to add automated performance testing to their CI/CD pipeline. They use the skill's Lighthouse script to run audits on each deployment and fail builds that fall below performance thresholds.",
-        "target_user": "DevOps engineers"
+        "title": "Prepare a Performance Fix Plan",
+        "description": "Turn profiling results into prioritized changes with a clear baseline and validation method.",
+        "target_user": "Engineering lead"
       },
       {
-        "title": "Full-Stack Developer Troubleshooting Runtime Issues",
-        "description": "A full-stack developer notices slow interactions on their web app. They use the skill to profile runtime performance, identify long tasks, and find memory leaks using DevTools Memory tab.",
-        "target_user": "Full-stack developers"
+        "title": "Review Release Readiness",
+        "description": "Check Core Web Vitals, bundle concerns, and Lighthouse scores before shipping a web release.",
+        "target_user": "QA engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Lighthouse Audit",
-        "prompt": "Run a Lighthouse performance audit on https://example.com using the performance-profiling skill. Show me the performance score and main recommendations.",
-        "scenario": "Quick performance check on a live website"
+        "title": "Start a Basic Performance Review",
+        "scenario": "Beginner audit planning",
+        "prompt": "Use the performance-profiling skill to review my web page performance. Help me define a baseline and choose the first tools to run."
       },
       {
-        "title": "Analyze Core Web Vitals",
-        "prompt": "Using the performance-profiling skill, explain what Core Web Vitals (LCP, INP, CLS) measure and provide tips for improving each metric.",
-        "scenario": "Learning about web performance metrics"
+        "title": "Analyze Lighthouse Results",
+        "scenario": "Interpreting audit output",
+        "prompt": "Use the performance-profiling skill to interpret these Lighthouse results. Identify the main bottlenecks and suggest the highest-impact fixes first."
       },
       {
-        "title": "Bundle Optimization Analysis",
-        "prompt": "Apply the performance-profiling skill to analyze a large JavaScript bundle. What common issues should I look for and what are the recommended optimization actions?",
-        "scenario": "Reducing bundle size"
+        "title": "Plan Bundle Optimization",
+        "scenario": "JavaScript size investigation",
+        "prompt": "Use the performance-profiling skill to analyze my bundle report. Find large dependencies, duplicate code, unused code, and code-splitting opportunities."
       },
       {
-        "title": "Performance Workflow Implementation",
-        "prompt": "Using the 4-step profiling workflow from the performance-profiling skill (BASELINE, IDENTIFY, FIX, VALIDATE), help me optimize a slow web application. Start with establishing a baseline.",
-        "scenario": "Systematic performance optimization"
+        "title": "Build a Validation Strategy",
+        "scenario": "Advanced performance workflow",
+        "prompt": "Use the performance-profiling skill to create a validation plan for this performance change. Include baseline metrics, target metrics, test steps, and rollback signals."
       }
     ],
     "output_examples": [
       {
-        "input": "Run Lighthouse audit on my website",
-        "output": "Performance Score: 78/100\n\nKey Findings:\n- LCP: 2.8s (Needs improvement)\n- CLS: 0.05 (Good)\n- INP: 180ms (Good)\n\nRecommendations:\n1. Eliminate render-blocking resources\n2. Properly size images\n3. Reduce JavaScript execution time"
+        "input": "Review a page with poor Lighthouse performance and high LCP.",
+        "output": [
+          "Baseline: Capture Lighthouse and field data before changing code.",
+          "Likely focus: Reduce render-blocking assets, optimize hero image delivery, and check server response time.",
+          "Validation: Re-run Lighthouse and compare LCP, total blocking time, and visual stability."
+        ]
       },
       {
-        "input": "What are the Core Web Vitals thresholds?",
-        "output": "Core Web Vitals Thresholds:\n\n| Metric | Good | Poor |\n|-------|------|------|\n| LCP | < 2.5s | > 4.0s |\n| INP | < 200ms | > 500ms |\n| CLS | < 0.1 | > 0.25 |"
+        "input": "Find quick wins for a JavaScript-heavy route.",
+        "output": [
+          "Check the bundle analyzer for large libraries and duplicate dependencies.",
+          "Split route-level code so unused screens do not load during the initial visit.",
+          "Validate with DevTools coverage and a new Lighthouse run."
+        ]
+      },
+      {
+        "input": "Create a performance investigation workflow for a release candidate.",
+        "output": [
+          "Measure current Core Web Vitals and Lighthouse category scores.",
+          "Profile runtime interactions for long tasks and layout work.",
+          "Document fixes, compare results, and keep the changes that improve user-facing metrics."
+        ]
       }
     ],
     "best_practices": [
-      "Always establish a performance baseline before making changes",
-      "Focus on the biggest bottleneck first rather than micro-optimizations",
-      "Validate improvements with repeated measurements to account for variance"
+      "Measure before changing code, then validate every optimization against the same baseline.",
+      "Prioritize user-visible bottlenecks such as loading, responsiveness, and layout stability.",
+      "Use authorized targets only when running Lighthouse or other network-based audits."
     ],
     "anti_patterns": [
-      "Guessing at performance problems without profiling first",
-      "Optimizing code before identifying the actual bottleneck",
-      "Ignoring real user data in favor of synthetic testing only"
+      "Do not optimize from guesses without profiling data.",
+      "Do not focus on tiny code changes while large assets or blocking scripts dominate load time.",
+      "Do not run audits against private or third-party systems without permission."
     ],
     "faq": [
       {
-        "question": "What tools does this skill use?",
-        "answer": "This skill uses Lighthouse for performance auditing and browser DevTools for runtime profiling. Lighthouse CLI must be installed separately."
+        "question": "What does this skill help measure?",
+        "answer": "It helps measure page load, Core Web Vitals, bundle size, runtime work, memory symptoms, and Lighthouse category scores."
       },
       {
-        "question": "Do I need to install any dependencies?",
-        "answer": "Yes, you need to install Lighthouse CLI globally with: npm install -g lighthouse"
+        "question": "Does it include an executable script?",
+        "answer": "Yes. It includes a Python helper that runs the Lighthouse CLI against a user-supplied URL."
       },
       {
-        "question": "Can this skill profile local websites?",
-        "answer": "Yes, you can run Lighthouse against localhost or any locally running development server."
+        "question": "Is the Lighthouse script required?",
+        "answer": "No. The written workflow can be used without the script, but automated scores require the Lighthouse CLI."
       },
       {
-        "question": "What are Core Web Vitals?",
-        "answer": "Core Web Vitals are Google's standardized metrics: Largest Contentful Paint (LCP), Interaction to Next Paint (INP), and Cumulative Layout Shift (CLS)."
+        "question": "Can it optimize my code automatically?",
+        "answer": "No. It guides investigation and prioritization. Code changes still depend on the application and profiling evidence."
       },
       {
-        "question": "How often should I run performance audits?",
-        "answer": "Run audits during development, before deployments, and regularly in production using Real User Monitoring (RUM)."
+        "question": "What should I check before running the script?",
+        "answer": "Confirm Lighthouse is installed and only audit URLs you own or have permission to test."
       },
       {
-        "question": "What if my performance score is poor?",
-        "answer": "Use the 4-step workflow: establish a baseline, identify the biggest bottleneck, make one targeted fix, then validate the improvement before moving to the next issue."
+        "question": "Which AI tools can use this skill?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },
@@ -276,7 +381,7 @@
       "name": "SKILL.md",
       "type": "file",
       "path": "SKILL.md",
-      "lines": 149
+      "lines": 144
     }
   ]
 }
