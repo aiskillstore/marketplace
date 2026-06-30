@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-27T08:08:26.008Z",
+    "generated_at": "2026-06-30T22:44:58.609Z",
     "slug": "vercel-labs-find-skills",
     "source_url": "https://github.com/vercel-labs/skills/tree/main/skills/find-skills/",
     "source_ref": "main",
@@ -9,23 +9,22 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "2a23f483fc7e34c6f4ff188a65b4cba9d48403cf5b21b27c96f6e3fd8c6d00c9",
-    "tree_hash": "531991fd848d195e31a6f712d981023c36902bba7477644096de9dcad751616f"
+    "tree_hash": "46753c6db43042e8f30b4231dd346d9dc58368cec0450125a7d252660331ca6e"
   },
   "skill": {
     "name": "find-skills",
-    "description": "Helps agents discover, evaluate, recommend, and install skill packages from the open agent skills ecosystem.",
-    "summary": "Find and install relevant agent skills for a user's task.",
+    "description": "Helps agents search the open skills ecosystem, compare candidate skills, and guide users through safe installation choices.",
+    "summary": "Finds relevant agent skills and explains how to evaluate and install them.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "vercel-labs",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
       "skill-discovery",
       "agent-tools",
-      "marketplace-search",
-      "workflow-extension",
-      "skills-cli"
+      "marketplace",
+      "installation",
+      "workflow"
     ],
     "supported_tools": [
       "claude",
@@ -35,13 +34,14 @@
     "risk_factors": [
       "external_commands",
       "network"
-    ]
+    ],
+    "category": "productivity"
   },
   "security_audit": {
     "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static analysis correctly identified external command guidance and public network links, but the weak cryptography alerts are false positives from prose and names. The main risk is that the skill tells agents to run package manager commands and install community skills, including a global install example that skips confirmation prompts. No prompt injection attempt, secret access, data exfiltration, or malicious intent was found in SKILL.md.",
+    "summary": "Static analysis reported many external command patterns and hardcoded URLs, plus weak-cryptography alerts. Review found the weak-cryptography alerts are false positives in prose and examples, while the external command and network findings are legitimate because the skill directs agents to use the Skills CLI and skills.sh. No malicious intent or prompt injection was found, but third-party skill installation with global scope and skipped confirmation warrants a marketplace warning.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -49,17 +49,27 @@
           {
             "file": "SKILL.md",
             "line_start": 23,
+            "line_end": 23
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 27,
             "line_end": 30
           },
           {
             "file": "SKILL.md",
             "line_start": 56,
+            "line_end": 58
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 62,
             "line_end": 64
           },
           {
             "file": "SKILL.md",
             "line_start": 85,
-            "line_end": 93
+            "line_end": 94
           },
           {
             "file": "SKILL.md",
@@ -98,46 +108,46 @@
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "External Package Manager Commands",
-        "description": "The skill instructs agents to run npx skills commands for searching, checking, updating, adding, and initializing skills. This is legitimate for a skill discovery tool, but it can execute package manager code and interact with external package sources.",
+        "title": "Global third-party skill installation with automatic confirmation",
+        "description": "The skill instructs the agent that it can install a selected skill with a global install command and the automatic yes flag. This is not malicious by itself, but it can install untrusted third-party content into the user environment if source reputation checks are skipped.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 96,
+            "line_end": 104
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The install command is explicit and semantically relevant to the skill purpose. Confidence is below very high because the document also tells the agent to verify source reputation before recommending a skill."
+      },
+      {
+        "title": "Network-enabled CLI workflow for searching and adding skills",
+        "description": "The documented workflow uses the Skills CLI and the skills.sh site to discover and install packages. This requires external network access and package manager execution, which creates supply-chain exposure even though the use is expected for this skill.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 23,
-            "line_end": 30
+            "line_end": 32
           },
           {
             "file": "SKILL.md",
-            "line_start": 56,
+            "line_start": 44,
+            "line_end": 46
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 52,
             "line_end": 64
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 132,
-            "line_end": 142
           }
         ],
-        "confidence": 0.82,
-        "confidence_reasoning": "The commands are explicitly documented and are central to the skill workflow. The risk is contextual because the commands are not hidden, but package manager execution can install or run untrusted dependencies."
-      },
-      {
-        "title": "Global Install Example Skips Confirmation",
-        "description": "The skill provides an install command using global installation and automatic yes flags. This can reduce user review before installing community-provided skill packages.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 100,
-            "line_end": 104
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The global and automatic confirmation flags are shown directly in the installation guidance. The surrounding text presents it as an optional user-approved action, so this is elevated risk rather than confirmed malicious behavior."
+        "confidence": 0.74,
+        "confidence_reasoning": "The static network and command findings match the intended workflow. The risk is contextual supply-chain exposure rather than evidence of credential theft or hidden execution."
       }
     ],
     "low_findings": [
       {
-        "title": "Public Skill Directory Links",
-        "description": "The skill links to skills.sh for browsing, leaderboard checks, and learning more about recommended skills. These are expected public network references for a discovery workflow, but they should remain transparent to users.",
+        "title": "Hardcoded marketplace URLs are disclosed user-facing links",
+        "description": "The hardcoded URLs point to skills.sh pages used for browsing and learning more about recommended skills. They are not hidden endpoints and no evidence shows data exfiltration.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -155,12 +165,12 @@
             "line_end": 93
           }
         ],
-        "confidence": 0.94,
-        "confidence_reasoning": "The URLs are visible and point to the skill directory named by the documentation. I did not find evidence that these links transmit secrets or hidden user data."
+        "confidence": 0.91,
+        "confidence_reasoning": "The URLs are visible documentation links to the skill marketplace. No request body, credential handling, or covert destination appears in the reviewed file."
       },
       {
-        "title": "Weak Cryptography Alerts Are False Positives",
-        "description": "Static high-risk weak cryptography alerts appear to match ordinary prose, examples, source names, and category labels. No cryptographic algorithm use or security-sensitive hashing logic is present in the audited file.",
+        "title": "Weak cryptography alerts are false positives in prose",
+        "description": "The weak-cryptography static findings occur in descriptive text, examples, repository names, and category labels. No cryptographic implementation, hashing call, or security-sensitive algorithm selection is present.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -194,26 +204,13 @@
           }
         ],
         "confidence": 0.96,
-        "confidence_reasoning": "The audited file is Markdown guidance and contains no cryptographic implementation. The flagged lines contain descriptive text such as domains, organization names, and categories."
+        "confidence_reasoning": "Line review confirms these are natural-language or markdown examples rather than code. There is no evidence of MD5, SHA-1, DES, RC4, or similar algorithm use."
       }
     ],
     "dangerous_patterns": [
       {
-        "title": "Unattended Global Skill Installation",
-        "description": "The install example uses global scope and skips confirmation prompts. Agents should ask for explicit user approval and prefer reviewed sources before using this pattern.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 100,
-            "line_end": 104
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The command pattern is visible and the flags are explained in the file. It is risky because it can install community code with reduced interactive review."
-      },
-      {
-        "title": "External CLI Execution Through npx",
-        "description": "The workflow relies on npx to run the Skills CLI for discovery and installation. This is expected behavior, but it introduces package manager and network trust boundaries.",
+        "title": "Documented package manager execution",
+        "description": "The skill documents npx-based commands for finding, adding, checking, updating, and initializing skills. These commands should be run only after user intent and package source are verified.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -224,137 +221,147 @@
             "file": "SKILL.md",
             "line_start": 56,
             "line_end": 64
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 100,
+            "line_end": 104
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 132,
+            "line_end": 142
           }
         ],
-        "confidence": 0.83,
-        "confidence_reasoning": "The command examples are explicit and repeated. The risk is not hidden intent, but the normal security exposure of executing external package tooling."
+        "confidence": 0.86,
+        "confidence_reasoning": "The commands are explicit in the documentation and use a package-manager execution path. The pattern is expected but remains security relevant for publication review."
       }
     ],
     "files_scanned": 1,
     "total_lines": 143,
     "audit_model": "codex",
-    "audited_at": "2026-06-27T08:08:26.008Z",
+    "audited_at": "2026-06-30T22:44:58.609Z",
     "risk_factors": [
       "external_commands",
       "network"
     ]
   },
   "content": {
-    "user_title": "Discover Installable Agent Skills",
-    "value_statement": "Users often need a specialized agent capability but do not know which skill to install. This skill guides agents through search, quality checks, recommendation, and installation.",
+    "user_title": "Find and Install Agent Skills",
+    "value_statement": "Users often do not know which agent skill fits a task. This skill searches the skills ecosystem, compares options, and guides safer installation decisions.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "agent skills",
-      "skill discovery",
-      "skills CLI",
-      "AI marketplace",
-      "install skills",
-      "workflow automation",
-      "developer productivity"
+      "Claude skill discovery",
+      "Codex skill discovery",
+      "Claude Code skills",
+      "agent skills marketplace",
+      "find agent skills",
+      "install AI skills",
+      "skills.sh search",
+      "npx skills",
+      "AI workflow tools",
+      "skill recommendations"
     ],
     "actual_capabilities": [
-      "Identifies when a user request may match an installable skill.",
-      "Suggests checking the skills.sh leaderboard before CLI search.",
-      "Provides Skills CLI commands for finding, adding, checking, and updating skills.",
-      "Defines quality checks using install count, source reputation, and GitHub stars.",
-      "Shows how to present skill options with source, install count, command, and link.",
+      "Identifies when a user request may be solved by an installable agent skill.",
+      "Uses skills.sh and the Skills CLI as discovery sources.",
+      "Suggests search terms based on the user domain and task.",
+      "Compares candidate skills using install count, source reputation, and repository signals.",
+      "Presents recommended skills with installation guidance and learning links.",
       "Explains what to do when no matching skill is found."
     ],
     "limitations": [
-      "It depends on external skill listings and CLI results.",
-      "It does not verify package source code or runtime behavior.",
-      "It may recommend community skills that need separate security review.",
-      "It requires user approval before installing new skills."
+      "It depends on live marketplace and CLI results that can change over time.",
+      "It does not verify the full source code of every third-party skill.",
+      "It may miss private, unpublished, or newly released skills.",
+      "Installation commands can modify the user environment and require consent."
     ],
     "use_cases": [
       {
-        "title": "Find a coding helper",
-        "description": "A developer asks for help with React, testing, deployment, or documentation workflows.",
-        "target_user": "Software developer"
+        "title": "Discover a workflow skill",
+        "description": "Find a skill for repeated tasks such as changelogs, reviews, testing, or deployment.",
+        "target_user": "Individual developer"
       },
       {
-        "title": "Extend an agent workflow",
-        "description": "An agent operator wants to add repeatable capabilities instead of using one-off prompts.",
-        "target_user": "AI workflow owner"
+        "title": "Compare trusted skill options",
+        "description": "Review install counts, maintainers, and source reputation before choosing a skill.",
+        "target_user": "Engineering team lead"
       },
       {
-        "title": "Evaluate marketplace options",
-        "description": "A team lead needs a quick shortlist of relevant skills with basic quality signals.",
-        "target_user": "Engineering manager"
+        "title": "Extend an agent setup",
+        "description": "Add relevant capabilities to Claude, Codex, or Claude Code without manually browsing repositories.",
+        "target_user": "AI tooling administrator"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Find a simple skill",
-        "prompt": "Find a skill that helps with writing changelogs. Show the best option and why it fits.",
-        "scenario": "Beginner discovery request"
+        "title": "Find a basic skill",
+        "scenario": "Beginner discovery",
+        "prompt": "Find a skill that helps with writing changelogs. Show me the best option and why it fits."
       },
       {
         "title": "Compare options",
-        "prompt": "Find skills for React performance work. Compare install count, source reputation, and fit.",
-        "scenario": "Intermediate marketplace comparison"
+        "scenario": "Intermediate selection",
+        "prompt": "Search for skills for React performance work. Compare the top options by source reputation and install count."
       },
       {
-        "title": "Check before install",
-        "prompt": "Search for a skill that helps with PR reviews. Verify quality signals before recommending an install command.",
-        "scenario": "Quality-focused recommendation"
+        "title": "Check installation risk",
+        "scenario": "Advanced review",
+        "prompt": "Find a skill for CI debugging, then assess whether I should install it based on maintainer trust and repository signals."
       },
       {
-        "title": "Handle no results",
-        "prompt": "Look for a skill for our internal release workflow. If none exists, suggest a direct plan and a custom skill idea.",
-        "scenario": "Advanced fallback workflow"
+        "title": "Plan a skill rollout",
+        "scenario": "Advanced team workflow",
+        "prompt": "Find skills for documentation, pull request review, and testing. Recommend a safe installation order for a team environment."
       }
     ],
     "output_examples": [
       {
-        "input": "Can you find a skill for end-to-end testing?",
-        "output": "A useful response would name one or more testing skills, explain why each fits, include source reputation, and ask before installation."
+        "input": "Find a skill for pull request reviews.",
+        "output": "The response lists one or more review-focused skills, explains source trust signals, and asks before installing anything."
       },
       {
-        "input": "Is there a skill for creating API docs?",
-        "output": "A useful response would search documentation skills, compare relevant options, and explain any quality concerns before recommending one."
+        "input": "Can you help me make my Next.js app faster?",
+        "output": "The response searches for performance-related skills, summarizes likely matches, and suggests a verified option when available."
       },
       {
-        "input": "I need help with a niche internal workflow.",
-        "output": "A useful response would acknowledge when no matching skill is found, offer direct help, and suggest creating a custom reusable skill."
+        "input": "No matching skill exists for my workflow.",
+        "output": "The response says no suitable skill was found, offers direct help, and suggests creating a custom skill for repeated use."
       }
     ],
     "best_practices": [
-      "Check popular and official sources before recommending unknown community packages.",
-      "Ask for user approval before installing or updating skills.",
-      "Explain quality signals and limitations with every recommendation."
+      "Confirm the user wants marketplace search before running CLI commands.",
+      "Prefer skills from reputable maintainers with visible adoption signals.",
+      "Review source and installation scope before adding a third-party skill."
     ],
     "anti_patterns": [
-      "Do not install a skill only because it appeared in search results.",
-      "Do not use global unattended installation without explicit user approval.",
-      "Do not imply that community skills are fully audited unless evidence exists."
+      "Do not install a skill only because it appears in search results.",
+      "Do not skip user consent before modifying the environment.",
+      "Do not recommend unknown sources without explaining the trust risk."
     ],
     "faq": [
       {
-        "question": "What does this skill help with?",
-        "answer": "It helps agents find, evaluate, recommend, and install skills for user tasks."
+        "question": "What does this skill do?",
+        "answer": "It helps find agent skills that match a user task and explains how to evaluate them."
       },
       {
         "question": "Does it install skills automatically?",
-        "answer": "It provides installation guidance, but agents should ask the user before installing anything."
+        "answer": "It can provide installation guidance, but installation should happen only after user approval."
       },
       {
-        "question": "Which tools does it support?",
+        "question": "Which tools can use it?",
         "answer": "The report lists support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "Does it verify skill security?",
-        "answer": "It suggests basic quality checks, but it does not perform a full security audit."
+        "question": "How does it choose recommendations?",
+        "answer": "It considers task fit, install count, maintainer reputation, and repository trust signals."
       },
       {
-        "question": "Why is the risk level medium?",
-        "answer": "The skill includes external CLI commands and install guidance for community packages."
+        "question": "Can it review the security of every skill?",
+        "answer": "No. It gives selection guidance, but each third-party skill should still be reviewed before installation."
       },
       {
         "question": "What happens when no skill is found?",
-        "answer": "It tells the agent to help directly and suggest creating a custom skill when useful."
+        "answer": "It offers to help with the task directly and may suggest creating a new custom skill."
       }
     ]
   },

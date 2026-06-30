@@ -1,60 +1,65 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-04-23T08:46:28.812Z",
+    "generated_at": "2026-06-30T22:28:52.643Z",
     "slug": "tavily-ai-tavily-search",
     "source_url": "https://github.com/tavily-ai/skills/tree/main/skills/tavily-search/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "608659dbd787944837be91ed798d5f35032f10abe0a45d4802caaa9f2ab5ebfb",
-    "tree_hash": "e2762bd780572418c73247f6582d7d70b7d378e0181df4c789b887cd114c631d"
+    "tree_hash": "87fb026b705d1248cbd481602bec86c6e5df4c42b202cc46930a8c3235f29057"
   },
   "skill": {
     "name": "tavily-search",
-    "description": "Search the web with LLM-optimized results via the Tavily CLI. Use this skill when the user wants to search the web, find articles, look up information, get recent news, discover sources, or says \"search for\", \"find me\", \"look up\", \"what's the latest on\", \"find articles about\", or needs current information from the internet. Returns relevant results with content snippets, relevance scores, and metadata — optimized for LLM consumption. Supports domain filtering, time ranges, and multiple search depths.",
-    "summary": "Web search returning LLM-optimized results with content snippets and relevance scores",
-    "icon": "🔍",
+    "description": "Search the web through the Tavily CLI with LLM-oriented snippets, relevance scores, metadata, domain filters, time ranges, and search depth options.",
+    "summary": "Run Tavily web searches and return structured, LLM-ready source results.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "tavily-ai",
     "license": "MIT",
     "tags": [
       "web-search",
       "research",
-      "information-retrieval",
-      "news",
-      "tavily"
+      "tavily",
+      "current-events",
+      "source-discovery"
     ],
     "supported_tools": [
       "claude",
       "codex",
       "claude-code"
     ],
-    "risk_factors": []
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "filesystem"
+    ],
+    "category": "research"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "All 53 static findings are false positives. The skill is a legitimate web search wrapper for the Tavily CLI. External command patterns are documented CLI usage examples restricted to the `tvly` binary only. Network access is limited to the official Tavily API. No arbitrary command execution, credential exfiltration, or malicious patterns detected. Risk level: SAFE.",
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
-    "files_scanned": 1,
-    "total_lines": 92,
-    "audit_model": "claude",
-    "audited_at": "2026-04-23T08:46:28.812Z",
-    "risk_factors": [],
+    "safe_to_publish": false,
+    "summary": "Static analysis correctly identified a high-risk remote installer pattern: the skill tells agents to run a curl-fetched script through bash before use. Most other detections are false positives from Markdown inline code, option tables, and relative documentation links, but the installer and external network CLI use make this unsafe to publish without changes.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 14,
+            "line_start": 17,
+            "line_end": 17
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 46
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 86,
             "line_end": 86
           }
         ]
@@ -66,6 +71,11 @@
             "file": "SKILL.md",
             "line_start": 17,
             "line_end": 17
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 46
           }
         ]
       },
@@ -74,123 +84,281 @@
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 22,
-            "line_end": 91
+            "line_start": 67,
+            "line_end": 67
           }
         ]
       }
+    ],
+    "critical_findings": [],
+    "high_findings": [
+      {
+        "title": "Remote Install Script Piped To Shell",
+        "description": "Line 17 instructs agents to run curl against an external installer URL and pipe the result directly into bash, followed by tvly login. This is a true positive because it executes unaudited remote code during skill use and creates supply-chain and credential exposure risk. No evidence found that the command is malicious, so this is high risk rather than a confirmed block.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 17,
+            "line_end": 17
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The exact curl-to-bash pattern is present on line 17 and is semantically an installer command. The risk is confirmed, although malicious intent is not proven from the file contents."
+      },
+      {
+        "title": "Mandatory Installation And Login Flow",
+        "description": "Lines 14 through 20 tell the agent to install tvly if missing and not skip the step. Combined with tvly login, this can push users toward executing installer code and starting authentication from a skill instruction rather than a trusted setup flow.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 14,
+            "line_end": 20
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The instruction is explicit and adjacent to the installer command. The security impact depends on runtime tool enforcement and user approval, but the unsafe workflow is clear."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "External Search CLI Sends Queries To Network Service",
+        "description": "The skill is designed to call tvly search commands that send user queries to Tavily and return web results. This is expected behavior for a search skill, but users should know that search terms and included domains may leave the local environment.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 46
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The command examples directly invoke a web search CLI. The network behavior is inherent to the tool, but the file does not show hidden exfiltration beyond intended searches."
+      },
+      {
+        "title": "CLI Supports Writing Search Output To Files",
+        "description": "Line 67 documents an output option that can save results to a file. This is a legitimate feature, but it adds filesystem impact if sensitive search results or raw page content are written to an uncontrolled path.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 67
+          }
+        ],
+        "confidence": 0.66,
+        "confidence_reasoning": "The option is documented in the skill and likely legitimate. The risk is moderate because no unsafe path construction is shown."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Markdown Backticks Misclassified As Shell Execution",
+        "description": "Many external command detections point to inline option names, command examples, and Markdown tables rather than Ruby or shell backtick execution. These are false positives unless copied and run by the agent as intended commands.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 32,
+            "line_end": 47
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 68
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 74,
+            "line_end": 86
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The flagged lines are Markdown fenced code or inline code spans. They are not Ruby backtick execution syntax in an executable source file."
+      },
+      {
+        "title": "Relative Documentation Links Misclassified As Path Traversal",
+        "description": "The ../ sequences on lines 22, 28, 90, and 91 are Markdown links to sibling skill documentation. No file read, write, or traversal operation is present in the skill file.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 22,
+            "line_end": 22
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 28,
+            "line_end": 28
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 90,
+            "line_end": 91
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The context is plain Markdown links, not executable filesystem access. This makes the static path traversal finding a strong false positive."
+      },
+      {
+        "title": "Weak Cryptography Findings Are Not Supported By Context",
+        "description": "The static weak-cryptography detections at lines 3, 51, and 65 do not correspond to cryptographic code. No hash, cipher, signature, or password handling logic is present in SKILL.md.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 51,
+            "line_end": 51
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 65,
+            "line_end": 65
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "Manual review found prose and option-table content on these lines. There is no cryptographic implementation to assess."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "curl Installer Output Executed By bash",
+        "description": "The command on line 17 downloads an installer from https://cli.tavily.com/install.sh and executes it immediately with bash. This pattern prevents review of the downloaded script before execution.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 17,
+            "line_end": 17
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The pipe-to-shell pattern is explicit and complete on one line. This is a well-known dangerous installation pattern."
+      }
+    ],
+    "files_scanned": 1,
+    "total_lines": 92,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T22:28:52.643Z",
+    "risk_factors": [
+      "external_commands",
+      "network",
+      "filesystem"
     ]
   },
   "content": {
-    "user_title": "Search the Web with LLM-Optimized Results",
-    "value_statement": "Finding accurate, current information on the internet is time-consuming. This skill provides AI-ready search results optimized for LLM consumption with relevance scores, content snippets, and domain filtering.",
+    "user_title": "Search The Web With Tavily",
+    "value_statement": "AI agents need current web sources when built-in knowledge is stale. This skill runs Tavily searches and returns structured results with snippets, scores, metadata, and optional filters.",
     "seo_keywords": [
-      "web search",
-      "Claude Code search",
-      "AI research",
       "Tavily search",
-      "LLM search",
-      "information retrieval",
-      "news search",
-      "article search",
+      "web search skill",
+      "AI research",
       "Claude",
-      "Codex"
+      "Codex",
+      "Claude Code",
+      "current information",
+      "source discovery",
+      "LLM search results",
+      "domain filtered search"
     ],
     "actual_capabilities": [
-      "Execute web searches via Tavily CLI with relevance-ranked results",
-      "Filter results by domain, date range, topic, and geographic region",
-      "Retrieve full page content and AI-generated answers alongside results",
-      "Support multiple search depths from ultra-fast to advanced precision",
-      "Output structured JSON optimized for AI processing"
+      "Runs Tavily CLI web searches for user supplied queries.",
+      "Returns JSON-formatted results with snippets, relevance scores, and metadata.",
+      "Supports search depth choices from ultra-fast to advanced.",
+      "Filters results by included or excluded domains.",
+      "Limits results by time range, start date, end date, topic, and country.",
+      "Can request raw page content, image results, or AI answers when supported by the CLI."
     ],
     "limitations": [
-      "Requires Tavily API key and CLI installation on the system",
-      "Results depend on Tavily index coverage; some sources may be unavailable",
-      "Rate limits apply based on Tavily subscription tier"
+      "Requires the Tavily CLI to be installed and authenticated before use.",
+      "Search requests are sent to an external Tavily service.",
+      "Result quality depends on Tavily indexing and the chosen search depth.",
+      "Raw content and image options may increase response size and processing time."
     ],
     "use_cases": [
       {
-        "title": "Research and Fact-Checking",
-        "description": "Quickly gather current information on any topic with relevance-ranked sources and content snippets for verification.",
-        "target_user": "Developers, writers, and analysts who need accurate, cited information"
+        "title": "Current Source Discovery",
+        "description": "Find recent articles, official pages, and relevant sources before writing an answer.",
+        "target_user": "Research assistants"
       },
       {
-        "title": "News Monitoring",
-        "description": "Track recent developments on specific topics, companies, or technologies with time-filtered news results.",
-        "target_user": "Product managers, journalists, and researchers monitoring industry trends"
+        "title": "Domain Focused Fact Checks",
+        "description": "Search trusted domains such as government, company, or publication sites for focused evidence.",
+        "target_user": "Analysts"
       },
       {
-        "title": "Technical Documentation Search",
-        "description": "Find official documentation, API references, and technical articles from trusted domains.",
-        "target_user": "Engineers and developers building integrations or debugging issues"
+        "title": "Development Research",
+        "description": "Find tutorials, documentation, or technical posts with optional raw content for deeper review.",
+        "target_user": "Software developers"
       }
     ],
     "prompt_templates": [
       {
         "title": "Basic Web Search",
-        "prompt": "Search the web for {topic}",
-        "scenario": "When user needs general information or current facts"
+        "scenario": "Beginner search for recent information.",
+        "prompt": "Search the web for recent information about [topic]. Return the most relevant sources with short summaries."
       },
       {
-        "title": "News Search with Date Filter",
-        "prompt": "Search for recent news about {topic} from the past week",
-        "scenario": "When user wants current developments on a topic"
+        "title": "News Search",
+        "scenario": "Find recent news within a time window.",
+        "prompt": "Search for news about [topic] from the past week. Prioritize reliable publishers and include publication context."
       },
       {
-        "title": "Domain-Filtered Search",
-        "prompt": "Search for {topic} from official sources like example.com and developer.example.io",
-        "scenario": "When user needs authoritative or technical sources"
+        "title": "Trusted Domain Search",
+        "scenario": "Limit research to approved domains.",
+        "prompt": "Search for [topic] only on [domains]. Compare the strongest results and note any gaps."
       },
       {
-        "title": "Advanced Research Search",
-        "prompt": "Search for {topic} using advanced depth, include full content and AI answers, max 10 results",
-        "scenario": "When user needs comprehensive research results"
+        "title": "Advanced Source Review",
+        "scenario": "Use deeper search settings and raw content for source evaluation.",
+        "prompt": "Run an advanced search for [topic], include raw content for top sources, and identify the most useful evidence."
       }
     ],
     "output_examples": [
       {
-        "input": "Search the web for 'AI coding assistants 2025'",
-        "output": "Returns ranked results with title, URL, content snippet, and relevance score from recent sources"
+        "input": "Search for recent AI regulation updates in the United States.",
+        "output": "A ranked list of relevant sources with titles, URLs, snippets, dates when available, and notes on why each source matters."
       },
       {
-        "input": "Search for 'rust programming latest news' time-range week topic news",
-        "output": "Returns recent news articles about Rust programming with dates and source credibility indicators"
+        "input": "Find SEC guidance on climate disclosures from official domains.",
+        "output": "Focused results from trusted domains, including official page matches, short summaries, and relevance notes."
+      },
+      {
+        "input": "Look up React hooks tutorials with raw content for the top pages.",
+        "output": "Top tutorial sources with extracted page text summaries, metadata, and suggestions for which source to inspect first."
       }
     ],
     "best_practices": [
-      "Use specific, focused queries under 400 characters for better results",
-      "Filter by trusted domains when researching technical topics",
-      "Choose appropriate search depth: basic for general use, advanced for precision tasks"
+      "Use concise search queries under 400 characters.",
+      "Use domain filters when source trust matters.",
+      "Use time ranges for fast-moving topics and recent events."
     ],
     "anti_patterns": [
-      "Avoid vague queries like 'tell me about technology' - be specific about the topic",
-      "Do not use this for real-time chat autocomplete - use ultra-fast depth only when latency is critical",
-      "Avoid excluding all domains if you need authoritative results - use include-domains instead"
+      "Do not send private, secret, or regulated data as search queries.",
+      "Do not rely on search snippets alone for high-stakes decisions.",
+      "Do not run remote installer commands without reviewing the source and approval path."
     ],
     "faq": [
       {
-        "question": "How do I get started with tavily-search?",
-        "answer": "Install the Tavily CLI with curl -fsSL https://cli.tavily.com/install.sh | bash, then run tvly login with your API key. The skill will then execute searches on your behalf."
+        "question": "What does this skill do?",
+        "answer": "It uses the Tavily CLI to search the web and return structured results for AI research workflows."
       },
       {
-        "question": "What is the difference between search depths?",
-        "answer": "Ultra-fast is fastest with lower relevance, basic is the default balance, and advanced provides the highest relevance at slower speed for precision tasks."
+        "question": "Does it require an external service?",
+        "answer": "Yes. Searches are sent to Tavily, and the CLI must be installed and authenticated."
       },
       {
-        "question": "Can I search for content from specific websites?",
-        "answer": "Yes, use --include-domains to restrict results to specific domains like --include-domains github.com,stackoverflow.com."
+        "question": "Can it search only trusted websites?",
+        "answer": "Yes. It documents include-domain and exclude-domain options for narrowing search results."
       },
       {
-        "question": "How do I get full article content in search results?",
-        "answer": "Add --include-raw-content to your search command to include full page content alongside the search results."
+        "question": "Can it find recent news?",
+        "answer": "Yes. It supports news topic searches and time ranges such as day, week, month, and year."
       },
       {
-        "question": "What happens if my search query is too long?",
-        "answer": "Keep queries under 400 characters. For complex research, break it into multiple focused sub-queries."
+        "question": "Why is the security risk high?",
+        "answer": "The skill tells agents to pipe a remote installer script directly into bash, which can execute unreviewed code."
       },
       {
-        "question": "Is this skill suitable for real-time applications?",
-        "answer": "Use the ultra-fast depth for real-time needs like autocomplete. For research and fact-checking, use basic or advanced depth for better relevance."
+        "question": "Is malicious intent confirmed?",
+        "answer": "No. The audit found a dangerous installation pattern, but no evidence of confirmed malware in the reviewed file."
       }
     ]
   },
