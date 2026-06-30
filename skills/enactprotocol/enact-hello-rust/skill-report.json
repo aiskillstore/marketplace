@@ -1,30 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-23T02:08:14.475Z",
+    "generated_at": "2026-06-30T01:17:17.815Z",
     "slug": "enactprotocol-enact-hello-rust",
     "source_url": "https://github.com/EnactProtocol/enact/tree/main/examples/hello-rust",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "cf1439389a4666b09e6c542a8bb3e33ddd7bc3fabe72c51800d82a87d101e431",
-    "tree_hash": "bb94290251280cb86f28f76dbada8c143bcc9ca96483dd6ff2c760531c0256ef"
+    "content_hash": "9fbb80258ad959876bdb3a3acebd95952509c144e4db71d771c6445a18677a90",
+    "tree_hash": "3dc6637e74539871700c52ad00c5c8556540c40170c883c7ceab0b6fa28cda22"
   },
   "skill": {
-    "name": "enact/hello-rust",
-    "description": "A simple Rust greeting tool that compiles and runs a basic Rust program to greet users by name.",
-    "summary": "Simple Rust tool that compiles and runs a greeting program",
-    "icon": "🦀",
+    "name": "enact-hello-rust",
+    "description": "A minimal Enact skill that compiles and runs a Rust greeting program.",
+    "summary": "Compile and run a small Rust greeting example with Enact.",
+    "icon": "📦",
     "version": "1.0.1",
     "author": "EnactProtocol",
     "license": "MIT",
+    "category": "coding",
     "tags": [
       "rust",
-      "greeting",
-      "cli",
+      "enact",
       "example",
-      "enact"
+      "greeting",
+      "cli"
     ],
     "supported_tools": [
       "claude",
@@ -32,15 +33,14 @@
       "claude-code"
     ],
     "risk_factors": [
-      "external_commands",
-      "scripts"
+      "external_commands"
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static scanner flagged 3 patterns including external_commands and weak cryptographic algorithms. Evaluation reveals all findings are false positives. The external_commands pattern at SKILL.md:33 is a bash documentation example, not code execution. The weak crypto flags at lines 5 and 14 are YAML description fields, not cryptographic code. The skill is a simple greeting tool with no malicious intent.",
+    "summary": "The static weak-cryptography findings at SKILL.md lines 5 and 14 are false positives because those lines contain description text only. The reported shell execution at SKILL.md lines 33-35 is also a usage example, but the skill does define build and runtime commands. The runtime command interpolates user input, so publication should include a warning or verification of safe argument handling.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -51,37 +51,32 @@
             "line_end": 24
           }
         ]
-      },
-      {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 23,
-            "line_end": 24
-          }
-        ]
       }
+    ],
+    "risk_factors": [
+      "external_commands"
     ],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "External Commands Documentation Misidentified",
-        "description": "Static scanner flagged 'Ruby/shell backtick execution' at SKILL.md:33. This is a false positive - the line contains a bash example in a code block: `enact run ./examples/hello-rust --input \"name=Alice\"`. This is documentation showing usage, not actual code execution.",
+        "title": "User Input Interpolated Into Runtime Command",
+        "description": "The runtime command passes the name input through the command template. This is expected for the greeting tool, but safe publication should verify that Enact passes the value as an argument and not through shell parsing.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 33,
-            "line_end": 35
+            "line_start": 24,
+            "line_end": 24
           }
         ],
-        "confidence": 0.85,
-        "confidence_reasoning": "The flagged content is clearly a bash command example within a markdown code block, not Ruby code or backtick execution. No command injection risk exists in documentation."
-      },
+        "confidence": 0.62,
+        "confidence_reasoning": "Line 24 clearly references the name input in a command template. I did not find evidence of malicious intent, and exploitability depends on Enact command execution semantics."
+      }
+    ],
+    "low_findings": [
       {
-        "title": "YAML Description Fields Misidentified as Cryptographic Algorithms",
-        "description": "Static scanner flagged 'Weak cryptographic algorithm' at SKILL.md:5 and 14. This is a false positive - both lines are simple YAML description fields: `description: \"A simple Rust greeting tool\"` and `description: \"Name to greet\"`. No cryptographic algorithms are present in this skill.",
+        "title": "False Positive Weak Cryptography Finding",
+        "description": "Static analysis flagged weak cryptography at two metadata description lines. Those lines only describe the skill and input field, and no cryptographic algorithm or crypto API appears there.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -94,136 +89,162 @@
             "line_end": 14
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "These are standard YAML metadata fields containing plain text descriptions. No cryptographic functions, encryption, hashing, or related code exists in the skill files."
+        "confidence": 0.98,
+        "confidence_reasoning": "The cited lines are plain YAML description strings. There is no evidence of hashing, encryption, or any cryptographic operation at those locations."
+      },
+      {
+        "title": "False Positive Shell Execution in Usage Example",
+        "description": "Static analysis flagged the fenced bash example as shell execution. The cited lines document how to run the skill and are not executed automatically by the skill definition.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 33,
+            "line_end": 35
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The pattern appears inside a Markdown code fence under the Usage heading. It is documentation, although it still shows that users run the skill through an external CLI."
       }
     ],
-    "low_findings": [],
-    "dangerous_patterns": [],
+    "dangerous_patterns": [
+      {
+        "title": "External Build and Runtime Commands",
+        "description": "The skill builds Rust source with rustc and runs the compiled binary. This is normal for the skill purpose, but it requires execution privileges in the Enact runtime.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 23,
+            "line_end": 24
+          }
+        ],
+        "confidence": 0.85,
+        "confidence_reasoning": "The build and command fields are explicit in the skill metadata. They are legitimate for this example but remain relevant execution-risk evidence."
+      }
+    ],
     "files_scanned": 2,
     "total_lines": 43,
-    "audit_model": "claude",
-    "audited_at": "2026-01-23T02:08:14.475Z",
-    "risk_factors": [
-      "external_commands",
-      "scripts"
-    ]
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T01:17:17.815Z"
   },
   "content": {
-    "user_title": "Run Rust greeting programs",
-    "value_statement": "Users who need simple compiled Rust executables can use this skill to build and run basic Rust programs that accept command-line arguments and produce greeting output.",
+    "user_title": "Run a Rust Greeting Tool",
+    "value_statement": "Quick Rust examples help developers verify Enact skill execution. This skill compiles a small Rust program and returns a greeting from a name input.",
     "seo_keywords": [
-      "Rust",
-      "greeting tool",
-      "CLI",
-      "command line",
-      "compiled",
-      "enact",
-      "executable",
-      "🦀",
       "Claude",
       "Codex",
-      "Claude Code"
+      "Claude Code",
+      "Rust skill",
+      "Enact skill",
+      "greeting tool",
+      "Rust example",
+      "CLI automation",
+      "developer demo",
+      "hello rust"
     ],
     "actual_capabilities": [
-      "Compiles Rust source code using rustc",
-      "Runs compiled Rust executables with command-line arguments",
-      "Produces greeting output with the provided name",
-      "Uses Enact protocol for skill execution"
+      "Accepts a name input and uses World as the default value.",
+      "Builds hello.rs with rustc inside a Rust slim image.",
+      "Runs the compiled greeting binary through the Enact command field.",
+      "Prints a simple Rust greeting for the provided name.",
+      "Includes an Enact CLI usage example for local testing."
     ],
     "limitations": [
-      "Only runs pre-defined Rust code in hello.rs",
-      "Cannot compile arbitrary Rust source files",
-      "No network or filesystem access beyond the defined build and run commands",
-      "Simple greeting output only, no complex logic or external dependencies"
+      "It only produces a greeting and does not perform broader Rust project tasks.",
+      "It depends on Enact runtime support for container build and command execution.",
+      "It does not validate or sanitize the name beyond passing it to the command.",
+      "It is an example skill, not a full application template."
     ],
     "use_cases": [
       {
-        "title": "Learn Rust basics",
-        "description": "New Rust developers can see how a simple Rust program reads command-line arguments and produces output.",
-        "target_user": "Rust beginners"
+        "title": "Verify Enact Setup",
+        "description": "Run a minimal Rust skill to confirm local Enact execution works.",
+        "target_user": "Developers installing Enact"
       },
       {
-        "title": "Build simple CLI tools",
-        "description": "Developers can use this as a template for creating basic Rust CLI tools that accept user input via arguments.",
-        "target_user": "CLI tool developers"
+        "title": "Teach Skill Basics",
+        "description": "Show how a skill defines input, output, build, and command fields.",
+        "target_user": "Technical educators"
       },
       {
-        "title": "Enact protocol demonstration",
-        "description": "Users exploring the Enact protocol can study this minimal example to understand skill definition structure.",
-        "target_user": "Enact protocol users"
+        "title": "Start a Rust Skill",
+        "description": "Use the small example as a starting point for a simple Rust command skill.",
+        "target_user": "Rust developers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic greeting",
-        "prompt": "Use the enact/hello-rust skill to greet me.",
-        "scenario": "Simple invocation to get a default greeting"
+        "title": "Run the Example",
+        "scenario": "Beginner test",
+        "prompt": "Run the enact-hello-rust skill with the name Alice and show the greeting result."
       },
       {
-        "title": "Custom name greeting",
-        "prompt": "Use the enact/hello-rust skill to greet Alice.",
-        "scenario": "Providing a specific name as input"
+        "title": "Explain the Skill",
+        "scenario": "Learning the structure",
+        "prompt": "Explain how this Rust Enact skill uses its input schema, build command, runtime command, and output."
       },
       {
-        "title": "Interactive conversation",
-        "prompt": "Greet me using the Rust greeting tool. My name is Bob.",
-        "scenario": "Natural language request for a greeting"
+        "title": "Customize the Greeting",
+        "scenario": "Small modification",
+        "prompt": "Update the greeting behavior to include a short welcome phrase while keeping the same input and output shape."
       },
       {
-        "title": "Multiple greetings",
-        "prompt": "Show me how to use the Rust greeting skill to greet multiple people one by one.",
-        "scenario": "Using the skill repeatedly with different inputs"
+        "title": "Review Command Safety",
+        "scenario": "Advanced review",
+        "prompt": "Review the command template for user input handling and recommend a safer argument passing approach if needed."
       }
     ],
     "output_examples": [
       {
-        "input": "name=Alice",
-        "output": [
-          "Hello, Alice! 🦀"
-        ]
+        "input": "Name input set to Alice.",
+        "output": "The skill returns a greeting for Alice from the Rust program."
       },
       {
-        "input": "name=World",
+        "input": "No name input is provided.",
+        "output": "The skill uses the default name and returns a greeting for World."
+      },
+      {
+        "input": "A developer asks how the example works.",
         "output": [
-          "Hello, World! 🦀"
+          "Describes the Rust source file.",
+          "Explains the build and runtime commands.",
+          "Notes the single name input and greeting output."
         ]
       }
     ],
     "best_practices": [
-      "Use descriptive names when invoking the skill for personalized greetings",
-      "Review the SKILL.md to understand the input schema before use",
-      "Chain multiple skill calls together for more complex workflows"
+      "Use simple names when testing the command template.",
+      "Review runtime argument handling before adapting this example for untrusted input.",
+      "Keep the input and output schema aligned with the Rust program behavior."
     ],
     "anti_patterns": [
-      "Do not expect complex computation or external API calls",
-      "Avoid using this skill for production greeting services",
-      "Do not modify the source code through skill invocation"
+      "Do not treat this example as a full Rust project generator.",
+      "Do not pass untrusted shell metacharacters without checking runtime escaping.",
+      "Do not add unrelated filesystem or network access to a greeting example."
     ],
     "faq": [
       {
         "question": "What does this skill do?",
-        "answer": "This skill compiles and runs a simple Rust program that greets you by name. It takes a name input and outputs Hello, {name}! 🦀."
+        "answer": "It compiles a small Rust program and runs it to print a greeting for a provided name."
       },
       {
-        "question": "Can I customize the greeting message?",
-        "answer": "No. The greeting message is hardcoded in the Rust source code. You can only change the name parameter."
+        "question": "Which tools can use it?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "What input does this skill accept?",
-        "answer": "The skill accepts a 'name' parameter (string) with a default value of 'World' if not provided."
+        "question": "Does it require Rust?",
+        "answer": "The skill uses a Rust container image and builds the included hello.rs file with rustc."
       },
       {
-        "question": "Does this skill make network requests?",
-        "answer": "No. This skill only compiles and runs local Rust code with no network access."
+        "question": "Can it greet different names?",
+        "answer": "Yes. It accepts a name input and defaults to World when no name is provided."
       },
       {
-        "question": "Can I use this with other skills?",
-        "answer": "Yes, you can chain this skill with other skills in a conversation. The output can be referenced in subsequent skill calls."
+        "question": "Is it safe to publish?",
+        "answer": "It appears publishable with a medium warning because it executes commands and interpolates input into the runtime command."
       },
       {
-        "question": "What tools support this skill?",
-        "answer": "This skill works with Claude, Codex, and Claude Code. The skill definition follows the Enact protocol specification."
+        "question": "Is this a production Rust template?",
+        "answer": "No. It is a minimal example for learning and testing Enact skill execution."
       }
     ]
   },

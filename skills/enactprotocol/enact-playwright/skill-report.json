@@ -1,29 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-23T02:13:23.769Z",
+    "generated_at": "2026-06-30T00:22:01.389Z",
     "slug": "enactprotocol-enact-playwright",
     "source_url": "https://github.com/EnactProtocol/enact/tree/main/test-tools/playwright",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "30da272b159f6cf6a745e43c80fd016a2aabc40cf2c28c832318dc6c9d66e960",
-    "tree_hash": "d40a555ec976d2cc0228a022b78372b616303029250a7c9c5d8a26a5accc6eee"
+    "content_hash": "df0b26a858a67da8df210deefabe72fe3dfb28ad435d93daf110dd90c3174445",
+    "tree_hash": "c99beb03039ce5eb7b89040541719bfece7663f6a3c14486d2066a8250b1efa3"
   },
   "skill": {
-    "name": "enact/playwright",
-    "description": "Browser automation tool using Playwright - captures screenshots and extracts content from web pages",
-    "summary": "Browser automation tool using Playwright for capturing screenshots and extracting text or HTML content from web pages",
+    "name": "enact-playwright",
+    "description": "Use Playwright to load web pages, capture screenshots, and extract text or HTML from CSS-selected elements.",
+    "summary": "Automates browser page capture and content extraction with Playwright.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "EnactProtocol",
     "license": "MIT",
+    "category": "coding",
     "tags": [
-      "browser-automation",
       "playwright",
+      "browser-automation",
       "screenshots",
-      "web-scraping"
+      "web-testing",
+      "content-extraction"
     ],
     "supported_tools": [
       "claude",
@@ -31,34 +33,72 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
+      "external_commands",
       "filesystem",
       "network"
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Static scanner flagged 16 potential issues, but all findings are false positives. The code uses safe JavaScript template literals for logging (not shell backticks), empty string fields (not weak crypto), and standard fs operations for legitimate browser path detection. The skill is a standard Playwright browser automation tool with no malicious patterns.",
+    "safe_to_publish": false,
+    "summary": "Static command findings in run.js are mostly false positives because they are JavaScript template literals used for logging. However, SKILL.md interpolates user-controlled inputs into a runtime command string, which may allow shell command injection depending on Enact execution semantics. The skill also intentionally performs arbitrary browser navigation, so publication should wait for safer argument handling and network-scope guidance.",
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "filesystem",
+      "network"
+    ],
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 6,
+            "line_end": 8
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 7,
+            "line_end": 8
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 46,
+            "line_end": 55
+          }
+        ]
+      },
       {
         "factor": "filesystem",
         "evidence": [
           {
             "file": "run.js",
-            "line_start": 29,
-            "line_end": 29
+            "line_start": 30,
+            "line_end": 30
           },
           {
             "file": "run.js",
-            "line_start": 30,
-            "line_end": 30
+            "line_start": 29,
+            "line_end": 29
           }
         ]
       },
       {
         "factor": "network",
         "evidence": [
+          {
+            "file": "run.js",
+            "line_start": 48,
+            "line_end": 48
+          },
           {
             "file": "SKILL.md",
             "line_start": 48,
@@ -78,42 +118,63 @@
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
+    "high_findings": [
       {
-        "title": "Filesystem Access for Browser Detection",
-        "description": "Code accesses /ms-playwright directory to locate Chromium executable. Legitimate use for browser automation.",
-        "locations": [
-          {
-            "file": "run.js",
-            "line_start": 29,
-            "line_end": 30
-          }
-        ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "fs.existsSync and fs.readdirSync are standard Node.js operations for checking browser paths in Docker environments. No sensitive files accessed."
-      },
-      {
-        "title": "Hardcoded URLs in Documentation",
-        "description": "Documentation uses example.com URLs for usage examples. Standard practice, no external network calls made.",
+        "title": "User-Controlled Command Argument Interpolation",
+        "description": "SKILL.md defines a runtime command that inserts url, action, and selector directly into a command string. If the runner executes this through a shell, a crafted value containing a single quote could escape the quoted argument and execute unintended shell syntax.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 48,
-            "line_end": 54
+            "line_start": 8,
+            "line_end": 8
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.98,
-        "confidence_reasoning": "URLs are example domain references in markdown documentation only. No network requests are made by the skill code itself."
+        "confidence": 0.78,
+        "confidence_reasoning": "The manifest clearly interpolates user-controlled fields into a command string. Exploitability depends on the Enact runner's command parsing and shell execution behavior, which is not shown in these files."
       }
     ],
-    "low_findings": [],
-    "dangerous_patterns": [
+    "medium_findings": [
       {
-        "title": "Template Literal Misidentification",
-        "description": "Static scanner misidentified JavaScript template literals as shell backtick execution. All are console.log statements.",
+        "title": "Arbitrary URL Browser Navigation",
+        "description": "The skill accepts a user-provided URL and passes it to page.goto. In a networked execution environment, this can be used to request internal hosts, metadata endpoints, or private web applications that the caller could not otherwise reach.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 15
+          },
+          {
+            "file": "run.js",
+            "line_start": 47,
+            "line_end": 48
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The URL parameter is documented as user input and is passed directly to Playwright navigation. This is an expected feature, but it creates SSRF-style exposure in privileged networks."
+      },
+      {
+        "title": "Remote Page Content Extraction",
+        "description": "The skill can extract text, HTML, or screenshots from the loaded page. This is intended behavior, but it can expose sensitive page content when used against authenticated, private, or internal URLs.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 27
+          },
+          {
+            "file": "run.js",
+            "line_start": 51,
+            "line_end": 69
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The action enum and implementation directly support screenshot, HTML, and text extraction. The data exposure risk depends on what pages the execution environment can access."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "False Positive: Template Literal Logging",
+        "description": "The static analyzer flagged run.js lines 16, 17, 18, 37, and 47 as shell backtick execution. These are JavaScript template literals passed to console.log, not command execution, although they can still log user-provided URL and selector values.",
         "locations": [
           {
             "file": "run.js",
@@ -131,19 +192,13 @@
             "line_end": 47
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 1,
-        "confidence_reasoning": "Lines contain only console.log with template literals for user-friendly output. No shell or Ruby backtick execution present."
+        "confidence": 0.96,
+        "confidence_reasoning": "The file is JavaScript and the flagged syntax is inside console.log calls. No child_process, exec, spawn, or shell evaluation appears at those lines."
       },
       {
-        "title": "Empty String Field Misidentified as Weak Crypto",
-        "description": "Static scanner flagged empty package.json description field and YAML front matter as weak cryptographic algorithms.",
+        "title": "False Positive: Documentation Examples and Crypto Pattern",
+        "description": "The example.com URLs in SKILL.md are usage examples, not outbound calls by themselves. The weak cryptographic algorithm findings at lines 4, 15, 18, and 26 have no supporting evidence because those lines describe browser automation fields and do not contain cryptographic code.",
         "locations": [
-          {
-            "file": "package.json",
-            "line_start": 11,
-            "line_end": 11
-          },
           {
             "file": "SKILL.md",
             "line_start": 4,
@@ -152,178 +207,188 @@
           {
             "file": "SKILL.md",
             "line_start": 15,
-            "line_end": 15
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 18,
             "line_end": 18
           },
           {
             "file": "SKILL.md",
             "line_start": 26,
             "line_end": 26
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 48,
+            "line_end": 54
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 1,
-        "confidence_reasoning": "These lines contain empty strings, field names, and YAML front matter values - not cryptographic algorithms. No encryption code present."
+        "confidence": 0.94,
+        "confidence_reasoning": "The cited lines contain descriptions and example commands only. No hash, cipher, digest, random generator, or cryptographic library usage is present in the referenced locations."
+      },
+      {
+        "title": "Limited Filesystem Discovery for Browser Path",
+        "description": "run.js reads the /ms-playwright directory to locate the Chromium executable. This filesystem access is narrowly scoped and does not read user files, but it should still be documented because the skill performs local directory inspection.",
+        "locations": [
+          {
+            "file": "run.js",
+            "line_start": 29,
+            "line_end": 30
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The filesystem calls are limited to existsSync and readdirSync on a fixed Playwright image path. No user-controlled path or broad filesystem traversal appears in the inspected code."
       }
     ],
-    "files_scanned": 3,
-    "total_lines": 160,
-    "audit_model": "claude",
-    "audited_at": "2026-01-23T02:13:23.769Z",
-    "risk_factors": [
-      "filesystem",
-      "network"
-    ]
+    "dangerous_patterns": [
+      {
+        "title": "Shell-Sensitive User Input in Command String",
+        "description": "The command field combines user-controlled parameters with shell-style quoting. Use argv arrays, structured argument passing, or strict escaping before publishing.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 8,
+            "line_end": 8
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The command string contains direct placeholders for user input. The risk is high if the platform evaluates the command through a shell."
+      },
+      {
+        "title": "Unrestricted Browser Navigation",
+        "description": "The implementation navigates to caller-supplied URLs without allowlists, scheme restrictions, or private network blocking.",
+        "locations": [
+          {
+            "file": "run.js",
+            "line_start": 48,
+            "line_end": 48
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The code passes the supplied URL directly to page.goto. No validation or network policy is visible in the scanned files."
+      }
+    ],
+    "files_scanned": 2,
+    "total_lines": 144,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T00:22:01.389Z"
   },
   "content": {
-    "user_title": "Capture screenshots and extract web content",
-    "value_statement": "Browser automation is essential for testing, data extraction, and visual verification. This skill provides a reliable way to capture screenshots and extract text or HTML content from any web page using Playwright.",
+    "user_title": "Automate Browser Checks with Playwright",
+    "value_statement": "Teams need fast browser checks without writing a custom script. This skill opens a page, captures screenshots, and extracts text or HTML from selected elements.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "Playwright",
-      "browser automation",
-      "screenshot tool",
-      "web scraping",
-      "text extraction",
-      "HTML extraction",
-      "web testing"
+      "Playwright automation",
+      "browser screenshots",
+      "web page extraction",
+      "CSS selector testing",
+      "HTML capture",
+      "headless browser",
+      "web QA"
     ],
     "actual_capabilities": [
-      "Navigate to any URL and wait for page load",
-      "Capture full-page screenshots in base64 format",
-      "Extract text content from page or specific elements",
-      "Extract HTML markup from specific DOM elements",
-      "Target elements using CSS selectors"
+      "Navigate to a supplied web page URL in headless Chromium.",
+      "Capture a full-page screenshot and return it as encoded image data.",
+      "Extract text content from the full page or a CSS-selected element.",
+      "Extract inner HTML from the full page or a CSS-selected element.",
+      "Use Playwright Core with a Chromium browser from the Playwright container image."
     ],
     "limitations": [
-      "Only supports Chromium browser",
-      "Cannot interact with pages (no clicks, typing, or form submission)",
-      "Cannot execute JavaScript on target pages",
-      "Cannot handle authentication or login flows"
+      "It does not perform multi-step browser workflows or form submissions.",
+      "It does not validate whether a URL points to a public or private network.",
+      "It does not save screenshots as files by itself.",
+      "It relies on the available Chromium installation inside the runtime image."
     ],
     "use_cases": [
       {
-        "title": "Visual regression testing",
-        "description": "Take screenshots of web pages to compare against baseline images for visual regression testing.",
-        "target_user": "QA engineers and developers"
+        "title": "Check a Public Page Render",
+        "description": "Capture a screenshot of a deployed page to verify layout, visible content, and page load behavior.",
+        "target_user": "Frontend developer"
       },
       {
-        "title": "Content extraction for analysis",
-        "description": "Extract text or HTML content from web pages for downstream processing or analysis.",
-        "target_user": "Data scientists and researchers"
+        "title": "Extract Page Copy for Review",
+        "description": "Pull text from a landing page, documentation page, or selected element for review in an AI workflow.",
+        "target_user": "Content reviewer"
       },
       {
-        "title": "Documentation and reporting",
-        "description": "Capture screenshots of web pages for documentation, reports, or presentations.",
-        "target_user": "Technical writers and analysts"
+        "title": "Inspect Generated Markup",
+        "description": "Extract inner HTML from a specific selector to compare rendered structure with expected output.",
+        "target_user": "QA engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Simple screenshot",
-        "prompt": "Take a screenshot of https://example.com",
-        "scenario": "Basic screenshot capture"
+        "title": "Capture Page Text",
+        "scenario": "Beginner page inspection",
+        "prompt": "Open the public page I provide and extract the main text from the body element."
       },
       {
-        "title": "Extract text from element",
-        "prompt": "Get the text content from the main heading on https://example.com using the selector 'h1'",
-        "scenario": "Targeted text extraction"
+        "title": "Screenshot a Deployed Page",
+        "scenario": "Visual review",
+        "prompt": "Take a full-page screenshot of this public URL so I can review the rendered layout."
       },
       {
-        "title": "Extract HTML content",
-        "prompt": "Extract the HTML content of the article section from https://example.com/blog/article",
-        "scenario": "HTML markup extraction"
+        "title": "Extract a Specific Element",
+        "scenario": "Focused content review",
+        "prompt": "Open this page and extract the text from the CSS selector I provide."
       },
       {
-        "title": "Full page screenshot with selector",
-        "prompt": "Take a screenshot of the product gallery on https://example.com/shop/product using selector '.product-gallery'",
-        "scenario": "Partial page screenshot"
+        "title": "Compare Rendered Markup",
+        "scenario": "Advanced QA inspection",
+        "prompt": "Load this public test page, extract the inner HTML for the target selector, and summarize structural differences from my expected component output."
       }
     ],
     "output_examples": [
       {
-        "input": "Take a screenshot of https://example.com",
-        "output": [
-          "Starting Playwright...",
-          "URL: https://example.com",
-          "Action: screenshot",
-          "Selector: body",
-          "Using browser at: /ms-playwright/chromium-XXXX/chrome-linux/chrome",
-          "Navigating to https://example.com...",
-          "Page loaded successfully",
-          "SCREENSHOT_START",
-          "[base64-encoded-image-data]",
-          "SCREENSHOT_END"
-        ]
+        "input": "Extract body text from a public documentation page.",
+        "output": "The result contains the visible text from the page body, trimmed for direct review."
       },
       {
-        "input": "Get the text from the heading on https://example.com",
-        "output": [
-          "Example Domain"
-        ]
+        "input": "Capture a screenshot of a public staging page.",
+        "output": "The result contains a full-page screenshot payload with start and end markers for downstream rendering."
       },
       {
-        "input": "Extract the HTML from the main content on https://example.com",
-        "output": [
-          "<div>",
-          "  <h1>Example Domain</h1>",
-          "  <p>This domain is for use in illustrative examples...</p>",
-          "</div>"
-        ]
+        "input": "Extract inner HTML from a heading or content container.",
+        "output": "The result contains the selected element markup so a reviewer can inspect rendered structure."
       }
     ],
     "best_practices": [
-      "Use specific CSS selectors to target exact elements for extraction",
-      "Handle screenshots as base64-encoded strings for easy transmission",
-      "Set appropriate timeout values for slow-loading pages",
-      "Close browsers properly with try-finally blocks to prevent resource leaks"
+      "Use public URLs or controlled test environments unless the runtime is isolated from private networks.",
+      "Provide a narrow CSS selector when you only need one element.",
+      "Use screenshot mode for layout checks and text mode for content review."
     ],
     "anti_patterns": [
-      "Do not use this skill to scrape websites that prohibit automated access",
-      "Avoid capturing screenshots of pages with sensitive or personal information",
-      "Do not rely on this for interactive web testing that requires user simulation",
-      "Avoid extracting content from pages behind authentication without proper credentials"
+      "Do not use it to browse internal services from a privileged network.",
+      "Do not pass untrusted selector or URL values until command argument handling is hardened.",
+      "Do not rely on it for complex workflows that require clicks, authentication, or stateful browser sessions."
     ],
     "faq": [
       {
-        "question": "What browsers are supported?",
-        "answer": "This skill uses Chromium via Playwright. Firefox and WebKit are not currently supported."
+        "question": "What browser does this skill use?",
+        "answer": "It uses Playwright Core with Chromium from the Microsoft Playwright container image."
       },
       {
-        "question": "Can I interact with pages (click, type)?",
-        "answer": "No, this skill only supports navigation, screenshot capture, and content extraction. Use a different tool for interactive browser automation."
+        "question": "Can it take screenshots?",
+        "answer": "Yes. It can capture a full-page screenshot and return encoded image data."
       },
       {
-        "question": "How are screenshots delivered?",
-        "answer": "Screenshots are output as base64-encoded strings wrapped between SCREENSHOT_START and SCREENSHOT_END markers."
+        "question": "Can it extract only one part of a page?",
+        "answer": "Yes. Provide a CSS selector to target a specific element for text or HTML extraction."
       },
       {
-        "question": "What is the default selector?",
-        "answer": "The default CSS selector is 'body', which captures the entire page content."
+        "question": "Does it crawl multiple pages?",
+        "answer": "No. The implementation loads one URL per run and performs one selected action."
       },
       {
-        "question": "Can I extract content from dynamic pages?",
-        "answer": "This skill waits for DOM content to load but does not wait for JavaScript execution or network idle. Use the text action for static content extraction."
+        "question": "Is it safe for private network URLs?",
+        "answer": "Use caution. The current implementation does not block private network destinations."
       },
       {
-        "question": "Is this skill safe to use?",
-        "answer": "Yes, this skill runs in headless mode with no user interaction. It only navigates to URLs you specify and extracts content locally."
+        "question": "Why is publication not recommended yet?",
+        "answer": "The manifest interpolates user inputs into a command string and needs safer argument handling before marketplace release."
       }
     ]
   },
   "file_structure": [
-    {
-      "name": "package.json",
-      "type": "file",
-      "path": "package.json",
-      "lines": 16
-    },
     {
       "name": "run.js",
       "type": "file",

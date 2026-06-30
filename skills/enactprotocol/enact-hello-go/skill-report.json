@@ -1,30 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-23T02:02:57.165Z",
+    "generated_at": "2026-06-30T01:08:50.547Z",
     "slug": "enactprotocol-enact-hello-go",
     "source_url": "https://github.com/EnactProtocol/enact/tree/main/examples/hello-go",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "536da2f691b4eb54e3193c9e589059653425510c4153bd73818ce1565170438f",
-    "tree_hash": "9172805e061a9ec14e259db8a9445fd946c139fe09173eeb3f857cebb401821b"
+    "content_hash": "d85d10d4a0ba0766bdfbed084642e745f48b1fea1abcb8ec444c95fb31459cb9",
+    "tree_hash": "3d3af9c14d7a1d3745119fd0d96fd433a407f8c7e979e1620060ed7673d26382"
   },
   "skill": {
-    "name": "enact/hello-go",
-    "description": "A simple Go greeting tool that prints personalized greetings. Takes a name input and returns a formatted greeting message with Go version information.",
-    "summary": "Print personalized Go greetings",
+    "name": "enact-hello-go",
+    "description": "Runs a small Go greeting example that accepts a name and prints the Go runtime version.",
+    "summary": "Run a minimal Go greeting tool from an Enact skill.",
     "icon": "📦",
     "version": "1.0.2",
     "author": "EnactProtocol",
     "license": "MIT",
+    "category": "coding",
     "tags": [
       "go",
-      "greeting",
       "enact",
       "example",
-      "cli"
+      "greeting",
+      "runtime"
     ],
     "supported_tools": [
       "claude",
@@ -32,14 +33,15 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts"
+      "scripts",
+      "external_commands"
     ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All static findings are false positives. The skill is a simple Go greeting tool with no network access, no file writes, and no secret handling. Static scanner incorrectly flagged Go import syntax as dynamic import, YAML frontmatter as cryptographic algorithms, and documentation code blocks as shell execution. No malicious patterns detected.",
+    "summary": "Static analysis reported dynamic import, shell backtick, and weak cryptography patterns, but those specific hits are false positives in the reviewed files. The real concern is the skill command that interpolates the user-supplied name into a Go command string, which may be risky if the runner invokes it through a shell without safe argument handling.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
@@ -47,131 +49,223 @@
           {
             "file": "hello.go",
             "line_start": 3,
-            "line_end": 7
+            "line_end": 17
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 23,
+            "line_end": 23
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
+    "medium_findings": [
+      {
+        "title": "User Input Interpolated Into Command String",
+        "description": "The skill command passes the name input through `${name}` in `go run /workspace/hello.go ${name}`. If the runner executes this command through a shell or does not quote arguments safely, crafted input could change command behavior.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 23,
+            "line_end": 23
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The command interpolation is directly visible, but exploitability depends on Enact runner argument handling. No malicious intent or network exfiltration was found."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "False Positive: Go Import Block",
+        "description": "Static analysis flagged a dynamic import expression, but the location is a normal Go import block for fmt, os, and runtime packages. This is not dynamic code loading.",
+        "locations": [
+          {
+            "file": "hello.go",
+            "line_start": 3,
+            "line_end": 7
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "The syntax is standard Go source code and contains only static standard library imports. There is no import() expression or runtime loading behavior."
+      },
+      {
+        "title": "False Positive: Markdown Usage Fence",
+        "description": "Static analysis flagged shell backtick execution, but the location is a fenced bash usage example in documentation. It is not executed by the skill.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 32,
+            "line_end": 34
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The flagged text is inside a Markdown code fence showing how to run the example. It is documentation, not runtime code."
+      },
+      {
+        "title": "False Positive: Weak Cryptography Pattern",
+        "description": "Static analysis flagged weak cryptographic algorithm patterns in metadata descriptions. The reviewed lines describe a greeting tool and input field, and no cryptographic operation is present.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 5,
+            "line_end": 5
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 14,
+            "line_end": 14
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "Both locations are plain YAML description strings. I found no hash function, cipher, key handling, or crypto library use in the reviewed files."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Command String Input Interpolation",
+        "description": "The command template embeds the user-controlled name value directly into a command string. Prefer structured argument passing or strict validation for command parameters.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 23,
+            "line_end": 23
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The interpolation is explicit in the command template. The actual security impact depends on how the Enact runtime executes command strings."
+      }
+    ],
     "files_scanned": 2,
     "total_lines": 52,
-    "audit_model": "claude",
-    "audited_at": "2026-01-23T02:02:57.165Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T01:08:50.547Z",
+    "risk_factors": [
+      "scripts",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Create personalized greetings",
-    "value_statement": "Need to generate friendly greeting messages for users or testing? This skill prints personalized greetings with Go version information for development and demonstration purposes.",
+    "user_title": "Run a Go Greeting Example",
+    "value_statement": "Developers often need a minimal working Enact skill to verify local setup. This skill runs a small Go program that greets a supplied name and reports the Go runtime version.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "Go greeting",
-      "enact skill",
-      "CLI tool",
-      "greeting generator",
-      "hello world",
-      "Go examples",
-      "development tools"
+      "Go skill",
+      "Enact Protocol",
+      "Go greeting tool",
+      "AI coding example",
+      "runtime version",
+      "developer onboarding",
+      "sample skill"
     ],
     "actual_capabilities": [
-      "Takes a name parameter and generates a personalized greeting",
-      "Outputs greeting in format: Hello, {name}! with emoji",
-      "Displays Go runtime version information",
-      "Returns structured JSON output with greeting data"
+      "Accepts a single name input with World as the default value.",
+      "Runs a Go source file inside a golang Alpine container.",
+      "Prints a greeting that includes the supplied name.",
+      "Prints the Go runtime version used during execution.",
+      "Provides a compact Enact skill manifest and usage example."
     ],
     "limitations": [
-      "Only outputs static greeting text, no dynamic content generation",
-      "No network or API integration capabilities",
-      "Limited to single name input parameter",
-      "Cannot persist data or maintain state between calls"
+      "It only performs greeting output and does not provide broader Go project scaffolding.",
+      "It does not validate or sanitize the supplied name before command interpolation.",
+      "It requires an Enact-compatible runtime and a Go container environment.",
+      "It does not call external services or persist output."
     ],
     "use_cases": [
       {
-        "title": "Development Testing",
-        "description": "Test Enact skill workflows and CLI interactions by running a simple Go example that outputs predictable greeting messages.",
-        "target_user": "Developers building Enact skills"
+        "title": "Validate Enact Setup",
+        "description": "Run a simple skill to confirm that Enact can execute a Go container and return output.",
+        "target_user": "Developers"
       },
       {
-        "title": "Documentation Examples",
-        "description": "Use as a minimal working example in documentation to demonstrate Enact skill structure and input/output patterns.",
-        "target_user": "Technical writers and educators"
+        "title": "Teach Skill Anatomy",
+        "description": "Show how a manifest, input schema, output schema, and command connect in a small example.",
+        "target_user": "Technical educators"
       },
       {
-        "title": "Quick Greets",
-        "description": "Generate simple greeting messages for demos, prototypes, or user onboarding flows that need friendly welcome text.",
-        "target_user": "Product managers and designers"
+        "title": "Smoke Test Automation",
+        "description": "Use a lightweight command to check that skill execution works in a local or CI environment.",
+        "target_user": "DevOps engineers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Greeting",
-        "prompt": "Use the enact/hello-go skill to greet me with the name Alice.",
-        "scenario": "Simple one-off greeting request"
+        "title": "Run the Default Greeting",
+        "prompt": "Use enact-hello-go with the default name and show me the greeting output.",
+        "scenario": "Beginner setup check"
       },
       {
-        "title": "Custom Name Greeting",
-        "prompt": "Run the hello-go skill to greet someone named ${user_name}.",
-        "scenario": "Personalized greeting with variable substitution"
+        "title": "Greet a Named User",
+        "prompt": "Run enact-hello-go with the name Alice and summarize the output in one sentence.",
+        "scenario": "Basic parameter use"
       },
       {
-        "title": "Greets with Version Info",
-        "prompt": "Use enact/hello-go to greet ${name} and show what Go version is running.",
-        "scenario": "Including technical environment details"
+        "title": "Explain the Skill Flow",
+        "prompt": "Inspect enact-hello-go and explain how its input schema, command, and Go program work together.",
+        "scenario": "Learning the skill structure"
       },
       {
-        "title": "Batch Greets",
-        "prompt": "Use enact/hello-go to generate greetings for a list of names: Bob, Carol, Dave. Show me each greeting output.",
-        "scenario": "Multiple consecutive greetings in one session"
+        "title": "Review Command Safety",
+        "prompt": "Review enact-hello-go for command interpolation risk and suggest safer argument handling.",
+        "scenario": "Advanced security review"
       }
     ],
     "output_examples": [
       {
-        "input": "Alice",
-        "output": "Hello, Alice! 🐹\nGo version: go1.23.0"
+        "input": "name is Alice",
+        "output": "The tool returns a greeting for Alice and reports the Go version used by the runtime."
       },
       {
-        "input": "Claude User",
-        "output": "Hello, Claude User! 🐹\nGo version: go1.23.0"
+        "input": "no name is provided",
+        "output": "The tool uses World as the default name and prints a standard greeting."
+      },
+      {
+        "input": "name is a short team label",
+        "output": "The tool includes the supplied label in the greeting and then prints runtime information."
       }
     ],
     "best_practices": [
-      "Use for testing and development before building more complex Enact skills",
-      "Combine with other skills to create greeting workflows with multiple steps",
-      "Check the output JSON structure when integrating into automated pipelines"
+      "Use short alphanumeric names when running the example.",
+      "Treat this as a learning and smoke test skill, not a production workflow.",
+      "Review command argument handling before adapting the pattern to sensitive inputs."
     ],
     "anti_patterns": [
-      "Do not use for production user-facing greetings without adding customization logic",
-      "Do not expect rich formatting or HTML output - it only prints plain text",
-      "Do not assume state persistence between calls"
+      "Do not pass untrusted shell metacharacters as the name input.",
+      "Do not extend the command template with secrets or credentials.",
+      "Do not assume this example validates input for production use."
     ],
     "faq": [
       {
-        "question": "What does this skill actually do?",
-        "answer": "It runs a Go program that takes a name input and prints Hello, {name}! with an emoji and the Go version. It returns the greeting as structured data."
+        "question": "What does this skill do?",
+        "answer": "It runs a small Go program that greets a name and prints the Go runtime version."
       },
       {
-        "question": "Can I customize the greeting message?",
-        "answer": "No, the greeting format is fixed. You can only change the name parameter. For custom messages, build a new Enact skill."
+        "question": "Which tools can use this skill?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "What input does this skill accept?",
-        "answer": "A single string parameter called 'name'. If no name is provided, it defaults to 'World'."
+        "question": "Does it access the network?",
+        "answer": "No evidence of network access was found in the reviewed files."
       },
       {
-        "question": "Does this skill make network requests?",
-        "answer": "No, this skill only executes locally. It does not call any external APIs or services."
+        "question": "Does it store files or secrets?",
+        "answer": "No evidence of persistence, secret handling, or credential access was found."
       },
       {
-        "question": "Can I use this in production applications?",
-        "answer": "This is an example skill for learning and testing. For production, create a dedicated skill with error handling and validation."
+        "question": "Why is the risk level medium?",
+        "answer": "The command template interpolates user input, so safety depends on runner argument handling."
       },
       {
-        "question": "What Go version is used?",
-        "answer": "This skill runs on Go 1.23 in an Alpine Linux container. The exact version is shown in the output."
+        "question": "Is this suitable for production input?",
+        "answer": "It is best used as an example unless command arguments are validated or passed safely."
       }
     ]
   },
