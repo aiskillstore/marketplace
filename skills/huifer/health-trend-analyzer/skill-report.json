@@ -1,30 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-21T17:13:00.132Z",
+    "generated_at": "2026-06-30T03:38:33.154Z",
     "slug": "huifer-health-trend-analyzer",
     "source_url": "https://github.com/huifer/Claude-Ally-Health/tree/main/.claude/skills/health-trend-analyzer",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "92f6b51b2f07d0e0c718f52e9b6cfa4cf444ab2ca63e29529afc77d6d54b1d35",
-    "tree_hash": "488fd4cf8e9cf07767576bf5f497a693a90fe0ca8e2eea712f255a8715a631e8"
+    "tree_hash": "7fcb4a32c0bd80cadcae141c6ded1c524841521e333ed9c72ef0bb02c7809cbe"
   },
   "skill": {
     "name": "health-trend-analyzer",
-    "description": "分析一段时间内健康数据的趋势和模式。关联药物、症状、生命体征、化验结果和其他健康指标的变化。识别令人担忧的趋势、改善情况，并提供数据驱动的洞察。当用户询问健康趋势、模式、随时间的变化或\"我的健康状况有什么变化？\"时使用。支持多维度分析（体重/BMI、症状、药物依从性、化验结果、情绪睡眠），相关性分析，变化检测，以及交互式HTML可视化报告（ECharts图表）。",
-    "summary": "Analyze health data trends over time. Correlate medications, symptoms, vital signs, lab results, and other health metrics.",
-    "icon": "📊",
+    "description": "Analyzes health records over time to identify trends, correlations, changes, and reportable insights across symptoms, weight, medication adherence, labs, mood, and sleep.",
+    "summary": "Analyze personal health trends and create visual reports from local health records.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "huifer",
     "license": "MIT",
     "tags": [
-      "health",
-      "data-analysis",
-      "trends",
-      "visualization",
-      "medical"
+      "health-data",
+      "trend-analysis",
+      "medical-records",
+      "visual-reports",
+      "correlation-analysis"
     ],
     "supported_tools": [
       "claude",
@@ -32,32 +32,49 @@
       "claude-code"
     ],
     "risk_factors": [
+      "network",
       "filesystem"
-    ]
+    ],
+    "category": "data"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "The skill is a documentation and template-based health trend analysis tool. Static findings are false positives: code examples in markdown files were flagged as 'external_commands' but are not executable. This skill does not execute any code, shell commands, or cryptographic operations.",
+    "summary": "Static command-execution, weak-crypto, key-file, reconnaissance, and obfuscation findings were reviewed as false positives caused by markdown code fences, inline code spans, Chinese text entropy, CSS selectors, and normal JavaScript examples. The confirmed concerns are privacy and supply-chain risks: the skill reads and writes sensitive local health data, and the generated HTML report loads third-party CDN scripts that execute alongside injected report data.",
     "risk_factor_evidence": [
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "templates/report-template.html",
+            "line_start": 9,
+            "line_end": 15
+          }
+        ]
+      },
       {
         "factor": "filesystem",
         "evidence": [
           {
-            "file": "templates/report-template.html",
-            "line_start": 38,
-            "line_end": 38
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
           },
           {
-            "file": "templates/report-template.html",
-            "line_start": 100,
-            "line_end": 100
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 89
           },
           {
-            "file": "templates/custom-styles.css",
-            "line_start": 87,
-            "line_end": 87
+            "file": "SKILL.md",
+            "line_start": 216,
+            "line_end": 221
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 439,
+            "line_end": 439
           }
         ]
       }
@@ -66,199 +83,353 @@
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "Ruby/shell backtick execution patterns in documentation",
-        "description": "Static scanner detected backtick patterns in markdown files. These are code examples in documentation, not executable code.",
+        "title": "Third-Party Scripts Run in Health Report",
+        "description": "The report template loads Tailwind, Lucide, and ECharts from public CDNs. Because report data is injected into the same page, those scripts execute in a context that may contain sensitive health information.",
         "locations": [
           {
-            "file": "algorithms.md",
-            "line_start": 27,
-            "line_end": 27
-          },
-          {
-            "file": "data-sources.md",
+            "file": "templates/report-template.html",
             "line_start": 9,
-            "line_end": 9
+            "line_end": 15
           },
           {
-            "file": "examples.md",
-            "line_start": 6,
-            "line_end": 6
+            "file": "templates/report-template.html",
+            "line_start": 338,
+            "line_end": 343
+          }
+        ],
+        "severity": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "reasoning": "This is not evidence of malicious exfiltration, but it is a real supply-chain and privacy risk for generated medical reports. A compromised CDN dependency could read reportData or page content.",
+        "confidence": 0.82,
+        "confidence_reasoning": "The CDN script tags and injected reportData object are directly visible in the template. The risk depends on how reports are opened and whether real health data is embedded."
+      },
+      {
+        "title": "Sensitive Local Health Data Access and Report Writing",
+        "description": "The skill is designed to read local health records with Read, Grep, and Glob and write HTML reports under health report paths. This is expected behavior, but it handles sensitive medical data.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
           },
           {
             "file": "SKILL.md",
             "line_start": 76,
-            "line_end": 76
+            "line_end": 89
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 216,
+            "line_end": 221
+          },
+          {
+            "file": "examples.md",
+            "line_start": 12,
+            "line_end": 27
           }
-        ]
+        ],
+        "severity": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "reasoning": "The filesystem access is core to the skill and does not appear malicious. It still warrants a marketplace warning because generated reports may contain private health details.",
+        "confidence": 0.88,
+        "confidence_reasoning": "The allowed tools and examples clearly show local reads, globbing, and report output. I did not find evidence of hidden credential access or unauthorized file paths."
       }
     ],
     "low_findings": [
       {
-        "title": "Hardcoded URLs in template files",
-        "description": "Template files contain hardcoded CDN URLs for ECharts and similar resources. These are standard practice for chart visualization libraries.",
+        "title": "Static Command-Execution Alerts Are Markdown False Positives",
+        "description": "The many Ruby or shell backtick alerts correspond to markdown fenced JavaScript examples, inline code spans, and JavaScript template literals, not executable shell calls.",
+        "locations": [
+          {
+            "file": "algorithms.md",
+            "line_start": 27,
+            "line_end": 76
+          },
+          {
+            "file": "data-sources.md",
+            "line_start": 103,
+            "line_end": 131
+          },
+          {
+            "file": "examples.md",
+            "line_start": 5,
+            "line_end": 27
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 89
+          },
+          {
+            "file": "templates/charts-config.js",
+            "line_start": 198,
+            "line_end": 203
+          },
+          {
+            "file": "templates/report-template.html",
+            "line_start": 363,
+            "line_end": 395
+          }
+        ],
+        "severity": "low",
+        "verdict": "FALSE_POSITIVE",
+        "reasoning": "The reviewed lines contain documentation examples, string interpolation, chart tooltip formatting, and download filename construction. No child process, shell command, eval, spawn, or system execution was found in the inspected files.",
+        "confidence": 0.96,
+        "confidence_reasoning": "Multiple cited examples were inspected and match benign markdown or client-side JavaScript syntax. A targeted search found no exec, spawn, eval, child_process, or system calls."
+      },
+      {
+        "title": "Weak-Crypto and Key-File Alerts Are False Positives",
+        "description": "The high-severity crypto and certificate/key detections point to ordinary text or JavaScript identifiers, such as health descriptions, mood descriptions, Object.keys, descriptiveStats, and array includes.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "algorithms.md",
+            "line_start": 627,
+            "line_end": 628
+          },
+          {
+            "file": "data-sources.md",
+            "line_start": 157,
+            "line_end": 198
+          },
+          {
+            "file": "data-sources.md",
+            "line_start": 290,
+            "line_end": 315
+          },
+          {
+            "file": "data-sources.md",
+            "line_start": 671,
+            "line_end": 673
+          },
+          {
+            "file": "templates/charts-config.js",
+            "line_start": 176,
+            "line_end": 183
+          }
+        ],
+        "severity": "low",
+        "verdict": "FALSE_POSITIVE",
+        "reasoning": "The reviewed locations do not contain MD5, SHA1, private keys, certificates, or cryptographic operations. They are health-data field examples and normal JavaScript collection operations.",
+        "confidence": 0.94,
+        "confidence_reasoning": "The cited high-severity lines were directly checked. The scanner appears to have matched substrings inside unrelated identifiers or multilingual text."
+      },
+      {
+        "title": "Obfuscation Entropy Alerts Are False Positives",
+        "description": "High entropy alerts on SKILL.md and examples.md appear to result from dense Chinese prose, symbols, tables, and formatted examples rather than encoded payloads.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 1,
+            "line_end": 4
+          },
+          {
+            "file": "examples.md",
+            "line_start": 1,
+            "line_end": 8
+          }
+        ],
+        "severity": "low",
+        "verdict": "FALSE_POSITIVE",
+        "reasoning": "The inspected files are readable markdown documentation. No encoded blobs, minified payloads, hidden scripts, or prompt-injection phrases were found in the audited files.",
+        "confidence": 0.9,
+        "confidence_reasoning": "The entropy warning is plausible for multilingual documentation. Confidence is high because the file starts were human-readable and targeted injection scans returned no matches."
+      },
+      {
+        "title": "CSS System-Reconnaissance Alerts Are False Positives",
+        "description": "System reconnaissance alerts in the stylesheet map to CSS selectors and style declarations, not operating system discovery or environment probing.",
+        "locations": [
+          {
+            "file": "templates/custom-styles.css",
+            "line_start": 86,
+            "line_end": 87
+          },
+          {
+            "file": "templates/custom-styles.css",
+            "line_start": 124,
+            "line_end": 130
+          },
+          {
+            "file": "templates/custom-styles.css",
+            "line_start": 447,
+            "line_end": 457
+          }
+        ],
+        "severity": "low",
+        "verdict": "FALSE_POSITIVE",
+        "reasoning": "The cited stylesheet lines define card borders, spacing, and high-contrast print styles. They do not inspect hostnames, usernames, processes, files, or platform details.",
+        "confidence": 0.97,
+        "confidence_reasoning": "The exact cited CSS snippets are benign presentation rules. There is no semantic path from these declarations to reconnaissance behavior."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "External CDN Dependencies in Generated Report",
+        "description": "Generated HTML reports depend on third-party JavaScript from public CDNs while displaying health analytics data.",
         "locations": [
           {
             "file": "templates/report-template.html",
             "line_start": 9,
-            "line_end": 9
-          },
-          {
-            "file": "templates/report-template.html",
-            "line_start": 12,
-            "line_end": 12
-          },
-          {
-            "file": "templates/report-template.html",
-            "line_start": 15,
             "line_end": 15
           }
-        ]
+        ],
+        "severity": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "reasoning": "External scripts are a real dependency and can execute within the report page. This should be disclosed and ideally replaced with bundled or pinned local assets for sensitive reports.",
+        "confidence": 0.84,
+        "confidence_reasoning": "The hardcoded HTTPS script sources are directly visible. The impact is contextual, so this is medium rather than high."
+      },
+      {
+        "title": "Local Sensitive Health Data Processing",
+        "description": "The skill reads personal profile, symptom, mood, diet, medication, reproductive health, allergy, radiation, and medical record files and can write an HTML report.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 89
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 216,
+            "line_end": 221
+          }
+        ],
+        "severity": "medium",
+        "verdict": "TRUE_POSITIVE",
+        "reasoning": "This is the intended function, but it increases privacy sensitivity and requires clear user consent and careful report handling.",
+        "confidence": 0.9,
+        "confidence_reasoning": "The data source list and report generation steps are explicit. I did not find evidence that data is sent to a remote endpoint by the skill itself."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 9,
-    "total_lines": 8820,
-    "audit_model": "claude",
-    "audited_at": "2026-01-21T17:13:00.132Z"
+    "files_scanned": 8,
+    "total_lines": 5330,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T03:38:33.154Z",
+    "risk_factors": [
+      "network",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Analyze Your Health Trends",
-    "value_statement": "Users struggle to identify patterns in their health data over time. This skill correlates medications, symptoms, vital signs, and lab results to reveal trends and provide actionable health insights through interactive visualizations.",
+    "user_title": "Analyze Health Trends Over Time",
+    "value_statement": "Health records are hard to compare across symptoms, medications, labs, mood, and sleep. This skill analyzes local health data and creates trend summaries with visual reports.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "health trend analysis",
-      "health data visualization",
-      "medical trend tracker",
-      "symptom correlation",
-      "vital signs monitoring",
-      "health insights",
-      "ECharts health dashboard"
+      "Claude health trend analyzer",
+      "Codex health data analysis",
+      "Claude Code medical records",
+      "personal health trends",
+      "symptom pattern analysis",
+      "medication adherence analysis",
+      "lab result trend report",
+      "ECharts health report",
+      "health correlation analysis",
+      "local health data visualization"
     ],
     "actual_capabilities": [
-      "Analyze health data trends over custom time periods",
-      "Correlate medications, symptoms, vital signs, lab results, and emotional state",
-      "Identify concerning trends, improvements, and data-driven health insights",
-      "Generate interactive HTML visualization reports with ECharts",
-      "Perform multi-dimensional analysis including weight/BMI, symptoms, medication adherence, lab results, and sleep patterns",
-      "Detect correlations and changes between different health metrics"
+      "Reads local health data files for profile, symptoms, mood, diet, medication logs, reproductive health, allergies, radiation, and medical records.",
+      "Filters records by date range and defaults to a recent three-month analysis window.",
+      "Calculates trends for weight, BMI, symptoms, medication adherence, lab results, mood, and sleep.",
+      "Identifies correlations between health variables such as sleep, mood, symptoms, and medication adherence.",
+      "Generates text summaries and interactive HTML reports with ECharts visualizations.",
+      "Provides warnings, improvement notes, and follow-up suggestions based on observed patterns."
     ],
     "limitations": [
-      "Does not provide medical diagnosis or treatment recommendations",
-      "Cannot access real-time health data without user-provided input",
-      "Visualization reports require ECharts library (loaded via CDN)",
-      "Analysis quality depends on completeness and accuracy of input data"
+      "It does not provide a medical diagnosis or replace advice from a licensed clinician.",
+      "Trend and correlation quality depends on complete, consistent, and correctly dated source records.",
+      "Generated HTML reports may load external CDN scripts unless the template is modified for offline assets.",
+      "It cannot verify whether recorded symptoms, medications, or lab values are clinically accurate."
     ],
     "use_cases": [
       {
-        "title": "Track Medication Effectiveness",
-        "description": "Patients can analyze how their symptoms change in relation to medication changes, identifying which treatments correlate with symptom improvement.",
-        "target_user": "Patients managing chronic conditions"
+        "title": "Review Monthly Health Changes",
+        "description": "Summarize recent changes in weight, symptoms, mood, sleep, and lab results before a routine appointment.",
+        "target_user": "Patients and caregivers"
       },
       {
-        "title": "Identify Health Patterns",
-        "description": "Users can discover correlations between lifestyle factors (sleep, mood, activity) and health metrics, enabling proactive health management.",
-        "target_user": "Health-conscious individuals"
+        "title": "Track Treatment Response",
+        "description": "Compare medication adherence, symptom frequency, and lab trends after a treatment or lifestyle change.",
+        "target_user": "Chronic condition managers"
       },
       {
-        "title": "Prepare Health Summaries",
-        "description": "Healthcare providers or caregivers can generate trend reports to share with medical professionals during consultations.",
-        "target_user": "Caregivers and healthcare providers"
+        "title": "Prepare Visual Health Reports",
+        "description": "Create an interactive report that highlights important patterns, correlations, and follow-up questions.",
+        "target_user": "Health coaches and data-focused users"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Health Trend Query",
-        "prompt": "我的健康状况有什么变化？我想了解过去{时间段}的健康趋势，包括体重、症状、药物使用和情绪睡眠情况。",
-        "scenario": "When user asks about general health changes over time"
+        "title": "Basic Trend Summary",
+        "scenario": "Beginner request for a general overview.",
+        "prompt": "Analyze my health trends for the past three months. Summarize the main improvements, stable areas, and concerns."
       },
       {
-        "title": "Symptom-Medication Correlation",
-        "prompt": "分析我的症状和药物使用之间的关联。哪些药物变化与症状改善或恶化相关？显示可视化的相关性图表。",
-        "scenario": "When user wants to understand medication effectiveness"
+        "title": "Symptom Pattern Review",
+        "scenario": "Focused analysis of repeated symptoms.",
+        "prompt": "Review my symptom records from the last 90 days. Identify frequent symptoms, severity changes, possible triggers, and missing data."
       },
       {
-        "title": "Comprehensive Health Report",
-        "prompt": "生成一份完整的健康趋势分析报告，包括：1) 体重/BMI变化趋势 2) 症状频率统计 3) 药物依从性分析 4) 化验结果变化 5) 情绪睡眠相关性。输出HTML可视化报告。",
-        "scenario": "When user requests comprehensive health analysis"
+        "title": "Medication and Lab Analysis",
+        "scenario": "Intermediate review for treatment tracking.",
+        "prompt": "Compare my medication adherence with symptom frequency and lab result trends. Highlight correlations and questions to ask my clinician."
       },
       {
-        "title": "Specific Metric Deep Dive",
-        "prompt": "深入分析{具体指标}的变化趋势，关联其他健康因素，找出可能的影响因素和预警信号。",
-        "scenario": "When user wants detailed analysis of a specific health metric"
+        "title": "Full Report With Correlations",
+        "scenario": "Advanced request for a comprehensive report.",
+        "prompt": "Generate a full health trend report for the selected date range. Include weight, BMI, symptoms, medications, labs, mood, sleep, correlations, limitations, and follow-up recommendations."
       }
     ],
     "output_examples": [
       {
-        "input": "我的健康状况有什么变化？过去三个月的健康趋势如何？",
-        "output": [
-          "体重趋势：",
-          "- 过去3个月体重稳定在65-67kg区间",
-          "- 无显著增减趋势",
-          "- 建议：继续保持当前生活方式",
-          "",
-          "症状分析：",
-          "- 头痛频率较上月减少40%",
-          "- 疲劳症状在周末更为明显",
-          "",
-          "药物依从性：",
-          "- 用药规律性评分：85/100",
-          "- 漏服药物情况集中在工作日",
-          "",
-          "情绪与睡眠：",
-          "- 睡眠质量与情绪评分呈正相关",
-          "- 周末睡眠时间增加15%",
-          "",
-          "可视化报告已生成：health_trend_report.html"
-        ]
+        "input": "Analyze my health trends for the past three months.",
+        "output": "The report highlights gradual weight reduction, stable blood glucose, improved cholesterol, recurring headaches, and lower medication adherence on weekends. It recommends reviewing adherence barriers and bringing the lab trend summary to the next visit."
       },
       {
-        "input": "分析我的血压数据和运动量的关系",
-        "output": [
-          "相关性分析结果：",
-          "- 运动量与收缩压呈现中度负相关 (r=-0.65)",
-          "- 运动后2小时内血压下降约5-10mmHg",
-          "- 建议：保持每周3次以上的中等强度运动",
-          "",
-          "图表已生成：bp_exercise_correlation.html"
-        ]
+        "input": "Why do I keep getting headaches?",
+        "output": "The analysis groups headache records by time, severity, sleep, stress, meals, and medication history. It reports likely patterns, weak or strong correlations, and data gaps that limit confidence."
+      },
+      {
+        "input": "Create a visual report for my doctor.",
+        "output": "The skill prepares an HTML report with trend charts, adherence summaries, lab result timelines, correlation heatmaps, and a disclaimer that the report is for discussion only."
       }
     ],
     "best_practices": [
-      "Provide comprehensive health data including dates, measurements, symptoms, and medications for accurate analysis",
-      "Use consistent units and time formats across all input data",
-      "Generate and review the HTML visualization reports for better pattern recognition"
+      "Review source files before analysis and remove records that should not appear in generated reports.",
+      "Use clear date ranges and compare similar periods when asking for trend changes.",
+      "Treat findings as discussion material and confirm medical decisions with a qualified clinician."
     ],
     "anti_patterns": [
-      "Asking for medical diagnosis or treatment recommendations instead of trend analysis",
-      "Providing incomplete or inconsistent health data that may lead to inaccurate conclusions",
-      "Relying solely on automated analysis without consulting healthcare professionals for medical decisions"
+      "Do not use this skill to self-diagnose urgent symptoms or delay emergency care.",
+      "Do not share generated HTML reports publicly if they contain personal health information.",
+      "Do not infer causation from correlations without clinical review and better evidence."
     ],
     "faq": [
       {
-        "question": "这个技能可以诊断我的健康问题吗？",
-        "answer": "不能。这个技能仅提供数据趋势分析和可视化，帮助用户理解健康数据的变化模式。所有医疗相关决策应在专业医生指导下进行。"
+        "question": "Does this skill diagnose medical conditions?",
+        "answer": "No. It summarizes recorded data and trends. A licensed clinician should make diagnoses and treatment decisions."
       },
       {
-        "question": "我需要提供什么格式的数据？",
-        "answer": "技能支持JSON格式的健康数据输入，包括时间戳、生命体征、症状评分、药物记录、化验结果等信息。详见数据源说明文档。"
+        "question": "What data can it analyze?",
+        "answer": "It can use local records for profile, symptoms, mood, diet, medications, reproductive health, allergies, radiation, and medical records."
       },
       {
-        "question": "生成的HTML报告如何查看？",
-        "answer": "技能会生成包含ECharts图表的HTML文件。在Claude Code环境中可直接打开查看，包含趋势图、相关性热图、时间轴等多种可视化展示。"
+        "question": "Can it create charts?",
+        "answer": "Yes. The skill includes templates for interactive HTML reports with charts for trends, adherence, labs, and correlations."
       },
       {
-        "question": "分析结果有多准确？",
-        "answer": "分析质量取决于输入数据的完整性和准确性。技能使用统计方法检测趋势和相关性，但不能替代专业医疗分析。"
+        "question": "Is my data sent to a remote service?",
+        "answer": "No remote upload was found in the skill instructions. However, the HTML template loads scripts from public CDNs."
       },
       {
-        "question": "如何保护我的健康数据隐私？",
-        "answer": "所有数据处理在本地AI环境中进行，不会上传到外部服务器。用户应避免在提示中包含过于敏感的个人身份信息。"
+        "question": "How much data is needed?",
+        "answer": "More consistent records produce better results. Some correlation methods need at least 30 data points."
       },
       {
-        "question": "支持多长时间的跨度分析？",
-        "answer": "理论上支持任意时间范围，但数据点越多分析越准确。建议至少提供1个月以上的数据以获得有意义的趋势洞察。"
+        "question": "Can I use it with Claude, Codex, and Claude Code?",
+        "answer": "Yes. The report marks support for Claude, Codex, and Claude Code."
       }
     ]
   },

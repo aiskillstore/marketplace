@@ -1,30 +1,31 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-23T08:08:53.892Z",
+    "generated_at": "2026-06-30T04:35:11.014Z",
     "slug": "jimliu-baoyu-compress-image",
     "source_url": "https://github.com/jimliu/baoyu-skills/tree/main/skills/baoyu-compress-image/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "bd1ad1d66cbc872dc8f0aa424c1cc6644b72481a3096080bec84226b29a7846a",
-    "tree_hash": "9498aec8a45f370f6d629d954b11a2fb4032f48cc32907b26d299ef542d59d79"
+    "tree_hash": "06865156fc59832ac2180389a231f6551f9133af8819bffae9981330041d44cd"
   },
   "skill": {
     "name": "baoyu-compress-image",
-    "description": "Cross-platform image compression skill. Converts images to WebP by default with PNG-to-PNG support. Uses system tools (sips, cwebp, ImageMagick) with Sharp fallback.",
-    "summary": "Compress images to WebP or other formats using system tools or Sharp library",
-    "icon": "🗜️",
+    "description": "Compress image files from the command line using WebP, PNG, or JPEG output. The skill chooses sips, cwebp, ImageMagick, or Sharp based on the local system.",
+    "summary": "Compress images locally with configurable format, quality, directory, and JSON output options.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "jimliu",
     "license": "MIT",
+    "category": "productivity",
     "tags": [
-      "image",
-      "compression",
+      "image-compression",
       "webp",
-      "optimization",
-      "format-conversion"
+      "png",
+      "cli",
+      "media-optimization"
     ],
     "supported_tools": [
       "claude",
@@ -38,14 +39,19 @@
     ]
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Legitimate image compression utility with no security concerns. All static findings are false positives: dynamic import is for lazy-loading Sharp library, child_process spawn uses hardcoded validated arguments for image tools only, template literals were misidentified as shell backticks, and documentation references are not executable code.",
+    "summary": "Static analysis found many command-execution patterns, but the script uses argument arrays for expected image tools and I found no shell string execution or network exfiltration. The real risks are local external image parsers, default file replacement, dynamic Sharp loading, and documented EXTEND.md overrides from project or home paths.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
         "evidence": [
+          {
+            "file": "scripts/main.ts",
+            "line_start": 1,
+            "line_end": 1
+          },
           {
             "file": "scripts/main.ts",
             "line_start": 83,
@@ -70,6 +76,31 @@
             "file": "scripts/main.ts",
             "line_start": 55,
             "line_end": 55
+          },
+          {
+            "file": "scripts/main.ts",
+            "line_start": 63,
+            "line_end": 79
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 26,
+            "line_end": 38
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 44,
+            "line_end": 59
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 63,
+            "line_end": 72
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 148,
+            "line_end": 178
           }
         ]
       },
@@ -78,8 +109,23 @@
         "evidence": [
           {
             "file": "scripts/main.ts",
-            "line_start": 1,
+            "line_start": 2,
             "line_end": 2
+          },
+          {
+            "file": "scripts/main.ts",
+            "line_start": 149,
+            "line_end": 152
+          },
+          {
+            "file": "scripts/main.ts",
+            "line_start": 164,
+            "line_end": 175
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 184,
+            "line_end": 188
           }
         ]
       }
@@ -88,23 +134,121 @@
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "Dynamic Import for Optional Dependency",
-        "description": "Code uses dynamic import() at line 83 to load Sharp library as a fallback compressor when system tools are unavailable.",
+        "title": "External Image Tools Process User Files",
+        "description": "The script invokes sips, cwebp, ImageMagick convert, and Sharp against user-selected image paths. Arguments are passed as arrays, which reduces shell injection risk, but external image parsers still process untrusted files locally.",
         "locations": [
           {
             "file": "scripts/main.ts",
-            "line_start": 83,
-            "line_end": 83
+            "line_start": 53,
+            "line_end": 79
+          },
+          {
+            "file": "scripts/main.ts",
+            "line_start": 82,
+            "line_end": 88
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "Dynamic import is for lazy-loading Sharp, a well-known image processing library. Import path is hardcoded, not user-controlled."
+        "confidence": 0.86,
+        "confidence_reasoning": "The command execution is explicit and semantically part of compression. I found no shell interpolation, so the risk is tool exposure to untrusted media rather than direct command injection."
       },
       {
-        "title": "Child Process Spawn for Image Tools",
-        "description": "Code uses child_process.spawn to run system image compression tools (sips, cwebp, convert).",
+        "title": "Original Files Can Be Replaced By Default",
+        "description": "When keep mode is not enabled and output differs from input, the script deletes the original image and renames the temporary output. This behavior is documented, but it can cause data loss if users expect non-destructive compression.",
         "locations": [
+          {
+            "file": "scripts/main.ts",
+            "line_start": 149,
+            "line_end": 152
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 44,
+            "line_end": 52
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The file deletion and rename logic is direct and documented in the command examples. This is a product safety risk, not evidence of malicious intent."
+      },
+      {
+        "title": "Local Extension Files Can Override Skill Defaults",
+        "description": "The documentation tells agents to load project and home EXTEND.md files before workflow and says extension content overrides defaults. A project-controlled extension file could alter agent behavior if trusted without review.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 184,
+            "line_end": 188
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The override behavior is plainly documented, but no malicious EXTEND.md file is present in the scanned files. The concern is a prompt-injection surface created by future local files."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Command Documentation Triggered Static Shell Warnings",
+        "description": "Many SKILL.md findings are examples showing how to run the compression script. They are user-facing command snippets, not hidden execution logic inside the skill file.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 26,
+            "line_end": 38
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 148,
+            "line_end": 178
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The flagged lines are fenced examples and descriptive output. They do not add execution paths beyond the documented CLI behavior."
+      },
+      {
+        "title": "Weak Cryptography Detections Are False Positives",
+        "description": "The weak cryptography alerts appear to match words such as MD in Markdown file names or documentation. I found no hashing, encryption, or cryptographic algorithm use in the reviewed code.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 86,
+            "line_end": 86
+          },
+          {
+            "file": "scripts/main.ts",
+            "line_start": 171,
+            "line_end": 171
+          }
+        ],
+        "confidence": 0.89,
+        "confidence_reasoning": "The cited lines contain descriptions, table text, or image extension handling, not cryptographic operations. No evidence of weak crypto use was found."
+      },
+      {
+        "title": "System Reconnaissance Detections Are Benign Error Messages",
+        "description": "The flagged invalid format and invalid quality lines print user input validation errors. I found no collection of host information or transmission of system data.",
+        "locations": [
+          {
+            "file": "scripts/main.ts",
+            "line_start": 213,
+            "line_end": 219
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The lines are ordinary CLI validation branches. They do not query system properties or send data outside the process."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "child_process.spawn Used For Local Tools",
+        "description": "The script imports child_process and spawns which, sips, cwebp, and convert. The implementation avoids shell strings, but marketplace users should expect local command execution.",
+        "locations": [
+          {
+            "file": "scripts/main.ts",
+            "line_start": 4,
+            "line_end": 4
+          },
           {
             "file": "scripts/main.ts",
             "line_start": 32,
@@ -116,133 +260,167 @@
             "line_end": 55
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "Spawn arguments are hardcoded or validated against allowlist. No shell=True usage. Commands limited to known image tools."
+        "confidence": 0.94,
+        "confidence_reasoning": "The spawn usage is explicit and centralized. The risk is well bounded because command arguments are arrays and tool names come from fixed code paths."
+      },
+      {
+        "title": "Dynamic Import Of Sharp",
+        "description": "The Sharp library is loaded dynamically when system compressors are not used. This is a normal fallback pattern, but it can introduce dependency and native image parser risk.",
+        "locations": [
+          {
+            "file": "scripts/main.ts",
+            "line_start": 82,
+            "line_end": 83
+          }
+        ],
+        "confidence": 0.8,
+        "confidence_reasoning": "The dynamic import is visible and tied to the image compression fallback. I found no obfuscated module name or remote import URL."
+      },
+      {
+        "title": "Filesystem Mutation During Compression",
+        "description": "The script reads directories, writes temporary outputs, deletes originals, and renames compressed files. These operations are expected for the skill but require clear user consent.",
+        "locations": [
+          {
+            "file": "scripts/main.ts",
+            "line_start": 140,
+            "line_end": 152
+          },
+          {
+            "file": "scripts/main.ts",
+            "line_start": 164,
+            "line_end": 175
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The filesystem operations are direct and required for output handling. They do not target hidden paths or unrelated files in the implementation."
       }
     ],
-    "low_findings": [],
-    "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 505,
-    "audit_model": "claude",
-    "audited_at": "2026-01-23T08:08:53.892Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T04:35:11.014Z",
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Compress images to WebP with quality control",
-    "value_statement": "Large image files slow down websites and waste storage. This skill compresses images to WebP, PNG, or JPEG formats with adjustable quality settings, supporting single files and entire directories.",
+    "user_title": "Compress Images for Web and Apps",
+    "value_statement": "Large image files slow websites, apps, and documentation workflows. This skill compresses local images with configurable formats, quality, and directory processing.",
     "seo_keywords": [
-      "image compression",
-      "compress images",
-      "WebP converter",
-      "image optimizer",
-      "reduce image size",
-      "Claude Code",
-      "Codex",
-      "Claude Code skill",
-      "image format conversion",
-      "photo compression"
+      "Claude image compression",
+      "Codex image optimization",
+      "Claude Code media workflow",
+      "WebP compression",
+      "PNG optimization",
+      "JPEG compression",
+      "image CLI tool",
+      "Sharp image processing",
+      "ImageMagick compression",
+      "batch image compression"
     ],
     "actual_capabilities": [
-      "Compress images to WebP format (default) with automatic quality optimization",
-      "Convert between PNG, JPEG, and WebP formats with preserved transparency",
-      "Process directories recursively to compress multiple images at once",
-      "Customize output quality from 0-100 for fine-tuned file size control",
-      "Auto-detect best available compressor (sips, cwebp, ImageMagick, or Sharp)",
-      "Keep original files or replace them with compressed versions"
+      "Compresses single image files from a local path.",
+      "Processes directories and can recurse through nested folders.",
+      "Outputs WebP by default and supports PNG and JPEG targets.",
+      "Lets users set output path, quality, and keep-original behavior.",
+      "Uses available local compressors before falling back to Sharp.",
+      "Can return plain text or JSON-formatted compression results."
     ],
     "limitations": [
-      "Cannot animate GIF files - only compresses static images (PNG, JPEG, WebP, TIFF)",
-      "Requires at least one compressor tool to be installed (sips, cwebp, ImageMagick, or Sharp)",
-      "Output quality below 60 may cause visible artifacts on complex images"
+      "It requires Bun through the documented npx command.",
+      "Compression quality depends on installed local image tools.",
+      "Original files may be replaced unless keep mode is used.",
+      "It does not upload images or provide cloud compression."
     ],
     "use_cases": [
       {
-        "title": "Optimize website images for faster loading",
-        "description": "Compress screenshots and photos to WebP format to reduce page load times and improve Core Web Vitals scores.",
-        "target_user": "Web developers and content creators"
+        "title": "Prepare Web Assets",
+        "description": "Compress product images, screenshots, and documentation media before publishing a website.",
+        "target_user": "Frontend developer"
       },
       {
-        "title": "Batch process photo collections",
-        "description": "Compress entire folders of images with consistent quality settings for storage optimization or sharing.",
-        "target_user": "Photographers and digital asset managers"
+        "title": "Reduce Repository Media Size",
+        "description": "Batch-compress images in a project folder to reduce repository size and review payloads.",
+        "target_user": "Engineering team"
       },
       {
-        "title": "Prepare assets for deployment",
-        "description": "Reduce image file sizes before deploying to production, balancing quality and performance requirements.",
-        "target_user": "DevOps engineers and CI/CD pipelines"
+        "title": "Optimize Support Screenshots",
+        "description": "Convert large screenshots into smaller files before sharing them in tickets or docs.",
+        "target_user": "Support specialist"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic image compression",
-        "prompt": "Compress this image to WebP format with default quality (80):\n\n${SKILL_DIR}/scripts/main.ts path/to/image.png",
-        "scenario": "Quick compression with standard settings"
+        "title": "Compress One Image",
+        "scenario": "Beginner single-file compression",
+        "prompt": "Compress this image to WebP at the default quality: ./assets/photo.png"
       },
       {
-        "title": "Custom quality compression",
-        "prompt": "Compress this image to WebP at 70% quality:\n\n${SKILL_DIR}/scripts/main.ts path/to/image.png -q 70",
-        "scenario": "Balanced quality and file size"
+        "title": "Keep The Original",
+        "scenario": "Safe compression with source preservation",
+        "prompt": "Compress ./screenshots/home.png to PNG quality 75 and keep the original file."
       },
       {
-        "title": "Batch directory compression",
-        "prompt": "Compress all images in this directory recursively with 75% quality:\n\n${SKILL_DIR}/scripts/main.ts ./images/ -r -q 75",
-        "scenario": "Processing multiple images"
+        "title": "Optimize A Folder",
+        "scenario": "Batch compression for a project directory",
+        "prompt": "Compress all supported images in ./public/images recursively at quality 70 and show a summary."
       },
       {
-        "title": "Quality optimization workflow",
-        "prompt": "Test different quality levels to find the best compression ratio under 100KB:\n\n${SKILL_DIR}/scripts/main.ts image.png -q 90 --json\n${SKILL_DIR}/scripts/main.ts image.png -q 80 --json\n${SKILL_DIR}/scripts/main.ts image.png -q 70 --json",
-        "scenario": "Finding optimal quality settings"
+        "title": "Create Scriptable Output",
+        "scenario": "Advanced automation with structured results",
+        "prompt": "Compress ./media/banner.jpg to WebP quality 65 and return JSON output for a build script."
       }
     ],
     "output_examples": [
       {
-        "input": "photo.png (2.4MB)",
-        "output": "photo.webp (340KB, 86% reduction)"
+        "input": "Compress a product image to WebP at quality 80.",
+        "output": "The skill reports the original path, new WebP path, before-and-after file sizes, reduction percentage, and compressor used."
       },
       {
-        "input": "screenshot.png (890KB)",
-        "output": "screenshot.webp (156KB, 82% reduction)"
+        "input": "Compress a screenshots folder recursively.",
+        "output": "The skill lists each processed image and ends with total files processed, total size reduction, and overall compression ratio."
       },
       {
-        "input": "./images/ directory (12 files)",
-        "output": "12.5MB → 4.2MB (66% reduction)"
+        "input": "Compress an image with JSON output.",
+        "output": "The skill returns structured fields for input, output, input size, output size, ratio, and selected compressor."
       }
     ],
     "best_practices": [
-      "Test different quality levels with --json output to find optimal settings before batch processing",
-      "Use --keep flag when testing new compression settings to preserve originals",
-      "Set quality between 70-85 for best balance between file size and visual quality"
+      "Use keep mode when compressing original source images.",
+      "Test quality settings on a few images before batch processing.",
+      "Review local EXTEND.md files before letting them change workflow behavior."
     ],
     "anti_patterns": [
-      "Using quality below 60 for complex images causes visible artifacts",
-      "Compressing already compressed images may increase file size",
-      "Running without --json flag when scripting makes parsing results difficult"
+      "Do not run recursive compression on folders without backups.",
+      "Do not process untrusted image files on sensitive systems.",
+      "Do not assume every system has the same compressor installed."
     ],
     "faq": [
       {
-        "question": "What image formats are supported?",
-        "answer": "PNG, JPEG, WebP, GIF, and TIFF files are supported. Animated GIFs are not compressed."
+        "question": "What output format does this skill use by default?",
+        "answer": "It outputs WebP by default unless the user selects PNG or JPEG."
       },
       {
-        "question": "Does this replace the original file?",
-        "answer": "By default, yes. Use the --keep flag to preserve the original file."
+        "question": "Can it process more than one image?",
+        "answer": "Yes. It can process a directory and can recurse through nested folders."
       },
       {
-        "question": "What quality setting should I use?",
-        "answer": "Quality 80 is the default and works well for most images. Use 70-85 for web images, 90+ for print or high-detail images."
+        "question": "Does it keep the original image?",
+        "answer": "Only when keep mode is enabled. Otherwise, default conversion can replace the original."
       },
       {
-        "question": "Can I process a whole directory?",
-        "answer": "Yes. Pass a directory path and use -r for recursive processing through subdirectories."
+        "question": "Which compression tools can it use?",
+        "answer": "It can use sips, cwebp, ImageMagick convert, or Sharp depending on the platform and requested format."
       },
       {
-        "question": "Which compressor is used?",
-        "answer": "The skill auto-detects: sips (macOS), cwebp (Google tool), ImageMagick, or Sharp (npm package)."
+        "question": "Does this skill send images to a remote service?",
+        "answer": "No evidence of upload or network transfer was found in the reviewed files."
       },
       {
-        "question": "How do I get machine-readable output?",
-        "answer": "Use the --json flag for structured output suitable for scripting and automation."
+        "question": "What security warning should users know?",
+        "answer": "The skill runs local image tools and may load local EXTEND.md instructions, so review inputs and extensions first."
       }
     ]
   },
