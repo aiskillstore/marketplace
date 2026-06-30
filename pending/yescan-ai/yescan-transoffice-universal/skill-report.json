@@ -1,0 +1,628 @@
+{
+  "schema_version": "2.0",
+  "meta": {
+    "generated_at": "2026-06-30T04:36:01.041Z",
+    "slug": "yescan-ai-yescan-transoffice-universal",
+    "source_url": "https://github.com/yescan-ai/yescan-skill/tree/main/skills/yescan-transoffice-universal/",
+    "source_ref": "main",
+    "model": "codex",
+    "analysis_version": "3.0.0",
+    "source_type": "community",
+    "content_hash": "f5b218db638ba04e9e6df4e6dc2375b9c7b476853ce79cd96c70a10f88245395",
+    "tree_hash": "d5f91b2e29a6b3e08a40bf02783bf3d89f4be4fbbf0b944728185b604b553a62"
+  },
+  "skill": {
+    "name": "yescan-transoffice-universal",
+    "description": "Convert a single image, screenshot, or scan into an editable Word, Excel, or PDF file using the Quark Scan King API.",
+    "summary": "Converts one user-provided image into an editable Office or PDF document.",
+    "icon": "📦",
+    "version": "1.2.0",
+    "author": "yescan-ai",
+    "license": "MIT",
+    "tags": [
+      "image conversion",
+      "office documents",
+      "ocr",
+      "pdf",
+      "scanned documents"
+    ],
+    "supported_tools": [
+      "claude",
+      "codex",
+      "claude-code"
+    ],
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ],
+    "category": "office"
+  },
+  "security_audit": {
+    "risk_level": "medium",
+    "is_blocked": false,
+    "safe_to_publish": true,
+    "summary": "Static analysis found many high-severity patterns, but most weak-crypto, obfuscation, Windows credential, and shell-execution hits are documentation or token false positives. Real risks remain: the skill runs a Python command, sends user images and an API key to a third-party service, reads one user-specified local file, and writes converted files to a temp directory.",
+    "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/scan.py",
+            "line_start": 3,
+            "line_end": 6
+          },
+          {
+            "file": "scripts/common/runner.py",
+            "line_start": 38,
+            "line_end": 95
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/common/settings.py",
+            "line_start": 17,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/common/ocr_client.py",
+            "line_start": 196,
+            "line_end": 208
+          },
+          {
+            "file": "references/privacy.md",
+            "line_start": 9,
+            "line_end": 13
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/common/validators.py",
+            "line_start": 59,
+            "line_end": 73
+          },
+          {
+            "file": "scripts/common/file_saver.py",
+            "line_start": 50,
+            "line_end": 52
+          },
+          {
+            "file": "scripts/common/file_saver.py",
+            "line_start": 202,
+            "line_end": 208
+          },
+          {
+            "file": "references/privacy.md",
+            "line_start": 18,
+            "line_end": 22
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
+          {
+            "file": "scripts/common/ocr_client.py",
+            "line_start": 37,
+            "line_end": 56
+          },
+          {
+            "file": "references/privacy.md",
+            "line_start": 29,
+            "line_end": 52
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 35,
+            "line_end": 52
+          },
+          {
+            "file": "README.md",
+            "line_start": 19,
+            "line_end": 30
+          },
+          {
+            "file": "examples/word-example.md",
+            "line_start": 13,
+            "line_end": 15
+          }
+        ]
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Third-Party Image And Credential Upload",
+        "description": "The client sends the API key and either image content or an image URL to the Quark Scan King endpoint. This is required for the skill, but it exposes user image data and a credential to a third-party service.",
+        "locations": [
+          {
+            "file": "scripts/common/ocr_client.py",
+            "line_start": 180,
+            "line_end": 208
+          },
+          {
+            "file": "references/privacy.md",
+            "line_start": 9,
+            "line_end": 13
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The request body includes aiApiKey and image data fields, and the POST destination is a hard-coded external API. The privacy document confirms this data leaves the machine."
+      },
+      {
+        "title": "User-Specified Local File Read",
+        "description": "The client accepts a local path, validates that it is an allowed image under the size limit, reads the file, encodes it, and sends it for conversion. This is expected behavior but should only run on files explicitly selected by the user.",
+        "locations": [
+          {
+            "file": "scripts/common/ocr_client.py",
+            "line_start": 158,
+            "line_end": 174
+          },
+          {
+            "file": "scripts/common/validators.py",
+            "line_start": 59,
+            "line_end": 73
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The code clearly reads a path supplied through the command flow, but validation limits it to existing image files and does not traverse directories."
+      },
+      {
+        "title": "Temporary Output Files Are Not Auto-Cleaned",
+        "description": "Converted documents are decoded from service output and written to the system temp directory. The documentation states that users must remove these files manually.",
+        "locations": [
+          {
+            "file": "scripts/common/file_saver.py",
+            "line_start": 50,
+            "line_end": 52
+          },
+          {
+            "file": "scripts/common/file_saver.py",
+            "line_start": 202,
+            "line_end": 208
+          },
+          {
+            "file": "references/privacy.md",
+            "line_start": 18,
+            "line_end": 22
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The saver defaults to tempfile.gettempdir and writes decoded bytes to disk. The privacy documentation explicitly says files are not automatically cleaned."
+      },
+      {
+        "title": "Plaintext API Key Fallback File",
+        "description": "The credential loader uses SCAN_WEBSERVICE_KEY from the environment or a plaintext ~/.yescan_env file. The documented chmod guidance reduces exposure, but shared machines still require care.",
+        "locations": [
+          {
+            "file": "scripts/common/ocr_client.py",
+            "line_start": 37,
+            "line_end": 56
+          },
+          {
+            "file": "references/privacy.md",
+            "line_start": 31,
+            "line_end": 45
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The fallback file path and parser are explicit in code, and the documentation instructs users to store the key there. This is common but still a credential-handling risk."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Documented Command Invocation Is Expected",
+        "description": "The external command findings point to examples and instructions for running scripts/scan.py. They do not show dynamic shell construction in the Python code, but the skill still requires an agent to execute a local command.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 35,
+            "line_end": 52
+          },
+          {
+            "file": "README.md",
+            "line_start": 19,
+            "line_end": 30
+          },
+          {
+            "file": "examples/word-example.md",
+            "line_start": 13,
+            "line_end": 15
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The static pattern matched backticks and fenced commands in Markdown. The executable code uses argparse rather than shell string interpolation."
+      },
+      {
+        "title": "Weak-Crypto And Obfuscation Hits Are Benign Tokens",
+        "description": "The reported weak cryptography and high-entropy patterns align with Markdown text, image magic bytes, constants, or base64 validation. I did not find evidence of encrypted payloads, hidden loaders, or secret exfiltration code.",
+        "locations": [
+          {
+            "file": "scripts/common/file_saver.py",
+            "line_start": 131,
+            "line_end": 156
+          },
+          {
+            "file": "scripts/common/messages.py",
+            "line_start": 3,
+            "line_end": 9
+          },
+          {
+            "file": "SECURITY.md",
+            "line_start": 24,
+            "line_end": 27
+          }
+        ],
+        "confidence": 0.76,
+        "confidence_reasoning": "The suspicious byte strings are file format signatures, and base64 calls validate or decode expected image and document content. No dynamic import or execution path was found in the reviewed code."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Outbound POST With API Key And Image Payload",
+        "description": "The client builds a request containing aiApiKey and image data or URL, then posts it to the configured external service.",
+        "locations": [
+          {
+            "file": "scripts/common/ocr_client.py",
+            "line_start": 180,
+            "line_end": 208
+          },
+          {
+            "file": "scripts/common/settings.py",
+            "line_start": 17,
+            "line_end": 18
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The data fields and POST call are explicit. This is a core capability, not hidden behavior."
+      },
+      {
+        "title": "Decoded Service Output Written To Disk",
+        "description": "The file saver decodes base64 content from the service response and writes it to a generated local file path.",
+        "locations": [
+          {
+            "file": "scripts/common/file_saver.py",
+            "line_start": 202,
+            "line_end": 208
+          },
+          {
+            "file": "scripts/common/result_handlers.py",
+            "line_start": 78,
+            "line_end": 117
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The write call is direct and the handler chooses output format from the scene. The destination is generated under the configured temp directory."
+      },
+      {
+        "title": "Agent-Facing Local Command Execution",
+        "description": "The skill instructs the agent to run python3 scripts/scan.py with fixed scene and input parameters. This is necessary for operation but increases marketplace execution risk.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 35,
+            "line_end": 52
+          },
+          {
+            "file": "scripts/common/runner.py",
+            "line_start": 38,
+            "line_end": 64
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The command is documented and constrained to argparse options, but it still causes local script execution from agent instructions."
+      }
+    ],
+    "files_scanned": 23,
+    "total_lines": 1804,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T04:36:01.041Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "env_access",
+      "external_commands"
+    ]
+  },
+  "content": {
+    "user_title": "Convert Scans to Office Files",
+    "value_statement": "Scanned images often need manual retyping before users can edit them. This skill converts one image into Word, Excel, or PDF through Quark Scan King.",
+    "seo_keywords": [
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "image to Word",
+      "image to Excel",
+      "scan to PDF",
+      "Office document conversion",
+      "OCR conversion",
+      "Quark Scan King",
+      "scanned document workflow"
+    ],
+    "actual_capabilities": [
+      "Converts one image URL into a Word, Excel, or PDF file.",
+      "Reads one local image path and sends its encoded content for conversion.",
+      "Accepts base64 image input, including data URL format.",
+      "Selects fixed scenes for image-to-word, image-to-excel, and image-to-pdf.",
+      "Saves converted documents to the system temporary directory.",
+      "Returns the local output path from the conversion result."
+    ],
+    "limitations": [
+      "Requires Python 3.9 or later and a SCAN_WEBSERVICE_KEY API key.",
+      "Sends image content to the Quark Scan King service for processing.",
+      "Processes one image per command and does not batch multiple files.",
+      "Supports images up to 5 MB in documented image formats."
+    ],
+    "use_cases": [
+      {
+        "title": "Turn Report Screenshots Into Spreadsheets",
+        "description": "Convert a screenshot of a table or sales report into an editable Excel file.",
+        "target_user": "Operations analyst"
+      },
+      {
+        "title": "Rebuild Scanned Contracts As Word Files",
+        "description": "Convert a contract photo into a Word document that can be reviewed and edited.",
+        "target_user": "Legal assistant"
+      },
+      {
+        "title": "Archive Paper Notes As PDF",
+        "description": "Convert a scanned page or meeting note image into a PDF for sharing and storage.",
+        "target_user": "Administrative coordinator"
+      }
+    ],
+    "prompt_templates": [
+      {
+        "title": "Convert A Local Image",
+        "scenario": "Beginner local file conversion",
+        "prompt": "Convert this image to Word: /path/to/document.jpg"
+      },
+      {
+        "title": "Convert A Table Screenshot",
+        "scenario": "Spreadsheet conversion",
+        "prompt": "Convert this table screenshot to Excel and give me the saved file path: /path/to/table.png"
+      },
+      {
+        "title": "Convert From A URL",
+        "scenario": "Remote image conversion",
+        "prompt": "Convert the image at this URL to PDF: https://example.com/scan.png"
+      },
+      {
+        "title": "Choose The Best Output Format",
+        "scenario": "Advanced format selection",
+        "prompt": "This scan contains paragraphs and a small table. Convert it to the most editable Office format: /path/to/scan.webp"
+      }
+    ],
+    "output_examples": [
+      {
+        "input": "A user provides a local photo of a printed meeting agenda and asks for Word output.",
+        "output": "The skill returns a success message with a local document path ending in .docx."
+      },
+      {
+        "input": "A user provides a screenshot of a financial table and asks for Excel output.",
+        "output": "The skill saves an .xlsx file in the temporary directory and returns its path."
+      },
+      {
+        "input": "A user provides an image URL and asks for a PDF copy.",
+        "output": "The skill sends the image URL for conversion and returns the saved PDF path."
+      }
+    ],
+    "best_practices": [
+      "Confirm the image contains no sensitive data before sending it to the third-party service.",
+      "Use the fixed scene that matches the desired output format.",
+      "Delete temporary output files after they are no longer needed."
+    ],
+    "anti_patterns": [
+      "Do not use this skill for pure text extraction without document conversion.",
+      "Do not process private records unless third-party processing is approved.",
+      "Do not pass unverified secrets or unrelated files as image input."
+    ],
+    "faq": [
+      {
+        "question": "Does this skill work without an API key?",
+        "answer": "No. It requires SCAN_WEBSERVICE_KEY from the Quark Scan King developer console."
+      },
+      {
+        "question": "Where are converted files saved?",
+        "answer": "Converted files are saved under the system temporary directory, such as /tmp or %TEMP%."
+      },
+      {
+        "question": "Does the skill send images to an external service?",
+        "answer": "Yes. It sends the user-provided image or image URL to scan-business.quark.cn."
+      },
+      {
+        "question": "Can it convert many images at once?",
+        "answer": "No. The documented workflow processes one image per command."
+      },
+      {
+        "question": "Which formats are supported?",
+        "answer": "It supports common image inputs and produces Word, Excel, or PDF output."
+      },
+      {
+        "question": "Is this the right tool for image enhancement?",
+        "answer": "No. This skill is for document conversion, not image enhancement or pure OCR text extraction."
+      }
+    ]
+  },
+  "file_structure": [
+    {
+      "name": "assets",
+      "type": "dir",
+      "path": "assets"
+    },
+    {
+      "name": "examples",
+      "type": "dir",
+      "path": "examples",
+      "children": [
+        {
+          "name": "excel-example.md",
+          "type": "file",
+          "path": "examples/excel-example.md",
+          "lines": 59
+        },
+        {
+          "name": "pdf-example.md",
+          "type": "file",
+          "path": "examples/pdf-example.md",
+          "lines": 60
+        },
+        {
+          "name": "word-example.md",
+          "type": "file",
+          "path": "examples/word-example.md",
+          "lines": 60
+        }
+      ]
+    },
+    {
+      "name": "references",
+      "type": "dir",
+      "path": "references",
+      "children": [
+        {
+          "name": "implementation.md",
+          "type": "file",
+          "path": "references/implementation.md",
+          "lines": 58
+        },
+        {
+          "name": "privacy.md",
+          "type": "file",
+          "path": "references/privacy.md",
+          "lines": 72
+        },
+        {
+          "name": "troubleshooting.md",
+          "type": "file",
+          "path": "references/troubleshooting.md",
+          "lines": 47
+        }
+      ]
+    },
+    {
+      "name": "scripts",
+      "type": "dir",
+      "path": "scripts",
+      "children": [
+        {
+          "name": "common",
+          "type": "dir",
+          "path": "scripts/common",
+          "children": [
+            {
+              "name": "__init__.py",
+              "type": "file",
+              "path": "scripts/common/__init__.py",
+              "lines": 71
+            },
+            {
+              "name": "constants.py",
+              "type": "file",
+              "path": "scripts/common/constants.py",
+              "lines": 26
+            },
+            {
+              "name": "file_saver.py",
+              "type": "file",
+              "path": "scripts/common/file_saver.py",
+              "lines": 257
+            },
+            {
+              "name": "messages.py",
+              "type": "file",
+              "path": "scripts/common/messages.py",
+              "lines": 16
+            },
+            {
+              "name": "ocr_client.py",
+              "type": "file",
+              "path": "scripts/common/ocr_client.py",
+              "lines": 238
+            },
+            {
+              "name": "result_handlers.py",
+              "type": "file",
+              "path": "scripts/common/result_handlers.py",
+              "lines": 123
+            },
+            {
+              "name": "runner.py",
+              "type": "file",
+              "path": "scripts/common/runner.py",
+              "lines": 103
+            },
+            {
+              "name": "scene_configs.py",
+              "type": "file",
+              "path": "scripts/common/scene_configs.py",
+              "lines": 160
+            },
+            {
+              "name": "settings.py",
+              "type": "file",
+              "path": "scripts/common/settings.py",
+              "lines": 22
+            },
+            {
+              "name": "validators.py",
+              "type": "file",
+              "path": "scripts/common/validators.py",
+              "lines": 76
+            }
+          ]
+        },
+        {
+          "name": "scan.py",
+          "type": "file",
+          "path": "scripts/scan.py",
+          "lines": 7
+        }
+      ]
+    },
+    {
+      "name": "LICENSE",
+      "type": "file",
+      "path": "LICENSE",
+      "lines": 22
+    },
+    {
+      "name": "README.md",
+      "type": "file",
+      "path": "README.md",
+      "lines": 74
+    },
+    {
+      "name": "README.zh-CN.md",
+      "type": "file",
+      "path": "README.zh-CN.md",
+      "lines": 83
+    },
+    {
+      "name": "SECURITY.md",
+      "type": "file",
+      "path": "SECURITY.md",
+      "lines": 46
+    },
+    {
+      "name": "SKILL.md",
+      "type": "file",
+      "path": "SKILL.md",
+      "lines": 123
+    }
+  ]
+}
