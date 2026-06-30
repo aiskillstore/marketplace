@@ -17,11 +17,17 @@
 ## 快速开始
 
 1. 在 `https://scan.quark.cn/business` 开发者后台创建应用、获取 API Key
-2. 将密钥写入 `~/.yescan_env`：
-   ```bash
-   echo 'SCAN_WEBSERVICE_KEY=<你的密钥>' > ~/.yescan_env
-   chmod 600 ~/.yescan_env
-   ```
+2. 配置 API 密钥（任选其一）：
+   - **方式一：环境变量**（推荐）
+     ```bash
+     export SCAN_WEBSERVICE_KEY=<你的密钥>
+     ```
+   - **方式二：配置文件**
+     ```bash
+     echo 'SCAN_WEBSERVICE_KEY=<你的密钥>' > ~/.yescan_env
+     chmod 600 ~/.yescan_env
+     ```
+   > 优先读取环境变量，未设置时自动从 `~/.yescan_env` 文件加载。
 3. 将本技能安装到你的 Agent 运行时（参考各平台的技能安装文档）
 4. 对 Agent 说：*「把这张截图转成 Excel：/path/to/image.png」*
 

@@ -17,11 +17,17 @@ Send a single image (URL / local path / base64) to the Quark Scan King API and r
 ## Quick start
 
 1. Get an API key from `https://scan.quark.cn/business` (Developer Console → API Key)
-2. Save it locally:
-   ```bash
-   echo 'SCAN_WEBSERVICE_KEY=<your_api_key>' > ~/.yescan_env
-   chmod 600 ~/.yescan_env
-   ```
+2. Configure your API key (choose one):
+   - **Option A: Environment variable** (recommended)
+     ```bash
+     export SCAN_WEBSERVICE_KEY=<your_api_key>
+     ```
+   - **Option B: Config file**
+     ```bash
+     echo 'SCAN_WEBSERVICE_KEY=<your_api_key>' > ~/.yescan_env
+     chmod 600 ~/.yescan_env
+     ```
+   > The environment variable takes priority; if not set, the key is loaded from `~/.yescan_env`.
 3. Install the skill into your agent runtime (see your agent's skill installation docs)
 4. Ask the agent: *"Convert this screenshot to Excel: /path/to/image.png"*
 

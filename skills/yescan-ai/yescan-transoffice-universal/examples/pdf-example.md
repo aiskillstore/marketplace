@@ -21,7 +21,6 @@ python3 scripts/scan.py --scene "image-to-pdf" --path "/Users/me/Desktop/notes.j
   "code": "00000",
   "message": "success",
   "data": {
-    "FileBase64": "JVBERi0xLjQKJ...（已省略）",
     "path": "/tmp/1728912345_ghi789.pdf"
   }
 }

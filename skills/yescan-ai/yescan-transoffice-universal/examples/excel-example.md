@@ -21,7 +21,6 @@ python3 scripts/scan.py --scene "image-to-excel" --path "/Users/me/Desktop/finan
   "code": "00000",
   "message": "success",
   "data": {
-    "FileBase64": "UEsDBBQABg...（已省略）",
     "path": "/tmp/1728912345_a1b2c3.xlsx"
   }
 }

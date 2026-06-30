@@ -70,7 +70,7 @@ python3 scripts/scan.py --scene "${SCENE_VALUE}" --base64 "${IMAGE_BASE64}" --pl
 - 执行完成后，*原样返回执行结果*，不修改、不翻译、不美化、不总结
 - 成功 / 失败均直接透出，不重试
 
-> 转换成功时响应 `data` 中会带 `path` 字段（本地文件路径），可直接展示给用户。完整字段说明、客户端脚本如何处理 `FileBase64` 见 [references/implementation.md](references/implementation.md)。常见错误码与排错见 [references/troubleshooting.md](references/troubleshooting.md)。
+> 转换成功时响应 `data` 中会带 `path` 字段（本地文件路径），可直接展示给用户。完整字段说明见 [references/implementation.md](references/implementation.md)。常见错误码与排错见 [references/troubleshooting.md](references/troubleshooting.md)。
 
 ## 场景与意图列表（按匹配优先级排序）
 

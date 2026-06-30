@@ -22,7 +22,7 @@
 3. macOS / Linux：检查文件权限 `ls -l ~/.yescan_env` 应为 `-rw-------`
 4. Windows：确保编码为 UTF-8（PowerShell 默认可能写成 UTF-16，需要用 `-Encoding utf8` 显式指定）
 
-### 2.2 响应有 `data.FileBase64` 但没有 `data.path`
+### 2.2 响应成功但没有 `data.path`
 
 说明 `file_saver.py` 落盘失败。可能原因：
 
