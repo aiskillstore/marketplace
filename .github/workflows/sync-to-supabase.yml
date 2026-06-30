@@ -89,6 +89,74 @@ jobs:
               echo "${dir#skills/}"
             done | sort -u
           }
+
+          # Resolve workflow_dispatch input to repository skill paths. Operators
+          # usually pass public slugs such as "sickn33-mtls-configuration", while
+          # the CLI expects paths such as "skills/sickn33/mtls-configuration".
+          resolve_manual_skills() {
+            MANUAL_SKILL_INPUT="$1" node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const raw = process.env.MANUAL_SKILL_INPUT || '';
+          const requested = [
+            ...new Set(
+              raw
+                .split(/[,\s]+/)
+                .map((item) => item.trim().replace(/^skills\//, '').replace(/\/skill-report\.json$/, ''))
+                .filter(Boolean),
+            ),
+          ];
+
+          const reports = [];
+          function walk(dir) {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                walk(fullPath);
+              } else if (entry.name === 'skill-report.json') {
+                reports.push(fullPath);
+              }
+            }
+          }
+
+          walk('skills');
+
+          const byPath = new Map();
+          const bySlug = new Map();
+          for (const reportPath of reports) {
+            const relativePath = path.dirname(reportPath).replace(/^skills\//, '');
+            byPath.set(relativePath, relativePath);
+            bySlug.set(relativePath.replace(/\//g, '-'), relativePath);
+
+            try {
+              const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+              const slug = report?.meta?.slug;
+              if (slug) bySlug.set(slug, relativePath);
+            } catch {
+              // Keep path-derived fallback mappings.
+            }
+          }
+
+          const resolved = [];
+          const missing = [];
+          for (const item of requested) {
+            const skillPath = byPath.get(item) || bySlug.get(item);
+            if (skillPath) {
+              resolved.push(skillPath);
+            } else {
+              missing.push(item);
+            }
+          }
+
+          if (missing.length > 0) {
+            console.error(`Could not resolve skill identifier(s): ${missing.join(', ')}`);
+            process.exit(1);
+          }
+
+          process.stdout.write([...new Set(resolved)].sort().join(' '));
+          NODE
+          }
           
           # Get skill slug from a changed file path
           # Supports both flat (skills/name/) and namespaced (skills/owner/name/)
@@ -108,7 +176,8 @@ jobs:
           
           if [ -n "${{ inputs.slugs }}" ]; then
             echo "Specific slugs requested: ${{ inputs.slugs }}"
-            CHANGED=$(echo "${{ inputs.slugs }}" | tr ',' ' ' | tr '\n' ' ' | tr -s ' ' | xargs -n1 | sed 's|^skills/||' | sort -u | tr '\n' ' ')
+            CHANGED=$(resolve_manual_skills "${{ inputs.slugs }}")
+            echo "Resolved manual skill paths: $CHANGED"
             echo "mode=manual-slugs" >> $GITHUB_OUTPUT
           elif [ "${{ inputs.full_sync }}" = "true" ]; then
             echo "Full sync requested"
@@ -194,8 +263,10 @@ jobs:
             export NODE_OPTIONS="${NODE_OPTIONS:-} --use-openssl-ca"
           }
 
+          TLS_ERROR_PATTERN='certificate verification|unable to get local issuer certificate|unable to verify the first certificate|self-signed certificate|self signed certificate|CERT_|ERR_TLS|secure TLS connection|TLS handshake|SSL routines|SSL alert|tlsv[0-9.]* alert'
+
           is_tls_error() {
-            grep -Eqi 'certificate verification|unable to get local issuer certificate|self-signed certificate|CERT_|TLS|SSL' "$1"
+            grep -Eqi "$TLS_ERROR_PATTERN" "$1"
           }
 
           sync_error_count() {
@@ -226,7 +297,7 @@ jobs:
             local candidate_paths="$2"
             local failed_slugs
 
-            failed_slugs=$(grep -Ei 'certificate verification|unable to get local issuer certificate|self-signed certificate|CERT_|TLS|SSL' "$output_file" \
+            failed_slugs=$(grep -Ei "$TLS_ERROR_PATTERN" "$output_file" \
               | sed -n -E 's/.*(Error syncing|failed for) ([^:]+):.*/\2/p' \
               | sort -u | tr '\n' ' ')
 
