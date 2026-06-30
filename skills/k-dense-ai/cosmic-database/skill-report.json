@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-17T06:32:37.335Z",
+    "generated_at": "2026-06-30T05:28:34.540Z",
     "slug": "k-dense-ai-cosmic-database",
     "source_url": "https://github.com/K-Dense-AI/claude-scientific-skills/tree/main/scientific-skills/cosmic-database",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "dde1be118e32be29bb1c5f12b1179cbaacb1df392581a4eed60d147459ba9d82",
-    "tree_hash": "49b4e91df0dce4f0a3ef3f8016f56377b6a578457b4d6b17103e288bc91afb46"
+    "tree_hash": "069f613b39b595d1d634b1a67f5eb046cbfe076e24225c6df74e63951d29da3b"
   },
   "skill": {
     "name": "cosmic-database",
-    "description": "Access COSMIC cancer mutation database. Query somatic mutations, Cancer Gene Census, mutational signatures, gene fusions, for cancer research and precision oncology. Requires authentication.",
-    "summary": "Access COSMIC cancer mutation database. Query somatic mutations, Cancer Gene Census, mutational sign...",
-    "icon": "🧬",
+    "description": "Access COSMIC cancer mutation data with authenticated downloads, file path references, and analysis guidance for cancer genomics research.",
+    "summary": "Download and analyze COSMIC cancer genomics data for mutation research.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "K-Dense-AI",
-    "license": "MIT",
-    "category": "research",
+    "license": "Unknown",
     "tags": [
-      "cancer",
-      "genomics",
+      "cancer-genomics",
+      "cosmic",
       "mutations",
       "bioinformatics",
-      "research"
+      "oncology"
     ],
     "supported_tools": [
       "claude",
@@ -33,23 +32,50 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
       "network",
       "filesystem"
-    ]
+    ],
+    "category": "data"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All 121 static findings are false positives. The analyzer misidentified markdown code fences (```) as shell backticks, documentation URLs as network threats, and fabricated cryptographic patterns. This is a legitimate Sanger Institute bioinformatics tool. The Python script only makes authenticated HTTPS requests to download cancer genomics data from the official COSMIC database.",
+    "summary": "Static external-command and weak-cryptography findings are false positives from markdown fences, file names, and biomedical terms. The confirmed risks are legitimate but notable: a Python script sends COSMIC credentials to an external HTTPS service, follows a returned download URL, and writes downloaded files to disk. No evidence found of malicious intent, prompt injection that overrides audit rules, system reconnaissance, or real cryptographic misuse.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/download_cosmic.py",
+            "line_start": 1,
+            "line_end": 232
+          }
+        ]
+      },
       {
         "factor": "network",
         "evidence": [
           {
             "file": "scripts/download_cosmic.py",
             "line_start": 57,
+            "line_end": 69
+          },
+          {
+            "file": "scripts/download_cosmic.py",
+            "line_start": 91,
             "line_end": 93
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 31,
+            "line_end": 31
+          },
+          {
+            "file": "references/cosmic_data_reference.md",
+            "line_start": 7,
+            "line_end": 7
           }
         ]
       },
@@ -58,7 +84,7 @@
         "evidence": [
           {
             "file": "scripts/download_cosmic.py",
-            "line_start": 103,
+            "line_start": 99,
             "line_end": 115
           }
         ]
@@ -66,171 +92,270 @@
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [
+    "medium_findings": [
       {
-        "title": "Hardcoded COSMIC API URL",
-        "description": "Hardcoded COSMIC API URL for legitimate data access",
+        "title": "Authenticated External Download Workflow",
+        "description": "The downloader sends the user email and password to the official COSMIC HTTPS endpoint, parses a returned URL, and downloads data from that URL. This matches the skill purpose, but it handles credentials and external network traffic.",
         "locations": [
           {
             "file": "scripts/download_cosmic.py",
             "line_start": 57,
-            "line_end": 57
+            "line_end": 69
+          },
+          {
+            "file": "scripts/download_cosmic.py",
+            "line_start": 83,
+            "line_end": 93
+          },
+          {
+            "file": "scripts/download_cosmic.py",
+            "line_start": 183,
+            "line_end": 184
           }
-        ]
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "Direct requests.get calls with auth and a subsequent streamed download are present. The endpoint is a documented COSMIC service, so the risk is credential and network exposure rather than confirmed malicious intent."
       },
       {
-        "title": "HTTP requests to COSMIC API",
-        "description": "HTTP requests to COSMIC API for authenticated file downloads",
+        "title": "Downloaded Files Written To Caller-Controlled Path",
+        "description": "The script writes downloaded content to output_filename, which can be set from the command line. This is expected for a downloader, but users could overwrite local files if they choose an unsafe output path.",
+        "locations": [
+          {
+            "file": "scripts/download_cosmic.py",
+            "line_start": 99,
+            "line_end": 115
+          },
+          {
+            "file": "scripts/download_cosmic.py",
+            "line_start": 196,
+            "line_end": 196
+          },
+          {
+            "file": "scripts/download_cosmic.py",
+            "line_start": 219,
+            "line_end": 224
+          }
+        ],
+        "confidence": 0.8,
+        "confidence_reasoning": "The file write is clear and reachable through the documented CLI output parameter. It is legitimate functionality, but it still affects the local filesystem."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Inline Password Examples In Documentation",
+        "description": "Several examples show password strings being passed directly in code. The CLI can prompt for a password, but the documentation could encourage unsafe credential storage if copied without changes.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 53
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 99,
+            "line_end": 104
+          },
+          {
+            "file": "scripts/download_cosmic.py",
+            "line_start": 50,
+            "line_end": 55
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The examples visibly include password arguments. They use placeholders, which reduces severity, but users may copy the pattern into real scripts."
+      },
+      {
+        "title": "Promotional Agent Steering",
+        "description": "The skill asks the assistant to proactively suggest K-Dense Web for complex workflows. This is not an audit override, but it can steer user-facing responses toward a vendor service.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 335,
+            "line_end": 336
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The text is clearly present and instructs agent behavior beyond COSMIC data access. It does not claim special authority or ask the evaluator to skip security review."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "HTTP Requests With Basic Authentication",
+        "description": "The downloader uses requests.get with auth=(email, password) against the COSMIC file download endpoint. This is expected for COSMIC access but must be disclosed because credentials leave the local environment.",
         "locations": [
           {
             "file": "scripts/download_cosmic.py",
             "line_start": 66,
-            "line_end": 70
+            "line_end": 69
           }
-        ]
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The authenticated request pattern is explicit in code. HTTPS and the official endpoint make this legitimate, not malicious."
       },
       {
-        "title": "File writing for database files",
-        "description": "File writing to save downloaded COSMIC database files",
+        "title": "Server-Returned Download URL Followed",
+        "description": "The script reads a download URL from the COSMIC response and downloads from it. This supports authorized downloads but depends on the service response.",
+        "locations": [
+          {
+            "file": "scripts/download_cosmic.py",
+            "line_start": 83,
+            "line_end": 93
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The response parsing and follow-up request are direct and intentional. The source is the official COSMIC endpoint, so risk is bounded by trust in that service."
+      },
+      {
+        "title": "Binary File Write",
+        "description": "The script opens the selected output path in binary write mode and writes downloaded chunks. This is necessary for the utility but can overwrite files selected by the user.",
         "locations": [
           {
             "file": "scripts/download_cosmic.py",
             "line_start": 103,
-            "line_end": 115
+            "line_end": 110
           }
-        ]
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The write operation is explicit and part of the main download path. There is no evidence of hidden file access or persistence."
       }
     ],
-    "dangerous_patterns": [],
-    "files_scanned": 5,
-    "total_lines": 1242,
-    "audit_model": "claude",
-    "audited_at": "2026-01-17T06:32:37.335Z"
+    "files_scanned": 4,
+    "total_lines": 979,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T05:28:34.540Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Access COSMIC cancer mutation database",
-    "value_statement": "Cancer researchers need comprehensive mutation data for studies. This skill provides programmatic access to the COSMIC database containing millions of somatic mutations, curated cancer gene lists, and mutational signatures for precision oncology research.",
+    "user_title": "Explore COSMIC Cancer Genomics Data",
+    "value_statement": "Cancer researchers need reliable access to COSMIC mutation files, gene census data, and signatures. This skill provides authenticated download guidance, file path references, and analysis patterns for cancer genomics workflows.",
     "seo_keywords": [
       "COSMIC database",
-      "cancer mutations",
+      "cancer mutation data",
       "somatic mutations",
+      "Cancer Gene Census",
+      "mutational signatures",
       "bioinformatics",
       "precision oncology",
       "Claude",
       "Codex",
-      "Claude Code",
-      "cancer genomics",
-      "mutation analysis"
+      "Claude Code"
     ],
     "actual_capabilities": [
-      "Download mutation data from COSMIC database using authenticated access",
-      "Query Cancer Gene Census for curated lists of 700+ cancer genes",
-      "Retrieve mutational signature profiles for signature analysis workflows",
-      "Access structural variants, gene fusions, and copy number alterations",
-      "Download drug resistance mutations with clinical annotations",
-      "Support both GRCh37 and GRCh38 genome assemblies"
+      "Download COSMIC files through an authenticated Python helper script.",
+      "Resolve common COSMIC file paths for mutations, gene census, fusions, and signatures.",
+      "Explain GRCh37 and GRCh38 download paths for compatible research workflows.",
+      "Show pandas and pysam patterns for working with downloaded COSMIC files.",
+      "Summarize available COSMIC data types and official reference links."
     ],
     "limitations": [
-      "Requires free academic registration at Sanger Institute",
-      "Commercial use requires QIAGEN license agreement",
-      "Data files can be several gigabytes in size",
-      "COSMIC updates quarterly - specific versions needed for reproducibility"
+      "Requires a valid COSMIC account and accepted access terms.",
+      "Commercial use may require a separate QIAGEN license.",
+      "Large downloads can require substantial disk space and time.",
+      "Does not provide clinical interpretation or treatment recommendations."
     ],
     "use_cases": [
       {
-        "target_user": "Cancer Researchers",
-        "title": "Analyze mutation patterns",
-        "description": "Download somatic mutations data to identify recurrent mutations in specific cancer types for research studies."
+        "target_user": "Cancer genomics researcher",
+        "title": "Prepare mutation datasets",
+        "description": "Find the correct COSMIC files and download coding mutation data for a research cohort."
       },
       {
-        "target_user": "Bioinformaticians",
-        "title": "Build annotation pipelines",
-        "description": "Integrate COSMIC data into bioinformatics workflows to annotate patient variants with cancer significance."
+        "target_user": "Bioinformatics engineer",
+        "title": "Build data pipelines",
+        "description": "Integrate COSMIC downloads and file path shortcuts into reproducible analysis workflows."
       },
       {
-        "target_user": "Clinical Oncologists",
-        "title": "Research drug resistance",
-        "description": "Query resistance mutation data to inform precision medicine decisions for cancer treatment."
+        "target_user": "Translational oncology team",
+        "title": "Review cancer gene evidence",
+        "description": "Use Cancer Gene Census and resistance mutation files to support research review."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Download mutations",
-        "scenario": "Getting started with COSMIC",
-        "prompt": "Show me how to download the Cancer Gene Census from COSMIC using the download_cosmic.py script. What filepath should I use?"
+        "title": "Find a COSMIC file",
+        "scenario": "Beginner lookup",
+        "prompt": "Which COSMIC file should I use for the Cancer Gene Census, and what access steps are required?"
       },
       {
-        "title": "Query by gene",
-        "scenario": "Finding specific mutations",
-        "prompt": "What file contains TP53 mutations in COSMIC and how do I filter the downloaded data for a specific gene?"
+        "title": "Download mutation data",
+        "scenario": "Authenticated download",
+        "prompt": "Guide me through downloading COSMIC coding mutation data for GRCh38 using the helper script."
       },
       {
-        "title": "Mutational signatures",
-        "scenario": "Signature analysis",
-        "prompt": "How do I download and work with COSMIC mutational signatures? What file paths should I use for SBS signatures?"
+        "title": "Analyze a downloaded file",
+        "scenario": "Local data exploration",
+        "prompt": "Explain how to load a downloaded COSMIC mutation table and filter records for TP53 in lung cancer."
       },
       {
-        "title": "Integrate with VCF",
-        "scenario": "VCF file processing",
-        "prompt": "Show me how to read a downloaded CosmicCodingMuts.vcf.gz file using pysam and extract records for chromosome 17."
+        "title": "Plan a reproducible pipeline",
+        "scenario": "Advanced workflow design",
+        "prompt": "Design a reproducible workflow that downloads COSMIC gene census, mutation, and fusion files for quarterly updates."
       }
     ],
     "output_examples": [
       {
-        "input": "Download the Cancer Gene Census from COSMIC",
+        "input": "I need COSMIC Cancer Gene Census data for a new GRCh38 project.",
         "output": [
-          "Cancer Gene Census filepath: GRCh38/cosmic/latest/cancer_gene_census.csv",
-          "Use download_cosmic.py with --data-type gene_census",
-          "Contains 700+ curated cancer genes with roles (oncogene, TSG, fusion)",
-          "Downloaded file can be read with pandas.read_csv()"
+          "Use the Cancer Gene Census CSV path for GRCh38 with the latest release marker.",
+          "Confirm your COSMIC account access before downloading.",
+          "Read the downloaded CSV with a table tool such as pandas for role and tier filtering."
         ]
       },
       {
-        "input": "Find TP53 mutations in lung cancer",
+        "input": "I want to compare mutation records for a single gene.",
         "output": [
-          "Download CosmicMutantExport.tsv.gz from GRCh38/cosmic/latest/",
-          "Filter mutations where 'Gene name' equals 'TP53'",
-          "Further filter where 'Primary site' equals 'lung'",
-          "Found 847 TP53 mutations in lung cancer samples",
-          "Top variants: R175H (12%), R248W (8%), R273H (7%)"
+          "Download the coding mutation export for the target genome assembly.",
+          "Load the compressed table locally after the download completes.",
+          "Filter by the gene symbol column and then stratify by primary site or histology."
+        ]
+      },
+      {
+        "input": "I need a safe way to run a large COSMIC download.",
+        "output": [
+          "Use the password prompt instead of storing credentials in source files.",
+          "Choose an output directory with enough free disk space.",
+          "Record the COSMIC version and genome assembly in your workflow notes."
         ]
       }
     ],
     "best_practices": [
-      "Use GRCh38 assembly for new projects and specify genome_assembly='GRCh38' in function calls",
-      "Use 'latest' in file paths to get the most recent COSMIC release or pin specific versions for reproducibility",
-      "Store credentials securely using environment variables and never hardcode passwords in scripts"
+      "Use the password prompt or a secure secret manager instead of hardcoding credentials.",
+      "Record the COSMIC release version and genome assembly for reproducibility.",
+      "Download only the data types needed for the current research question."
     ],
     "anti_patterns": [
-      "Using GRCh37 for new projects when GRCh38 is the current standard reference genome",
-      "Downloading the entire database when specific subsets meet your analysis needs",
-      "Skipping authentication verification before attempting downloads"
+      "Do not paste real COSMIC passwords into notebooks, prompts, or shared scripts.",
+      "Do not assume commercial rights without checking the COSMIC license terms.",
+      "Do not mix GRCh37 and GRCh38 files without an explicit liftover plan."
     ],
     "faq": [
       {
-        "question": "Is COSMIC access free?",
-        "answer": "Academic users get free access with registration. Commercial users need a QIAGEN license."
+        "question": "Does this skill include COSMIC data?",
+        "answer": "No. It provides guidance and a helper script for downloading data from COSMIC after authentication."
       },
       {
-        "question": "What genome assembly should I use?",
-        "answer": "Use GRCh38 for new projects. GRCh37 is available for legacy pipeline compatibility."
+        "question": "Do I need a COSMIC account?",
+        "answer": "Yes. COSMIC downloads require registration, and commercial users may need a separate license."
       },
       {
-        "question": "How large are COSMIC files?",
-        "answer": "Mutation files can be several gigabytes. The script shows download progress for large files."
+        "question": "Which genome assembly should I choose?",
+        "answer": "Use GRCh38 for new projects. Use GRCh37 only when an existing workflow requires it."
       },
       {
-        "question": "What file formats are available?",
-        "answer": "TSV, CSV, and VCF formats. TSV and CSV use gzip compression. VCF is standard for variant data."
+        "question": "Can this skill interpret patient results?",
+        "answer": "No. It supports research data access and analysis planning, not clinical diagnosis or treatment advice."
       },
       {
-        "question": "How often is COSMIC updated?",
-        "answer": "COSMIC is updated quarterly. Use 'latest' in file paths for the most current version."
+        "question": "Why is there a security warning?",
+        "answer": "The helper script uses network access, handles COSMIC credentials, and writes downloaded files to disk."
       },
       {
-        "question": "Can I use this with other tools?",
-        "answer": "Yes, COSMIC data integrates with VEP, pysam, pandas, and standard bioinformatics pipelines."
+        "question": "What tools can read the downloaded files?",
+        "answer": "The documentation references pandas for tables and pysam for VCF files, depending on the file format."
       }
     ]
   },

@@ -1,20 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-04-20T08:56:05.811Z",
+    "generated_at": "2026-06-30T05:28:20.884Z",
     "slug": "juliusbrussee-compress",
     "source_url": "https://github.com/juliusbrussee/caveman/tree/main/skills/compress/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "e1b7dca47565d815fc645fe0cd409eb25745a4fa0ff0ee79893276ef1673d61a",
-    "tree_hash": "85715d872ff5c5d8a7d765839654d4e4758aab8d7eb166715a6d57f6f3cb2ff9"
+    "tree_hash": "159f79c68190ebc4ff90228a0016f1486498e4e7669e23c9981666a82bf01112"
   },
   "skill": {
     "name": "compress",
-    "description": "Compress natural language memory files (CLAUDE.md, todos, preferences) into caveman format to save input tokens. Preserves all technical substance, code, URLs, and structure. Compressed version overwrites the original file. Human-readable backup saved as FILE.original.md. Trigger: /caveman:compress <filepath> or \"compress memory file\"\n",
-    "summary": "Compress markdown files to caveman format, saving 65-75% of tokens while preserving all code, URLs, and structure.",
+    "description": "Compress natural language memory files, such as CLAUDE.md, todos, and preference notes, into a shorter caveman style. The skill preserves code blocks, inline code, URLs, headings, paths, and commands while saving the original as a backup file.",
+    "summary": "Compress markdown and text memory files while preserving technical content.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "juliusbrussee",
@@ -22,10 +22,10 @@
     "category": "productivity",
     "tags": [
       "compression",
-      "token-optimization",
       "markdown",
-      "caveman",
-      "ai-efficiency"
+      "memory-files",
+      "token-saving",
+      "claude"
     ],
     "supported_tools": [
       "claude",
@@ -33,17 +33,49 @@
       "claude-code"
     ],
     "risk_factors": [
+      "scripts",
+      "network",
       "filesystem",
       "external_commands",
       "env_access"
     ]
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static analysis produced 53 potential findings, all evaluated as false positives. The subprocess.run call to 'claude' CLI uses hardcoded arguments with no user input. Environment variable access (ANTHROPIC_API_KEY, CAVEMAN_MODEL) is expected functionality for an AI tool. File path references to .env, .aws, .ssh are part of a security denylist that prevents compressing sensitive files. No confirmed security risks found.",
+    "summary": "Static analysis found many sensitive-path, command, and environment patterns. Review shows most sensitive-path hits are false positives because they are denylist checks, but the skill intentionally sends selected file contents to Claude or Anthropic and overwrites the original file after backup. No evidence found of malicious intent, prompt injection text, credential harvesting, or command injection.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 27
+          },
+          {
+            "file": "scripts/cli.py",
+            "line_start": 20,
+            "line_end": 25
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "scripts/compress.py",
+            "line_start": 81,
+            "line_end": 85
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 192,
+            "line_end": 194
+          }
+        ]
+      },
       {
         "factor": "filesystem",
         "evidence": [
@@ -55,12 +87,17 @@
           {
             "file": "scripts/compress.py",
             "line_start": 155,
-            "line_end": 175
+            "line_end": 183
           },
           {
             "file": "scripts/compress.py",
-            "line_start": 182,
+            "line_start": 196,
             "line_end": 198
+          },
+          {
+            "file": "scripts/validate.py",
+            "line_start": 150,
+            "line_end": 160
           }
         ]
       },
@@ -69,8 +106,8 @@
         "evidence": [
           {
             "file": "scripts/compress.py",
-            "line_start": 91,
-            "line_end": 101
+            "line_start": 92,
+            "line_end": 98
           }
         ]
       },
@@ -79,8 +116,13 @@
         "evidence": [
           {
             "file": "scripts/compress.py",
-            "line_start": 75,
-            "line_end": 84
+            "line_start": 76,
+            "line_end": 83
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 83,
+            "line_end": 83
           }
         ]
       }
@@ -89,36 +131,164 @@
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "Subprocess Execution with Fallback",
-        "description": "The skill uses subprocess.run to execute the 'claude' CLI command as a fallback when the Anthropic Python SDK is unavailable. Arguments are hardcoded with no user input, eliminating command injection risk.",
-        "locations": [
-          {
-            "file": "scripts/compress.py",
-            "line_start": 91,
-            "line_end": 101
-          }
-        ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Direct evidence of subprocess.run call, but command is hardcoded ['claude', '--print'] with no user-controlled input - legitimate fallback pattern for AI tooling"
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Environment Variable Access for API Configuration",
-        "description": "The skill reads ANTHROPIC_API_KEY and CAVEMAN_MODEL environment variables to make API calls. This is expected functionality for an AI tool that compresses files by sending them to Claude.",
+        "title": "User File Contents Sent To External LLM",
+        "description": "The skill builds a prompt from the target file and sends it to Anthropic when ANTHROPIC_API_KEY is set. It falls back to the Claude CLI, so users must treat compressed files as shared with an external model boundary.",
         "locations": [
           {
             "file": "scripts/compress.py",
             "line_start": 75,
-            "line_end": 84
+            "line_end": 85
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 92,
+            "line_end": 98
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 192,
+            "line_end": 194
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "Clear pattern of environment variable access for API key and model configuration - legitimate use case for AI tool that requires Claude API access"
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "The code directly creates a Claude message from the file-derived prompt and also supports a Claude CLI fallback. The sensitive-path denylist reduces exposure but does not remove the external data transfer risk."
       },
       {
-        "title": "File Overwrite with Backup Protection",
-        "description": "The skill overwrites the original file with compressed content after creating a backup at FILE.original.md. Checks for existing backup to prevent data loss.",
+        "title": "In-Place File Overwrite After Compression",
+        "description": "The skill reads the selected file, writes a backup with an .original.md suffix, and overwrites the original path with model output. This is intended behavior but can cause data loss if the backup is removed or the model output is wrong.",
+        "locations": [
+          {
+            "file": "scripts/compress.py",
+            "line_start": 182,
+            "line_end": 198
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 214,
+            "line_end": 225
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The write operations and backup path are explicit, and validation failure restores the original. Risk remains because successful validation still replaces user content with LLM output."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Sensitive Path Matches Are Denylist Guards",
+        "description": "Static findings for .env, .netrc, SSH files, AWS folders, keys, and secrets are false positives. The code checks those names and path components to refuse compression before reading or sending likely sensitive files.",
+        "locations": [
+          {
+            "file": "scripts/compress.py",
+            "line_start": 19,
+            "line_end": 38
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 46,
+            "line_end": 56
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 164,
+            "line_end": 174
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.91,
+        "confidence_reasoning": "The sensitive names appear in regular expressions and component sets used by is_sensitive_path. The function raises before file contents are read for compression."
+      },
+      {
+        "title": "Claude CLI Subprocess Uses Fixed Arguments",
+        "description": "The subprocess finding is a legitimate external command fallback. The command is a fixed argument list without shell=True, and file content is passed through stdin as prompt text.",
+        "locations": [
+          {
+            "file": "scripts/compress.py",
+            "line_start": 90,
+            "line_end": 99
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.86,
+        "confidence_reasoning": "The subprocess call executes a hardcoded claude binary with a hardcoded --print argument. I did not find shell interpolation or user-controlled command arguments."
+      },
+      {
+        "title": "Path Traversal And Reconnaissance Alerts Are Local Heuristics",
+        "description": "The path traversal and reconnaissance alerts mostly come from path examples, path regexes, file classification, and benchmark output. I did not find evidence of unauthorized directory traversal or network reconnaissance.",
+        "locations": [
+          {
+            "file": "scripts/cli.py",
+            "line_start": 25,
+            "line_end": 48
+          },
+          {
+            "file": "scripts/validate.py",
+            "line_start": 10,
+            "line_end": 12
+          },
+          {
+            "file": "scripts/detect.py",
+            "line_start": 76,
+            "line_end": 95
+          },
+          {
+            "file": "scripts/benchmark.py",
+            "line_start": 37,
+            "line_end": 41
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.78,
+        "confidence_reasoning": "The flagged code resolves a user-supplied local file and classifies or displays local data. The skill intentionally accepts a file path, so this requires user consent but is not hidden traversal."
+      },
+      {
+        "title": "Weak Cryptography Alerts Are Regex And Documentation Text",
+        "description": "Static weak-cryptography findings are false positives. The matching text appears in descriptions and regular expressions, not in cryptographic hashing, signing, encryption, or random number generation.",
+        "locations": [
+          {
+            "file": "scripts/__init__.py",
+            "line_start": 1,
+            "line_end": 4
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 90,
+            "line_end": 90
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 1,
+            "line_end": 7
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.84,
+        "confidence_reasoning": "I did not find cryptographic operations in these locations. The reported lines are package documentation, a Claude fallback comment, and skill frontmatter."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "External Model Invocation With Full File Prompt",
+        "description": "The selected file content is embedded in a prompt and sent through the Anthropic SDK or Claude CLI. This is a user-visible capability, but it is a sensitive data boundary.",
+        "locations": [
+          {
+            "file": "scripts/compress.py",
+            "line_start": 75,
+            "line_end": 99
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 104,
+            "line_end": 120
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The code builds the compression prompt with the original text and passes it to Claude. The behavior is intentional and documented."
+      },
+      {
+        "title": "Filesystem Rewrite Of User-Selected File",
+        "description": "The selected file is backed up and then overwritten with compressed output. This is expected for the skill, but it is a meaningful filesystem side effect.",
         "locations": [
           {
             "file": "scripts/compress.py",
@@ -127,144 +297,137 @@
           }
         ],
         "confidence": 0.85,
-        "confidence_reasoning": "File modification pattern with backup protection - minimal risk as backup is created before overwrite and existing backups are checked"
-      }
-    ],
-    "dangerous_patterns": [
-      {
-        "title": "Sensitive Path Denylist (Protective Pattern)",
-        "description": "The code implements a denylist of sensitive file patterns (.env, .ssh, .aws, credentials, keys, etc.) and refuses to compress files matching these patterns. This is a security feature, not a vulnerability.",
-        "locations": [
-          {
-            "file": "scripts/compress.py",
-            "line_start": 24,
-            "line_end": 57
-          }
-        ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Clear implementation of protective denylist - SENSITIVE_BASENAME_REGEX and SENSITIVE_PATH_COMPONENTS are used to refuse processing sensitive files"
+        "confidence_reasoning": "The read, backup write, and original path write are explicit. The code includes safeguards, but the pattern remains important for marketplace disclosure."
       }
     ],
     "files_scanned": 8,
     "total_lines": 819,
-    "audit_model": "claude",
-    "audited_at": "2026-04-20T08:56:05.811Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T05:28:20.884Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem",
+      "external_commands",
+      "env_access"
+    ]
   },
   "content": {
-    "user_title": "Compress Memory Files to Save Tokens",
-    "value_statement": "AI memory files grow large and waste input tokens. This skill compresses natural language prose to caveman format, saving 65-75% of tokens while preserving all code, URLs, and technical content.",
+    "user_title": "Compress Markdown Memory Files",
+    "value_statement": "Long memory files consume context and make repeated AI sessions more expensive. This skill compresses natural language notes while preserving technical details, structure, and backup access.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "token compression",
-      "reduce input tokens",
+      "markdown compression",
+      "memory file compression",
+      "token optimization",
+      "CLAUDE.md",
+      "developer notes",
       "caveman format",
-      "markdown optimization",
-      "AI memory management",
-      "save API costs",
-      "token efficiency"
+      "AI context management"
     ],
     "actual_capabilities": [
-      "Compress markdown files to caveman format reducing token usage by 65-75%",
-      "Preserve all code blocks, URLs, file paths, and technical terms exactly",
-      "Validate compressed output to ensure no content was lost or modified",
-      "Create automatic backups as FILE.original.md before overwriting",
-      "Refuse to compress sensitive files like credentials, keys, and .env files",
-      "Retry up to 2 times with targeted fixes if validation fails"
+      "Compresses markdown, text, and extensionless natural language files.",
+      "Preserves fenced code blocks, inline code, URLs, headings, paths, and commands.",
+      "Creates a human-readable backup beside the original file.",
+      "Skips common code and configuration file extensions.",
+      "Validates compressed output for preserved headings, URLs, paths, bullets, and code blocks.",
+      "Retries targeted Claude fixes when validation finds recoverable errors."
     ],
     "limitations": [
-      "Only works with natural language files (.md, .txt, markdown, rst)",
-      "Requires Python 3.10+ and either Claude CLI or Anthropic API key",
-      "Maximum file size limit of 500KB to prevent excessive API usage",
-      "Sends file contents to Anthropic API for compression",
-      "Cannot compress files with extensions like .py, .js, .json, .yaml, .env"
+      "Sends selected file contents to Anthropic or the Claude CLI.",
+      "Overwrites the original file after creating a backup.",
+      "Only supports natural language files under the built-in size limit.",
+      "Compression quality depends on model output and validation coverage."
     ],
     "use_cases": [
       {
-        "title": "Compress Large CLAUDE.md Files",
-        "description": "When your CLAUDE.md project memory file grows beyond 5000 tokens, compress it to caveman format to save input tokens on every Claude session while preserving all technical details.",
-        "target_user": "Developers using Claude Code with large project memory files"
+        "title": "Shrink Project Memory",
+        "description": "Compress a large CLAUDE.md file while keeping commands, paths, and project rules intact.",
+        "target_user": "Developers using Claude Code or Codex"
       },
       {
-        "title": "Optimize Todo and Preference Files",
-        "description": "Compress personal productivity files like TODO.md, preferences.md, or notes.md that contain natural language instructions, reducing token usage without losing action items or settings.",
-        "target_user": "Users who maintain markdown-based todo lists or preference files"
+        "title": "Reduce Team Note Tokens",
+        "description": "Convert long onboarding notes into shorter text without losing technical references.",
+        "target_user": "Engineering team leads"
       },
       {
-        "title": "Prepare Documentation for AI Context",
-        "description": "Before pasting documentation into Claude for analysis, compress verbose explanations to caveman format to fit more content within the context window while keeping all technical specifications intact.",
-        "target_user": "AI power users who work with large documentation files"
+        "title": "Maintain Personal Preferences",
+        "description": "Shorten personal AI preferences and todo notes for repeated use across sessions.",
+        "target_user": "Power users managing AI memory files"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic File Compression",
-        "prompt": "Compress my CLAUDE.md file to caveman format",
-        "scenario": "Simple one-command compression for your project memory file"
+        "title": "Compress One Memory File",
+        "scenario": "Beginner use on a known markdown file.",
+        "prompt": "Use compress on my CLAUDE.md file and tell me where the backup was saved."
       },
       {
-        "title": "Compress Specific File",
-        "prompt": "Compress the file at /path/to/notes.md using caveman format",
-        "scenario": "When you want to compress a specific file by providing its path"
+        "title": "Compress A Todo Note",
+        "scenario": "Shorten a plain text planning file.",
+        "prompt": "Compress my project todo text file while preserving all commands, URLs, and headings."
       },
       {
-        "title": "Compress Multiple Files",
-        "prompt": "Compress all markdown files in my /docs directory to caveman format",
-        "scenario": "Batch compression of documentation files to reduce token usage"
+        "title": "Review Then Compress",
+        "scenario": "Check whether a file is suitable before modifying it.",
+        "prompt": "Check if this memory file is safe to compress, then run compression only if it is natural language."
       },
       {
-        "title": "Verify Compression",
-        "prompt": "Compress README.md and show me the token savings comparison",
-        "scenario": "When you want to see how much you saved after compression"
+        "title": "Compress With Validation Review",
+        "scenario": "Advanced workflow for sensitive project notes.",
+        "prompt": "Compress this markdown memory file, validate preserved technical content, and summarize any warnings from validation."
       }
     ],
     "output_examples": [
       {
-        "input": "You should always make sure to run the test suite before pushing any changes to the main branch. This is important because it helps catch bugs early and prevents broken builds from being deployed to production.",
-        "output": "Run tests before push to main. Catch bugs early, prevent broken prod deploys."
+        "input": "A long CLAUDE.md file with setup instructions, command examples, and project conventions.",
+        "output": "A shorter markdown memory file with the same headings, commands, URLs, and code examples preserved."
       },
       {
-        "input": "The application uses a microservices architecture with the following components. The API gateway handles all incoming requests and routes them to the appropriate service. The authentication service is responsible for managing user sessions and JWT tokens.",
-        "output": "Microservices architecture. API gateway route all requests to services. Auth service manage user sessions + JWT tokens."
+        "input": "A verbose team preference note that repeats the same instruction in several sections.",
+        "output": "A compact preference note that removes filler and merges repeated guidance while keeping important names and dates."
+      },
+      {
+        "input": "A prose-heavy todo file that includes links and terminal commands.",
+        "output": "A compressed todo file with concise action statements and unchanged technical references."
       }
     ],
     "best_practices": [
-      "Always review the .original.md backup before deleting it to ensure compression quality",
-      "Test compression on non-critical files first to verify the output meets your needs",
-      "Keep original backups of files containing complex code blocks until you validate the compression preserved them exactly",
-      "Use the compression trigger /caveman:compress <filepath> for precise file targeting"
+      "Review the file for private data before compression.",
+      "Keep the .original.md backup until you verify the compressed file.",
+      "Use this skill for prose memory files, not source code or configuration."
     ],
     "anti_patterns": [
-      "Do not compress code files like .py, .js, .json, or .yaml as the skill will refuse them",
-      "Do not compress files containing sensitive credentials, API keys, or passwords",
-      "Do not delete the .original.md backup file until you have verified the compressed version works correctly",
-      "Do not use this skill on binary files or files larger than 500KB"
+      "Do not compress files that contain secrets, credentials, or private keys.",
+      "Do not use it on files where exact prose wording is legally important.",
+      "Do not remove the backup before checking important headings and examples."
     ],
     "faq": [
       {
-        "question": "What files can I compress?",
-        "answer": "Only natural language files with extensions like .md, .txt, .markdown, or .rst. Code files such as .py, .js, .json, .yaml, and .env are automatically skipped to preserve functionality."
+        "question": "What file types does this skill target?",
+        "answer": "It targets markdown, text, and extensionless natural language memory files."
       },
       {
-        "question": "Is my original file safe?",
-        "answer": "Yes. A backup is created at FILE.original.md before any modification. If compression fails after retries, the original file is automatically restored. The skill also refuses to proceed if a backup already exists."
+        "question": "Does it preserve code blocks?",
+        "answer": "Yes. The prompts and validator are designed to preserve fenced code blocks exactly."
       },
       {
-        "question": "Does compression change code blocks or URLs?",
-        "answer": "No. Code blocks, inline code, URLs, file paths, commands, and technical terms are preserved exactly. Only natural language prose is compressed to caveman format."
+        "question": "Does it send file contents outside my machine?",
+        "answer": "Yes. It sends selected file contents to Anthropic or through the Claude CLI."
       },
       {
-        "question": "What happens if compression fails?",
-        "answer": "The skill validates the output and retries up to 2 times with targeted fixes. If validation still fails after retries, the original file is restored and the backup is deleted."
+        "question": "Will it overwrite my original file?",
+        "answer": "Yes. It writes compressed output to the original path after saving a .original.md backup."
       },
       {
-        "question": "Do I need an API key?",
-        "answer": "The skill first tries the Anthropic Python SDK with ANTHROPIC_API_KEY. If unavailable, it falls back to the Claude CLI which handles its own authentication. Set CAVEMAN_MODEL to override the default claude-sonnet-4-5."
+        "question": "Can it compress source code?",
+        "answer": "No. It skips common code and configuration extensions and is intended for prose."
       },
       {
-        "question": "Can I compress files with credentials?",
-        "answer": "No. The skill refuses to compress files matching patterns like .env, credentials, secrets, .ssh, .aws, .gnupg, and other sensitive paths. Compression sends content to an external API, so sensitive files are blocked as a security measure."
+        "question": "What happens if validation fails?",
+        "answer": "It retries targeted fixes and restores the original file if the final validation still fails."
       }
     ]
   },
