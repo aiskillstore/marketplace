@@ -1,29 +1,28 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-10T09:25:54.673Z",
+    "generated_at": "2026-06-30T07:42:59.638Z",
     "slug": "lllllllama-safe-debug",
     "source_url": "https://github.com/lllllllama/rigorpilot-skills/tree/main/skills/safe-debug/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "9a2ac978aa8bb4dd18a10340b1b293cb3cdeb33b370bedc1e5a7463e724f697d",
-    "tree_hash": "d11ddb138f295e486c16f0820b0102cb916f6a8cc78e408449bc30da149757a5"
+    "tree_hash": "02e120622f54c1bcb6e2310a64ac12efb7ff3d11f9732c03274ab7d72c43b972"
   },
   "skill": {
     "name": "safe-debug",
-    "description": "Conservative debugging skill for deep learning research. Diagnoses tracebacks, CUDA OOM, checkpoint mismatches, and training failures without auto-patching code.",
-    "summary": "Conservative deep learning research debugging with diagnosis-first workflow and explicit approval before any code changes.",
-    "icon": "🔬",
+    "description": "Conservative debugging skill for deep learning research. It diagnoses tracebacks, CUDA OOM errors, checkpoint mismatches, shape mismatches, NaN loss, and training failures before any patching.",
+    "summary": "Diagnose deep learning research failures safely before changing code.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "lllllllama",
     "license": "MIT",
-    "category": "coding",
     "tags": [
       "debugging",
       "deep-learning",
-      "error-diagnosis",
+      "machine-learning",
       "pytorch",
       "research"
     ],
@@ -34,18 +33,15 @@
     ],
     "risk_factors": [
       "filesystem"
-    ]
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "The skill is a conservative debugging aid for deep learning research. Static analysis flagged 22 potential issues, but all are false positives: the 'Ruby/shell backtick' detections matched Python f-strings and markdown formatting, the 'weak cryptographic algorithm' flags found no actual cryptography in the codebase, and the 'path traversal' flags matched relative path references in markdown documentation. The Python script uses only standard library modules (argparse, json, pathlib) with no subprocess, eval, or network access. No security concerns were found.",
+    "summary": "Static analysis flagged 22 potential issues, but the weak-crypto and shell-execution findings are false positives from prose, Markdown backticks, and Python formatted strings. No network access, subprocess execution, eval, environment access, credential handling, or prompt-injection text was found. The script does perform local filesystem reads and writes, so the final assessment is low risk rather than fully safe.",
     "risk_factor_evidence": [
-      {
-        "factor": "external_commands",
-        "evidence": []
-      },
       {
         "factor": "filesystem",
         "evidence": [
@@ -65,139 +61,258 @@
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [],
-    "low_findings": [],
+    "low_findings": [
+      {
+        "title": "Local Filesystem Read And Write",
+        "description": "The script reads a user-provided error file path and writes diagnostic outputs to a chosen output directory. This is consistent with the skill purpose and has no network or command execution path, but users should avoid pointing it at sensitive files or shared system directories.",
+        "locations": [
+          {
+            "file": "scripts/safe_debug.py",
+            "line_start": 153,
+            "line_end": 153
+          },
+          {
+            "file": "scripts/safe_debug.py",
+            "line_start": 159,
+            "line_end": 159
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.86,
+        "confidence_reasoning": "The code directly reads from --error-file and writes output files under --output-dir. The behavior is intentional and local-only, so the impact is limited."
+      },
+      {
+        "title": "Dismissed Weak Cryptography Static Findings",
+        "description": "The weak cryptography detections do not correspond to cryptographic imports, hashing calls, encryption calls, or credential handling. The flagged lines contain descriptive text or argument parser setup, not cryptographic behavior.",
+        "locations": [
+          {
+            "file": "agents/openai.yaml",
+            "line_start": 2,
+            "line_end": 2
+          },
+          {
+            "file": "scripts/safe_debug.py",
+            "line_start": 143,
+            "line_end": 143
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 18
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.95,
+        "confidence_reasoning": "The reviewed files contain no cryptographic API usage or weak algorithm selection. The static labels are inconsistent with the actual line contents."
+      },
+      {
+        "title": "Dismissed Shell Execution Static Findings",
+        "description": "The shell execution detections are Markdown code spans and Python formatted strings used in generated diagnostic text. No subprocess, os.system, shell=True, eval, or command construction was found.",
+        "locations": [
+          {
+            "file": "scripts/safe_debug.py",
+            "line_start": 80,
+            "line_end": 80
+          },
+          {
+            "file": "scripts/safe_debug.py",
+            "line_start": 94,
+            "line_end": 96
+          },
+          {
+            "file": "scripts/safe_debug.py",
+            "line_start": 100,
+            "line_end": 102
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 9,
+            "line_end": 9
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 12,
+            "line_end": 12
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 45,
+            "line_end": 45
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.94,
+        "confidence_reasoning": "The flagged characters are formatting delimiters inside text, not executable shell syntax. Imports and code paths show no external command runner."
+      },
+      {
+        "title": "Parent Directory References In Documentation",
+        "description": "The path traversal detections are relative documentation references that point to shared policy files outside this skill folder. They are not executed by the Python script, but marketplace packaging should ensure referenced files are available and reviewed.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 12,
+            "line_end": 12
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 45,
+            "line_end": 45
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.78,
+        "confidence_reasoning": "The ../ sequences are real, but they appear only in Markdown guidance. This creates packaging and review ambiguity rather than a confirmed path traversal exploit."
+      }
+    ],
     "dangerous_patterns": [],
     "files_scanned": 4,
     "total_lines": 238,
-    "audit_model": "claude",
-    "audited_at": "2026-06-10T09:25:54.673Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T07:42:59.638Z",
+    "risk_factors": [
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Debug Deep Learning Errors Safely",
-    "value_statement": "Deep learning debugging often leads to speculative patches that break research reproducibility. This skill provides conservative diagnosis with explicit approval gates before any code modification, keeping debug fixes separate from research contributions.",
+    "user_title": "Diagnose Deep Learning Errors Safely",
+    "value_statement": "Deep learning debugging can lead to speculative patches that change experiment meaning. This skill provides diagnosis-first guidance with approval gates before code changes.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "deep learning debugging",
-      "PyTorch error diagnosis",
-      "CUDA OOM debugging",
+      "machine learning errors",
+      "CUDA OOM diagnosis",
       "checkpoint mismatch",
       "NaN loss debugging",
-      "conservative debugging",
-      "ML research"
+      "PyTorch troubleshooting",
+      "research reproducibility"
     ],
     "actual_capabilities": [
-      "Classifies errors into categories (CUDA OOM, checkpoint mismatch, shape mismatch, NaN loss, device mismatch, distributed issues, file missing, runtime failures).",
-      "Generates DIAGNOSIS.md with error excerpts and conservative analysis.",
-      "Produces PATCH_PLAN.md with smallest safe fix suggestions and savepoint recommendations.",
-      "Outputs status.json tracking patch authorization state (always unauthorized by default).",
-      "Operates as a read-only diagnostic tool that never modifies repository code without explicit approval."
+      "Classifies pasted errors into CUDA OOM, checkpoint mismatch, distributed, device, shape, NaN, file missing, runtime, or unknown categories.",
+      "Suggests conservative next actions based on the detected failure category.",
+      "Creates a diagnosis document with the category, error excerpt, and analysis summary.",
+      "Creates a patch plan that keeps code changes blocked until explicit approval.",
+      "Creates a status file that records patch authorization and savepoint recommendations."
     ],
     "limitations": [
-      "Cannot automatically apply patches; all fixes require explicit human approval.",
-      "Classification is keyword-based and may not catch novel or complex error patterns.",
-      "Does not execute or run training code; it only analyzes error text.",
-      "Focused on deep learning research workflows; less applicable to general software debugging."
+      "Classification is keyword-based and may miss unusual or multi-cause failures.",
+      "It does not run training jobs, inspect tensors, or reproduce failures automatically.",
+      "It reads local error text and writes local reports, so file paths should be chosen carefully.",
+      "It is focused on deep learning research, not general application debugging."
     ],
     "use_cases": [
       {
-        "title": "Diagnose CUDA OOM Errors",
-        "description": "A researcher hits a CUDA out-of-memory error during training. The skill categorizes it and suggests checking batch size and mixed-precision settings before any code changes.",
-        "target_user": "ML researchers debugging training failures"
+        "title": "Triage Training Failures",
+        "description": "Classify a traceback and get conservative next checks before changing model or training code.",
+        "target_user": "Machine learning researchers"
       },
       {
-        "title": "Audit Checkpoint Loading Failures",
-        "description": "A PhD student loads a checkpoint and gets size mismatch errors. The skill diagnoses the root cause and recommends verifying checkpoint source before introducing compatibility code.",
-        "target_user": "Graduate students working with pre-trained models"
+        "title": "Review Checkpoint Problems",
+        "description": "Analyze missing key, unexpected key, or tensor size mismatch errors before adding compatibility code.",
+        "target_user": "Graduate students using pretrained models"
       },
       {
-        "title": "Safe NaN Loss Investigation",
-        "description": "Training loss goes to NaN mid-run. The skill flags it as a savepoint-required change and suggests inspecting data ranges and learning rate before modifying architecture.",
-        "target_user": "ML engineers investigating training instability"
+        "title": "Investigate Unstable Runs",
+        "description": "Use structured guidance for NaN loss, device mismatch, or distributed training symptoms.",
+        "target_user": "ML engineers maintaining experiments"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Error Diagnosis",
-        "prompt": "Use safe-debug to diagnose this error: RuntimeError: CUDA out of memory. Tried to allocate 2.00 GiB.",
-        "scenario": "Simple CUDA OOM diagnosis"
+        "title": "Diagnose A Basic Error",
+        "prompt": "Use safe-debug to diagnose this error and suggest the smallest safe next step: RuntimeError: CUDA out of memory.",
+        "scenario": "Beginner triage for a pasted traceback"
       },
       {
-        "title": "Checkpoint Mismatch Analysis",
-        "prompt": "Diagnose with safe-debug: RuntimeError: Error(s) in loading state_dict for ResNet50: Missing key(s) in state_dict: fc.weight, fc.bias.",
-        "scenario": "Loading a pre-trained model with architecture mismatch"
+        "title": "Check A Model Load Failure",
+        "prompt": "Use safe-debug on this checkpoint loading failure. Explain the likely cause and do not suggest code edits without approval.",
+        "scenario": "Intermediate checkpoint mismatch review"
       },
       {
-        "title": "NaN Loss Investigation",
-        "prompt": "Apply safe-debug to this symptom: Training loss is NaN after 3 epochs. Loss is nan, not converging. The model is a transformer with mixed precision enabled.",
-        "scenario": "Investigating training instability with mixed precision"
+        "title": "Investigate NaN Loss",
+        "prompt": "Apply safe-debug to a training run where loss becomes NaN after three epochs. Include likely causes and safe validation steps.",
+        "scenario": "Advanced training stability diagnosis"
       },
       {
-        "title": "Full Traceback Diagnosis",
-        "prompt": "Run safe-debug on this full traceback with --error-file error.txt. I need a diagnosis, likely cause category, and conservative fix suggestions before any code changes.",
-        "scenario": "Comprehensive error analysis with patch plan"
+        "title": "Audit A Full Failure Report",
+        "prompt": "Run safe-debug on this full traceback and command history. Produce a diagnosis, patch plan, and savepoint recommendation before any mutation.",
+        "scenario": "Advanced audit before changing research code"
       }
     ],
     "output_examples": [
       {
-        "input": "RuntimeError: CUDA out of memory. Tried to allocate 1.50 GiB.",
+        "input": "A CUDA out-of-memory traceback during model training.",
         "output": [
-          "Category: cuda_oom",
-          "Patch authorized: False (requires explicit approval)",
-          "Savepoint recommended: False",
-          "Suggested actions:",
-          "- Check effective batch size, input resolution, and mixed-precision settings before patching model code.",
-          "- Prefer a configuration-only reduction before touching architecture."
+          "Category: cuda_oom.",
+          "Patch authorization remains false.",
+          "Suggested next checks include batch size, input resolution, and mixed precision settings.",
+          "A configuration-only reduction is preferred before architecture changes."
         ]
       },
       {
-        "input": "RuntimeError: size mismatch for fc.weight: copying a param with shape torch.Size([1000, 2048]) from checkpoint, the shape in current model is torch.Size([10, 2048]).",
+        "input": "A checkpoint load error with missing keys and unexpected keys.",
         "output": [
-          "Category: checkpoint_mismatch",
-          "Patch authorized: False (requires explicit approval)",
-          "Savepoint recommended: True (medium-risk change scope)",
-          "Suggested actions:",
-          "- Verify checkpoint source, model variant, and load strictness assumptions.",
-          "- Confirm whether the mismatch is expected before introducing compatibility code."
+          "Category: checkpoint_mismatch.",
+          "Savepoint is recommended before any patch.",
+          "Suggested next checks include checkpoint source, model variant, and load strictness assumptions.",
+          "Compatibility code should wait until the mismatch is confirmed as expected."
+        ]
+      },
+      {
+        "input": "A training run where loss becomes NaN after several epochs.",
+        "output": [
+          "Category: loss_nan.",
+          "Savepoint is recommended before code changes.",
+          "Suggested next checks include data ranges, loss inputs, mixed precision, and learning rate.",
+          "A short controlled run can help identify when the instability starts."
         ]
       }
     ],
     "best_practices": [
-      "Always run safe-debug before making any code changes to get a structured diagnosis first.",
-      "Create a savepoint or branch before applying any medium-risk or high-risk patches recommended by the skill.",
-      "Keep debug fixes separate from research contributions to maintain experiment reproducibility.",
-      "Provide full tracebacks via --error-file for more accurate classification."
+      "Provide the full traceback, launch command, and recent configuration changes when possible.",
+      "Review the diagnosis and patch plan before approving any repository change.",
+      "Create a branch or savepoint before medium-risk or high-risk fixes."
     ],
     "anti_patterns": [
-      "Do not use safe-debug for broad refactoring or speculative code adaptation tasks.",
-      "Do not apply patches without first reviewing the PATCH_PLAN.md output and getting explicit approval.",
-      "Do not use this skill for general repository walkthroughs without an active failure symptom."
+      "Do not use this skill for broad refactors without a concrete failure.",
+      "Do not treat a debug fix as a research contribution without checking experiment comparability.",
+      "Do not point input or output paths at sensitive files or shared system directories."
     ],
     "faq": [
       {
-        "question": "What types of errors can safe-debug diagnose?",
-        "answer": "The skill classifies CUDA OOM, checkpoint mismatches, distributed training issues, device mismatches, shape mismatches, NaN losses, file missing errors, and general runtime failures."
+        "question": "What does this skill diagnose?",
+        "answer": "It diagnoses common deep learning research failures, including CUDA OOM, checkpoint mismatch, shape mismatch, NaN loss, and runtime errors."
       },
       {
-        "question": "Does safe-debug automatically fix code?",
-        "answer": "No. The skill only diagnoses and suggests fixes. All patches require explicit human approval before any code modification."
+        "question": "Does it modify code automatically?",
+        "answer": "No. The skill is designed to diagnose first and keep patching blocked until explicit approval."
       },
       {
-        "question": "How do I use safe-debug with my error?",
-        "answer": "Provide the error text via --error-text flag or save it to a file and use --error-file. The skill outputs DIAGNOSIS.md, PATCH_PLAN.md, and status.json."
+        "question": "Does it run external commands?",
+        "answer": "No evidence found for external command execution. The reviewed script uses standard Python parsing, classification, and file writing."
       },
       {
-        "question": "Is safe-debug suitable for production systems?",
-        "answer": "It is designed for deep learning research workflows. It focuses on conservative diagnosis rather than automated production error handling."
+        "question": "What files does it create?",
+        "answer": "It can create a diagnosis report, a patch plan, and a status report in the selected output directory."
       },
       {
-        "question": "Does the skill execute any external commands?",
-        "answer": "No. safe-debug is a read-only analysis tool that uses only Python standard library modules to classify and document errors."
+        "question": "Is it only for PyTorch?",
+        "answer": "No. Some examples mention PyTorch-style failures, but the keyword categories can help with general deep learning research errors."
       },
       {
-        "question": "Can I use safe-debug with Codex or Claude Code?",
-        "answer": "Yes. The skill is compatible with Claude, Codex, and Claude Code as listed in its supported tools."
+        "question": "Can I use it with Claude, Codex, and Claude Code?",
+        "answer": "Yes. The metadata lists support for Claude, Codex, and Claude Code."
       }
     ]
   },

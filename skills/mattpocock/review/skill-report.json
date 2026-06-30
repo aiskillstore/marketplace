@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-12T09:35:23.296Z",
+    "generated_at": "2026-06-30T07:28:43.175Z",
     "slug": "mattpocock-review",
     "source_url": "https://github.com/mattpocock/skills/tree/main/skills/in-progress/review/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "074ff37ebebf9d855745dbabf2ea47a8a501408dfee06a6c491a2242bccb60a8",
-    "tree_hash": "62625a20f5090082ae9555f98002855c5a4e2be3d7fe7f845ae25e7ee4b63825"
+    "tree_hash": "24e4d420521667781d7a7e100fdeb7a279204af4b5aa0cc18cea7d8b888e4e87"
   },
   "skill": {
     "name": "review",
     "description": "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes — Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/PRD asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\".",
-    "summary": "Two-axis code review (Standards + Spec) of diffs since a fixed point, run in parallel sub-agents.",
-    "icon": "🔍",
+    "summary": "Reviews branch changes against documented standards and the originating spec in separate report sections.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "mattpocock",
     "license": "MIT",
-    "category": "coding",
     "tags": [
       "code-review",
       "git",
-      "pull-request",
       "standards",
-      "spec-compliance"
+      "spec-review",
+      "subagents"
     ],
     "supported_tools": [
       "claude",
@@ -34,86 +33,27 @@
     ],
     "risk_factors": [
       "external_commands"
-    ]
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static scanner flagged 37 potential issues, all of which are false positives on review. The 'Ruby/shell backtick execution' matches are Markdown inline-code formatting (e.g. `HEAD`, `git diff`, `CLAUDE.md`), not actual shell execution. The 'weak cryptographic algorithm' and 'system reconnaissance' hits on the description line and fixed-point line are also false positives — the skill documents a git-based review workflow with no crypto or reconnaissance operations. The only legitimate risk factor is `external_commands` because the skill instructs running `git diff` and `git log`, which is expected and safe for a code review skill.",
+    "summary": "Static analysis flagged many Markdown backticks as Ruby or shell execution and one weak-crypto match in frontmatter; these are false positives. The skill does instruct agents to run Git diff and log commands with a user-supplied fixed point, so publication is acceptable with a warning about validating or safely passing Git revisions.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 8,
-            "line_end": 8
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 15,
-            "line_end": 15
-          },
-          {
-            "file": "SKILL.md",
             "line_start": 21,
-            "line_end": 21
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 23,
             "line_end": 23
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 29,
-            "line_end": 29
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 31,
-            "line_end": 31
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 38,
-            "line_end": 38
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 39,
-            "line_end": 39
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 40,
-            "line_end": 40
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 41,
-            "line_end": 41
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 42,
-            "line_end": 42
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 43,
-            "line_end": 43
           },
           {
             "file": "SKILL.md",
             "line_start": 49,
             "line_end": 49
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 67,
-            "line_end": 67
           }
         ]
       }
@@ -122,22 +62,23 @@
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "Git command execution is part of the skill's core workflow",
-        "description": "The skill instructs running `git diff <fixed-point>...HEAD` and `git log <fixed-point>..HEAD --oneline` against a user-supplied fixed point. The fixed point is passed through verbatim from the user, which is the intended behavior for a review tool, but reviewers should be aware that arbitrary branch/SHA names will be interpolated into shell-style commands. This is acceptable for a code review skill but warrants a low-risk note.",
+        "title": "User-Supplied Git Revision Passed Into Command Instructions",
+        "description": "The skill tells the agent to accept a user-provided fixed point and use it in git diff and git log commands. This is legitimate for a review skill, but unsafe shell interpolation or unvalidated revision names could allow option injection or command injection in careless implementations.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 23,
+            "line_start": 21,
             "line_end": 23
           }
         ],
-        "confidence": 0.6
+        "confidence": 0.74,
+        "confidence_reasoning": "The Git command instructions are explicit and use user-selected input. The file is Markdown guidance rather than executable code, so the risk depends on how the agent executes the command."
       }
     ],
     "low_findings": [
       {
-        "title": "Static scanner false positive: Markdown backticks flagged as shell execution",
-        "description": "The scanner reported 35 'Ruby/shell backtick execution' findings across SKILL.md. Manual review confirms every match is a Markdown inline-code span (e.g. `HEAD`, `git diff`, `CLAUDE.md`, `general-purpose`, `## Standards`). No actual shell command construction via backticks is present in the file.",
+        "title": "Markdown Backticks Misclassified as Shell Execution",
+        "description": "Most external-command detections are inline Markdown code formatting for examples, paths, headings, and file names. No Ruby backtick execution syntax or executable Ruby code is present in the skill file.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -148,16 +89,6 @@
             "file": "SKILL.md",
             "line_start": 15,
             "line_end": 15
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 21,
-            "line_end": 21
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 23,
-            "line_end": 23
           },
           {
             "file": "SKILL.md",
@@ -172,37 +103,7 @@
           {
             "file": "SKILL.md",
             "line_start": 38,
-            "line_end": 38
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 39,
-            "line_end": 39
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 40,
-            "line_end": 40
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 41,
-            "line_end": 41
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 42,
-            "line_end": 42
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 43,
             "line_end": 43
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 49,
-            "line_end": 49
           },
           {
             "file": "SKILL.md",
@@ -210,11 +111,12 @@
             "line_end": 67
           }
         ],
-        "confidence": 0.95
+        "confidence": 0.93,
+        "confidence_reasoning": "The cited lines are Markdown text containing inline code spans, not executable source code. The context is documentation for an agent workflow."
       },
       {
-        "title": "Static scanner false positive: 'Weak cryptographic algorithm' on description line",
-        "description": "The scanner reported a 'weak cryptographic algorithm' pattern on the frontmatter description line. Manual review shows the line contains no cryptographic primitives, algorithm names, or hash references — only natural-language description text. Dismissed as a false positive.",
+        "title": "Weak Cryptography Detection Is a Keyword False Positive",
+        "description": "The high weak-cryptography alert points to the frontmatter description line. No cryptographic algorithm, key handling, hash generation, or encryption behavior appears there.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -222,11 +124,12 @@
             "line_end": 3
           }
         ],
-        "confidence": 0.9
+        "confidence": 0.96,
+        "confidence_reasoning": "Line 3 is YAML frontmatter prose describing the skill. The likely match is a substring such as description, not an actual DES or weak-crypto use."
       },
       {
-        "title": "Static scanner false positive: 'System reconnaissance' on fixed-point line",
-        "description": "The scanner reported 'system reconnaissance' on the line that says 'Whatever the user said is the fixed point — a commit SHA, branch name, tag, `main`, `HEAD~5`, etc.' This is the skill explaining how to identify a git reference, not a reconnaissance operation. Dismissed as a false positive.",
+        "title": "System Reconnaissance Detection Is Not Confirmed",
+        "description": "The cited line describes acceptable Git revision inputs for review scope selection. I did not find evidence of host reconnaissance, secret discovery, network probing, or environment enumeration.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -234,150 +137,149 @@
             "line_end": 21
           }
         ],
-        "confidence": 0.9
+        "confidence": 0.88,
+        "confidence_reasoning": "The line concerns commit, branch, tag, and merge-base selection. It does not instruct the agent to inspect system state outside the repository review task."
       }
     ],
-    "dangerous_patterns": [],
+    "dangerous_patterns": [
+      {
+        "title": "Git Commands Built From User-Selected Review Base",
+        "description": "The pattern git diff <fixed-point>...HEAD and git log <fixed-point>..HEAD --oneline uses a user-selected value. Agents should pass this value as a safe argument and reject shell metacharacters or unexpected option-like input.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 21,
+            "line_end": 23
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The command pattern is directly documented and depends on user input. It is not malicious, but it is the main place where unsafe execution practices could create risk."
+      }
+    ],
     "files_scanned": 1,
     "total_lines": 79,
-    "audit_model": "claude",
-    "audited_at": "2026-06-12T09:35:23.296Z"
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T07:28:43.175Z",
+    "risk_factors": [
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Review branch diffs against both repo standards and the original spec",
-    "value_statement": "Reviewing a branch by eye misses half the picture — code can pass the style guide and still implement the wrong thing. This skill runs Standards and Spec reviews in parallel sub-agents and reports them side by side so neither axis can mask the other.",
+    "user_title": "Review Changes Against Standards and Spec",
+    "value_statement": "Code changes can pass tests while missing project rules or requested behavior. This skill compares a diff against standards and the source spec.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "code review",
       "git diff review",
-      "pull request review",
-      "branch review",
-      "coding standards",
       "spec compliance",
-      "PR review skill"
+      "coding standards",
+      "pull request review",
+      "AI code review",
+      "subagent workflow"
     ],
     "actual_capabilities": [
-      "Reviews the diff between any fixed point (commit, branch, tag, merge-base) and HEAD using `git diff` and `git log`.",
-      "Runs two parallel sub-agents — one for Standards (CLAUDE.md, AGENTS.md, CONTRIBUTING.md, ADRs, lint configs) and one for Spec (issue tracker, PRD files, user-supplied spec path).",
-      "Identifies and reads the originating spec from commit-message references, user-supplied paths, or repo doc directories (`docs/`, `specs/`, `.scratch/`).",
-      "Asks the user for a fixed point and a spec source when they are not provided, instead of guessing.",
-      "Presents Standards and Spec findings as two independent sections so the user can see each axis without merging or reranking.",
-      "Skips the Spec sub-agent and reports 'no spec available' when no spec source can be located."
+      "Compares HEAD against a specified commit, branch, tag, or merge base.",
+      "Reviews changes against documented repository coding standards.",
+      "Reviews changes against an issue, PRD, spec file, or supplied requirement source.",
+      "Runs standards and spec checks in separate sub-agent contexts.",
+      "Aggregates both reports under separate Standards and Spec sections.",
+      "Reports missing requirements, scope creep, and convention violations."
     ],
     "limitations": [
-      "Does not merge or rerank findings across the two axes — by design, so neither axis masks the other.",
-      "Assumes the issue tracker workflow file `docs/agents/issue-tracker.md` is present, or that `/setup-matt-pocock-skills` has been run to create it.",
-      "Will not proceed without a user-supplied fixed point — it always asks first instead of defaulting to `main` or `HEAD~1`.",
-      "Re-checks only standards that lint and formatter tooling does not already enforce; the standards sub-agent skips machine-enforced rules."
+      "Requires a fixed review point before it can start.",
+      "Needs accessible standards documents to perform the standards review well.",
+      "Needs an issue, PRD, or spec for the spec review axis.",
+      "Does not replace automated tests, linters, or type checkers."
     ],
     "use_cases": [
       {
-        "title": "PR review before merge",
-        "description": "An engineer finishing a feature branch runs the skill to verify the diff matches the originating issue and respects the repo's documented coding standards before opening the PR.",
-        "target_user": "Software engineers preparing a pull request"
+        "title": "Review a feature branch before a pull request",
+        "description": "Compare branch changes with main and catch missing requirements or project standard violations before requesting review.",
+        "target_user": "Software engineer"
       },
       {
-        "title": "Mid-task sanity check on work-in-progress",
-        "description": "A developer midway through a multi-commit change runs the skill to check that the work so far stays aligned with the spec and the project's standards before continuing.",
-        "target_user": "Developers working on long-running branches"
+        "title": "Audit implementation against a product spec",
+        "description": "Check whether delivered code matches the requested behavior and identify scope creep or partial work.",
+        "target_user": "Product engineer"
       },
       {
-        "title": "Tech-lead audit of an unowned branch",
-        "description": "A tech lead reviewing a colleague's branch uses the skill to surface spec deviations and standards violations in one pass, with citations to the specific files and rules.",
-        "target_user": "Tech leads and senior engineers auditing other people's work"
+        "title": "Validate contributor changes against repo rules",
+        "description": "Use documented standards to review unfamiliar contributions without mixing style findings with spec findings.",
+        "target_user": "Maintainer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Review a feature branch against the spec",
-        "prompt": "Review the changes on the branch `feature/checkout-flow` against `main`. The originating issue is #482 in our tracker.",
-        "scenario": "Standard end-to-end review with a known spec source"
+        "title": "Review Current Branch",
+        "scenario": "Beginner review against the main branch.",
+        "prompt": "Review this branch against main. Use the repository standards and any linked issue you can find."
       },
       {
-        "title": "Review work-in-progress against the PRD",
-        "prompt": "Review my work-in-progress since `HEAD~5` against the spec in `docs/prds/billing-redesign.md`. I have not opened a PR yet.",
-        "scenario": "Mid-task review with an explicit local PRD path"
+        "title": "Review Since Commit",
+        "scenario": "Focused review from a known commit.",
+        "prompt": "Review since commit abc123. Separate standards findings from spec findings and cite the source for each finding."
       },
       {
-        "title": "Review a specific commit",
-        "prompt": "Review just the changes introduced by commit `a1b2c3d4` against the spec at `specs/onboarding-v2.md`. I want a Standards + Spec breakdown.",
-        "scenario": "Narrow review of a single commit"
+        "title": "Review Against Supplied Spec",
+        "scenario": "Use an explicit requirements document.",
+        "prompt": "Review the changes since main against docs/specs/payment-flow.md. Report missing requirements, scope creep, and standard violations separately."
       },
       {
-        "title": "Review with no fixed point yet",
-        "prompt": "I want to review my recent work but I am not sure what to compare against. Ask me which fixed point I want and which spec to use, then run the two-axis review.",
-        "scenario": "Beginner prompt — let the skill drive the discovery"
+        "title": "Review Release Candidate",
+        "scenario": "Advanced review before release approval.",
+        "prompt": "Review HEAD against release-base. Use documented standards, issue references in commits, and any matching PRD under docs. Keep Standards and Spec independent."
       }
     ],
     "output_examples": [
       {
-        "input": "Review the changes on `feature/checkout-flow` against `main`. The originating issue is #482.",
-        "output": [
-          "## Standards",
-          "- `src/checkout/CheckoutForm.tsx` — uses inline `style` props; the project standard in `CONTRIBUTING.md` requires `css-modules` for component styling.",
-          "- `src/checkout/api.ts` — handler returns `Promise<any>`; `tsconfig.json` `strict: true` is on, so this should be `Promise<CheckoutResult>`.",
-          "- (2 minor judgement calls: prop ordering, comment tone — see sub-agent report.)",
-          "",
-          "## Spec",
-          "- Missing: spec asked for guest-checkout support (#482, acceptance criterion 3) — no guest-checkout branch in the diff.",
-          "- Partial: spec asked for an Apple Pay option; code adds `paymentMethods: ['card']` only.",
-          "- Scope creep: PR also refactors the cart store, which was not in the issue.",
-          "",
-          "Summary: 2 hard Standards violations, 2 missing spec items, 1 scope-creep item. Worst: missing guest-checkout support."
-        ]
+        "input": "Review this branch against main with the linked issue as the spec.",
+        "output": "Standards: one finding about a documented naming rule. Spec: two findings about a missing error state and unrequested behavior."
       },
       {
-        "input": "Review my work-in-progress since `HEAD~5` against `docs/prds/billing-redesign.md`.",
-        "output": [
-          "## Standards",
-          "- `src/billing/plan.ts` — exports a default object; project standard in `AGENTS.md` is named exports only.",
-          "- (Tooling-enforced rules such as `eslint` formatting were skipped per skill instructions.)",
-          "",
-          "## Spec",
-          "- Implemented: proration on plan upgrade, downgrade preview, invoice line-item breakdown — all match PRD sections 4.1–4.3.",
-          "- Missing: PRD section 4.4 (tax recalculation on mid-cycle change) is not in the diff.",
-          "- Looks wrong: `proratedAmount` in `plan.ts:42` uses calendar days instead of billing-cycle days; PRD example uses billing-cycle days.",
-          "",
-          "Summary: 1 Standards finding, 2 Spec findings (1 missing, 1 likely bug). Worst: tax recalculation not implemented."
-        ]
+        "input": "Review since v1.4.0 against docs/specs/invite-flow.md.",
+        "output": "Standards: no findings. Spec: one partial requirement where the invite expiry is implemented but the resend behavior is missing."
+      },
+      {
+        "input": "Review the work-in-progress changes against HEAD~5.",
+        "output": "Standards: two judgment calls tied to repository guidance. Spec: skipped because no issue, PRD, or supplied spec was available."
       }
     ],
     "best_practices": [
-      "Always provide a specific fixed point (branch, commit SHA, or tag). Vague references like 'recent work' force the skill to ask before proceeding.",
-      "Point the skill at the originating spec up front — a path, a tracker issue, or a PRD file — so the Spec sub-agent has something concrete to compare against.",
-      "Keep the two reports separate. Do not collapse Standards and Spec into a single ranked list; each axis is meant to be read on its own."
+      "Provide the exact branch, commit, tag, or merge base to review from.",
+      "Point to the issue, PRD, or spec when commit messages do not reference it.",
+      "Run tests and linters separately before using this skill for review judgment."
     ],
     "anti_patterns": [
-      "Do not default the fixed point to `main` or `HEAD~1` — if the user has not given one, ask. Guessing produces reviews of the wrong slice of history.",
-      "Do not merge the Standards and Spec sub-agent outputs into a single ranking. The two axes can contradict each other, and ranking hides that.",
-      "Do not re-check rules that lint or formatter tooling already enforces. The Standards sub-agent should skip machine-enforced rules by design."
+      "Using it without a fixed review point.",
+      "Treating spec findings as style findings, or style findings as spec findings.",
+      "Expecting it to replace test execution, security scanning, or compiler checks."
     ],
     "faq": [
       {
-        "question": "What is the difference between the Standards and Spec axes?",
-        "answer": "Standards checks whether the code follows the repo's documented coding rules. Spec checks whether the code actually implements what the originating issue or PRD asked for. A change can pass one and fail the other, which is exactly why this skill reports them separately."
+        "question": "What does this skill review?",
+        "answer": "It reviews a Git diff against repository standards and the originating issue, PRD, or spec."
       },
       {
-        "question": "Do I need to give a fixed point?",
-        "answer": "Yes. The skill will not guess. If you do not specify one, it will ask you to choose a branch, commit, tag, or merge-base before proceeding."
+        "question": "Does it run tests?",
+        "answer": "No. It focuses on review judgment and asks agents to avoid duplicating checks already covered by tooling."
       },
       {
-        "question": "What if there is no spec for the change?",
-        "answer": "The Spec sub-agent will skip and the final report will say 'no spec available'. The Standards review will still run normally."
+        "question": "What fixed point should I provide?",
+        "answer": "Provide a commit, branch, tag, or merge base such as main, HEAD~5, or a release branch."
       },
       {
-        "question": "Which sub-agents does the skill use?",
-        "answer": "Both Standards and Spec sub-agents use the `general-purpose` subagent. They are launched in a single message with two `Agent` tool calls so they run in parallel."
+        "question": "What happens if there is no spec?",
+        "answer": "The spec review is skipped and the final report notes that no spec was available."
       },
       {
-        "question": "Will the skill re-run lint or format checks?",
-        "answer": "No. Machine-enforced standards such as ESLint, Prettier, Biome, and tsconfig rules are explicitly skipped by the Standards sub-agent to avoid duplicate work."
+        "question": "Why are Standards and Spec separate?",
+        "answer": "A change can follow project rules while implementing the wrong behavior, or meet the spec while breaking conventions."
       },
       {
-        "question": "How long is the output?",
-        "answer": "Each sub-agent is asked to stay under 400 words. The final aggregated report adds a one-line summary with totals and the worst single finding per axis."
+        "question": "Can it review pull requests?",
+        "answer": "Yes. Use the pull request branch and provide the base branch or commit as the fixed point."
       }
     ]
   },

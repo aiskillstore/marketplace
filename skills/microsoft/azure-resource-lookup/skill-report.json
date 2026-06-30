@@ -1,20 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-02-22T08:40:45.687Z",
+    "generated_at": "2026-06-30T07:41:57.068Z",
     "slug": "microsoft-azure-resource-lookup",
     "source_url": "https://github.com/microsoft/github-copilot-for-azure/tree/main/plugin/skills/azure-resource-lookup/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "4db3e48c64eda7bfc745e55b7bbab878c6f04e4c65bb89c52d5298e4d058305c",
-    "tree_hash": "5b90b678eed08ce0a73c995ffd914eb512ecdd1558006e7a82e121c2cdc37eb5"
+    "tree_hash": "99a89ca9c7eb37c1ce4ad9915170279ca0f7959d29d3d08a44726c7214206f41"
   },
   "skill": {
     "name": "azure-resource-lookup",
-    "description": "List, find, and show Azure resources. Answers \"list my VMs\", \"show my storage accounts\", \"list websites\", \"find container apps\", \"what resources do I have\", and similar queries for any Azure resource type. USE FOR: list resources, list virtual machines, list VMs, list storage accounts, list websites, list web apps, list container apps, show resources, find resources, what resources do I have, list resources in resource group, list resources in subscription, find resources by tag, find orphaned resources, resource inventory, count resources by type, cross-subscription resource query, Azure Resource Graph, resource discovery, list container registries, list SQL servers, list Key Vaults, show resource groups, list app services, find resources across subscriptions, find unattached disks, tag analysis. DO NOT USE FOR: deploying resources (use azure-deploy), creating or modifying resources, cost optimization (use azure-cost-optimization), writing application code, non-Azure clouds.",
-    "summary": "Discover and list Azure resources across subscriptions using Azure Resource Graph queries.",
+    "description": "List, find, and inspect Azure resources across subscriptions and resource groups using Azure Resource Graph and Azure MCP tools. The skill helps answer inventory, tag, orphaned resource, and resource discovery questions without creating or changing Azure resources.",
+    "summary": "Discover Azure resources across subscriptions with read-only Resource Graph queries.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "microsoft",
@@ -22,9 +22,9 @@
     "tags": [
       "azure",
       "resource-graph",
-      "cloud-management",
-      "azure-resources",
-      "devops"
+      "cloud-inventory",
+      "devops",
+      "mcp"
     ],
     "supported_tools": [
       "claude",
@@ -33,17 +33,33 @@
     ],
     "risk_factors": [
       "external_commands"
-    ]
+    ],
+    "category": "devops"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All 95 static findings are false positives. The skill contains documentation and reference content for Azure Resource Graph queries. The detected patterns are: (1) Backtick usage in markdown for code formatting - not actual shell execution; (2) KQL operators like '=~' misidentified as weak crypto - actually case-insensitive comparison; (3) Error handling references misidentified as reconnaissance. This is a legitimate Microsoft Azure documentation skill with no security concerns.",
+    "summary": "Static analysis flagged many command and crypto-like patterns, but review shows the hits are Markdown examples, KQL snippets, and text matches such as description or desc. No prompt injection, credential exfiltration, mutation workflow, or malicious intent was found. The remaining risk is operational: the skill can guide execution of Azure CLI read-only inventory queries that may expose tenant metadata to the active AI session.",
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
         "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 91
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 100,
+            "line_end": 100
+          },
           {
             "file": "references/azure-resource-graph.md",
             "line_start": 7,
@@ -51,49 +67,79 @@
           },
           {
             "file": "references/azure-resource-graph.md",
-            "line_start": 9,
-            "line_end": 13
+            "line_start": 42,
+            "line_end": 61
           },
           {
-            "file": "SKILL.md",
-            "line_start": 39,
-            "line_end": 39
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 40,
-            "line_end": 40
+            "file": "references/azure-resource-graph.md",
+            "line_start": 73,
+            "line_end": 183
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [
+    "medium_findings": [
       {
-        "title": "False Positive: Backtick Usage in Documentation",
-        "description": "Static scanner flagged backticks as Ruby/shell execution. Actual usage: markdown code formatting for CLI commands and KQL queries in documentation files.",
+        "title": "Read-Only Azure Inventory Commands Can Expose Metadata",
+        "description": "The skill intentionally guides users to run Azure Resource Graph queries through Azure CLI or MCP tooling. This is legitimate read-only Azure inventory behavior, but results can include resource names, groups, locations, tags, public network settings, and subscription-level metadata that should be handled as sensitive operational data.",
         "locations": [
           {
-            "file": "references/azure-resource-graph.md",
-            "line_start": 7,
-            "line_end": 180
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 91
           },
+          {
+            "file": "references/azure-resource-graph.md",
+            "line_start": 123,
+            "line_end": 127
+          },
+          {
+            "file": "references/azure-resource-graph.md",
+            "line_start": 171,
+            "line_end": 183
+          }
+        ],
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The external command behavior is clearly documented and semantically tied to the skill purpose. The concern is metadata exposure from legitimate read-only queries, not command injection or malicious execution."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "External Command Static Hits Are Azure CLI Documentation",
+        "description": "The numerous external command findings point to Markdown examples for az graph query and az extension add. They do not show hidden shell execution, dynamic command construction in code, or an attempt to run commands outside the expected Azure lookup workflow.",
+        "locations": [
           {
             "file": "SKILL.md",
             "line_start": 39,
-            "line_end": 108
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 90,
+            "line_end": 94
+          },
+          {
+            "file": "references/azure-resource-graph.md",
+            "line_start": 7,
+            "line_end": 9
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "The backticks appear only in markdown code blocks and inline code formatting. No actual shell or Ruby code execution exists in this documentation skill."
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.91,
+        "confidence_reasoning": "The flagged content is inside Markdown tables or fenced examples and matches the stated Azure Resource Graph purpose. No code file or shell wrapper accepts untrusted input for execution."
       },
       {
-        "title": "False Positive: KQL Operator Misidentified as Weak Crypto",
-        "description": "Static scanner flagged '=~' operator as weak cryptographic algorithm. Actual usage: KQL (Kusto Query Language) case-insensitive equality operator.",
+        "title": "Weak Cryptography Static Hits Are Text Matches",
+        "description": "The high weak-crypto findings do not correspond to DES, MD5, SHA1, or any cryptographic API. The evidence lines contain frontmatter description text, KQL sort direction text such as desc, and a field name containing shortDescription.",
         "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
           {
             "file": "references/azure-resource-graph.md",
             "line_start": 44,
@@ -110,12 +156,13 @@
             "line_end": 183
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "The '=~' operator in KQL is a case-insensitive string comparison operator, not a cryptographic function. This is a documented KQL language feature."
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.96,
+        "confidence_reasoning": "Line review shows ordinary documentation and KQL field text, not cryptographic primitives. The static labels are caused by substring matching rather than security-relevant code."
       },
       {
-        "title": "False Positive: Error Handling Reference",
-        "description": "Static scanner flagged 'BadRequest' error handling as system reconnaissance. Actual usage: documentation of common KQL query errors.",
+        "title": "System Reconnaissance Static Hit Is Error-Handling Text",
+        "description": "The reconnaissance finding points to documentation for a BadRequest query error and advises checking KQL syntax. It does not instruct host enumeration, operating system probing, network scanning, or privilege discovery.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -123,141 +170,160 @@
             "line_end": 102
           }
         ],
+        "verdict": "FALSE_POSITIVE",
         "confidence": 0.9,
-        "confidence_reasoning": "Line 102 is part of an error handling table documenting 'BadRequest' errors for invalid KQL syntax. This is standard documentation, not reconnaissance."
+        "confidence_reasoning": "The line is an Azure query troubleshooting row, not a reconnaissance command or tactic. Nearby context is limited to Resource Graph error handling."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Azure CLI Command Generation For Resource Queries",
+        "description": "The skill documents generating and running az graph query commands from user intent. This is expected for the skill, but users should scope subscriptions and review generated commands before execution.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 91
+          },
+          {
+            "file": "references/azure-resource-graph.md",
+            "line_start": 7,
+            "line_end": 9
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.78,
+        "confidence_reasoning": "The pattern is visible and intentional, and it relies on Azure CLI authentication and permissions. It is not malicious, but it deserves user awareness because it executes commands against cloud resources."
       }
     ],
     "files_scanned": 2,
     "total_lines": 297,
-    "audit_model": "claude",
-    "audited_at": "2026-02-22T08:40:45.687Z",
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T07:41:57.068Z",
     "risk_factors": [
       "external_commands"
     ]
   },
   "content": {
-    "user_title": "Discover Azure Resources",
-    "value_statement": "This skill helps Claude users find and list Azure resources across subscriptions using Azure Resource Graph queries. It generates KQL queries from natural language requests and provides reference patterns for common resource discovery scenarios.",
+    "user_title": "Discover Azure Resources Across Subscriptions",
+    "value_statement": "Azure teams need fast answers about what resources exist and where they are running. This skill turns inventory, tag, health, and orphaned-resource questions into read-only Azure Resource Graph workflows.",
     "seo_keywords": [
-      "Azure resource lookup",
-      "list Azure resources",
+      "Claude",
+      "Codex",
+      "Claude Code",
       "Azure Resource Graph",
-      "KQL queries",
-      "Azure resource discovery",
-      "Claude Azure",
-      "Codex Azure",
-      "Claude Code Azure",
       "Azure inventory",
-      "cross-subscription query"
+      "Azure MCP",
+      "resource lookup",
+      "cloud resource discovery",
+      "KQL queries",
+      "DevOps automation"
     ],
     "actual_capabilities": [
-      "Generate Azure Resource Graph queries from natural language requests",
-      "List resources of any type across Azure subscriptions",
-      "Find orphaned resources like unattached disks and unused IPs",
-      "Query resources by tag, location, or resource group",
-      "Provide KQL query patterns for common scenarios",
-      "Discover resources that lack required tags for compliance"
+      "Routes Azure resource lookup questions to dedicated MCP tools when available.",
+      "Generates Azure Resource Graph query workflows for resource inventory questions.",
+      "Supports cross-subscription resource discovery and resource group scoping.",
+      "Provides KQL patterns for orphaned resources, missing tags, and public access checks.",
+      "Formats read-only Azure CLI query results into user-friendly summaries.",
+      "Explains common Resource Graph errors and how to narrow query scope."
     ],
     "limitations": [
-      "Cannot deploy, create, or modify Azure resources",
-      "Cannot perform real-time monitoring (ARG data has slight delay)",
-      "Cannot query non-Azure clouds",
-      "Requires Azure Reader role for access to resources"
+      "It does not create, update, deploy, or delete Azure resources.",
+      "It depends on the user having Azure CLI, MCP tools, and read permissions configured.",
+      "Azure Resource Graph data can lag behind real-time resource state.",
+      "It is not intended for non-Azure clouds or application code generation."
     ],
     "use_cases": [
       {
-        "title": "Cloud Administrators Managing Multiple Subscriptions",
-        "description": "Get a complete inventory of resources across all subscriptions to understand the Azure footprint and identify unused resources.",
-        "target_user": "Cloud administrators and DevOps engineers"
+        "title": "Build A Resource Inventory",
+        "description": "List resources by type, subscription, region, or resource group for planning and operational reviews.",
+        "target_user": "Cloud operations engineer"
       },
       {
-        "title": "Security Auditors Conducting Compliance Checks",
-        "description": "Find resources missing required tags, with public network access enabled, or in failed provisioning states.",
-        "target_user": "Security auditors and compliance teams"
+        "title": "Find Cleanup Candidates",
+        "description": "Identify unattached disks, unused public IP addresses, idle load balancers, and orphaned network interfaces.",
+        "target_user": "FinOps analyst"
       },
       {
-        "title": "Developers Finding Specific Resource Types",
-        "description": "Quickly locate container apps, web apps, or other resources when dedicated MCP tools are unavailable.",
-        "target_user": "Azure developers and engineers"
+        "title": "Check Governance Coverage",
+        "description": "Find resources missing required tags or resources with public network access enabled.",
+        "target_user": "Cloud governance specialist"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Resource Listing",
-        "prompt": "List all virtual machines in my Azure subscription",
-        "scenario": "Simple resource query for a specific type"
+        "title": "List Basic Resources",
+        "scenario": "Beginner inventory request",
+        "prompt": "List my Azure resources by type and location. Limit the results so I can review the summary first."
       },
       {
-        "title": "Cross-Subscription Discovery",
-        "prompt": "Show me all storage accounts across all subscriptions I have access to",
-        "scenario": "Finding resources spanning multiple subscriptions"
+        "title": "Scope To A Resource Group",
+        "scenario": "Focused lookup",
+        "prompt": "Show all resources in the resource group <resource-group-name>. Include name, type, location, and SKU when available."
       },
       {
-        "title": "Orphaned Resource Detection",
-        "prompt": "Find unmanaged or orphaned disks that are not attached to any virtual machine",
-        "scenario": "Identifying unused cloud assets"
+        "title": "Find Orphaned Assets",
+        "scenario": "Cleanup planning",
+        "prompt": "Find unattached managed disks and unused public IP addresses across my selected subscriptions. Explain why each result may be unused."
       },
       {
-        "title": "Tag Compliance Analysis",
-        "prompt": "Which Azure resources are missing the Environment tag? Show me the resource names and their resource groups",
-        "scenario": "Compliance and tagging audits"
+        "title": "Audit Tags And Exposure",
+        "scenario": "Advanced governance review",
+        "prompt": "Use Azure Resource Graph to find resources missing Environment or CostCenter tags and resources with public network access enabled. Group the findings by subscription and resource type."
       }
     ],
     "output_examples": [
       {
-        "input": "List all web apps in my subscription",
+        "input": "List all Azure resources by type.",
+        "output": "A grouped inventory summary showing each resource type, count, and the subscriptions where those resources appear."
+      },
+      {
+        "input": "Find unused network resources.",
         "output": [
-          "Resource Name: mywebapp-prod",
-          "Type: microsoft.web/sites",
-          "Location: eastus",
-          "Resource Group: prod-rg",
-          "State: Running"
+          "Unattached network interfaces with resource group and location.",
+          "Public IP addresses with no IP configuration attached.",
+          "Load balancers that have no backend pools."
         ]
       },
       {
-        "input": "Find unattached disks",
-        "output": [
-          "Unattached Disk: data-disk-01",
-          "Size: 50GB",
-          "Location: westus2",
-          "Resource Group: storage-rg"
-        ]
+        "input": "Which resources are missing required tags?",
+        "output": "A governance report listing resource names, types, resource groups, and the missing tag categories."
       }
     ],
     "best_practices": [
-      "Always use case-insensitive type matching (=~) since Azure resource types are lowercase",
-      "Scope queries with --subscriptions or --first to avoid timeout in large tenants",
-      "Prefer dedicated MCP tools for single resource types when available"
+      "Review generated Azure CLI commands before running them in a tenant.",
+      "Scope broad searches with subscriptions, resource groups, or result limits.",
+      "Treat resource names, tags, and topology details as sensitive operational data."
     ],
     "anti_patterns": [
-      "Using ARG for real-time monitoring or alerting - data has delay",
-      "Attempting to create or update resources through this skill",
-      "Running broad queries without subscription scope in large tenants"
+      "Do not use this skill to deploy, modify, or delete Azure resources.",
+      "Do not run broad tenant-wide queries when a narrow subscription scope is enough.",
+      "Do not paste query results that contain secrets or sensitive business identifiers."
     ],
     "faq": [
       {
-        "question": "What is Azure Resource Graph?",
-        "answer": "Azure Resource Graph is an Azure service that provides efficient exploration of your Azure resources across subscriptions. It uses a KQL-like query language to provide fast queries at scale."
+        "question": "Does this skill change Azure resources?",
+        "answer": "No. It is designed for read-only lookup and inventory workflows."
       },
       {
-        "question": "Does this skill require special Azure permissions?",
-        "answer": "Yes, you need at least Reader role on the subscriptions you want to query. The skill cannot access resources you don't have permission to view."
+        "question": "What Azure service does it use for broad searches?",
+        "answer": "It uses Azure Resource Graph patterns when dedicated MCP tools do not cover the resource type."
       },
       {
-        "question": "Can I deploy resources using this skill?",
-        "answer": "No, this skill is read-only. It only lists, finds, and shows Azure resources. For deployment, use the azure-deploy skill."
+        "question": "Can it search across subscriptions?",
+        "answer": "Yes. It supports cross-subscription discovery when the active account has read access."
       },
       {
-        "question": "How is this different from individual Azure MCP tools?",
-        "answer": "Individual tools like compute, storage, or cosmos are optimized for specific resource types. This skill uses Azure Resource Graph for cross-resource queries and discovery when dedicated tools are unavailable."
+        "question": "Does it require Azure permissions?",
+        "answer": "Yes. The user needs appropriate Azure read permissions, usually Reader access for the target scope."
       },
       {
-        "question": "Why do some queries return empty results?",
-        "answer": "Empty results usually mean no matching resources exist in your query scope. Check your subscription scope with --subscriptions flag and verify the resource type spelling."
+        "question": "Can it help find unused resources?",
+        "answer": "Yes. It includes patterns for unattached disks, unused public IP addresses, and orphaned network interfaces."
       },
       {
-        "question": "Is the data in Azure Resource Graph real-time?",
-        "answer": "No, Azure Resource Graph data has a slight delay (typically a few minutes). For real-time monitoring, use Azure Monitor or resource-specific APIs."
+        "question": "Is Azure Resource Graph real time?",
+        "answer": "No. Resource Graph is near real time, so very recent changes may not appear immediately."
       }
     ]
   },
