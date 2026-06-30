@@ -1,53 +1,60 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-02-25T06:04:31.103Z",
+    "generated_at": "2026-06-30T16:17:50.568Z",
     "slug": "sickn33-k8s-security-policies",
     "source_url": "https://github.com/sickn33/antigravity-awesome-skills/tree/main/skills/k8s-security-policies",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "43503fd763794a3540e899d8dbac2c26f6c09e4483ee15d874c958836493bb54",
-    "tree_hash": "60813fdcc1529397b2e8e3860e4a90eeee56bec90b5db7e89cae240d8e758ba7"
+    "content_hash": "6caa166affbb3be8d035cf94d13c783639c59a2397c401ee4c3e03d7f664653f",
+    "tree_hash": "1406d51fabcc11a9b53af907eed31674faa94fabff5826a26ed7b4511df2a8db"
   },
   "skill": {
     "name": "k8s-security-policies",
-    "description": "Implement Kubernetes security policies including NetworkPolicy, PodSecurityPolicy, and RBAC for production-grade security",
-    "summary": "Comprehensive guide for implementing Kubernetes network policies, pod security standards, and RBAC configurations",
-    "icon": "🔒",
-    "version": "1.0.1",
+    "description": "Guide Kubernetes security policy design with NetworkPolicy, Pod Security Standards, RBAC, admission controls, and service mesh security examples.",
+    "summary": "Design and review Kubernetes security policies for workload isolation, least privilege, and compliance controls.",
+    "icon": "📦",
+    "version": "1.0.0",
     "author": "sickn33",
     "license": "MIT",
-    "category": "devops",
     "tags": [
       "kubernetes",
-      "security",
       "network-policy",
       "rbac",
-      "pod-security"
+      "pod-security",
+      "devsecops"
     ],
     "supported_tools": [
       "claude",
       "codex",
       "claude-code"
     ],
-    "risk_factors": []
+    "risk_factors": [
+      "network",
+      "external_commands"
+    ],
+    "category": "security"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All static analyzer findings are false positives. The skill contains documentation and YAML templates for Kubernetes security configurations. Network pattern detections reference metadata endpoint blocking (security best practice), and external command findings are bash examples in Markdown documentation, not executable code.",
+    "summary": "Static analysis flagged many command execution and weak cryptography patterns, but review found these are Markdown and YAML examples rather than executable skill code. The real risk is semantic: several examples grant broad RBAC permissions or broad external egress, which could weaken a Kubernetes cluster if copied without narrowing. No evidence found of prompt injection, malicious intent, credential theft, or hidden data exfiltration.",
     "risk_factor_evidence": [
       {
         "factor": "network",
         "evidence": [
           {
             "file": "assets/network-policy-template.yaml",
-            "line_start": 124,
-            "line_end": 126,
-            "context": "IP 169.254.169.254 is blocked in except list - this is a security hardening measure"
+            "line_start": 123,
+            "line_end": 126
+          },
+          {
+            "file": "assets/network-policy-template.yaml",
+            "line_start": 127,
+            "line_end": 129
           }
         ]
       },
@@ -55,142 +62,252 @@
         "factor": "external_commands",
         "evidence": [
           {
-            "file": "references/rbac-patterns.md",
-            "line_start": 6,
-            "line_end": 168,
-            "context": "Markdown documentation with kubectl command examples in code blocks"
+            "file": "SKILL.md",
+            "line_start": 323,
+            "line_end": 334
           },
           {
-            "file": "SKILL.md",
-            "line_start": 22,
-            "line_end": 347,
-            "context": "Markdown documentation with kubectl command examples in code blocks"
+            "file": "references/rbac-patterns.md",
+            "line_start": 143,
+            "line_end": 156
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
+    "medium_findings": [
+      {
+        "title": "Over-Permissive RBAC Examples",
+        "description": "The documentation includes wildcard RBAC permissions and a cluster-wide secret reader example. These are legitimate Kubernetes examples, but they are risky defaults for production because they can grant broad administrative or secret access if copied directly.",
+        "locations": [
+          {
+            "file": "references/rbac-patterns.md",
+            "line_start": 25,
+            "line_end": 27
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 150,
+            "line_end": 159
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The cited YAML grants wildcard resources and verbs or cluster-wide secret read permissions. The context is instructional rather than malicious, so the finding is medium risk instead of high."
+      },
+      {
+        "title": "Broad External Egress Template",
+        "description": "The NetworkPolicy template permits HTTPS egress to 0.0.0.0/0 while excluding the instance metadata address. Blocking metadata is positive, but the default still allows broad outbound internet access.",
+        "locations": [
+          {
+            "file": "assets/network-policy-template.yaml",
+            "line_start": 123,
+            "line_end": 129
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The policy explicitly allows all IPv4 destinations on TCP 443, with only the metadata service excluded. This is a clear broad egress pattern, although it may be legitimate for some workloads."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Static Command Execution Findings Are Documentation Examples",
+        "description": "The scanner flagged fenced Markdown blocks and inline command examples as shell execution. These are not executed by the skill, but users should treat the kubectl commands as examples to run only in the intended cluster context.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 323,
+            "line_end": 334
+          },
+          {
+            "file": "references/rbac-patterns.md",
+            "line_start": 143,
+            "line_end": 156
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "The evidence is inside Markdown code fences and inline documentation, with no script file or runtime invocation path. The remaining risk is user misuse of copied administrative commands."
+      },
+      {
+        "title": "Missing Referenced Playbook File",
+        "description": "The skill instructs users to open a resources playbook, but that file is not present in the audited file structure. This is not malicious, but it can reduce reliability and leave users without expected implementation detail.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 20,
+            "line_end": 20
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The referenced path appears in the skill instructions, and the generated file structure includes only SKILL.md, assets/network-policy-template.yaml, and references/rbac-patterns.md. This supports a reliability finding, not a security block."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Wildcard RBAC Permissions",
+        "description": "Wildcard resources and verbs can grant namespace-wide administrative authority. Use only when the role is intentionally scoped and reviewed.",
+        "locations": [
+          {
+            "file": "references/rbac-patterns.md",
+            "line_start": 25,
+            "line_end": 27
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The pattern is visible in the RBAC example and is explicitly dangerous in production. The same file later warns against wildcard permissions, which lowers concern about malicious intent."
+      },
+      {
+        "title": "Cluster-Wide Secret Read Permissions",
+        "description": "A ClusterRole that can list and watch secrets can expose sensitive data across namespaces. Prefer namespace-scoped Roles and resourceNames where possible.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 150,
+            "line_end": 159
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The example grants access to secrets at ClusterRole scope. It is presented as a configuration pattern, so the concern is unsafe guidance rather than confirmed abuse."
+      },
+      {
+        "title": "Broad HTTPS Egress",
+        "description": "Allowing egress to 0.0.0.0/0 on HTTPS can permit unintended outbound communication. Restrict egress to known CIDRs, namespaces, or approved service endpoints.",
+        "locations": [
+          {
+            "file": "assets/network-policy-template.yaml",
+            "line_start": 123,
+            "line_end": 129
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The policy clearly allows all IPv4 destinations on TCP 443 while excluding only metadata. This is a common operational pattern, but it is too broad for strict isolation."
+      }
+    ],
     "files_scanned": 3,
-    "total_lines": 715,
-    "audit_model": "claude",
-    "audited_at": "2026-02-25T06:04:31.103Z"
+    "total_lines": 713,
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T16:17:50.568Z",
+    "risk_factors": [
+      "network",
+      "external_commands"
+    ]
   },
   "content": {
-    "user_title": "Implement Kubernetes Security Policies",
-    "value_statement": "Secure your Kubernetes clusters with production-ready network policies, RBAC configurations, and pod security standards. This skill provides comprehensive templates and best practices for defense-in-depth security.",
+    "user_title": "Secure Kubernetes Workloads",
+    "value_statement": "Kubernetes security policy design is complex and easy to over-permit. This skill helps teams draft and review NetworkPolicy, RBAC, Pod Security Standards, admission controls, and service mesh policies.",
     "seo_keywords": [
-      "Kubernetes security",
-      "NetworkPolicy",
-      "RBAC configuration",
+      "Claude Kubernetes security",
+      "Codex Kubernetes RBAC",
+      "Claude Code NetworkPolicy",
+      "Kubernetes security policies",
       "Pod Security Standards",
-      "Claude Code skills",
-      "Codex security",
-      "k8s security policies",
-      "container security",
-      "Claude assistant",
-      "Kubernetes hardening"
+      "RBAC least privilege",
+      "NetworkPolicy templates",
+      "OPA Gatekeeper policies",
+      "Kubernetes compliance",
+      "DevSecOps Kubernetes"
     ],
     "actual_capabilities": [
-      "Generate NetworkPolicy manifests for network segmentation and traffic control",
-      "Create RBAC Roles, ClusterRoles, RoleBindings, and ClusterRoleBindings",
-      "Configure Pod Security Standards at namespace level (privileged, baseline, restricted)",
-      "Set up OPA Gatekeeper constraint templates for policy enforcement",
-      "Configure Istio PeerAuthentication and AuthorizationPolicy for service mesh security",
-      "Provide kubectl commands for troubleshooting security configurations"
+      "Explains Kubernetes Pod Security Standards and namespace enforcement labels.",
+      "Provides NetworkPolicy examples for default deny, DNS, ingress, monitoring, database, and cross-namespace traffic.",
+      "Shows RBAC patterns for read-only access, namespace administration, deployment management, and service accounts.",
+      "Includes security context examples for non-root containers, dropped capabilities, seccomp, and read-only filesystems.",
+      "Covers OPA Gatekeeper constraints and Istio mTLS authorization policy examples.",
+      "Lists troubleshooting commands for NetworkPolicy and RBAC permission checks."
     ],
     "limitations": [
-      "Requires Kubernetes cluster access to apply generated manifests",
-      "NetworkPolicy enforcement depends on CNI plugin support (Calico, Cilium, etc.)",
-      "Pod Security Policies are deprecated in Kubernetes 1.21+, use Pod Security Standards instead",
-      "Service mesh features require Istio installation"
+      "Examples require review before use in production clusters.",
+      "The skill does not inspect a live Kubernetes cluster by itself.",
+      "Some examples use broad permissions to demonstrate patterns.",
+      "A referenced implementation playbook is not included in the audited files."
     ],
     "use_cases": [
       {
-        "title": "DevSecOps Engineer",
-        "description": "Implement network isolation between microservices and enforce least-privilege access controls for CI/CD pipelines",
-        "target_user": "DevSecOps engineers securing Kubernetes deployments"
+        "title": "Design namespace isolation",
+        "description": "Create default-deny and allow-list NetworkPolicies for application namespaces.",
+        "target_user": "Platform engineer"
       },
       {
-        "title": "Platform Team Lead",
-        "description": "Establish security baselines and compliance controls across multi-tenant Kubernetes clusters",
-        "target_user": "Platform engineering teams managing shared clusters"
+        "title": "Review least-privilege access",
+        "description": "Compare RBAC roles against workload needs and reduce wildcard or secret access.",
+        "target_user": "Security engineer"
       },
       {
-        "title": "Security Auditor",
-        "description": "Review and validate existing Kubernetes security configurations against CIS benchmarks and NIST frameworks",
-        "target_user": "Security professionals performing Kubernetes audits"
+        "title": "Prepare compliance controls",
+        "description": "Map Pod Security Standards, audit logging, and admission controls to cluster hardening goals.",
+        "target_user": "DevOps lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Network Policy",
-        "prompt": "Create a NetworkPolicy that allows frontend pods to communicate with backend pods on port 8080 in the production namespace",
-        "scenario": "Implementing basic network segmentation between application tiers"
+        "title": "Create a default deny baseline",
+        "scenario": "Beginner",
+        "prompt": "Help me create a default-deny NetworkPolicy baseline for the namespace named staging. Include DNS access only."
       },
       {
-        "title": "RBAC for Service Account",
-        "prompt": "Generate RBAC configuration for a service account that needs read-only access to ConfigMaps in the default namespace",
-        "scenario": "Granting minimal permissions to application service accounts"
+        "title": "Harden a workload manifest",
+        "scenario": "Intermediate",
+        "prompt": "Review this Kubernetes pod specification and suggest Pod Security Standards changes for restricted mode."
       },
       {
-        "title": "Pod Security Standards",
-        "prompt": "Configure namespace labels to enforce restricted Pod Security Standards with audit and warn modes",
-        "scenario": "Enforcing security baselines at namespace level"
+        "title": "Reduce RBAC permissions",
+        "scenario": "Advanced",
+        "prompt": "Analyze these RBAC roles and bindings. Recommend least-privilege changes and identify wildcard or secret access risks."
       },
       {
-        "title": "Complete Security Setup",
-        "prompt": "Create a comprehensive security configuration including default deny NetworkPolicy, RBAC for developers, and Pod Security Standards for a new production namespace",
-        "scenario": "Setting up security for a new environment from scratch"
+        "title": "Design multi-tenant controls",
+        "scenario": "Expert",
+        "prompt": "Design a Kubernetes security policy set for three tenant namespaces with ingress isolation, approved egress, RBAC boundaries, and admission control checks."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a default deny NetworkPolicy for the production namespace",
-        "output": "A complete NetworkPolicy manifest with empty podSelector and both Ingress and Egress policy types, blocking all traffic by default"
+        "input": "Request for a production namespace network baseline.",
+        "output": "A policy plan with default deny, DNS allowance, application-to-database traffic, ingress-controller access, and verification steps."
       },
       {
-        "input": "Generate RBAC for a deployment manager role",
-        "output": "A Role with permissions for deployments (full CRUD) and pods (read-only), plus a RoleBinding to attach users or service accounts"
+        "input": "RBAC review for a service account used by a deployment pipeline.",
+        "output": "A least-privilege recommendation that removes wildcard verbs, scopes access to one namespace, and separates deployment permissions from secret access."
+      },
+      {
+        "input": "Compliance hardening request for application pods.",
+        "output": "A checklist covering restricted Pod Security Standards, non-root execution, read-only filesystems, dropped capabilities, and audit logging."
       }
     ],
     "best_practices": [
-      "Start with default deny NetworkPolicies, then explicitly allow required traffic",
-      "Apply least-privilege principle for RBAC - grant minimum permissions needed",
-      "Use dedicated ServiceAccounts for each application instead of default ServiceAccount"
+      "Start with deny-by-default network policies and add explicit allow rules.",
+      "Use namespace-scoped Roles before ClusterRoles whenever possible.",
+      "Review generated policies against real workload traffic and compliance requirements."
     ],
     "anti_patterns": [
-      "Using wildcard (*) permissions in RBAC for production workloads",
-      "Running containers as root or with privileged security context",
-      "Allowing unrestricted egress traffic without explicit NetworkPolicy rules"
+      "Do not copy wildcard RBAC examples into production without strict scope review.",
+      "Do not allow 0.0.0.0/0 egress when approved endpoints are known.",
+      "Do not bind sensitive permissions to the default service account."
     ],
     "faq": [
       {
-        "question": "What CNI plugins support NetworkPolicy?",
-        "answer": "Popular CNIs with NetworkPolicy support include Calico, Cilium, Weave Net, and Antrea. Check your cluster documentation for compatibility."
+        "question": "Does this skill apply policies to my cluster?",
+        "answer": "No. It provides guidance and examples. You must review and apply changes with your own Kubernetes tooling."
       },
       {
-        "question": "How do I test NetworkPolicy changes safely?",
-        "answer": "Apply policies in audit or warn mode first, use kubectl auth can-i for RBAC testing, and test in non-production environments before deploying."
+        "question": "Can it help with Pod Security Standards?",
+        "answer": "Yes. It explains privileged, baseline, and restricted namespace labels and related pod security context settings."
       },
       {
-        "question": "What is the difference between Role and ClusterRole?",
-        "answer": "Roles are namespace-scoped and grant permissions within a single namespace. ClusterRoles are cluster-wide and can grant permissions across all namespaces."
+        "question": "Does it include NetworkPolicy templates?",
+        "answer": "Yes. It includes templates for default deny, DNS, ingress, monitoring, external HTTPS, database access, and cross-namespace traffic."
       },
       {
-        "question": "Are Pod Security Policies still available?",
-        "answer": "Pod Security Policies are deprecated since Kubernetes 1.21 and removed in 1.25. Use Pod Security Standards with namespace labels instead."
+        "question": "Are the RBAC examples production ready?",
+        "answer": "Not always. Some examples demonstrate broad access and must be narrowed before production use."
       },
       {
-        "question": "How do I allow DNS traffic with NetworkPolicy?",
-        "answer": "Create an egress rule allowing UDP port 53 to the kube-system namespace where DNS pods typically run."
+        "question": "Can it replace a Kubernetes security audit?",
+        "answer": "No. It can support review, but it does not replace cluster-specific testing or expert assessment."
       },
       {
-        "question": "Can I block access to cloud metadata endpoints?",
-        "answer": "Yes, use NetworkPolicy egress rules with ipBlock.except to block 169.254.169.254/32, preventing pods from accessing AWS/Azure metadata services."
+        "question": "Which AI tools can use this skill?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },
@@ -225,7 +342,7 @@
       "name": "SKILL.md",
       "type": "file",
       "path": "SKILL.md",
-      "lines": 349
+      "lines": 347
     }
   ]
 }
