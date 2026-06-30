@@ -1,29 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-24T08:28:58.056Z",
+    "generated_at": "2026-06-30T20:25:45.710Z",
     "slug": "softaworks-session-handoff",
     "source_url": "https://github.com/softaworks/agent-toolkit/tree/main/skills/session-handoff/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "e4bc8921499b2a9f2197c6453e142cc344767fb92910c48ba4d0d9156b4c3dd9",
-    "tree_hash": "369a6dcda8e323dd7e712310eccce11db26e8a06c6701eee2730cc41a67833f4"
+    "tree_hash": "955f92e029cf3f78dfef709f716f3e0d7cebcf227f9f2152d535ac954ad19f16"
   },
   "skill": {
     "name": "session-handoff",
-    "description": "Creates comprehensive handoff documents for seamless AI agent session transfers. Triggered when: (1) user requests handoff/memory/context save, (2) context window approaches capacity, (3) major task milestone completed, (4) work session ending, (5) user says 'save state', 'create handoff', 'I need to pause', 'context is getting full', (6) resuming work with 'load handoff', 'resume from', 'continue where we left off'. Proactively suggests handoffs after substantial work (multiple file edits, complex debugging, architecture decisions). Solves long-running agent context exhaustion by enabling fresh agents to continue with zero ambiguity.",
-    "summary": "Creates comprehensive handoff documents for seamless AI agent session transfers, solving context exhaustion in long-running sessions.",
+    "description": "Create, validate, list, and resume structured handoff documents for long AI coding sessions.",
+    "summary": "Preserves project state so another AI agent can continue work with clear context.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "softaworks",
     "license": "MIT",
     "tags": [
-      "context",
       "handoff",
-      "session-management",
-      "workflow-continuity"
+      "context",
+      "agent-continuity",
+      "git",
+      "productivity"
     ],
     "supported_tools": [
       "claude",
@@ -31,33 +32,55 @@
       "claude-code"
     ],
     "risk_factors": [
+      "filesystem",
       "external_commands",
-      "filesystem"
-    ]
+      "scripts"
+    ],
+    "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Security evaluation confirms this is a safe skill. Static findings were analyzed and determined to be false positives or legitimate functionality. The skill uses subprocess for git operations with hardcoded arguments (no injection risk), has built-in secret detection for security, and operates only within the user's project directory.",
+    "summary": "Static analysis found many command, filesystem, environment, and network patterns. Review confirmed local Python helper scripts with hardcoded git subprocess calls and filesystem access, while network and environment matches are evaluation fixtures or sample text. No malicious exfiltration or prompt injection text was found, but handoff documents can contain sensitive project context and should be treated as trusted workspace artifacts.",
     "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "scripts/create_handoff.py",
+            "line_start": 1,
+            "line_end": 18
+          },
+          {
+            "file": "scripts/validate_handoff.py",
+            "line_start": 1,
+            "line_end": 15
+          },
+          {
+            "file": "scripts/check_staleness.py",
+            "line_start": 1,
+            "line_end": 15
+          },
+          {
+            "file": "scripts/list_handoffs.py",
+            "line_start": 1,
+            "line_end": 13
+          }
+        ]
+      },
       {
         "factor": "external_commands",
         "evidence": [
           {
-            "file": "SKILL.md",
-            "line_start": 29,
-            "line_end": 31
+            "file": "scripts/check_staleness.py",
+            "line_start": 28,
+            "line_end": 28
           },
           {
             "file": "scripts/create_handoff.py",
             "line_start": 32,
             "line_end": 32
-          },
-          {
-            "file": "scripts/check_staleness.py",
-            "line_start": 28,
-            "line_end": 28
           }
         ]
       },
@@ -66,13 +89,33 @@
         "evidence": [
           {
             "file": "scripts/create_handoff.py",
-            "line_start": 122,
-            "line_end": 122
+            "line_start": 95,
+            "line_end": 104
+          },
+          {
+            "file": "scripts/create_handoff.py",
+            "line_start": 184,
+            "line_end": 187
+          },
+          {
+            "file": "scripts/create_handoff.py",
+            "line_start": 335,
+            "line_end": 336
           },
           {
             "file": "scripts/list_handoffs.py",
-            "line_start": 77,
-            "line_end": 77
+            "line_start": 69,
+            "line_end": 83
+          },
+          {
+            "file": "scripts/validate_handoff.py",
+            "line_start": 198,
+            "line_end": 213
+          },
+          {
+            "file": "scripts/check_staleness.py",
+            "line_start": 40,
+            "line_end": 76
           }
         ]
       }
@@ -81,199 +124,297 @@
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "Subprocess Usage for Git Commands",
-        "description": "Scripts use subprocess.run to execute git commands. Arguments are hardcoded strings, not user input. No command injection risk exists. Usage is limited to read-only git operations (status, log, diff) and project directory file operations.",
+        "title": "Local Git Subprocess Execution",
+        "description": "The runtime scripts execute git commands through subprocess.run. The command arrays are hardcoded and do not use a shell, so command injection evidence was not found, but publication should disclose local command execution.",
         "locations": [
           {
             "file": "scripts/create_handoff.py",
-            "line_start": 55,
-            "line_end": 88
+            "line_start": 29,
+            "line_end": 39
           },
           {
             "file": "scripts/check_staleness.py",
-            "line_start": 85,
-            "line_end": 125
+            "line_start": 25,
+            "line_end": 35
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "Direct code inspection confirms subprocess arguments are hardcoded string arrays like ['git', 'rev-parse', '--git-dir'] with no user input concatenation"
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.86,
+        "confidence_reasoning": "Direct subprocess.run calls exist in runtime scripts. Confidence is high because the calls are real, but risk is moderated by shell-free hardcoded argument lists."
       },
       {
-        "title": "Secret Detection Patterns Flagged as Crypto",
-        "description": "The static scanner flagged regex patterns for detecting private keys and secrets as 'weak cryptographic algorithm'. These are intentional security patterns in validate_handoff.py that scan handoff documents for accidental secret exposure before finalization.",
+        "title": "Persistent Handoff Files May Contain Sensitive Context",
+        "description": "The skill creates Markdown handoff files under .claude/handoffs and pre-fills project path, branch, commit messages, and modified file names. The validator checks for common secrets, but user-entered handoff content may still persist sensitive business or implementation context.",
         "locations": [
           {
-            "file": "scripts/validate_handoff.py",
-            "line_start": 28,
-            "line_end": 29
+            "file": "scripts/create_handoff.py",
+            "line_start": 183,
+            "line_end": 190
+          },
+          {
+            "file": "scripts/create_handoff.py",
+            "line_start": 198,
+            "line_end": 207
+          },
+          {
+            "file": "scripts/create_handoff.py",
+            "line_start": 230,
+            "line_end": 336
           },
           {
             "file": "scripts/validate_handoff.py",
-            "line_start": 96,
-            "line_end": 103
+            "line_start": 22,
+            "line_end": 37
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Pattern matching in validate_handoff.py is explicitly for detecting secrets in handoff documents before they are shared - a security feature, not a vulnerability"
+        "verdict": "TRUE_POSITIVE",
+        "confidence": 0.82,
+        "confidence_reasoning": "The file creation and metadata capture are explicit. The risk depends on user content and repository handling, so it is not evidence of malicious collection."
+      },
+      {
+        "title": "Untrusted Handoff Content Can Influence Agent Behavior",
+        "description": "The resume workflow instructs the agent to read a handoff document completely and continue from its next steps. No prompt-injection text was found in the bundled files, but handoffs imported from a repository should be treated as untrusted input.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 116,
+            "line_end": 120
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 122,
+            "line_end": 134
+          },
+          {
+            "file": "references/resume-checklist.md",
+            "line_start": 7,
+            "line_end": 17
+          }
+        ],
+        "verdict": "NEEDS_REVIEW",
+        "confidence": 0.68,
+        "confidence_reasoning": "The workflow consumes Markdown handoffs as operational context. No malicious bundled payload was found, so the issue is a contextual prompt-injection exposure."
       }
     ],
     "low_findings": [
       {
-        "title": "Filesystem Access in Project Directory",
-        "description": "Scripts read and write files within .claude/handoffs/ directory. This is intentional project-scoped storage with no system-level access.",
+        "title": "Evaluation Fixtures Trigger Static Rules",
+        "description": "Several static findings come from evaluation setup files and sample handoff content, including test-only subprocess calls, temporary directories, environment variable names, and a public documentation URL. These are not part of the normal handoff runtime path.",
+        "locations": [
+          {
+            "file": "evals/setup_test_env.py",
+            "line_start": 23,
+            "line_end": 29
+          },
+          {
+            "file": "evals/setup_test_env.py",
+            "line_start": 79,
+            "line_end": 90
+          },
+          {
+            "file": "evals/setup_test_env.py",
+            "line_start": 263,
+            "line_end": 270
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.9,
+        "confidence_reasoning": "The cited lines are in an evaluation harness and generated sample project text. They show test data and fixture setup, not production exfiltration or credential access."
+      },
+      {
+        "title": "Documentation Command Examples Are Not Executed",
+        "description": "Many external command matches are Markdown examples showing how to run local helper scripts or inspect git state. They should be disclosed as expected usage, but they are not hidden execution paths.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 27,
+            "line_end": 38
+          },
+          {
+            "file": "README.md",
+            "line_start": 97,
+            "line_end": 124
+          },
+          {
+            "file": "references/resume-checklist.md",
+            "line_start": 50,
+            "line_end": 67
+          }
+        ],
+        "verdict": "FALSE_POSITIVE",
+        "confidence": 0.88,
+        "confidence_reasoning": "The evidence is inside Markdown code blocks and usage instructions. The commands are visible to the user and align with the skill purpose."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "subprocess.run for Git Introspection",
+        "description": "Local helper scripts call git through subprocess.run to inspect repository state. The calls are shell-free, but they still execute local commands.",
         "locations": [
           {
             "file": "scripts/create_handoff.py",
-            "line_start": 184,
-            "line_end": 186
+            "line_start": 29,
+            "line_end": 39
+          },
+          {
+            "file": "scripts/check_staleness.py",
+            "line_start": 25,
+            "line_end": 35
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The subprocess pattern is directly present. Hardcoded list arguments reduce command injection likelihood."
+      },
+      {
+        "title": "Local Markdown Read and Write Operations",
+        "description": "The scripts read existing handoffs and write new handoff documents. This is expected behavior, but it can preserve sensitive context on disk.",
+        "locations": [
+          {
+            "file": "scripts/create_handoff.py",
+            "line_start": 100,
+            "line_end": 104
+          },
+          {
+            "file": "scripts/create_handoff.py",
+            "line_start": 335,
+            "line_end": 336
           },
           {
             "file": "scripts/list_handoffs.py",
-            "line_start": 69,
-            "line_end": 72
+            "line_start": 22,
+            "line_end": 43
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "File operations are confined to project-relative path .claude/handoffs/ with no traversal outside project bounds"
+        "confidence": 0.84,
+        "confidence_reasoning": "The read and write operations are explicit and central to the skill. The risk is data handling, not hidden modification."
       }
     ],
-    "dangerous_patterns": [],
     "files_scanned": 12,
     "total_lines": 2721,
-    "audit_model": "claude",
-    "audited_at": "2026-01-24T08:28:58.056Z",
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T20:25:45.710Z",
     "risk_factors": [
-      "external_commands",
-      "filesystem"
+      "scripts",
+      "filesystem",
+      "external_commands"
     ]
   },
   "content": {
-    "user_title": "Create handoff documents for AI sessions",
-    "value_statement": "Long-running AI sessions often lose context when reaching token limits. This skill creates structured handoff documents that let new agents seamlessly continue work without ambiguity.",
+    "user_title": "Create Reliable AI Session Handoffs",
+    "value_statement": "Long AI coding sessions lose context when a session ends. This skill creates structured handoff documents so Claude, Codex, or Claude Code can resume with clear next steps.",
     "seo_keywords": [
-      "Claude handoff",
-      "AI session transfer",
-      "context continuity",
-      "Claude Code skill",
-      "session management",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "AI session handoff",
       "context preservation",
-      "AI workflow handoff",
-      "Claude Codex"
+      "coding workflow",
+      "handoff document",
+      "agent continuity",
+      "project resume",
+      "developer productivity"
     ],
     "actual_capabilities": [
-      "Generates structured handoff documents with project context",
-      "Captures git history, modified files, and recent commits",
-      "Validates handoffs for completeness and accidental secrets",
-      "Detects stale handoffs by comparing to current git state",
-      "Supports handoff chaining for multi-session workflows"
+      "Generates timestamped handoff Markdown files under .claude/handoffs.",
+      "Pre-fills project path, git branch, recent commits, and changed files.",
+      "Validates handoffs for required sections, TODOs, file references, and common secrets.",
+      "Lists existing handoffs with titles, dates, completion status, and file paths.",
+      "Checks handoff staleness against current git history and referenced files.",
+      "Supports chained handoffs that link related work sessions."
     ],
     "limitations": [
-      "Does not access or modify code outside the project directory",
-      "Does not execute arbitrary commands or scripts",
-      "Does not persist or transmit data externally",
-      "Requires git repository for full staleness detection"
+      "Requires local Python scripts and workspace filesystem access.",
+      "Git-based metadata works only inside a git repository.",
+      "Secret detection uses patterns and cannot guarantee full coverage.",
+      "Handoff quality depends on the user or agent completing the template accurately."
     ],
     "use_cases": [
       {
-        "title": "Long-running feature development",
-        "description": "A developer working on a complex feature across multiple sessions creates handoffs to preserve context, decisions made, and next steps for seamless resumption.",
-        "target_user": "Developers building complex features across sessions"
+        "title": "Pause a Long Coding Task",
+        "description": "Capture current state, modified files, decisions, blockers, and immediate next steps before ending a session.",
+        "target_user": "Software engineer"
       },
       {
-        "title": "Team handoffs",
-        "description": "Team members hand off work to each other by sharing handoff documents that capture current state, blockers, and action items.",
-        "target_user": "Development teams collaborating on shared tasks"
+        "title": "Resume Work From a Previous Agent",
+        "description": "Find the latest handoff, check if it is stale, and continue from the documented next action.",
+        "target_user": "AI coding agent user"
       },
       {
-        "title": "Debugging session preservation",
-        "description": "After extensive debugging sessions, create handoffs that document investigation findings, tested approaches, and remaining diagnostic steps.",
-        "target_user": "Engineers debugging complex issues"
+        "title": "Maintain Context Across Project Milestones",
+        "description": "Create chained handoffs after major milestones so future sessions can trace decisions and progress.",
+        "target_user": "Technical lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic handoff creation",
-        "prompt": "Create a handoff document for our current work session. Include the current state, what we have accomplished, and what the next steps should be.",
-        "scenario": "Standard request to save session context"
+        "title": "Create a Basic Handoff",
+        "prompt": "Create a handoff for the current work session. Include the current status, modified files, decisions, blockers, and next steps.",
+        "scenario": "Beginner"
       },
       {
-        "title": "Resuming from a previous handoff",
-        "prompt": "Resume our work using the most recent handoff document in .claude/handoffs/. Read the handoff and start with the first item in 'Immediate Next Steps'.",
-        "scenario": "Continuing work from a saved session"
+        "title": "Validate a Handoff",
+        "prompt": "Validate the handoff file and summarize any TODOs, missing sections, stale references, or possible secrets.",
+        "scenario": "Intermediate"
       },
       {
-        "title": "Proactive context preservation",
-        "prompt": "We have made significant progress with multiple file edits. Create a handoff document to preserve this context in case we need to continue in a new session.",
-        "scenario": "Automatic suggestion after substantial work"
+        "title": "Resume From the Latest Handoff",
+        "prompt": "Find the latest handoff, check staleness, read it fully, and tell me the first safe action to take.",
+        "scenario": "Intermediate"
       },
       {
-        "title": "Chaining handoffs for long workflows",
-        "prompt": "Create a new handoff that continues from our previous one. Link to the most recent handoff in the chain and document what we accomplished since then.",
-        "scenario": "Multi-session workflow continuation"
+        "title": "Chain a Milestone Handoff",
+        "prompt": "Create a continuation handoff linked to the previous one. Emphasize new decisions, completed tasks, changed assumptions, and next risks.",
+        "scenario": "Advanced"
       }
     ],
     "output_examples": [
       {
-        "input": "Create a handoff for implementing user authentication",
-        "output": [
-          "Created handoff document: /project/.claude/handoffs/2024-01-15-143022-implementing-auth.md",
-          "",
-          "Next steps:",
-          "1. Open the file and replace [TODO: ...] placeholders",
-          "2. Focus on 'Important Context' and 'Immediate Next Steps'",
-          "3. Run: python validate_handoff.py .claude/handoffs/2024-01-15-143022-implementing-auth.md"
-        ]
+        "input": "Create a handoff for this authentication refactor.",
+        "output": "Creates a timestamped handoff file with session metadata, current state, completed work, pending tasks, decisions, and environment notes."
       },
       {
-        "input": "Resume from our previous handoff",
-        "output": [
-          "Found 2 handoff(s) in /project/.claude/handoffs/",
-          "---",
-          "Date: 2024-01-15 14:30",
-          "Title: implementing-auth",
-          "Status: Complete",
-          "File: 2024-01-15-143022-implementing-auth.md",
-          "---",
-          "Most recent: /project/.claude/handoffs/2024-01-15-143022-implementing-auth.md"
-        ]
+        "input": "Resume from the most recent handoff.",
+        "output": "Lists available handoffs, checks staleness, reads the selected handoff, and identifies the first verified next step."
+      },
+      {
+        "input": "Validate this handoff before I stop.",
+        "output": "Reports quality score, remaining placeholders, missing required sections, possible secrets, and broken file references."
       }
     ],
     "best_practices": [
-      "Fill in 'Important Context' with critical information the next agent MUST know - this is the most important section",
-      "Include rationale for decisions made, not just outcomes, so the next agent understands why",
-      "Validate handoffs before finalizing to catch TODOs and prevent accidental secret exposure",
-      "Link related handoffs with --continues-from to maintain context lineage across long workflows"
+      "Run validation before sharing or committing a handoff.",
+      "Record environment variable names only, never secret values.",
+      "Review imported handoffs for untrusted instructions before following them."
     ],
     "anti_patterns": [
-      "Leaving [TODO: placeholders unfilled - next agents will lack critical context",
-      "Including actual secret values in handoffs - they may be shared or committed to version control",
-      "Skipping the validation step - incomplete handoffs waste time for resuming agents",
-      "Creating handoffs only at session end - proactive handoffs during complex work preserve more context"
+      "Do not store API keys, tokens, passwords, or private keys in handoffs.",
+      "Do not resume from a stale handoff without checking current git state.",
+      "Do not leave vague TODOs where the next agent needs concrete actions."
     ],
     "faq": [
       {
-        "question": "Where are handoff documents stored?",
-        "answer": "Handoffs are stored in .claude/handoffs/ within your project directory using the naming convention YYYY-MM-DD-HHMMSS-[slug].md."
+        "question": "Where are handoff files stored?",
+        "answer": "The skill stores generated handoffs in .claude/handoffs within the current project."
       },
       {
-        "question": "Can I share handoffs with team members?",
-        "answer": "Yes. Handoffs are plain markdown files in your project. Share them like any other document. The validator checks for accidental secrets before sharing."
+        "question": "Does this skill send data to a remote service?",
+        "answer": "No runtime network call was found in the reviewed scripts. The skill operates on local files and git metadata."
       },
       {
-        "question": "What makes a good handoff?",
-        "answer": "Focus on the 'Important Context' section with information the next agent MUST know. Include rationale for decisions, specific file locations, and clear next steps."
+        "question": "Can it detect secrets in handoffs?",
+        "answer": "It checks common secret patterns such as API keys, passwords, tokens, and private key markers."
       },
       {
-        "question": "How do I resume from a handoff?",
-        "answer": "Run list_handoffs.py to find available handoffs, read the document completely, then follow the resume checklist. Start with item #1 in 'Immediate Next Steps'."
+        "question": "Can it resume work automatically?",
+        "answer": "It provides the context and checklist for resumption. The agent should still verify current project state first."
       },
       {
-        "question": "What if the handoff is stale?",
-        "answer": "Run check_staleness.py to assess freshness. If stale, review git changes and consider creating a fresh handoff or updating the existing one."
+        "question": "Does it require git?",
+        "answer": "Git is not required for all features, but branch, commit, and staleness checks depend on git."
       },
       {
-        "question": "Are secrets detected in handoffs?",
-        "answer": "Yes. The validate_handoff.py script scans for API keys, passwords, tokens, private keys, and connection strings. Remove any detected secrets before sharing."
+        "question": "Is it safe to publish handoffs?",
+        "answer": "Only publish reviewed handoffs. They may contain project paths, commit messages, file names, and sensitive context."
       }
     ]
   },
