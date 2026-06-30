@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-01-21T15:14:19.286Z",
+    "generated_at": "2026-06-30T05:30:11.715Z",
     "slug": "kangarooking-x-publish",
     "source_url": "https://github.com/kangarooking/x-skills/tree/main/x-publish",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "0e4d0a6962a9a7bc60264da7ba54c9eade92091bd6d26e37240e85041f834e0c",
-    "tree_hash": "33d96b9b8078e307693e5f960b116424977ff73bec595e0c224ea5d100ee53dd"
+    "tree_hash": "7bc501970ca04542024b463305091d340c3d3c2e4d21792a1d699b8450de5b5f"
   },
   "skill": {
     "name": "x-publish",
-    "description": "Publish tweets and threads to X (Twitter) draft using browser automation. Use when user wants to publish content to X, save to drafts, or mentions \"publish to X\", \"post tweet\", \"x-publish\", \"发布推文\". Supports short tweets and threads. NEVER auto-publish, always saves to draft.",
-    "summary": "Publish tweets and threads to X draft using browser automation. Saves content to draft for user review.",
+    "description": "Prepare tweets and threads as X draft posts using browser automation and a local clipboard helper. The skill stages content for manual review and does not intentionally publish posts automatically.",
+    "summary": "Stage tweets and threads as X drafts for manual review.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "kangarooking",
     "license": "MIT",
-    "category": "productivity",
     "tags": [
+      "x",
       "twitter",
       "social-media",
-      "browser-automation",
       "drafts",
-      "x-twitter"
+      "browser-automation"
     ],
     "supported_tools": [
       "claude",
@@ -34,14 +33,17 @@
     ],
     "risk_factors": [
       "scripts",
+      "network",
+      "filesystem",
       "external_commands"
-    ]
+    ],
+    "category": "communication"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All static findings are false positives. The subprocess.Popen calls use hardcoded arguments for legitimate clipboard utilities (xclip, xsel) with no command injection risk. Scanner misidentified YAML frontmatter and argparse configuration as weak cryptography. URLs point to legitimate X.com compose pages. Safe to publish.",
+    "summary": "Static analysis flagged subprocess use, filesystem access, hardcoded URLs, and weak-crypto patterns. Review found no evidence of malicious intent, prompt injection, weak cryptography, or command injection; the subprocess calls use fixed clipboard commands without shell interpolation. The skill still has medium risk because it reads user-selected files into the system clipboard and automates a logged-in X browser session to stage social media drafts.",
     "risk_factor_evidence": [
       {
         "factor": "scripts",
@@ -59,140 +61,475 @@
           {
             "file": "scripts/copy_to_clipboard.py",
             "line_start": 74,
-            "line_end": 78
+            "line_end": 79
           },
           {
             "file": "scripts/copy_to_clipboard.py",
             "line_start": 85,
-            "line_end": 89
+            "line_end": 90
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 36,
+            "line_end": 42
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 98,
+            "line_end": 100
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 198,
+            "line_end": 220
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 120,
+            "line_end": 130
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 54
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 59,
+            "line_end": 59
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 77,
+            "line_end": 77
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 94,
+            "line_end": 94
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 121,
+            "line_end": 121
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 168,
+            "line_end": 168
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 178,
+            "line_end": 178
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 207,
+            "line_end": 207
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 229,
+            "line_end": 229
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 260,
+            "line_end": 260
           }
         ]
       }
     ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [],
+    "medium_findings": [
+      {
+        "title": "User-Selected File Content Copied to System Clipboard",
+        "description": "The helper accepts a --file path, reads that file, and copies its contents to the system clipboard. This is legitimate for prepared tweet text, but it can expose sensitive local file contents if an agent or user supplies the wrong path.",
+        "locations": [
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 120,
+            "line_end": 130
+          },
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 137,
+            "line_end": 143
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The code directly reads a caller-supplied file path and places the contents on the clipboard. There is no evidence of automatic network exfiltration, so the risk is contextual rather than malicious."
+      },
+      {
+        "title": "Authenticated Browser Automation for X Draft Creation",
+        "description": "The skill instructs browser automation to open X compose pages, paste content, and save drafts in the user's logged-in account. It states that posts must not be auto-published, but the workflow still operates in a sensitive authenticated social media session.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 22
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 77
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 92,
+            "line_end": 121
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The instructions clearly target a logged-in X compose workflow and include explicit draft-saving steps. The safeguard against auto-publishing lowers severity but does not remove the account-action risk."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Fixed Clipboard Subprocess Commands",
+        "description": "Static analysis flagged Python subprocess.Popen on Linux. The command names and arguments are hardcoded for xclip and xsel, stdin receives only tweet text, and shell=True is not used, so this is not command injection.",
+        "locations": [
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 74,
+            "line_end": 79
+          },
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 85,
+            "line_end": 90
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The subprocess calls use fixed argument lists and pass user content through stdin. This makes the static finding real subprocess use but a false positive for command injection."
+      },
+      {
+        "title": "Markdown Command Examples Flagged as Executable Backticks",
+        "description": "Static analysis flagged many SKILL.md code fences as Ruby or shell backtick execution. These are Markdown workflow examples and browser automation steps, not executable code embedded in the skill runtime.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 36,
+            "line_end": 42
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 98,
+            "line_end": 100
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 197,
+            "line_end": 220
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 232,
+            "line_end": 250
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The flagged content appears inside Markdown fences and examples. It describes intended usage but is not itself a hidden execution mechanism."
+      },
+      {
+        "title": "Expected Hardcoded X URLs",
+        "description": "Static analysis flagged hardcoded URLs. The URLs point to x.com compose and draft pages, which match the stated purpose of staging X drafts and do not indicate unknown third-party exfiltration.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 59,
+            "line_end": 59
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 77,
+            "line_end": 77
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 94,
+            "line_end": 94
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 121,
+            "line_end": 121
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 168,
+            "line_end": 168
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 178,
+            "line_end": 178
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 207,
+            "line_end": 207
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 229,
+            "line_end": 229
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 260,
+            "line_end": 260
+          }
+        ],
+        "confidence": 0.91,
+        "confidence_reasoning": "All reviewed URLs are on x.com and align with the skill description. No unrelated webhook, paste, or data collection endpoint was found."
+      },
+      {
+        "title": "Weak Cryptography Alerts Are False Positives",
+        "description": "Static analysis reported weak cryptographic algorithm blockers, but the cited lines are frontmatter text, table formatting, and argparse setup. No cryptographic operation was found at those locations.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 147,
+            "line_end": 147
+          },
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 114,
+            "line_end": 115
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The cited lines contain no hashing, encryption, or security-sensitive crypto API. This is a strong false positive based on the reviewed file contents."
+      },
+      {
+        "title": "Temporary File Examples Are User-Controlled Workflow Storage",
+        "description": "The instructions show writing tweet text to /tmp/tweet.txt before copying it to the clipboard. This is a common workflow pattern, but users should avoid placing sensitive unpublished content in shared temporary paths.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 54
+          },
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 10,
+            "line_end": 10
+          }
+        ],
+        "confidence": 0.74,
+        "confidence_reasoning": "The temporary path use is explicit and limited to user-provided content examples. It is a minor data exposure concern on shared systems, not evidence of malware."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Clipboard Modification",
+        "description": "The helper writes content to the operating system clipboard across macOS, Windows, and Linux. Clipboard state may be visible to other local applications.",
+        "locations": [
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 22,
+            "line_end": 29
+          },
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 41,
+            "line_end": 56
+          },
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 67,
+            "line_end": 90
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The implementation is clearly designed to modify the system clipboard. This is expected for the skill but remains a sensitive local action."
+      },
+      {
+        "title": "Local File Read",
+        "description": "The helper can read a caller-supplied local file and copy its full contents to the clipboard.",
+        "locations": [
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 120,
+            "line_end": 130
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The --file option is explicit and directly read with open(). The risk depends on what path the user or agent provides."
+      },
+      {
+        "title": "Browser Automation Against Authenticated Web Account",
+        "description": "The workflow uses browser navigation and clicks in X compose pages while the user is logged in.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 12,
+            "line_end": 13
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 77
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 92,
+            "line_end": 121
+          }
+        ],
+        "confidence": 0.87,
+        "confidence_reasoning": "The skill requires Playwright MCP and a logged-in X account, then issues compose-page actions. The documented draft-only control reduces but does not eliminate account-action risk."
+      }
+    ],
     "files_scanned": 2,
     "total_lines": 413,
-    "audit_model": "claude",
-    "audited_at": "2026-01-21T15:14:19.286Z",
+    "audit_model": "codex",
+    "audited_at": "2026-06-30T05:30:11.715Z",
     "risk_factors": [
       "scripts",
+      "network",
+      "filesystem",
       "external_commands"
     ]
   },
   "content": {
-    "user_title": "Publish Tweets and Threads to X Draft Using Browser Automation",
-    "value_statement": "Publishing content to X requires manual typing or risky auto-posting tools. This skill uses browser automation to prepare tweets and save them to draft, ensuring full user review before any post goes live.",
+    "user_title": "Stage X Drafts from Prepared Posts",
+    "value_statement": "Posting drafts to X can be slow when content is prepared outside the browser. This skill copies prepared text and uses browser automation to stage tweets or threads as drafts for manual review.",
     "seo_keywords": [
-      "X publish",
-      "Twitter publish",
-      "post tweet",
       "Claude",
+      "Codex",
       "Claude Code",
-      "tweet draft",
-      "thread creator",
+      "X draft publishing",
+      "Twitter draft automation",
+      "social media workflow",
+      "tweet thread drafts",
       "browser automation",
-      "social media",
-      "X automation"
+      "clipboard helper",
+      "X compose assistant"
     ],
     "actual_capabilities": [
-      "Navigate to X compose page using Playwright browser automation",
-      "Copy prepared content to system clipboard for cross-platform paste operations",
-      "Parse thread content and save each tweet to a draft thread on X",
-      "Support multi-language content including Chinese and English characters"
+      "Copies tweet text to the system clipboard from direct input, stdin, or a local file.",
+      "Guides browser automation to open the X compose page.",
+      "Stages a single tweet draft with pasted content.",
+      "Stages multi-post thread drafts by adding additional posts.",
+      "Saves the compose window as a draft instead of intentionally publishing.",
+      "Reports the X drafts page for final manual review."
     ],
     "limitations": [
-      "Does not auto-publish and always saves to draft for user review",
-      "Requires user to be logged into X in the browser session",
-      "Only supports short tweets and threads with 3-10 tweets maximum",
-      "Requires Playwright MCP server to be installed and configured"
+      "Requires the user to already be logged in to X in the browser session.",
+      "Requires Playwright MCP or similar browser automation support.",
+      "Depends on local clipboard access and platform-specific clipboard tools.",
+      "Does not verify final X UI changes beyond the documented workflow."
     ],
     "use_cases": [
       {
-        "title": "Quick Tweet Drafting",
-        "description": "Prepare and save short tweets to X draft for review before posting. Ideal for timely announcements or quick thoughts that need review.",
-        "target_user": "Content creators and social media managers"
+        "title": "Save a polished post draft",
+        "description": "Move a reviewed short post into X drafts without manually copying and opening the compose page.",
+        "target_user": "Social media manager"
       },
       {
-        "title": "Multi-Tweet Thread Creation",
-        "description": "Parse multi-part thread content and save each tweet to a draft thread on X. Thread numbering and formatting are preserved.",
-        "target_user": "Writers and thought leaders"
+        "title": "Prepare a launch thread",
+        "description": "Stage multiple numbered posts as one thread draft for final approval before publication.",
+        "target_user": "Product marketer"
       },
       {
-        "title": "Multi-Language Content Drafting",
-        "description": "Draft tweets in any language including Chinese, English, and other Unicode characters for review before posting.",
-        "target_user": "International users and global brands"
+        "title": "Review generated content in X",
+        "description": "Place assistant-written content into the native X draft interface so a human can inspect it before posting.",
+        "target_user": "Founder or creator"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Simple Tweet Draft",
-        "prompt": "Publish this to X draft: Claude 4.5 brings extended thinking capabilities to AI coding assistants",
-        "scenario": "Draft a single short tweet under 280 characters"
+        "title": "Draft one post",
+        "scenario": "Beginner request for a single X draft",
+        "prompt": "Use x-publish to stage this as an X draft: [paste the post text]. Save it only as a draft."
       },
       {
-        "title": "Multi-Tweet Thread",
-        "prompt": "Create an X thread from this content and save to draft:\n\n1/3 AI is transforming how we write software\n2/3 Claude Code enables natural language coding for faster development\n3/3 The future of software development is here today",
-        "scenario": "Draft a multi-tweet thread with numbered parts"
+        "title": "Draft a short thread",
+        "scenario": "Intermediate request for multiple prepared posts",
+        "prompt": "Use x-publish to stage this thread as an X draft. Keep each numbered section as a separate post and do not publish it."
       },
       {
-        "title": "Multi-Language Tweet",
-        "prompt": "Publish this to X draft: Claude 4.5发布了，extended thinking是真正的游戏规则改变者。",
-        "scenario": "Draft a tweet in Chinese or other languages"
+        "title": "Draft from a local text file",
+        "scenario": "Intermediate request using prepared local content",
+        "prompt": "Use x-publish with the prepared text file at [path]. Confirm the content length, copy it to the clipboard, and save it as an X draft."
       },
       {
-        "title": "Thread with Pre-Created Content",
-        "prompt": "Use the x-create thread content to publish to X draft",
-        "scenario": "Publish a thread created by another skill to X draft"
+        "title": "Stage and verify a campaign thread",
+        "scenario": "Advanced request with review requirements",
+        "prompt": "Use x-publish to stage this campaign thread. Check each post length, preserve the post order, save the thread as a draft, and report the draft review link."
       }
     ],
     "output_examples": [
       {
-        "input": "Publish this to X draft: Claude 4.5 brings extended thinking capabilities",
-        "output": "Draft saved successfully!\n\nType: single tweet\nTweets: 1\nDraft link: https://x.com/compose/drafts\n\nPlease review and publish manually."
+        "input": "Stage this one-sentence product update as an X draft.",
+        "output": "The post was copied to the clipboard, pasted into X compose, and saved as a draft. Review it in X drafts before publishing."
       },
       {
-        "input": "Create a 3-tweet thread and save to X draft",
-        "output": "Thread draft saved successfully!\n\nType: thread\nTweets: 3\nDraft link: https://x.com/compose/drafts\n\nPlease review and publish manually."
+        "input": "Stage a three-part launch thread from prepared content.",
+        "output": [
+          "The thread was split into three posts.",
+          "Each post was added to the X compose thread.",
+          "The thread was saved as a draft for manual review."
+        ]
+      },
+      {
+        "input": "Use the prepared tweet file and save it to drafts.",
+        "output": "The file content was copied to the clipboard and staged in X compose. The draft was saved for final review."
       }
     ],
     "best_practices": [
-      "Always review drafts at x.com/compose/drafts before posting to verify content accuracy",
-      "Use the x-create skill first to plan thread content before using x-publish to save it",
-      "Verify character counts stay under 280 characters per tweet before drafting long content"
+      "Review tweet text and character counts before starting browser automation.",
+      "Use draft-only mode and manually inspect the final X draft before publishing.",
+      "Use dedicated temporary files that contain only the intended post text."
     ],
     "anti_patterns": [
-      "Do not request auto-publish because this skill only saves to draft for user review",
-      "Do not use this skill when the user wants to post immediately without review",
-      "Do not draft content without planning for user review and approval first"
+      "Do not point the file option at private notes, secrets, or unrelated documents.",
+      "Do not ask the skill to publish directly without human review.",
+      "Do not run the workflow in a browser session for the wrong X account."
     ],
     "faq": [
       {
-        "question": "Does x-publish post tweets immediately?",
-        "answer": "No. This skill always saves content to draft only. Users must manually review and post from the X drafts page at x.com/compose/drafts."
+        "question": "Does this skill publish posts automatically?",
+        "answer": "No. The documented workflow saves content as an X draft for manual review."
       },
       {
-        "question": "What happens if I am not logged into X?",
-        "answer": "The skill will detect the login page and prompt you to log in to X first before running the command again."
+        "question": "What account does it use?",
+        "answer": "It uses the X account already logged in within the browser automation session."
       },
       {
-        "question": "Can I edit the draft after saving?",
-        "answer": "Yes. All drafts are saved to your X account and can be edited at x.com/compose/drafts before posting."
+        "question": "Can it create threads?",
+        "answer": "Yes. It can stage multiple prepared posts as a thread draft."
       },
       {
-        "question": "What is the maximum thread length supported?",
-        "answer": "Threads are limited to 3-10 tweets for practical use. Longer content should be split into multiple threads."
+        "question": "Why does it need clipboard access?",
+        "answer": "The helper copies prepared text so browser automation can paste it into X compose."
       },
       {
-        "question": "Does this skill work on all platforms?",
-        "answer": "Yes. The skill uses Playwright MCP for browser automation and supports macOS, Windows, and Linux. The clipboard script supports all three platforms."
+        "question": "Can it read from a file?",
+        "answer": "Yes. The helper can read a user-provided text file and copy that content to the clipboard."
       },
       {
-        "question": "What dependencies are required to use this skill?",
-        "answer": "You need Playwright MCP server for browser automation and Python 3.9 or higher with platform-specific clipboard libraries installed."
+        "question": "What should users check before using it?",
+        "answer": "Users should confirm the X account, content, file path, and draft status before any manual publication."
       }
     ]
   },
