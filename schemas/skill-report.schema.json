@@ -58,6 +58,10 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$",
           "description": "SHA256 hash of file tree structure for integrity verification"
+        },
+        "provenance": {
+          "$ref": "#/$defs/AnalysisProvenance",
+          "description": "Reproducibility record: which model actually produced the report and the full fallback chain"
         }
       }
     },
@@ -141,6 +145,21 @@
           "type": "boolean",
           "description": "Recommended for publication"
         },
+        "analysis_status": {
+          "type": "string",
+          "enum": ["ok", "failed", "pending"],
+          "description": "AI analysis lifecycle status"
+        },
+        "agent_auto_install_policy": {
+          "type": "string",
+          "enum": ["allowed", "confirmation_required", "blocked"],
+          "description": "Code-derived external rating landing point: what the NPM/CLI installer may do automatically. Derived from the final reconciled audit; AI has zero write authority."
+        },
+        "manual_install_policy": {
+          "type": "string",
+          "enum": ["allowed", "allowed_with_warning"],
+          "description": "Code-derived human manual-install policy; only a hard block / critical downgrades it to allowed_with_warning."
+        },
         "summary": {
           "type": "string",
           "description": "Human-readable audit summary"
@@ -165,6 +184,11 @@
           "type": "array",
           "items": { "$ref": "#/$defs/SecurityFinding" },
           "description": "Detected dangerous code patterns with title, description, and locations"
+        },
+        "remediation": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/RemediationItem" },
+          "description": "Actionable fixes for skill authors"
         },
         "files_scanned": {
           "type": "integer",
@@ -195,12 +219,27 @@
           "type": "array",
           "items": { "$ref": "#/$defs/RiskFactorEvidence" },
           "description": "Detailed evidence for each risk factor with file locations"
+        },
+        "static_findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/StaticFindingRef" },
+          "description": "READ-ONLY catalog of static findings (CODE_FILLED). The AI verdicts against these ids and must not edit them."
+        },
+        "finding_verdicts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/StaticFindingVerdict" },
+          "description": "AI verdicts (one per static_findings id). Code aggregates these into the *_findings buckets."
+        },
+        "semantic_findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/SemanticFinding" },
+          "description": "AI-discovered net-new findings static analysis cannot pattern-match (intent-level). May be empty."
         }
       }
     },
     "content": {
       "type": "object",
-      "required": ["actual_capabilities", "limitations", "use_cases", "prompt_templates", "output_examples", "best_practices", "anti_patterns", "faq"],
+      "required": ["user_title", "value_statement", "seo_keywords", "actual_capabilities", "limitations", "use_cases", "prompt_templates", "output_examples", "best_practices", "anti_patterns", "faq"],
       "additionalProperties": false,
       "properties": {
         "user_title": {
@@ -258,6 +297,59 @@
     }
   },
   "$defs": {
+    "FallbackAttempt": {
+      "type": "object",
+      "required": ["agent", "outcome"],
+      "description": "A single agent attempt in the fallback chain.",
+      "properties": {
+        "agent": {
+          "type": "string",
+          "enum": ["claude", "codex", "gemini"],
+          "description": "Which CLI agent was tried"
+        },
+        "model": {
+          "type": "string",
+          "description": "Resolved model passed to the agent (post parseModelSpec)"
+        },
+        "effort": { "type": "string" },
+        "outcome": {
+          "type": "string",
+          "enum": ["success", "failed"]
+        },
+        "error": {
+          "type": "string",
+          "description": "Short failure reason (truncated)"
+        }
+      }
+    },
+    "AnalysisProvenance": {
+      "type": "object",
+      "required": ["fallback_chain"],
+      "description": "Reproducibility record: which model produced the report and why a fallback happened. Carries no timestamps for byte-stable comparison.",
+      "properties": {
+        "model_requested": {
+          "type": "string",
+          "description": "Raw --model spec the user asked for (e.g. gpt-5.5:high); omitted when 'auto'"
+        },
+        "model_effective": {
+          "type": "string",
+          "description": "agent:model that actually produced the report (e.g. codex:gpt-5.5); 'fallback' for the fallback audit"
+        },
+        "temperature": {
+          "type": "number",
+          "description": "The temperature pinned (0)"
+        },
+        "fallback_chain": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/FallbackAttempt" },
+          "description": "Every agent attempt in order; length > 1 implies a fallback occurred"
+        },
+        "analysis_version": {
+          "type": "string",
+          "description": "Mirror of meta.analysis_version for self-containment"
+        }
+      }
+    },
     "RiskFactorEvidence": {
       "type": "object",
       "required": ["factor", "evidence"],
@@ -282,6 +374,84 @@
         }
       }
     },
+    "StaticFindingRef": {
+      "type": "object",
+      "required": ["id", "category", "severity", "pattern", "file", "line_start", "line_end", "snippet"],
+      "description": "READ-ONLY static finding catalog entry (CODE_FILLED).",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable ref: category:file:lineStart:slug(pattern)"
+        },
+        "category": { "type": "string" },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "pattern": { "type": "string" },
+        "file": { "type": "string" },
+        "line_start": { "type": "integer" },
+        "line_end": { "type": "integer" },
+        "snippet": { "type": "string" }
+      }
+    },
+    "StaticFindingVerdict": {
+      "type": "object",
+      "required": ["id", "verdict", "confidence", "reason"],
+      "description": "AI verdict for a single static finding (AI_FILL).",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Must equal a static_findings[].id"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": ["confirmed", "false_positive"]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "reason": { "type": "string" },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Optional AI re-grade for a confirmed finding; code never lowers below the static floor"
+        }
+      }
+    },
+    "SemanticFinding": {
+      "type": "object",
+      "required": ["title", "description", "severity", "locations", "confidence", "confidence_reasoning"],
+      "description": "AI-discovered net-new finding static cannot pattern-match (AI_FILL).",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "line_start", "line_end"],
+            "properties": {
+              "file": { "type": "string" },
+              "line_start": { "type": "integer" },
+              "line_end": { "type": "integer" }
+            }
+          }
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "confidence_reasoning": { "type": "string" }
+      }
+    },
     "SecurityFinding": {
       "type": "object",
       "required": ["title", "description", "locations"],
@@ -299,6 +469,28 @@
             },
             "required": ["file", "line_start", "line_end"]
           }
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "AI confidence score (0.0-1.0). 0.9+ = very certain, 0.5-0.8 = needs review, <0.5 = low confidence"
+        },
+        "confidence_reasoning": {
+          "type": "string",
+          "description": "Brief explanation for the assigned confidence level"
+        }
+      }
+    },
+    "RemediationItem": {
+      "type": "object",
+      "required": ["issue", "suggestion", "severity"],
+      "properties": {
+        "issue": { "type": "string" },
+        "suggestion": { "type": "string" },
+        "severity": {
+          "type": "string",
+          "enum": ["safe", "low", "medium", "high", "critical"]
         }
       }
     },
