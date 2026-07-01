@@ -1,0 +1,124 @@
+name: Monitor Skill Sources
+
+on:
+  schedule:
+    # Daily at 06:30 UTC (14:30 Beijing Time)
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+    inputs:
+      slugs:
+        description: 'Optional skill slugs to scan, comma or space separated'
+        required: false
+        type: string
+        default: ''
+      limit:
+        description: 'Optional maximum number of approved skills to scan'
+        required: false
+        type: number
+        default: 0
+      dry_run:
+        description: 'Reserved for future write mode; this workflow is currently always report-only'
+        required: false
+        type: boolean
+        default: true
+      cli_version:
+        description: 'Skillstore CLI version, without cli-v prefix'
+        required: false
+        type: string
+        default: 'latest'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skill-source-monitor
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    name: Source accuracy scan
+    runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-latest' || 'self-hosted' }}
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout marketplace
+        uses: actions/checkout@v5
+
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Download Skillstore CLI
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          version: ${{ inputs.cli_version || 'latest' }}
+          token: ${{ steps.app-token.outputs.token }}
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Run source monitor
+        id: monitor
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SLUGS: ${{ inputs.slugs || '' }}
+          LIMIT: ${{ inputs.limit || 0 }}
+          DRY_RUN: ${{ inputs.dry_run || true }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p source-monitor-results
+          JSONL_FILE="source-monitor-results/skill-source-monitor-${GITHUB_RUN_ID}.jsonl"
+          SUMMARY_FILE="source-monitor-results/skill-source-monitor-${GITHUB_RUN_ID}.md"
+
+          CMD=(
+            "$GITHUB_WORKSPACE/skillstore-cli"
+            skill monitor-upstream
+            --output jsonl
+            --summary markdown
+            --jsonlFile "$JSONL_FILE"
+            --summaryFile "$SUMMARY_FILE"
+          )
+
+          if [ -n "$SLUGS" ]; then
+            CMD+=(--slugs "$SLUGS")
+          else
+            CMD+=(--all)
+          fi
+
+          if [ "$LIMIT" != "0" ]; then
+            CMD+=(--limit "$LIMIT")
+          fi
+
+          echo "Dry run: $DRY_RUN"
+          echo "Command: ${CMD[*]}"
+          "${CMD[@]}" | tee "source-monitor-results/stdout-${GITHUB_RUN_ID}.jsonl"
+
+          echo "jsonl_file=$JSONL_FILE" >> "$GITHUB_OUTPUT"
+          echo "summary_file=$SUMMARY_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Upload monitor evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skill-source-monitor-${{ github.run_id }}
+          path: source-monitor-results/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Final summary
+        if: always()
+        run: |
+          {
+            echo ""
+            echo "### Workflow Guardrails"
+            echo ""
+            echo "- Mode: report-only"
+            echo "- Supabase writes: disabled"
+            echo "- Archive actions: disabled"
+            echo "- Pull requests: disabled"
+            echo "- Evidence artifact: skill-source-monitor-${{ github.run_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"
