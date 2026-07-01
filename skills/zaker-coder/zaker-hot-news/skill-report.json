@@ -1,21 +1,21 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-04-13T08:33:17.259Z",
+    "generated_at": "2026-07-01T01:23:22.586Z",
     "slug": "zaker-coder-zaker-hot-news",
     "source_url": "https://github.com/ZAKER-coder/skills/tree/main/skills/zaker-hot-news/",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "c849a9dcd6772ad9d89fd77b55bbe293b69844c6701a5710e0d7825b921ac381",
-    "tree_hash": "22a0c559c5d759066a5c76c181c6ac10f0e940db765ef3606538033608d9a864"
+    "tree_hash": "c7ecd106f6171f90d8311cdeaba1894a34620b2aff60eba53a826e676374ba69"
   },
   "skill": {
     "name": "zaker-hot-news",
-    "description": "获取ZAKER聚合权威媒体的最新头条新闻与热点资讯。Use when the user asks about 新闻, 头条, 最新新闻, 今日新闻, 热点新闻, 突发新闻, 国内外大事, 最近发生了什么, 有什么新鲜事, trending news, latest news, headlines, breaking news, what's happening.",
-    "summary": "Fetch latest hot news headlines from ZAKER, aggregating authoritative Chinese media sources like CCTV, Xinhua, and People's Daily.",
-    "icon": "📰",
+    "description": "Fetches recent ZAKER hot news headlines from a public API and formats titles, summaries, authors, and publish times.",
+    "summary": "Get a quick digest of current ZAKER hot news headlines.",
+    "icon": "📦",
     "version": "1.0.0",
     "author": "ZAKER-coder",
     "license": "MIT",
@@ -23,9 +23,9 @@
     "tags": [
       "news",
       "headlines",
-      "chinese-news",
-      "media",
-      "information"
+      "zaker",
+      "current-events",
+      "china-news"
     ],
     "supported_tools": [
       "claude",
@@ -41,7 +41,11 @@
     "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static analysis detected 27 patterns including network requests and external commands. After evaluation, all findings are false positives or represent legitimate functionality. Network requests go to a public news API endpoint (skills.myzaker.com) with no authentication. Shell invocations are legitimate documentation code examples and a wrapper script for API calls. No evidence of malicious intent, data exfiltration, or credential harvesting.",
+    "summary": "Static network and shell findings are mostly expected for a news-fetching skill that calls a public ZAKER endpoint. The high weak-crypto and entropy alerts are false positives in SKILL.md, and no prompt injection or malicious exfiltration evidence was found.",
+    "risk_factors": [
+      "network",
+      "external_commands"
+    ],
     "risk_factor_evidence": [
       {
         "factor": "network",
@@ -65,6 +69,11 @@
             "file": "scripts/get_hot.sh",
             "line_start": 4,
             "line_end": 4
+          },
+          {
+            "file": "scripts/get_hot.sh",
+            "line_start": 12,
+            "line_end": 12
           },
           {
             "file": "SKILL.md",
@@ -179,8 +188,97 @@
     "medium_findings": [],
     "low_findings": [
       {
-        "title": "Public API Network Requests",
-        "description": "The skill makes HTTP requests to https://skills.myzaker.com/api/v1/article/hot to fetch news headlines. This is the core functionality of the skill - a public API requiring no authentication. No sensitive data is transmitted or received.",
+        "title": "Expected Network Access to Public News API",
+        "description": "TRUE_POSITIVE: The Python script and documentation make GET requests to a hardcoded ZAKER hot-news endpoint. This is the core function of the skill, and no credentials, environment variables, or local files are sent, but users should know it depends on a third-party service and untrusted remote content.",
+        "locations": [
+          {
+            "file": "scripts/get_hot.py",
+            "line_start": 8,
+            "line_end": 11
+          },
+          {
+            "file": "scripts/get_hot.sh",
+            "line_start": 4,
+            "line_end": 12
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 110,
+            "line_end": 110
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 163,
+            "line_end": 171
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The static network findings match explicit GET requests to a public news endpoint. The surrounding code shows no secret access or user data exfiltration, so the residual risk is limited to external dependency and remote content trust."
+      },
+      {
+        "title": "Shell Wrapper Runs curl and jq",
+        "description": "TRUE_POSITIVE: The shell script invokes curl and pipes the response to jq. The URL is fixed and quoted, so command injection is not evident, but the skill still executes external commands and processes remote API output.",
+        "locations": [
+          {
+            "file": "scripts/get_hot.sh",
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
+            "file": "scripts/get_hot.sh",
+            "line_start": 10,
+            "line_end": 12
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 170,
+            "line_end": 171
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The shell execution is directly visible and uses common tools with a hardcoded endpoint. I found no variable expansion from user input and no dynamic command construction."
+      },
+      {
+        "title": "Markdown Backticks Misclassified as Command Execution",
+        "description": "FALSE_POSITIVE: Many external-command alerts in SKILL.md are inline Markdown code spans that describe tool names, endpoint fields, or response fields. They are documentation, not executable code paths.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 109,
+            "line_end": 110
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 145,
+            "line_end": 154
+          }
+        ],
+        "confidence": 0.93,
+        "confidence_reasoning": "The cited lines are Markdown documentation and response schema descriptions. They do not invoke a shell or interpolate user-controlled input."
+      },
+      {
+        "title": "Weak Crypto and Entropy Alerts Are False Positives",
+        "description": "FALSE_POSITIVE: The static weak-cryptography alerts point to skill metadata and descriptive text, not cryptographic functions. The entropy alert points at the opening Markdown front matter, with no binary blob, encoded payload, or hidden script visible.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 1,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 12,
+            "line_end": 12
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "The reviewed lines contain YAML front matter and prose about news sources. I found no MD5, SHA1, cipher use, binary payload, or obfuscated content in those locations."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "Hardcoded Third-Party Endpoint",
+        "description": "The skill relies on a fixed external ZAKER API endpoint for all news retrieval. This is intentional, but it means output depends on a third-party service outside the marketplace.",
         "locations": [
           {
             "file": "scripts/get_hot.py",
@@ -193,131 +291,143 @@
             "line_end": 12
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Confirmed legitimate network requests to documented public API endpoint for news aggregation skill - no authentication or sensitive data involved"
+        "confidence": 0.88,
+        "confidence_reasoning": "The endpoint is plainly hardcoded and used by both scripts. The pattern is not malicious by itself, but it is a real operational and privacy consideration."
+      },
+      {
+        "title": "External Command Use in Shell Script",
+        "description": "The shell helper executes curl and jq to fetch and format remote data. The command does not include user-supplied arguments, reducing injection risk.",
+        "locations": [
+          {
+            "file": "scripts/get_hot.sh",
+            "line_start": 10,
+            "line_end": 12
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The command line is directly visible and fixed. There is no evidence of dynamic command construction, but it still requires external tooling."
       }
     ],
-    "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 236,
-    "audit_model": "claude",
-    "audited_at": "2026-04-13T08:33:17.259Z"
+    "audit_model": "codex",
+    "audited_at": "2026-07-01T01:23:22.586Z"
   },
   "content": {
-    "user_title": "Get Chinese News Headlines Instantly",
-    "value_statement": "Stay informed with the latest news from authoritative Chinese media sources. This skill aggregates real-time headlines from CCTV, Xinhua, and People's Daily, updating every 30 minutes.",
+    "user_title": "Track ZAKER Hot News Headlines",
+    "value_statement": "Users often need a fast overview of current news without opening many sites. This skill fetches ZAKER hot headlines and presents concise article summaries with sources and times.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "Chinese news",
-      "headlines",
-      "ZAKER",
-      "news aggregation",
+      "ZAKER hot news",
+      "latest headlines",
       "breaking news",
-      "CCTV",
-      "Xinhua"
+      "trending news",
+      "news aggregation",
+      "current events",
+      "Chinese news"
     ],
     "actual_capabilities": [
-      "Fetch latest 20 hot news articles from ZAKER API",
-      "Aggregate news from authoritative Chinese sources (CCTV, Xinhua, People's Daily)",
-      "Display news with title, author, publish time, and summary",
-      "Provide clickable article links for full reading",
-      "Update every 30 minutes for fresh content",
-      "Support both Chinese and English user queries"
+      "Fetches the latest ZAKER hot-news article list from a public API.",
+      "Displays article titles, authors, publish times, and summaries.",
+      "Supports quick headline requests in Chinese and English.",
+      "Provides Python and shell examples for retrieving the feed.",
+      "Formats headline lists for fast scanning."
     ],
     "limitations": [
-      "Only returns latest 20 articles per request",
-      "Limited to ZAKER's curated news sources",
-      "No filtering or search capabilities",
-      "Requires internet connection to fetch data",
-      "Chinese language sources only"
+      "Requires network access to the ZAKER API endpoint.",
+      "Does not verify the factual accuracy of each news article.",
+      "Returns the feed provided by ZAKER, not every global news source.",
+      "The shell helper requires curl and jq for formatted output."
     ],
     "use_cases": [
       {
-        "title": "Quick Daily News Briefing",
-        "description": "Get a fast overview of today's major headlines during morning routine or commute",
-        "target_user": "General users wanting quick news updates"
+        "title": "Morning News Brief",
+        "description": "Get a short list of important headlines before starting work.",
+        "target_user": "Busy professional"
       },
       {
-        "title": "Market Research for China",
-        "description": "Monitor trending topics and breaking news from authoritative Chinese media sources",
-        "target_user": "Business analysts and researchers"
+        "title": "Current Events Scan",
+        "description": "Review recent domestic and international topics from a single hot-news feed.",
+        "target_user": "Research analyst"
       },
       {
-        "title": "Bilingual News Consumption",
-        "description": "Access Chinese news headlines with skill supporting both Chinese and English queries",
-        "target_user": "Bilingual speakers and language learners"
+        "title": "Bilingual Headline Query",
+        "description": "Ask for news using Chinese or English phrases and receive a compact digest.",
+        "target_user": "Multilingual assistant user"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Get Latest Headlines",
-        "prompt": "Show me the latest news headlines",
-        "scenario": "Quick news check for today's major events"
+        "title": "Get Today Headlines",
+        "scenario": "Beginner request for a quick feed.",
+        "prompt": "Show me the latest ZAKER hot news headlines with short summaries."
       },
       {
-        "title": "Chinese News Query",
-        "prompt": "今天有什么新闻",
-        "scenario": "Query news in Chinese language"
+        "title": "Summarize Major Events",
+        "scenario": "Intermediate request for prioritizing important items.",
+        "prompt": "Fetch the latest hot news and group the most important stories by topic."
       },
       {
-        "title": "Breaking News Request",
-        "prompt": "What are the breaking news stories right now",
-        "scenario": "Check for urgent or recent developments"
+        "title": "Create a Briefing",
+        "scenario": "Intermediate request for a structured digest.",
+        "prompt": "Use the ZAKER hot news feed to create a concise briefing with source names and publish times."
       },
       {
-        "title": "Trending Topics",
-        "prompt": "What are people talking about in the news today",
-        "scenario": "Discover current trending topics and discussions"
+        "title": "Compare News Themes",
+        "scenario": "Advanced request for synthesis across the feed.",
+        "prompt": "Analyze the current ZAKER hot-news list and identify recurring themes, major risks, and items that need follow-up verification."
       }
     ],
     "output_examples": [
       {
-        "input": "Show me the latest headlines",
-        "output": "Here are the latest hot news articles from ZAKER:\n\n[标题1](url1)\n摘要内容 (作者名)\n\n[标题2](url2)\n摘要内容 (作者名)\n\n[标题3](url3)\n摘要内容 (作者名)"
+        "input": "What is the latest news today?",
+        "output": "A numbered headline digest with each article title, author, publish time, and one summary line."
       },
       {
-        "input": "今天有什么突发新闻",
-        "output": "最新热门文章如下：\n\n[突发：某某事件](url)\n事件摘要内容 (新闻社)\n\n[某某重要新闻](url2)\n新闻摘要内容 (媒体名称)"
+        "input": "Give me the biggest current events from ZAKER.",
+        "output": "A grouped briefing that separates national news, international news, and other trending topics."
+      },
+      {
+        "input": "最近有什么热点新闻？",
+        "output": "一份简短热点新闻列表，包含标题、来源、发布时间和摘要。"
       }
     ],
     "best_practices": [
-      "Use specific keywords like 'headlines', 'breaking news', or '最新新闻' for best results",
-      "Check the timestamp to ensure news freshness from 30-minute updates",
-      "Click article titles to read full content on original sources",
-      "Use bilingual queries (Chinese or English) based on your preference"
+      "Ask for a brief digest when you need speed.",
+      "Request source names and publish times for context.",
+      "Verify important claims with primary sources before acting."
     ],
     "anti_patterns": [
-      "Do not expect historical news archives or search functionality",
-      "Do not use this skill for real-time stock market or financial data",
-      "Do not expect international news coverage beyond Chinese sources",
-      "Do not use for news filtering or custom topic subscriptions"
+      "Do not treat the feed as complete coverage of all news.",
+      "Do not use summaries as legal, medical, or financial advice.",
+      "Do not assume every remote article is verified by the skill."
     ],
     "faq": [
       {
-        "question": "How often is the news updated?",
-        "answer": "The news feed updates every 30 minutes with fresh content from authoritative sources."
+        "question": "What news source does this skill use?",
+        "answer": "It uses a public ZAKER hot-news API endpoint documented in the skill files."
       },
       {
-        "question": "What news sources are included?",
-        "answer": "The skill aggregates from authoritative Chinese media including CCTV, Xinhua News Agency, and People's Daily."
+        "question": "Does it need an API key?",
+        "answer": "The skill documentation says the endpoint uses GET requests without authentication."
       },
       {
-        "question": "Does this skill require an API key?",
-        "answer": "No, the ZAKER API is public and does not require authentication or API keys."
+        "question": "Can it fetch breaking news?",
+        "answer": "It can fetch the current hot-news feed when the ZAKER endpoint is available."
       },
       {
-        "question": "Can I filter news by topic or category?",
-        "answer": "Currently, the skill returns the top 20 hot headlines without topic filtering. Filtering is not supported."
+        "question": "Does it work in Chinese and English?",
+        "answer": "The skill description and examples support news requests in both Chinese and English."
       },
       {
-        "question": "Is this skill available in languages other than Chinese?",
-        "answer": "The skill supports both Chinese and English queries. The news content is primarily in Chinese."
+        "question": "Does it fact-check articles?",
+        "answer": "No. It retrieves and formats article data, but users should verify important claims."
       },
       {
-        "question": "How many articles are returned per request?",
-        "answer": "Each request returns exactly 20 of the latest hot news articles."
+        "question": "Why is there a security warning?",
+        "answer": "The skill uses network requests and a shell helper, so the marketplace should disclose those behaviors."
       }
     ]
   },

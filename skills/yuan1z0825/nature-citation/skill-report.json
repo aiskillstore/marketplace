@@ -1,31 +1,30 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-24T05:55:57.250Z",
+    "generated_at": "2026-07-01T00:53:44.001Z",
     "slug": "yuan1z0825-nature-citation",
     "source_url": "https://github.com/Yuan1z0825/nature-skills/tree/main/skills/nature-citation",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "cf209def574363ea9461209cec61dd4b597945143cc56b6774302af19df054f0",
-    "tree_hash": "ebd477dc79c34b943b45593e1506b805ec2b601ac0d0941acb59c36b6d0e9aa6"
+    "tree_hash": "d441e13b8c91dcce16183a34351f66f35ce81538321c7a25c0f8aa7dc285f0ec"
   },
   "skill": {
     "name": "nature-citation",
-    "description": "Add strict Nature/CNS citations to manuscript text by splitting long passages into citable segments, searching only accepted flagship and subjournal titles from Nature Portfolio, the AAAS Science family, and Cell Press, filtering by publication time range, and exporting one reference-manager-ready output by default.",
-    "summary": "Finds Nature/CNS series citations for manuscript text and exports EndNote/RIS/Zotero-ready files.",
-    "icon": "📚",
+    "description": "Find Nature, Science, and Cell-family citation candidates for manuscript claims, then export reference-manager files for EndNote, RIS, or Zotero review.",
+    "summary": "Finds Nature/CNS citation candidates for manuscript text and exports review-ready reference files.",
+    "icon": "📦",
     "version": "2.0.0",
     "author": "Yuan1z skill, refactored into static/dynamic layers",
     "license": "MIT",
-    "category": "research",
     "tags": [
       "citation",
       "academic-writing",
       "nature",
-      "endnote",
-      "literature-search"
+      "literature-search",
+      "endnote"
     ],
     "supported_tools": [
       "claude",
@@ -33,28 +32,18 @@
       "claude-code"
     ],
     "risk_factors": [
-      "external_commands",
+      "scripts",
       "network",
-      "filesystem",
-      "scripts"
-    ]
+      "filesystem"
+    ],
+    "category": "research"
   },
   "security_audit": {
-    "risk_level": "low",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Evaluated 308 static findings. The vast majority are false positives: 'Ruby/shell backtick execution' flags are Markdown code formatting (not actual execution), 'weak crypto' flags match 'md5' in documentation contexts, 'certificate/key' flags refer to citation keys, and 'system reconnaissance' flags are CSS class names. The script makes legitimate HTTP requests to api.crossref.org for citation metadata search and writes output files locally. One low-severity XSS risk exists in the self-contained HTML browser output where template literals render Crossref API data via innerHTML.",
+    "summary": "Evaluated 308 static findings and found no confirmed malicious intent or prompt injection. Most static hits are false positives from Markdown backticks, documentation text, citation-key identifiers, CSS names, and non-security hash use. The publishable risks are expected Crossref network queries using manuscript-derived terms, local file output, and a moderate local HTML XSS risk from innerHTML rendering of selected metadata.",
     "risk_factor_evidence": [
-      {
-        "factor": "external_commands",
-        "evidence": [
-          {
-            "file": "scripts/nature_citation.py",
-            "line_start": 629,
-            "line_end": 650
-          }
-        ]
-      },
       {
         "factor": "network",
         "evidence": [
@@ -65,14 +54,24 @@
           },
           {
             "file": "scripts/nature_citation.py",
-            "line_start": 645,
-            "line_end": 647
+            "line_start": 629,
+            "line_end": 650
+          },
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 660,
+            "line_end": 665
           }
         ]
       },
       {
         "factor": "filesystem",
         "evidence": [
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 833,
+            "line_end": 859
+          },
           {
             "file": "scripts/nature_citation.py",
             "line_start": 1956,
@@ -87,6 +86,11 @@
             "file": "scripts/nature_citation.py",
             "line_start": 1820,
             "line_end": 1831
+          },
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 1948,
+            "line_end": 2012
           }
         ]
       }
@@ -95,171 +99,264 @@
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "XSS risk via innerHTML with API-sourced data in self-contained HTML output",
-        "description": "The generated HTML browser template at scripts/nature_citation.py:1831 uses wrapper.innerHTML with template literals rendering item.title, item.journal, and item.year from Crossref API responses. If Crossref metadata contained malicious HTML/script content in title or journal fields, it would execute when the local HTML file is opened. Risk is limited because the output is a self-contained local file for review purposes, not a web application. Crossref data is generally trusted scholarly metadata.",
+        "title": "Manuscript-derived search terms sent to Crossref",
+        "description": "The script turns user manuscript segments into search queries and sends them to the Crossref API as bibliographic query parameters. This is expected for citation discovery, but it can disclose unpublished research topics or draft claim wording to an external service.",
         "locations": [
           {
             "file": "scripts/nature_citation.py",
-            "line_start": 1831,
-            "line_end": 1831
+            "line_start": 888,
+            "line_end": 907
+          },
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 629,
+            "line_end": 647
           }
         ],
-        "confidence": 0.6,
-        "confidence_reasoning": "Confirmed innerHTML usage with unsanitized template interpolation of API data, but output is a local HTML review artifact, not a deployed web application. Crossref is a trusted academic metadata source."
+        "confidence": 0.86,
+        "confidence_reasoning": "The code directly builds queries from segment text and passes them to fetch_crossref, which sends query.bibliographic to api.crossref.org. This is legitimate functionality, but the privacy impact is clear for confidential drafts."
+      },
+      {
+        "title": "Local HTML review page uses innerHTML with metadata fields",
+        "description": "The generated citation browser clears a selected-reference panel with innerHTML and then renders selected item title, journal, and year through a template literal. If malicious HTML reached those metadata fields, it could execute when the local review page is opened. The impact is limited because source data comes from Crossref metadata and the page is a local artifact.",
+        "locations": [
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 1820,
+            "line_end": 1831
+          },
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 1886,
+            "line_end": 1891
+          }
+        ],
+        "confidence": 0.68,
+        "confidence_reasoning": "The innerHTML pattern is confirmed and selected records are parsed from embedded metadata. Several earlier fields are HTML-escaped, so exploitation would require malicious metadata to survive into the selected item object."
       }
     ],
     "low_findings": [
       {
-        "title": "External HTTP requests to Crossref API",
-        "description": "The script makes HTTP requests to api.crossref.org/works for citation metadata search. This is expected functionality for a citation tool. No data exfiltration or suspicious endpoints detected.",
+        "title": "Expected local file reads and output writes",
+        "description": "The CLI reads user-provided text, claim, and DOI files, then writes reference exports and optional review artifacts under a user-selected output path. This is normal for a citation export tool, but users should avoid pointing output paths at sensitive locations.",
         "locations": [
           {
             "file": "scripts/nature_citation.py",
-            "line_start": 28,
-            "line_end": 28
+            "line_start": 833,
+            "line_end": 859
           },
-          {
-            "file": "scripts/nature_citation.py",
-            "line_start": 645,
-            "line_end": 647
-          }
-        ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Crossref is the standard scholarly metadata API; requests use polite pool mailto parameter and configurable retry logic. No credential theft or exfiltration patterns present."
-      },
-      {
-        "title": "Local filesystem output writes",
-        "description": "Script writes citation export files (.enw, .ris, .rdf) and review artifacts to user-specified or current directory. Expected behavior for a file-export tool.",
-        "locations": [
           {
             "file": "scripts/nature_citation.py",
             "line_start": 1956,
             "line_end": 1963
+          },
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 1967,
+            "line_end": 1986
           }
         ],
         "confidence": 0.9,
-        "confidence_reasoning": "Uses standard pathlib operations to write reference manager files. No path traversal or sensitive directory access detected."
+        "confidence_reasoning": "Path handling and file IO are visible in the CLI implementation and match the documented export workflow. No evidence found of secret-file harvesting or hidden filesystem scanning."
+      },
+      {
+        "title": "Static command-execution and weak-crypto hits are false positives",
+        "description": "The reported Ruby backtick findings are Markdown inline code and documented shell examples, not executable Ruby code. The weak-crypto finding in the Python script is SHA-1 used for stable non-security identifiers, not password storage, signatures, or encryption.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 23,
+            "line_end": 24
+          },
+          {
+            "file": "README.md",
+            "line_start": 29,
+            "line_end": 46
+          },
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 276,
+            "line_end": 276
+          },
+          {
+            "file": "static/core/workflow.md",
+            "line_start": 34,
+            "line_end": 41
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "Manual review found no subprocess, os.system, shell=True, eval, or exec usage in the script. The hash function is used only to build stable URN-like IDs for citation records."
+      },
+      {
+        "title": "Certificate, key, reconnaissance, and obfuscation alerts are benign identifiers or UI text",
+        "description": "The sensitive-file alerts refer to citation keys, dictionary keys, or JavaScript map keys, not private keys or certificates. System reconnaissance alerts align with CSS layout names or documentation examples, and no evidence found of host profiling, credential access, or evasion logic.",
+        "locations": [
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 231,
+            "line_end": 239
+          },
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 674,
+            "line_end": 676
+          },
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 1303,
+            "line_end": 1325
+          },
+          {
+            "file": "evals/evals.json",
+            "line_start": 24,
+            "line_end": 24
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The cited locations use ordinary citation-record identifiers, UI styling, or evaluation prompt text. No evidence found of credential material, encrypted payloads, or attempts to inspect the host system."
       }
     ],
-    "dangerous_patterns": [],
+    "dangerous_patterns": [
+      {
+        "title": "innerHTML assignment in generated browser artifact",
+        "description": "The review browser uses innerHTML for selected-reference rendering. Safer DOM textContent assignment would reduce local HTML injection risk.",
+        "locations": [
+          {
+            "file": "scripts/nature_citation.py",
+            "line_start": 1820,
+            "line_end": 1831
+          }
+        ],
+        "confidence": 0.7,
+        "confidence_reasoning": "The assignment is explicit in the browser template. The context limits severity because the artifact is generated locally for review."
+      }
+    ],
     "files_scanned": 12,
     "total_lines": 2648,
-    "audit_model": "claude",
-    "audited_at": "2026-06-24T05:55:57.250Z"
+    "audit_model": "codex",
+    "audited_at": "2026-07-01T00:53:44.001Z",
+    "risk_factors": [
+      "scripts",
+      "network",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Add Nature/CNS Citations to Your Manuscript",
-    "value_statement": "Academic writers struggle to find high-impact Nature, Science, and Cell citations to support claims in their manuscripts. This skill splits manuscript text into segments and searches only accepted flagship and subjournal titles to produce reference-manager-ready citation files.",
+    "user_title": "Add Nature/CNS Citations to Manuscripts",
+    "value_statement": "Academic writers need focused citations without mixing unrelated journals into a manuscript draft. This skill segments claims, searches strict Nature, Science, and Cell-family sources, and exports review-ready reference files.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "Nature citation",
-      "academic writing",
-      "EndNote export",
       "CNS references",
-      "scholarly citations",
-      "manuscript references",
+      "academic writing citations",
+      "EndNote export",
+      "RIS export",
+      "Zotero RDF",
       "literature search"
     ],
     "actual_capabilities": [
-      "Splits manuscript paragraphs into citable segments using configurable character limits",
-      "Searches Crossref metadata API restricted to Nature Portfolio, AAAS Science family, and Cell Press journals",
-      "Filters candidate papers by publication year range (--from-year, --to-year)",
-      "Exports results in EndNote (.enw), RIS, and Zotero RDF formats",
-      "Generates an HTML browser for interactive review and selection of candidate citations",
-      "Supports Chinese-language academic writing workflows with bilingual segment handling"
+      "Splits manuscript text into stable citable segments such as S001 and S002.",
+      "Builds English literature search queries from manuscript claims, including Chinese-language input.",
+      "Searches Crossref metadata for Nature Portfolio, AAAS Science family, and Cell Press candidates.",
+      "Filters candidate papers by strict journal scope and optional publication year limits.",
+      "Exports EndNote ENW, RIS, or Zotero RDF reference files.",
+      "Can generate HTML, TSV, JSON, and Markdown review artifacts when requested."
     ],
     "limitations": [
-      "All candidates are tagged 'metadata-only' and must be verified against abstracts before citing",
-      "Does not retrieve full-text content or verify claims against source material",
-      "Citation matching relies on Crossref metadata which may not always reflect the most recent publications",
-      "Limited to the predefined journal scope (Nature/CNS/Cell families); cannot search arbitrary journals"
+      "Candidate citations are metadata-level results until a user checks the abstract or full text.",
+      "The script sends manuscript-derived search terms to Crossref, so confidential drafts need caution.",
+      "It does not retrieve full text or prove that a paper supports a claim.",
+      "It is limited to configured Nature, Science, and Cell-family journal scopes."
     ],
     "use_cases": [
       {
-        "title": "Adding citations to a journal manuscript draft",
-        "description": "A graduate student pastes their manuscript text and receives a ready-to-import EndNote file with verified Nature/CNS candidate references for each claim.",
-        "target_user": "Graduate students writing theses or journal papers"
+        "title": "Support a manuscript paragraph",
+        "description": "Find scoped citation candidates for each claim in a draft paragraph and export a reference file for manual review.",
+        "target_user": "Graduate students and postdoctoral researchers"
       },
       {
-        "title": "Building a reference list for a review article",
-        "description": "A researcher preparing a review uses the skill to systematically find supporting citations from top-tier journals across multiple paragraphs of their draft.",
-        "target_user": "Academic researchers writing review articles"
+        "title": "Screen citations for a review article",
+        "description": "Process multiple sections in batches and build a segment-to-reference map for high-level literature screening.",
+        "target_user": "Academic researchers preparing review manuscripts"
       },
       {
-        "title": "Chinese-language academic writing with CNS references",
-        "description": "A Chinese-speaking researcher writing in Chinese gets citations with bilingual segment handling while searching the same Nature/CNS journal scope.",
-        "target_user": "Chinese-speaking academic writers"
+        "title": "Prepare bilingual citation support",
+        "description": "Use Chinese instructions and manuscript notes while searching with English scientific concepts and strict journal filters.",
+        "target_user": "Chinese-speaking scientific authors"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic citation request",
-        "prompt": "Add Nature and Science citations to the following paragraph: [paste your text here]",
-        "scenario": "Quick citation lookup for a single paragraph"
+        "title": "Add basic citations",
+        "prompt": "Add Nature/CNS citation candidates to this paragraph and export an EndNote file: [paste paragraph].",
+        "scenario": "Beginner request for one short paragraph."
       },
       {
-        "title": "Scoped search with year filter",
-        "prompt": "Find CNS citations for this manuscript section, restricted to papers published between 2020 and 2025: [paste text]",
-        "scenario": "Targeted search with publication date constraints"
+        "title": "Limit by journal scope",
+        "prompt": "Find Nature Portfolio citation candidates for these claims only. Include a segment-to-reference map: [paste claims].",
+        "scenario": "Focused search for one publisher family."
       },
       {
-        "title": "Chinese-language manuscript",
-        "prompt": "帮我为以下论文段落添加Nature系列和CNS子刊的引用：[粘贴中文段落]",
-        "scenario": "Chinese-language manuscript citation request"
+        "title": "Use date filters",
+        "prompt": "Find CNS and sister-journal citations from 2020 to 2026 for this manuscript section, then export RIS: [paste section].",
+        "scenario": "Intermediate request with publication year limits and RIS export."
       },
       {
-        "title": "Batch processing long article",
-        "prompt": "Process this 5000-word manuscript in batches and export all unique CNS citations as a single RIS file: [paste or reference file]",
-        "scenario": "Large manuscript with many segments requiring batched processing"
+        "title": "Process a long draft",
+        "prompt": "Process this long manuscript in batches, generate the HTML review browser, and export unique Zotero RDF records: [paste or attach text].",
+        "scenario": "Advanced workflow for long manuscripts and manual screening."
       }
     ],
     "output_examples": [
       {
-        "input": "Find a Nature citation for: 'Recent advances in CRISPR-Cas9 gene editing have enabled precise modifications in mammalian cells.'",
-        "output": "Suggested citation: (Doudna et al., 2014) - The new frontier of genome engineering with CRISPR-Cas9. *Nature* (2014). https://doi.org/10.1038/nature14566\n\nFamily: Nature\nSupport grade: metadata-only candidate - verify abstract before citing."
+        "input": "Find Nature/CNS references for a paragraph about CRISPR screens identifying cancer dependencies.",
+        "output": "The response groups the paragraph into numbered segments, lists candidate papers for each segment, labels them as metadata-only candidates, and provides an EndNote export path."
       },
       {
-        "input": "Add CNS citations to this paragraph with papers from 2022-2024 only",
-        "output": "Segment 1 → (Wang et al., 2023) Nature Medicine | (Chen et al., 2022) Cell\nSegment 2 → (Lee et al., 2024) Nature Methods\n\nExport file: references.enw (EndNote format)\nReview browser: review.html"
+        "input": "Add Nature Portfolio citations to a Chinese manuscript paragraph and include an HTML review page.",
+        "output": "The response keeps Chinese review notes, uses English scientific search terms, reports the strict Nature Portfolio scope, and links the local review browser first."
+      },
+      {
+        "input": "Export confirmed DOI records as RIS for EndNote.",
+        "output": "The response fetches metadata for the supplied DOI list, writes a RIS file, and warns users not to invent missing bibliographic fields."
       }
     ],
     "best_practices": [
-      "Always verify candidate citations against the abstract or publisher page before including them in your manuscript",
-      "Use the --from-year and --to-year flags to restrict searches to relevant publication periods for your field",
-      "Start with a smaller scope (--scope flagship) before expanding to subjournals to reduce false positives",
-      "For long manuscripts, use --batch-size to process segments in chunks and avoid rate limiting from Crossref"
+      "Verify every candidate against the abstract or publisher page before citing it.",
+      "Use year filters when the field is fast-moving or the manuscript needs recent literature.",
+      "Enable review artifacts for long drafts so users can screen candidates in the HTML browser."
     ],
     "anti_patterns": [
-      "Do not cite a paper solely because its title is related to your claim without reading the abstract",
-      "Do not rely on this skill for journals outside the Nature/Science/Cell families - it will return no results",
-      "Do not use the output as a final reference list without manually verifying each citation's relevance and accuracy"
+      "Do not cite a paper only because its title contains related terms.",
+      "Do not use confidential manuscript text with live Crossref search unless external disclosure is acceptable.",
+      "Do not broaden beyond the configured journal families without telling the user."
     ],
     "faq": [
       {
         "question": "Which journals does this skill search?",
-        "answer": "Only flagship and subjournal titles from Nature Portfolio, the AAAS Science family, and Cell Press. It will not search general medical or field-specific journals outside these families."
+        "answer": "It searches configured Nature Portfolio, AAAS Science family, and Cell Press journal scopes. It can also restrict results to flagship journals."
       },
       {
-        "question": "Does it verify that citations support my claims?",
-        "answer": "No. All candidates are marked 'metadata-only' and you must check the abstract or full text to confirm a paper actually supports your specific claim before citing it."
+        "question": "Does it prove that a citation supports my sentence?",
+        "answer": "No. It marks candidates as metadata-level until you check the abstract, publisher page, or full text."
       },
       {
-        "question": "What output formats are supported?",
-        "answer": "EndNote (.enw) by default, with optional RIS and Zotero RDF export. You can also generate a review HTML browser for interactive candidate selection."
+        "question": "What export formats are supported?",
+        "answer": "It supports EndNote ENW, RIS, and Zotero RDF. Optional review artifacts include HTML, TSV, JSON, and Markdown."
       },
       {
-        "question": "How does it handle Chinese-language input?",
-        "answer": "The skill detects Chinese text and follows a dedicated Chinese-mode workflow that preserves Chinese notes while using English search queries against Crossref."
+        "question": "Can it handle Chinese input?",
+        "answer": "Yes. It can keep Chinese review notes while using English scientific search terms for metadata search."
       },
       {
-        "question": "Can it search for papers by DOI?",
-        "answer": "Yes, use the --doi or --doi-file flags to fetch and export specific papers by their DOI identifier directly from Crossref."
+        "question": "Is internet access required?",
+        "answer": "Yes for live citation discovery. The script queries Crossref and can fetch DOI metadata from the same API."
       },
       {
-        "question": "Is an internet connection required?",
-        "answer": "Yes. The skill queries the Crossref metadata API in real time to find candidate citations. Offline operation is not supported."
+        "question": "Is it safe for unpublished work?",
+        "answer": "Use caution. Search terms derived from the manuscript are sent to Crossref, so confidential drafts may need offline or manual handling."
       }
     ]
   },
