@@ -1,53 +1,116 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-02-24T09:44:47.594Z",
+    "generated_at": "2026-07-01T03:02:21.280Z",
     "slug": "zhanlincui-xlsx",
     "source_url": "https://github.com/ZhanlinCui/Ultimate-Agent-Skills-Collection/tree/main/xlsx",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "020ccdb5932257b66c638ec1157ea248d57fa52c8c01f1f68b559b5970c7df35",
-    "tree_hash": "b8ebfd655556b0d72b5f7420b1bd387d15b3c4005e8d179d0851f1de43b01771"
+    "tree_hash": "103d55afafb4fa102879a83c83df93904be6569918e6cf15caf48ca6b27c2dc3"
   },
   "skill": {
     "name": "xlsx",
-    "description": "Comprehensive spreadsheet creation, editing, and analysis with support for formulas, formatting, data analysis, and visualization. When Claude needs to work with spreadsheets (.xlsx, .xlsm, .csv, .tsv, etc) for: (1) Creating new spreadsheets with formulas and formatting, (2) Reading or analyzing data, (3) Modify existing spreadsheets while preserving formulas, (4) Data analysis and visualization in spreadsheets, or (5) Recalculating formulas",
-    "summary": "Comprehensive spreadsheet creation, editing, and analysis with support for formulas, formatting, dat...",
+    "description": "Create, edit, analyze, format, and recalculate spreadsheet files using pandas, openpyxl, and LibreOffice workflows.",
+    "summary": "Spreadsheet automation guidance for XLSX creation, editing, analysis, formulas, formatting, and recalculation.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "ZhanlinCui",
     "license": "Proprietary. LICENSE.txt has complete terms",
-    "category": "data",
     "tags": [
-      "spreadsheet",
-      "excel",
       "xlsx",
-      "data-analysis",
-      "formulas"
+      "excel",
+      "spreadsheets",
+      "formulas",
+      "data-analysis"
     ],
     "supported_tools": [
       "claude",
       "codex",
       "claude-code"
     ],
-    "risk_factors": []
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "filesystem"
+    ],
+    "category": "office"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "All 57 static findings are false positives. The skill uses subprocess to run LibreOffice for formula recalculation, which is legitimate spreadsheet automation. The filesystem operations access standard config directories. The SKILL.md contains code examples and Excel references (cell names like C2, error types like #REF!) that were incorrectly flagged.",
-    "risk_factor_evidence": [],
+    "summary": "Static analysis reported many high-risk patterns, but most SKILL.md hits are false positives from Markdown examples, Excel cell references, and spreadsheet error names. The confirmed risks are recalc.py executing LibreOffice commands and writing a LibreOffice macro into a hidden user profile directory. No evidence found of prompt injection, credential access, or network exfiltration; publish with a medium-risk warning.",
+    "risk_factor_evidence": [
+      {
+        "factor": "scripts",
+        "evidence": [
+          {
+            "file": "recalc.py",
+            "line_start": 1,
+            "line_end": 178
+          }
+        ]
+      },
+      {
+        "factor": "external_commands",
+        "evidence": [
+          {
+            "file": "recalc.py",
+            "line_start": 31,
+            "line_end": 31
+          },
+          {
+            "file": "recalc.py",
+            "line_start": 84,
+            "line_end": 84
+          },
+          {
+            "file": "recalc.py",
+            "line_start": 92,
+            "line_end": 92
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 136,
+            "line_end": 136
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 209,
+            "line_end": 214
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "recalc.py",
+            "line_start": 21,
+            "line_end": 23
+          },
+          {
+            "file": "recalc.py",
+            "line_start": 33,
+            "line_end": 33
+          },
+          {
+            "file": "recalc.py",
+            "line_start": 46,
+            "line_end": 47
+          }
+        ]
+      }
+    ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
-    "low_findings": [],
-    "dangerous_patterns": [
+    "medium_findings": [
       {
-        "title": "External Commands - Legitimate LibreOffice Usage",
-        "description": "subprocess.run used to run LibreOffice for formula recalculation - legitimate spreadsheet automation. Commands are hardcoded with no user input injection.",
+        "title": "External LibreOffice Process Execution",
+        "description": "recalc.py invokes soffice through subprocess.run to recalculate spreadsheets and checks gtimeout on macOS. Arguments are passed as lists rather than through a shell, so command injection evidence is limited, but the skill still executes local external binaries on user-supplied workbooks.",
         "locations": [
           {
             "file": "recalc.py",
@@ -63,193 +126,335 @@
             "file": "recalc.py",
             "line_start": 92,
             "line_end": 92
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 136,
+            "line_end": 136
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 209,
+            "line_end": 214
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "Hardcoded commands for LibreOffice automation - standard spreadsheet tool usage"
+        "confidence": 0.84,
+        "confidence_reasoning": "The subprocess.run calls are direct and confirmed in recalc.py. The absence of shell=True and use of argument arrays lowers injection confidence, but external process execution is real."
       },
       {
-        "title": "Filesystem Access - Standard Configuration",
-        "description": "Access to ~/.config/libreoffice for macro configuration - standard application configuration storage, not a security concern.",
+        "title": "LibreOffice Macro Written to Hidden User Profile",
+        "description": "setup_libreoffice_macro creates or uses a hidden LibreOffice profile directory and writes Module1.xba. This appears intended for formula recalculation, but it modifies user-level application configuration and can persist beyond one workbook operation.",
         "locations": [
           {
             "file": "recalc.py",
             "line_start": 21,
-            "line_end": 21
-          },
-          {
-            "file": "recalc.py",
-            "line_start": 46,
-            "line_end": 46
+            "line_end": 23
           },
           {
             "file": "recalc.py",
             "line_start": 33,
             "line_end": 33
+          },
+          {
+            "file": "recalc.py",
+            "line_start": 46,
+            "line_end": 47
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "Standard config directory access for LibreOffice macro setup"
+        "confidence": 0.88,
+        "confidence_reasoning": "The code explicitly expands a hidden LibreOffice path and writes a macro file there. The context is legitimate recalculation, but the filesystem side effect is confirmed."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "False Positive: XML Namespace URL Is Not Network Access",
+        "description": "The hardcoded URL is inside the LibreOffice macro XML namespace. No evidence found that recalc.py performs HTTP requests, opens sockets, or sends workbook data to a remote service.",
+        "locations": [
+          {
+            "file": "recalc.py",
+            "line_start": 37,
+            "line_end": 37
+          }
+        ],
+        "confidence": 0.96,
+        "confidence_reasoning": "Line 37 is static XML metadata, not executable network code. No network library or request path appears in the reviewed files."
       },
       {
-        "title": "Documentation Code Examples",
-        "description": "Shell command examples in SKILL.md documentation - not executable code, just documentation showing usage patterns.",
+        "title": "False Positive: Markdown Examples Flagged as Shell Execution",
+        "description": "Most SKILL.md external command and reconnaissance hits are fenced Python, Bash, JSON, inline spreadsheet examples, or code style guidance. They document spreadsheet workflows and do not execute during skill loading.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 71,
-            "line_end": 278
+            "line_end": 71
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 78,
+            "line_end": 92
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 100,
+            "line_end": 125
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 135,
+            "line_end": 146
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 150,
+            "line_end": 175
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 179,
+            "line_end": 215
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 234,
+            "line_end": 260
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 270,
+            "line_end": 277
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 283,
+            "line_end": 284
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "Code examples in markdown documentation, not actual shell execution"
+        "confidence": 0.91,
+        "confidence_reasoning": "The referenced lines are documentation snippets, spreadsheet references, or style guidance. The only operational command they instruct is the expected recalc.py usage."
       },
       {
-        "title": "Excel Cell References Misidentified",
-        "description": "Cell references like 'C2' and error types like '#REF!' in SKILL.md were misidentified as security issues - these are Excel formula syntax.",
+        "title": "False Positive: Weak Crypto and C2 Keyword Matches",
+        "description": "The weak-crypto and C2 hits occur in prose, spreadsheet cell references, or example formulas such as C2. No evidence found of cryptographic APIs, command-and-control logic, or obfuscated traffic.",
         "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 55
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 76
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 88,
+            "line_end": 88
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 104,
+            "line_end": 112
+          },
           {
             "file": "SKILL.md",
             "line_start": 121,
             "line_end": 121
           }
         ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.95,
-        "confidence_reasoning": "C2 is an Excel cell reference, #REF! is an Excel error type - not security issues"
+        "confidence": 0.9,
+        "confidence_reasoning": "The cited lines contain spreadsheet instructions and examples, not security primitives or network control behavior. This strongly supports a scanner keyword false positive."
+      }
+    ],
+    "dangerous_patterns": [
+      {
+        "title": "External LibreOffice Process Execution",
+        "description": "recalc.py invokes soffice through subprocess.run to recalculate spreadsheets and checks gtimeout on macOS. Arguments are passed as lists rather than through a shell, so command injection evidence is limited, but the skill still executes local external binaries on user-supplied workbooks.",
+        "locations": [
+          {
+            "file": "recalc.py",
+            "line_start": 31,
+            "line_end": 31
+          },
+          {
+            "file": "recalc.py",
+            "line_start": 84,
+            "line_end": 84
+          },
+          {
+            "file": "recalc.py",
+            "line_start": 92,
+            "line_end": 92
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 136,
+            "line_end": 136
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 209,
+            "line_end": 214
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The subprocess.run calls are direct and confirmed in recalc.py. The absence of shell=True and use of argument arrays lowers injection confidence, but external process execution is real."
+      },
+      {
+        "title": "LibreOffice Macro Written to Hidden User Profile",
+        "description": "setup_libreoffice_macro creates or uses a hidden LibreOffice profile directory and writes Module1.xba. This appears intended for formula recalculation, but it modifies user-level application configuration and can persist beyond one workbook operation.",
+        "locations": [
+          {
+            "file": "recalc.py",
+            "line_start": 21,
+            "line_end": 23
+          },
+          {
+            "file": "recalc.py",
+            "line_start": 33,
+            "line_end": 33
+          },
+          {
+            "file": "recalc.py",
+            "line_start": 46,
+            "line_end": 47
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The code explicitly expands a hidden LibreOffice path and writes a macro file there. The context is legitimate recalculation, but the filesystem side effect is confirmed."
       }
     ],
     "files_scanned": 2,
     "total_lines": 467,
-    "audit_model": "claude",
-    "audited_at": "2026-02-24T09:44:47.594Z",
-    "risk_factors": []
+    "audit_model": "codex",
+    "audited_at": "2026-07-01T03:02:21.280Z",
+    "risk_factors": [
+      "scripts",
+      "external_commands",
+      "filesystem"
+    ]
   },
   "content": {
-    "user_title": "Create and analyze Excel spreadsheets",
-    "value_statement": "This skill enables Claude Code to create, edit, and analyze Excel spreadsheets with formulas, formatting, and data visualization. It solves the problem of manual spreadsheet manipulation by automating complex spreadsheet operations.",
+    "user_title": "Create Reliable Excel Workbooks",
+    "value_statement": "Spreadsheet work often fails when formulas, formatting, and recalculation are handled separately. This skill provides practical workflows for creating, editing, analyzing, and validating Excel files.",
     "seo_keywords": [
-      "xlsx",
-      "excel",
-      "spreadsheet",
-      "claude",
-      "codex",
-      "claude code",
-      "openpyxl",
-      "pandas excel",
-      "formula recalculation",
-      "data analysis"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "Excel automation",
+      "XLSX creation",
+      "spreadsheet formulas",
+      "openpyxl workflow",
+      "pandas Excel analysis",
+      "LibreOffice recalculation",
+      "spreadsheet validation"
     ],
     "actual_capabilities": [
-      "Create new Excel files with formulas, formatting, and styling",
-      "Read and analyze data from existing Excel files using pandas",
-      "Modify existing spreadsheets while preserving formulas and formatting",
-      "Recalculate formulas using LibreOffice and detect errors",
-      "Apply color coding standards for financial models",
-      "Generate formatted reports with charts and data visualization"
+      "Guides XLSX and CSV reading with pandas for analysis and export tasks.",
+      "Guides workbook creation and editing with openpyxl while preserving formulas and formatting.",
+      "Defines financial model formatting conventions for inputs, formulas, links, and assumptions.",
+      "Provides formula construction rules that keep spreadsheets dynamic and updateable.",
+      "Uses recalc.py to trigger LibreOffice recalculation and report formula errors.",
+      "Documents checks for common Excel errors such as #REF!, #DIV/0!, and #VALUE!."
     ],
     "limitations": [
-      "LibreOffice must be installed for formula recalculation",
-      "Complex Excel features like macros and VBA are not supported",
-      "Cannot open password-protected Excel files",
-      "Very large files may have performance constraints"
+      "Formula recalculation depends on LibreOffice or compatible command-line tools being installed.",
+      "The included script modifies the local LibreOffice profile to install a recalculation macro.",
+      "Very large workbooks may take longer to scan because all sheets and cells are checked.",
+      "It provides workflow guidance, not a graphical spreadsheet editor."
     ],
     "use_cases": [
       {
-        "title": "Financial model creation",
-        "description": "Build complete financial models with assumptions, projections, and formatted output following industry standards",
-        "target_user": "Financial analysts and accountants"
+        "title": "Build a financial model",
+        "description": "Create a formatted workbook with assumptions, formulas, source notes, and validation checks.",
+        "target_user": "Finance analyst"
       },
       {
-        "title": "Data reporting automation",
-        "description": "Automate data export and reporting workflows by generating formatted Excel reports from raw data",
-        "target_user": "Data analysts and business users"
+        "title": "Clean and export tabular data",
+        "description": "Read CSV or Excel data, inspect columns, transform values, and export a clean workbook.",
+        "target_user": "Data analyst"
       },
       {
-        "title": "Spreadsheet error correction",
-        "description": "Identify and fix formula errors like #REF!, #DIV/0!, and #VALUE! in existing spreadsheets",
-        "target_user": "Office workers and spreadsheet administrators"
+        "title": "Update an existing workbook",
+        "description": "Modify sheets, rows, columns, and formulas while preserving existing workbook conventions.",
+        "target_user": "Operations manager"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create simple spreadsheet",
-        "prompt": "Create a new Excel file called sales_report.xlsx with columns for Date, Product, Quantity, and Price. Add 5 sample rows of data.",
-        "scenario": "Basic spreadsheet creation"
+        "title": "Create a basic workbook",
+        "scenario": "Beginner spreadsheet creation",
+        "prompt": "Create an XLSX workbook from this table. Add clear headers, simple formatting, and totals that use Excel formulas."
       },
       {
-        "title": "Build financial model",
-        "prompt": "Create a financial model for a SaaS company with assumptions sheet, revenue projections for 5 years, and formatted output. Use blue for inputs, black for formulas.",
-        "scenario": "Building a complete financial model"
+        "title": "Analyze spreadsheet data",
+        "scenario": "Intermediate data review",
+        "prompt": "Read this spreadsheet, summarize the columns, identify missing values, and create a cleaned Excel output with the key findings."
       },
       {
-        "title": "Analyze existing data",
-        "prompt": "Read the data from data.xlsx, analyze the trends, and create a summary sheet with key statistics and charts.",
-        "scenario": "Data analysis and visualization"
+        "title": "Update an existing model",
+        "scenario": "Advanced workbook editing",
+        "prompt": "Update this workbook with the new assumptions. Preserve existing formatting, add formulas instead of hardcoded calculations, and document changed inputs."
       },
       {
-        "title": "Fix formula errors",
-        "prompt": "Open workbook.xlsx, recalculate all formulas, identify any errors, and fix the #REF! and #DIV/0! errors found.",
-        "scenario": "Error detection and correction"
+        "title": "Validate formula quality",
+        "scenario": "Advanced formula verification",
+        "prompt": "Recalculate this workbook, inspect every sheet for formula errors, and provide a concise repair plan for each error category found."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a quarterly sales report with charts",
-        "output": [
-          "Created Q1_sales_report.xlsx with 3 sheets: Summary, Details, Charts",
-          "Added conditional formatting to highlight top performers",
-          "Generated bar chart showing sales by product category",
-          "Recalculated all formulas - 0 errors found"
-        ]
+        "input": "A user provides quarterly sales data and asks for a workbook with totals and growth rates.",
+        "output": "A formatted XLSX workbook with dynamic formulas, labeled assumptions, source notes, and recalculated values."
       },
       {
-        "input": "Build a DCF valuation model",
-        "output": [
-          "Created dcf_model.xlsx with Assumptions, Revenue, FCF, and Valuation sheets",
-          "Applied color coding: blue for inputs, black for formulas, green for cross-sheet refs",
-          "Built 5-year projection with NPV and IRR calculations",
-          "All formulas validated - model ready for sensitivity analysis"
-        ]
+        "input": "A user uploads an existing financial model and asks to add a new projection year.",
+        "output": "An updated workbook that preserves style conventions, extends formulas, and reports whether formula errors remain."
+      },
+      {
+        "input": "A user asks for a quick review of messy spreadsheet data.",
+        "output": "A cleaned workbook plus a short summary of missing values, column types, and notable data quality issues."
       }
     ],
     "best_practices": [
-      "Always use Excel formulas instead of hardcoded values to keep spreadsheets dynamic",
-      "Run recalc.py after creating or modifying files with formulas to verify no errors",
-      "Follow financial model color standards: blue for inputs, black for formulas, green for sheet links"
+      "Use Excel formulas for calculated values so workbooks remain dynamic after inputs change.",
+      "Recalculate and scan workbooks before delivery when formulas are added or changed.",
+      "Preserve established formatting and source documentation when editing existing templates."
     ],
     "anti_patterns": [
-      "Calculating values in Python and hardcoding them instead of using Excel formulas",
-      "Saving files without running recalc.py, leaving formulas uncalculated",
-      "Using data_only=True when loading files that need formula preservation"
+      "Do not hardcode calculated totals, ratios, or averages when a formula can express the logic.",
+      "Do not save a workbook opened with data_only=True if formulas must be preserved.",
+      "Do not ignore formula error reports after recalculation."
     ],
     "faq": [
       {
-        "question": "How do I recalculate formulas in an Excel file?",
-        "answer": "Use the recalc.py script: python recalc.py yourfile.xlsx. It will recalculate all formulas and report any errors."
+        "question": "Can this skill create new Excel files?",
+        "answer": "Yes. It provides workflows for creating XLSX files with data, formulas, formatting, and sheet structure."
       },
       {
-        "question": "Can I edit existing Excel files without breaking formulas?",
-        "answer": "Yes, openpyxl preserves formulas when editing. Just be careful not to overwrite cells containing formulas with new values."
+        "question": "Can it edit existing workbooks?",
+        "answer": "Yes. It emphasizes preserving existing formulas, styles, sheet names, and template conventions."
       },
       {
-        "question": "What libraries does this skill use?",
-        "answer": "openpyxl for formula and formatting operations, pandas for data analysis, and LibreOffice via recalc.py for formula calculation."
+        "question": "How are formulas recalculated?",
+        "answer": "The included recalc.py script invokes LibreOffice in headless mode and checks the recalculated workbook for Excel errors."
       },
       {
-        "question": "How do I add charts to Excel files?",
-        "answer": "Use openpyxl.chart module to create chart objects and attach them to worksheet cells. Refer to openpyxl documentation for chart types."
+        "question": "Does it send spreadsheet data over the network?",
+        "answer": "No evidence found of network requests in the reviewed files. The URL detected by static analysis is an XML namespace."
       },
       {
-        "question": "Why are formulas showing as text instead of values?",
-        "answer": "openpyxl saves formulas as strings. Run python recalc.py to calculate all formula values using LibreOffice."
+        "question": "What tools does it use?",
+        "answer": "It documents pandas for data analysis, openpyxl for workbook editing, and LibreOffice for formula recalculation."
       },
       {
-        "question": "Can I use this skill with CSV or TSV files?",
-        "answer": "Yes, pandas can read and write CSV and TSV files. For formula support, use XLSX format."
+        "question": "What security warning should users see?",
+        "answer": "Users should know that formula recalculation runs local LibreOffice commands and writes a macro into the LibreOffice profile."
       }
     ]
   },
