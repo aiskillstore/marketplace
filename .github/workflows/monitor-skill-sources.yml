@@ -17,10 +17,40 @@ on:
         type: number
         default: 0
       dry_run:
-        description: 'Reserved for future write mode; this workflow is currently always report-only'
+        description: 'Preview only; do not write Supabase, update local files, or create PRs'
         required: false
         type: boolean
         default: true
+      create_pr:
+        description: 'Create a marketplace PR for updated upstream skills when not in dry-run mode'
+        required: false
+        type: boolean
+        default: true
+      archive_missing:
+        description: 'Archive confirmed missing skills in Supabase; manual use only'
+        required: false
+        type: boolean
+        default: false
+      confirm_archive:
+        description: 'Allow archive without the two-scan age gate; manual use only'
+        required: false
+        type: boolean
+        default: false
+      delete_archived:
+        description: 'Delete archived marketplace skill directories after DB archive; manual use only'
+        required: false
+        type: boolean
+        default: false
+      min_missing_age_hours:
+        description: 'Minimum age between missing scans before archive can proceed'
+        required: false
+        type: number
+        default: 24
+      model:
+        description: 'Model spec for update PR re-audits'
+        required: false
+        type: string
+        default: ''
       cli_version:
         description: 'Skillstore CLI version, without cli-v prefix'
         required: false
@@ -28,7 +58,8 @@ on:
         default: 'latest'
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 concurrency:
   group: skill-source-monitor
@@ -37,13 +68,10 @@ concurrency:
 jobs:
   scan:
     name: Source accuracy scan
-    runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-latest' || 'self-hosted' }}
-    timeout-minutes: 60
+    runs-on: self-hosted
+    timeout-minutes: 360
 
     steps:
-      - name: Checkout marketplace
-        uses: actions/checkout@v5
-
       - name: Generate GitHub App Token
         id: app-token
         uses: actions/create-github-app-token@v3
@@ -52,6 +80,12 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           repositories: marketplace,skillstore
 
+      - name: Checkout marketplace
+        uses: actions/checkout@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
       - name: Download Skillstore CLI
         uses: ./.github/actions/download-skillstore-cli
         with:
@@ -59,14 +93,32 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
+      - name: Prepare git workspace
+        run: |
+          set -euo pipefail
+          git config user.name "ai-skill-store[bot]"
+          git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
+          {
+            echo "/skillstore-cli"
+            echo "/source-monitor-results/"
+          } >> .git/info/exclude
+
       - name: Run source monitor
         id: monitor
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
           SLUGS: ${{ inputs.slugs || '' }}
           LIMIT: ${{ inputs.limit || 0 }}
-          DRY_RUN: ${{ inputs.dry_run || true }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+          CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
+          ARCHIVE_MISSING: ${{ inputs.archive_missing || false }}
+          CONFIRM_ARCHIVE: ${{ inputs.confirm_archive || false }}
+          DELETE_ARCHIVED: ${{ inputs.delete_archived || false }}
+          MIN_MISSING_AGE_HOURS: ${{ inputs.min_missing_age_hours || 24 }}
+          MODEL: ${{ inputs.model || '' }}
         run: |
           set -euo pipefail
 
@@ -93,7 +145,38 @@ jobs:
             CMD+=(--limit "$LIMIT")
           fi
 
+          if [ "$DRY_RUN" != "true" ]; then
+            CMD+=(--write)
+            if [ "$CREATE_PR" = "true" ]; then
+              CMD+=(--createPr)
+            fi
+          fi
+
+          if [ "$ARCHIVE_MISSING" = "true" ]; then
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "::error::archive_missing requires dry_run=false"
+              exit 1
+            fi
+            CMD+=(--archiveMissing --minMissingAgeHours "$MIN_MISSING_AGE_HOURS")
+            if [ "$CONFIRM_ARCHIVE" = "true" ]; then
+              CMD+=(--confirmArchive)
+            fi
+            if [ "$DELETE_ARCHIVED" = "true" ]; then
+              CMD+=(--deleteArchived)
+            fi
+          elif [ "$DELETE_ARCHIVED" = "true" ]; then
+            echo "::error::delete_archived requires archive_missing=true"
+            exit 1
+          fi
+
+          if [ -n "$MODEL" ]; then
+            CMD+=(--model "$MODEL")
+          fi
+
           echo "Dry run: $DRY_RUN"
+          echo "Create PR: $CREATE_PR"
+          echo "Archive missing: $ARCHIVE_MISSING"
+          echo "Delete archived: $DELETE_ARCHIVED"
           echo "Command: ${CMD[*]}"
           "${CMD[@]}" | tee "source-monitor-results/stdout-${GITHUB_RUN_ID}.jsonl"
 
@@ -111,14 +194,44 @@ jobs:
 
       - name: Final summary
         if: always()
+        env:
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+          CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
+          ARCHIVE_MISSING: ${{ inputs.archive_missing || false }}
+          DELETE_ARCHIVED: ${{ inputs.delete_archived || false }}
         run: |
+          if [ "$DRY_RUN" != "true" ]; then
+            WRITES="enabled"
+          else
+            WRITES="disabled"
+          fi
+
+          if [ "$DRY_RUN" != "true" ] && [ "$CREATE_PR" = "true" ]; then
+            UPDATE_PRS="enabled for updated skills"
+          else
+            UPDATE_PRS="disabled"
+          fi
+
+          if [ "$ARCHIVE_MISSING" = "true" ]; then
+            ARCHIVE_MODE="manual mode enabled"
+          else
+            ARCHIVE_MODE="disabled"
+          fi
+
+          if [ "$DELETE_ARCHIVED" = "true" ]; then
+            DELETE_MODE="manual mode enabled"
+          else
+            DELETE_MODE="disabled"
+          fi
+
           {
             echo ""
             echo "### Workflow Guardrails"
             echo ""
-            echo "- Mode: report-only"
-            echo "- Supabase writes: disabled"
-            echo "- Archive actions: disabled"
-            echo "- Pull requests: disabled"
+            echo "- Dry run: $DRY_RUN"
+            echo "- Supabase writes: $WRITES"
+            echo "- Update PRs: $UPDATE_PRS"
+            echo "- Archive actions: $ARCHIVE_MODE"
+            echo "- Marketplace deletions: $DELETE_MODE"
             echo "- Evidence artifact: skill-source-monitor-${{ github.run_id }}"
           } >> "$GITHUB_STEP_SUMMARY"
