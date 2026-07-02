@@ -6,20 +6,29 @@ on:
 
 jobs:
   process-command:
-    # Only real human slash-commands. Skip bot comments (the callback posts its own
-    # "⏳ Generation started" notice as the App, which would otherwise re-trigger this
-    # job and fail the permission check) and ordinary non-command chatter.
+    # Skip bot comments (the callback posts its own "⏳ Generation started" notice as
+    # the App, which would otherwise re-trigger this job). Human comments are
+    # trimmed and command-checked inside the script so leading blank lines before
+    # /generate or /approve do not silently skip the workflow.
     if: >-
       contains(github.event.issue.labels.*.name, 'plugin-review') &&
-      startsWith(github.event.comment.body, '/') &&
       github.event.comment.user.type != 'Bot'
     runs-on: ubuntu-latest
     steps:
-      - name: Check permissions
-        id: check-perm
+      - name: Process command
         uses: actions/github-script@v8
+        env:
+          CALLBACK_URL: ${{ secrets.SKILLSTORE_API_URL }}/api/plugins/review/callback
+          CALLBACK_SECRET: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
         with:
           script: |
+            const comment = context.payload.comment.body.trim();
+            const knownCommands = ['/generate', '/approve', '/regenerate', '/reject'];
+            if (!knownCommands.some((command) => comment.startsWith(command))) {
+              console.log(`Not a recognized command: ${comment.substring(0, 50)}`);
+              return;
+            }
+
             const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -29,17 +38,7 @@ jobs:
               core.setFailed('Insufficient permissions');
               return;
             }
-            core.setOutput('permission', perm.permission);
 
-      - name: Process command
-        if: success()
-        uses: actions/github-script@v8
-        env:
-          CALLBACK_URL: ${{ secrets.SKILLSTORE_API_URL }}/api/plugins/review/callback
-          CALLBACK_SECRET: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
-        with:
-          script: |
-            const comment = context.payload.comment.body.trim();
             const issueBody = context.payload.issue.body;
 
             // Extract plugin ID from issue body. Tolerate both the table row
