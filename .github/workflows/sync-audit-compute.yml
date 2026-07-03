@@ -1,0 +1,113 @@
+name: Sync Audit Compute Snapshot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 20 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-audit-compute
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HELM_BASE_URL: https://helm.easymeta.au/v1
+      HELM_API_KEY: ${{ secrets.HELM_API_KEY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      LEGACY_TOKENS: '1308077250'
+      LEGACY_COST_USD: '2568.41704016099988706'
+    steps:
+      - name: Sync audit compute snapshot
+        run: |
+          set -euo pipefail
+
+          for name in HELM_API_KEY SUPABASE_URL SUPABASE_SERVICE_KEY; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required secret: $name"
+              exit 1
+            fi
+          done
+
+          helm_base="${HELM_BASE_URL%/}"
+          if [[ "$helm_base" == */v1 ]]; then
+            helm_usage_url="$helm_base/usage/stats"
+          else
+            helm_usage_url="$helm_base/v1/usage/stats"
+          fi
+
+          helm_usage_json="$(
+            curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+              -H "Authorization: Bearer $HELM_API_KEY" \
+              "$helm_usage_url"
+          )"
+
+          read -r helm_tokens helm_cost < <(
+            HELM_USAGE_JSON="$helm_usage_json" python3 - <<'PY'
+          import json
+          import os
+
+          data = json.loads(os.environ["HELM_USAGE_JSON"])
+          if data.get("object") != "usage_stats":
+              raise SystemExit("Helm usage API returned an unexpected object")
+
+          totals = data.get("totals") or {}
+          print(int(totals.get("total_tokens") or 0), float(totals.get("cost_usd") or 0))
+          PY
+          )
+
+          captured_at="$(date -u +%F)"
+          note="Helm API usage stats + legacy claude-relay baseline, list-price equivalent"
+
+          rpc_payload="$(
+            CAPTURED_AT="$captured_at" \
+            HELM_TOKENS="$helm_tokens" \
+            HELM_COST="$helm_cost" \
+            LEGACY_TOKENS="$LEGACY_TOKENS" \
+            LEGACY_COST_USD="$LEGACY_COST_USD" \
+            NOTE="$note" \
+            python3 - <<'PY'
+          import json
+          import os
+
+          print(json.dumps({
+              "p_captured_at": os.environ["CAPTURED_AT"],
+              "p_helm_tokens": int(os.environ["HELM_TOKENS"]),
+              "p_helm_cost_usd": float(os.environ["HELM_COST"]),
+              "p_relay_tokens": int(os.environ["LEGACY_TOKENS"]),
+              "p_relay_cost_usd": float(os.environ["LEGACY_COST_USD"]),
+              "p_note": os.environ["NOTE"],
+          }))
+          PY
+          )"
+
+          supabase_base="${SUPABASE_URL%/}"
+          response="$(
+            curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+              -X POST "$supabase_base/rest/v1/rpc/record_audit_compute_snapshot" \
+              -H "apikey: $SUPABASE_SERVICE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_KEY" \
+              -H "Content-Type: application/json" \
+              -H "Accept-Profile: skillstore" \
+              -H "Content-Profile: skillstore" \
+              --data "$rpc_payload"
+          )"
+
+          total_tokens="$(python3 -c "print(int('$helm_tokens') + int('$LEGACY_TOKENS'))")"
+          total_cost="$(python3 -c "print(round(float('$helm_cost') + float('$LEGACY_COST_USD')))")"
+
+          {
+            echo "## Audit Compute Snapshot"
+            echo ""
+            echo "- Captured at: \`$captured_at\`"
+            echo "- Helm: \`$helm_tokens\` tokens / \`$helm_cost\` USD"
+            echo "- Legacy baseline: \`$LEGACY_TOKENS\` tokens / \`$LEGACY_COST_USD\` USD"
+            echo "- Public total: \`$total_tokens\` tokens / \`$total_cost\` USD"
+            echo "- RPC response: \`$response\`"
+          } >> "$GITHUB_STEP_SUMMARY"
