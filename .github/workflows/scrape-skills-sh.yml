@@ -90,6 +90,28 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
+      - name: Ensure jq
+        run: |
+          if command -v jq >/dev/null 2>&1; then
+            jq --version
+            exit 0
+          fi
+
+          SUDO=""
+          if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+            SUDO="sudo"
+          fi
+
+          if command -v apt-get >/dev/null 2>&1; then
+            $SUDO apt-get update
+            $SUDO apt-get install -y jq
+          elif command -v apk >/dev/null 2>&1; then
+            $SUDO apk add --no-cache jq
+          else
+            echo "::error::jq is required to parse scrape-skills-sh JSON output"
+            exit 1
+          fi
+
       - name: Run scrape-skills-sh
         id: scrape
         env:
@@ -146,32 +168,42 @@ jobs:
           fi
 
           # Run and capture output
+          OUTPUT_FILE="$(mktemp)"
+          ERROR_FILE="$(mktemp)"
           set +e
-          OUTPUT="$("${CMD[@]}" 2>&1)"
+          "${CMD[@]}" > "$OUTPUT_FILE" 2> "$ERROR_FILE"
           EXIT_CODE=$?
           set -e
 
-          if ! jq -e . >/dev/null 2>&1 <<< "$OUTPUT"; then
-            echo "$OUTPUT"
+          if [ -s "$ERROR_FILE" ]; then
+            echo "::group::scrape-skills-sh stderr"
+            sed -n '1,200p' "$ERROR_FILE"
+            echo "::endgroup::"
+          fi
+
+          if ! jq -e . "$OUTPUT_FILE" >/dev/null 2>&1; then
+            echo "::group::scrape-skills-sh stdout"
+            sed -n '1,200p' "$OUTPUT_FILE"
+            echo "::endgroup::"
             echo "::error::scrape-skills-sh did not return valid JSON"
             exit 1
           fi
 
-          # Parse JSON using herestrings (avoids broken pipe with large output)
-          TOTAL=$(jq -r '.total // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
-          EXISTING=$(jq -r '.existing // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
-          NEW=$(jq -r '.new // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
-          INVALID=$(jq -r '.invalid // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
-          SUBMITTED=$(jq -r '.submitted // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
-          FAILED=$(jq -r '.failed // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
-          VIEW_OUT=$(jq -r '.view // "'"$VIEW"'"' <<< "$OUTPUT" 2>/dev/null || echo "$VIEW")
-          PAGES_SCANNED=$(jq -r '.pagesScanned // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
-          PAGE_SIZE=$(jq -r '.pageSize // 200' <<< "$OUTPUT" 2>/dev/null || echo "200")
-          METRIC_MATCHED=$(jq -r '.metrics.matched // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
-          METRIC_UNMATCHED=$(jq -r '.metrics.unmatched // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
-          METRIC_SNAPSHOTS=$(jq -r '.metrics.snapshotsInserted // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
-          METRIC_DETAIL_FAILURES=$(jq -r '.metrics.detailFailures // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
-          METRIC_SLUGS=$(jq -r '.metrics.matchedSlugs // [] | join(",")' <<< "$OUTPUT" 2>/dev/null || echo "")
+          # Parse JSON from a file so large summaries do not travel through one shell variable.
+          TOTAL=$(jq -r '.total // 0' "$OUTPUT_FILE" 2>/dev/null || echo "0")
+          EXISTING=$(jq -r '.existing // 0' "$OUTPUT_FILE" 2>/dev/null || echo "0")
+          NEW=$(jq -r '.new // 0' "$OUTPUT_FILE" 2>/dev/null || echo "0")
+          INVALID=$(jq -r '.invalid // 0' "$OUTPUT_FILE" 2>/dev/null || echo "0")
+          SUBMITTED=$(jq -r '.submitted // 0' "$OUTPUT_FILE" 2>/dev/null || echo "0")
+          FAILED=$(jq -r '.failed // 0' "$OUTPUT_FILE" 2>/dev/null || echo "0")
+          VIEW_OUT=$(jq -r '.view // "'"$VIEW"'"' "$OUTPUT_FILE" 2>/dev/null || echo "$VIEW")
+          PAGES_SCANNED=$(jq -r '.pagesScanned // 0' "$OUTPUT_FILE" 2>/dev/null || echo "0")
+          PAGE_SIZE=$(jq -r '.pageSize // 200' "$OUTPUT_FILE" 2>/dev/null || echo "200")
+          METRIC_MATCHED=$(jq -r '.metrics.matched // 0' "$OUTPUT_FILE" 2>/dev/null || echo "0")
+          METRIC_UNMATCHED=$(jq -r '.metrics.unmatched // 0' "$OUTPUT_FILE" 2>/dev/null || echo "0")
+          METRIC_SNAPSHOTS=$(jq -r '.metrics.snapshotsInserted // 0' "$OUTPUT_FILE" 2>/dev/null || echo "0")
+          METRIC_DETAIL_FAILURES=$(jq -r '.metrics.detailFailures // 0' "$OUTPUT_FILE" 2>/dev/null || echo "0")
+          METRIC_SLUGS=$(jq -r '.metrics.matchedSlugs // [] | join(",")' "$OUTPUT_FILE" 2>/dev/null || echo "")
 
           # Display human-readable summary
           echo ""
@@ -213,7 +245,9 @@ jobs:
           echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            echo "$OUTPUT"
+            echo "::group::scrape-skills-sh stdout"
+            sed -n '1,200p' "$OUTPUT_FILE"
+            echo "::endgroup::"
             echo "::error::scrape-skills-sh exited with code $EXIT_CODE"
             exit "$EXIT_CODE"
           fi
