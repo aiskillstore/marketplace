@@ -33,7 +33,19 @@ const RECALCULATE_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'recalculat
 const SYNC_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'sync-to-supabase.yml');
 const DOWNLOAD_CLI_ACTION = join(REPO_ROOT, '.github', 'actions', 'download-skillstore-cli', 'action.yml');
 
-function runWrapper({ mode, failSlug, timeoutSlug, recalcFail = false, slugs, slugsFile, maxAttempts = 3, retryBase = 0, dryRun = false }) {
+function runWrapper({
+	mode,
+	failSlug,
+	timeoutSlug,
+	recalcFail = false,
+	slugs,
+	slugsFile,
+	maxAttempts = 3,
+	retryBase = 0,
+	concurrency = 5,
+	dryRun = false,
+	sleepSeconds,
+}) {
 	const tmp = mkdtempSync(join(tmpdir(), 'recalc-test-'));
 	const fakeCli = join(tmp, 'skillstore-cli');
 	const log = join(tmp, 'fake-cli.log');
@@ -47,6 +59,7 @@ function runWrapper({ mode, failSlug, timeoutSlug, recalcFail = false, slugs, sl
 	};
 	if (failSlug) env.FAKE_CLI_FAIL_SLUG = failSlug;
 	if (timeoutSlug) env.FAKE_CLI_TIMEOUT_SLUG = timeoutSlug;
+	if (sleepSeconds) env.FAKE_CLI_SLEEP_SECONDS = String(sleepSeconds);
 	if (recalcFail) env.FAKE_CLI_MODE = 'recalc-fail';
 
 	const args = [
@@ -54,6 +67,7 @@ function runWrapper({ mode, failSlug, timeoutSlug, recalcFail = false, slugs, sl
 		'--cli', fakeCli,
 		'--max-attempts', String(maxAttempts),
 		'--retry-base-seconds', String(retryBase),
+		'--concurrency', String(concurrency),
 	];
 	if (slugsFile) {
 		args.push('--slugs-file', slugsFile);
@@ -183,7 +197,24 @@ test('all slugs succeed -> exit 0, errors=0', () => {
 	assert.equal(sum.updated, '3');
 });
 
+test('per-slug mode honors wrapper-level concurrency', () => {
+	const started = Date.now();
+	const { result } = runWrapper({
+		mode: 'success',
+		slugs: 'one,two,three,four,five,six',
+		concurrency: 3,
+		sleepSeconds: 1,
+		retryBase: 0,
+	});
+	const elapsedMs = Date.now() - started;
 
+	assert.equal(result.status, 0, `wrapper should succeed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+	const sum = lastSummary(result.stdout);
+	assert.equal(sum.processed, '6');
+	assert.equal(sum.updated, '6');
+	assert.equal(sum.errors, '0');
+	assert.ok(elapsedMs < 4500, `expected bounded parallelism to finish well below sequential runtime; elapsed=${elapsedMs}ms`);
+});
 
 test('large no-limit all-skills run reads slugs from file instead of one oversized argv', () => {
 	const tmp = mkdtempSync(join(tmpdir(), 'recalc-large-file-test-'));

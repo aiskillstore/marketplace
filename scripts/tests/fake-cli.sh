@@ -54,6 +54,10 @@ if [ "$SCORE" -ne 1 ]; then
 	exit 64
 fi
 
+if [ -n "${FAKE_CLI_SLEEP_SECONDS:-}" ]; then
+	sleep "$FAKE_CLI_SLEEP_SECONDS"
+fi
+
 if [ "$RECALC" -eq 1 ]; then
 	case "$MODE" in
 		recalc-fail)
