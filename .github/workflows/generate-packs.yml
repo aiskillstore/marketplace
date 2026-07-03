@@ -3,7 +3,7 @@
 # behavior) -> best-of-breed verify (PK) -> LLM compose -> whole-pack verify
 # -> optionally write a candidate to Supabase (review_status=generated).
 # Clean runner HOME = accurate used-skill scoring (no personal global skills).
-# Uses `skillstore-cli plugin generate` (CLI >= 1.41.0 for --scenario).
+# Uses `skillstore-cli pack generate` (CLI >= 1.41.0 for --scenario).
 
 name: Generate Pack
 
@@ -110,16 +110,16 @@ jobs:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
-          # lets `plugin generate` generate a cover image via Helm (gemini-3.1-flash-image);
+          # lets `pack generate` generate a cover image via Helm (gemini-3.1-flash-image);
           # absent => cover step is skipped (best-effort, never fails the pack)
           HELM_API_KEY: ${{ secrets.HELM_API_KEY }}
-          # lets `plugin generate` dispatch the translate-plugins workflow after writing a pack
+          # lets `pack generate` dispatch the translate-packs workflow after writing a pack
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          set +e  # plugin generate exits non-zero when the pack FAILs verification; that's data, not a job error
+          set +e  # pack generate exits non-zero when the pack FAILs verification; that's data, not a job error
           mkdir -p pack-results
 
-          ARGS=(plugin generate --skills-dir skills --json)
+          ARGS=(pack generate --skills-dir skills --json)
           if [ "$EVENT" = "schedule" ]; then
             # Daily rotation: today's scenario, written as a generated candidate.
             ARGS+=(--scenario daily-rotation --write \
@@ -151,7 +151,7 @@ jobs:
             FIT=$(jq -r '.packFitness.medianScore' "$R")
             PASS=$(jq -r 'if .packFitness.passed then "✅ PASS" else "❌ FAIL" end' "$R")
             USED=$(jq -r '(.packFitness.usedSkillRate*100)|floor' "$R")
-            WRITTEN=$(jq -r 'if .written then (.written.pluginId + " (review_status=generated)" + (if .comparisonOf then " [comparison of " + .comparisonOf + "]" else "" end)) elif .skippedReason then ("skipped — " + .skippedReason) elif .writeError then ("write failed — " + .writeError) else "dry-run" end' "$R")
+            WRITTEN=$(jq -r 'if .written then ((.written.packId // .written.pluginId) + " (review_status=generated)" + (if .comparisonOf then " [comparison of " + .comparisonOf + "]" else "" end)) elif .skippedReason then ("skipped — " + .skippedReason) elif .writeError then ("write failed — " + .writeError) else "dry-run" end' "$R")
             {
               echo "## Pack Generation"
               echo ""

@@ -1,17 +1,20 @@
 # GitHub Action Workflow for Marketplace Repository
-# Translates plugin content to supported languages.
-# Simplified single-job workflow (no sharding) since plugin count is small.
-# Sharding support can be added later if plugin count grows significantly.
+# Translates pack content to supported languages.
+# Simplified single-job workflow (no sharding) since pack count is small.
+# Sharding support can be added later if pack count grows significantly.
 
-name: Auto-Translate Plugin Content
+name: Auto-Translate Pack Content
 
 on:
   repository_dispatch:
-    types: [translate-plugins]
+    types: [translate-packs, translate-plugins]
   workflow_dispatch:
     inputs:
+      pack_slugs:
+        description: "Specific packs to translate, comma-separated"
+        required: false
       plugin_slugs:
-        description: "Specific plugins to translate, comma-separated"
+        description: "Deprecated alias for pack_slugs"
         required: false
       model:
         description: "Model to use (e.g., gpt-5.5:high, claude-sonnet-4.6). Auto-detects agent."
@@ -22,7 +25,7 @@ on:
         type: boolean
         default: false
       concurrency:
-        description: "Parallel plugins per language (1-10)"
+        description: "Parallel packs per language (1-10)"
         type: string
         default: "5"
       cli_version:
@@ -31,7 +34,7 @@ on:
         default: "latest"
 
 concurrency:
-  group: translate-plugins
+  group: translate-packs
   cancel-in-progress: false
 
 jobs:
@@ -63,15 +66,15 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
-      - name: Detect plugin slugs
+      - name: Detect pack slugs
         id: detect
         run: |
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            SLUGS_CSV="${{ github.event.client_payload.plugin_slugs }}"
+            SLUGS_CSV="${{ github.event.client_payload.pack_slugs || github.event.client_payload.plugin_slugs }}"
             TRIGGERED_BY="${{ github.event.client_payload.triggered_by }}"
             echo "Triggered by: $TRIGGERED_BY"
           else
-            SLUGS_CSV="${{ inputs.plugin_slugs }}"
+            SLUGS_CSV="${{ inputs.pack_slugs || inputs.plugin_slugs }}"
           fi
 
           if [ -n "$SLUGS_CSV" ]; then
@@ -79,15 +82,15 @@ jobs:
               echo "::error::Invalid slug format in: $SLUGS_CSV (expected: lowercase alphanumeric with hyphens and slashes)"
               exit 1
             fi
-            PLUGIN_COUNT=$(echo "$SLUGS_CSV" | tr ',' '\n' | grep -c . || echo 0)
-            echo "Translating $PLUGIN_COUNT plugin(s): $SLUGS_CSV"
+            PACK_COUNT=$(echo "$SLUGS_CSV" | tr ',' '\n' | grep -c . || echo 0)
+            echo "Translating $PACK_COUNT pack(s): $SLUGS_CSV"
           else
-            echo "No specific slugs provided - will translate all stale/pending plugins"
-            PLUGIN_COUNT=0
+            echo "No specific slugs provided - will translate all stale/pending packs"
+            PACK_COUNT=0
           fi
 
           echo "slugs_csv=$SLUGS_CSV" >> $GITHUB_OUTPUT
-          echo "plugin_count=$PLUGIN_COUNT" >> $GITHUB_OUTPUT
+          echo "pack_count=$PACK_COUNT" >> $GITHUB_OUTPUT
 
       - name: Run translation
         id: translate
@@ -114,7 +117,7 @@ jobs:
           fi
 
           set +e
-          RESULT=$("$GITHUB_WORKSPACE/skillstore-cli" plugin translate-content \
+          RESULT=$("$GITHUB_WORKSPACE/skillstore-cli" pack translate-content \
             $SLUG_FLAG \
             --concurrency "$CONCURRENCY" \
             --output json \
@@ -123,7 +126,7 @@ jobs:
           EXIT_CODE=$?
           set -e
 
-          if echo "$RESULT" | jq -e '.totalPlugins // .totalSkills' > /dev/null 2>&1; then
+          if echo "$RESULT" | jq -e '.totalPacks // .totalPlugins // .totalSkills' > /dev/null 2>&1; then
             TRANSLATED=$(echo "$RESULT" | jq -r '.translated')
             SKIPPED=$(echo "$RESULT" | jq -r '.skipped')
             ERRORS=$(echo "$RESULT" | jq -r '.errors')
@@ -150,7 +153,7 @@ jobs:
             echo "result_json=$RESULT_JSON" >> $GITHUB_OUTPUT
 
             # Extract slugs that were actually translated (for cache invalidation)
-            TRANSLATED_SLUGS=$(echo "$RESULT" | jq -r '[.languages[].plugins[] | select(.status != "skipped") | .slug] | unique | join(",")' 2>/dev/null || echo "")
+            TRANSLATED_SLUGS=$(echo "$RESULT" | jq -r '[.languages[] | (.packs // .plugins // [])[] | select(.status != "skipped") | .slug] | unique | join(",")' 2>/dev/null || echo "")
             echo "translated_slugs=$TRANSLATED_SLUGS" >> $GITHUB_OUTPUT
 
             if [ "$TRANSLATED" -gt 0 ]; then
@@ -187,11 +190,11 @@ jobs:
         with:
           sparse-checkout: .github/actions
 
-      - name: Invalidate cache for translated plugins
+      - name: Invalidate cache for translated packs
         id: invalidate
         uses: ./.github/actions/invalidate-cache
         with:
-          type: plugins
+          type: packs
           slugs: ${{ needs.translate.outputs.translated_slugs }}
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           fail-on-error: false
@@ -208,7 +211,7 @@ jobs:
           CACHE_INVALIDATE_TOTAL: ${{ needs.invalidate-cache.outputs.total_count || '0' }}
           CACHE_INVALIDATE_FAILED: ${{ needs.invalidate-cache.outputs.failed_count || '0' }}
         run: |
-          echo "# Plugin Translation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "# Pack Translation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ -n "$RESULT_JSON" ] && echo "$RESULT_JSON" | jq -e '.translated' > /dev/null 2>&1; then
