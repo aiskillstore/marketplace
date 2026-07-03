@@ -4,7 +4,10 @@
 # Runs daily at 08:00 UTC (16:00 Beijing Time)
 #
 # Features:
-#   - Scrapes skills.sh for new skills not yet in skillstore
+#   - Scrapes skills.sh leaderboard pages for new skills not yet in skillstore
+#   - Scheduled runs scan the first 5 hot pages (200 skills/page)
+#   - Collects skills.sh market metrics for scoring
+#   - Recalculates matched skill scores after metrics are stored
 #   - Submits up to 10 unique skills per run
 #   - Triggers process-submission workflow for each skill
 #   - Provides detailed summary of discovered vs submitted skills
@@ -22,6 +25,35 @@ on:
         required: false
         type: number
         default: 10
+      pages:
+        description: 'skills.sh pages to scan (default: 5, 200 skills/page)'
+        required: false
+        type: number
+        default: 5
+      view:
+        description: 'skills.sh leaderboard view to scan'
+        required: false
+        type: choice
+        default: hot
+        options:
+          - hot
+          - trending
+          - all-time
+      collect_metrics:
+        description: 'Collect skills.sh market metrics for scoring'
+        required: false
+        type: boolean
+        default: true
+      metric_views:
+        description: 'Metric views to collect'
+        required: false
+        type: string
+        default: 'all-time,trending,hot'
+      rescore_metrics:
+        description: 'Recalculate matched skill scores after metric ingestion'
+        required: false
+        type: boolean
+        default: true
       dry_run:
         description: 'Preview only, do not submit'
         required: false
@@ -33,9 +65,9 @@ env:
 
 jobs:
   scrape:
-    name: Scrape & Submit Skills
+    name: Scrape, Store Metrics & Rescore
     runs-on: ${{ github.event_name == 'schedule' && 'ubuntu-latest' || 'self-hosted' }}
-    timeout-minutes: 30
+    timeout-minutes: 360
 
     steps:
       - name: Generate GitHub App Token
@@ -68,36 +100,91 @@ jobs:
           GITHUB_APP_INSTALLATION_ID: ${{ secrets.APP_INSTALLATION_ID }}
         run: |
           LIMIT="${{ inputs.limit || 10 }}"
+          PAGES="${{ inputs.pages || 5 }}"
+          VIEW="${{ inputs.view || 'hot' }}"
+          COLLECT_METRICS="${{ inputs.collect_metrics }}"
+          METRIC_VIEWS="${{ inputs.metric_views || 'all-time,trending,hot' }}"
           DRY_RUN="${{ inputs.dry_run || false }}"
+          if [ -z "$COLLECT_METRICS" ]; then
+            COLLECT_METRICS="true"
+          fi
 
           echo "📡 Scraping skills.sh..."
+          echo "   View: $VIEW"
+          echo "   Pages: $PAGES"
+          echo "   Collect metrics: $COLLECT_METRICS"
+          echo "   Metric views: $METRIC_VIEWS"
           echo "   Limit: $LIMIT"
           echo "   Dry run: $DRY_RUN"
 
-          # Build command with JSON output and --summary flag
-          CMD="$GITHUB_WORKSPACE/skillstore-cli skill scrape-skills-sh --limit $LIMIT --output json --summary"
+          HELP="$("$GITHUB_WORKSPACE/skillstore-cli" skill scrape-skills-sh --help 2>&1 || true)"
+          CMD=("$GITHUB_WORKSPACE/skillstore-cli" skill scrape-skills-sh --limit "$LIMIT" --output json --summary)
+
+          if printf '%s\n' "$HELP" | grep -q -- "--pages"; then
+            CMD+=(--pages "$PAGES")
+          else
+            echo "::warning::skillstore-cli does not support --pages yet; falling back to legacy first-page scrape"
+          fi
+
+          if printf '%s\n' "$HELP" | grep -q -- "--view"; then
+            CMD+=(--view "$VIEW")
+          else
+            echo "::warning::skillstore-cli does not support --view yet; using its default import view"
+          fi
+
+          if [ "$COLLECT_METRICS" = "true" ]; then
+            if printf '%s\n' "$HELP" | grep -q -- "--collect-metrics" && printf '%s\n' "$HELP" | grep -q -- "--views"; then
+              CMD+=(--collect-metrics --views "$METRIC_VIEWS")
+            else
+              echo "::warning::skillstore-cli does not support skills.sh metric collection yet; skipping metric ingestion"
+              COLLECT_METRICS="false"
+            fi
+          fi
+
           if [ "$DRY_RUN" = "true" ]; then
-            CMD="$CMD --dry-run"
+            CMD+=(--dry-run)
           fi
 
           # Run and capture output
-          OUTPUT=$($CMD 2>&1) || true
+          set +e
+          OUTPUT="$("${CMD[@]}" 2>&1)"
+          EXIT_CODE=$?
+          set -e
+
+          if ! jq -e . >/dev/null 2>&1 <<< "$OUTPUT"; then
+            echo "$OUTPUT"
+            echo "::error::scrape-skills-sh did not return valid JSON"
+            exit 1
+          fi
 
           # Parse JSON using herestrings (avoids broken pipe with large output)
           TOTAL=$(jq -r '.total // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
           EXISTING=$(jq -r '.existing // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
           NEW=$(jq -r '.new // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
+          INVALID=$(jq -r '.invalid // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
           SUBMITTED=$(jq -r '.submitted // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
           FAILED=$(jq -r '.failed // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
+          VIEW_OUT=$(jq -r '.view // "'"$VIEW"'"' <<< "$OUTPUT" 2>/dev/null || echo "$VIEW")
+          PAGES_SCANNED=$(jq -r '.pagesScanned // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
+          PAGE_SIZE=$(jq -r '.pageSize // 200' <<< "$OUTPUT" 2>/dev/null || echo "200")
+          METRIC_MATCHED=$(jq -r '.metrics.matched // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
+          METRIC_UNMATCHED=$(jq -r '.metrics.unmatched // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
+          METRIC_SNAPSHOTS=$(jq -r '.metrics.snapshotsInserted // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
+          METRIC_DETAIL_FAILURES=$(jq -r '.metrics.detailFailures // 0' <<< "$OUTPUT" 2>/dev/null || echo "0")
+          METRIC_SLUGS=$(jq -r '.metrics.matchedSlugs // [] | join(",")' <<< "$OUTPUT" 2>/dev/null || echo "")
 
           # Display human-readable summary
           echo ""
           echo "┌─────────────────────────────────────┐"
           echo "│         📊 Scrape Summary           │"
           echo "├─────────────────────────────────────┤"
+          printf "│  Pages scanned:    %6s        │\n" "$PAGES_SCANNED"
           printf "│  Total discovered:  %6s        │\n" "$TOTAL"
           printf "│  Already exists:    %6s        │\n" "$EXISTING"
           printf "│  New available:     %6s        │\n" "$NEW"
+          printf "│  Invalid source:    %6s        │\n" "$INVALID"
+          printf "│  Metric matched:    %6s        │\n" "$METRIC_MATCHED"
+          printf "│  Metric snapshots:  %6s        │\n" "$METRIC_SNAPSHOTS"
           if [ "$DRY_RUN" != "true" ]; then
             echo "├─────────────────────────────────────┤"
             printf "│  ✅ Submitted:      %6s        │\n" "$SUBMITTED"
@@ -109,13 +196,74 @@ jobs:
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
           echo "existing=$EXISTING" >> $GITHUB_OUTPUT
           echo "new=$NEW" >> $GITHUB_OUTPUT
+          echo "invalid=$INVALID" >> $GITHUB_OUTPUT
           echo "submitted=$SUBMITTED" >> $GITHUB_OUTPUT
           echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          echo "view=$VIEW_OUT" >> $GITHUB_OUTPUT
+          echo "pages=$PAGES" >> $GITHUB_OUTPUT
+          echo "pages_scanned=$PAGES_SCANNED" >> $GITHUB_OUTPUT
+          echo "page_size=$PAGE_SIZE" >> $GITHUB_OUTPUT
+          echo "collect_metrics=$COLLECT_METRICS" >> $GITHUB_OUTPUT
+          echo "metric_views=$METRIC_VIEWS" >> $GITHUB_OUTPUT
+          echo "metric_matched=$METRIC_MATCHED" >> $GITHUB_OUTPUT
+          echo "metric_unmatched=$METRIC_UNMATCHED" >> $GITHUB_OUTPUT
+          echo "metric_snapshots=$METRIC_SNAPSHOTS" >> $GITHUB_OUTPUT
+          echo "metric_detail_failures=$METRIC_DETAIL_FAILURES" >> $GITHUB_OUTPUT
+          echo "metric_slugs=$METRIC_SLUGS" >> $GITHUB_OUTPUT
           echo "dry_run=$DRY_RUN" >> $GITHUB_OUTPUT
 
-          # Warn on failures
-          if [ "$FAILED" -gt 0 ] && [ "$DRY_RUN" != "true" ]; then
-            echo "::warning::$FAILED submissions failed"
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "$OUTPUT"
+            echo "::error::scrape-skills-sh exited with code $EXIT_CODE"
+            exit "$EXIT_CODE"
+          fi
+
+      - name: Recalculate scores for matched metrics
+        id: rescore
+        if: steps.scrape.outputs.dry_run != 'true' && steps.scrape.outputs.metric_slugs != ''
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          RESCORE_METRICS: ${{ inputs.rescore_metrics }}
+          METRIC_SLUGS: ${{ steps.scrape.outputs.metric_slugs }}
+        run: |
+          if [ -z "$RESCORE_METRICS" ]; then
+            RESCORE_METRICS="true"
+          fi
+
+          if [ "$RESCORE_METRICS" != "true" ]; then
+            echo "Rescore disabled by workflow input"
+            echo "processed=0" >> "$GITHUB_OUTPUT"
+            echo "updated=0" >> "$GITHUB_OUTPUT"
+            echo "errors=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          SLUG_COUNT=$(echo "$METRIC_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
+          echo "🎯 Recalculating scores for $SLUG_COUNT skills matched from skills.sh metrics"
+
+          set +e
+          bash scripts/recalculate-scores.sh \
+            --cli "$GITHUB_WORKSPACE/skillstore-cli" \
+            --slugs "$METRIC_SLUGS" \
+            --concurrency 5 \
+            --max-attempts 3 \
+            --retry-base-seconds 5 2>&1 | tee score-output.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          set -e
+
+          PROCESSED=$(grep -oP 'Processed:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+          UPDATED=$(grep -oP 'Updated:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+          ERRORS=$(grep -oP 'Errors:\s*\K\d+' score-output.log | tail -n1 || echo "0")
+
+          echo "processed=${PROCESSED:-0}" >> "$GITHUB_OUTPUT"
+          echo "updated=${UPDATED:-0}" >> "$GITHUB_OUTPUT"
+          echo "errors=${ERRORS:-0}" >> "$GITHUB_OUTPUT"
+
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "::error::Metric-driven score recalculation failed"
+            exit "$EXIT_CODE"
           fi
 
       - name: Summary
@@ -124,14 +272,34 @@ jobs:
           TOTAL: ${{ steps.scrape.outputs.total }}
           EXISTING: ${{ steps.scrape.outputs.existing }}
           NEW: ${{ steps.scrape.outputs.new }}
+          INVALID: ${{ steps.scrape.outputs.invalid }}
           SUBMITTED: ${{ steps.scrape.outputs.submitted }}
           FAILED: ${{ steps.scrape.outputs.failed }}
+          VIEW: ${{ steps.scrape.outputs.view }}
+          PAGES: ${{ steps.scrape.outputs.pages }}
+          PAGES_SCANNED: ${{ steps.scrape.outputs.pages_scanned }}
+          PAGE_SIZE: ${{ steps.scrape.outputs.page_size }}
+          COLLECT_METRICS: ${{ steps.scrape.outputs.collect_metrics }}
+          METRIC_VIEWS: ${{ steps.scrape.outputs.metric_views }}
+          METRIC_MATCHED: ${{ steps.scrape.outputs.metric_matched }}
+          METRIC_UNMATCHED: ${{ steps.scrape.outputs.metric_unmatched }}
+          METRIC_SNAPSHOTS: ${{ steps.scrape.outputs.metric_snapshots }}
+          METRIC_DETAIL_FAILURES: ${{ steps.scrape.outputs.metric_detail_failures }}
+          RESCORE_PROCESSED: ${{ steps.rescore.outputs.processed }}
+          RESCORE_UPDATED: ${{ steps.rescore.outputs.updated }}
+          RESCORE_ERRORS: ${{ steps.rescore.outputs.errors }}
           DRY_RUN: ${{ steps.scrape.outputs.dry_run }}
         run: |
           cat << EOF >> $GITHUB_STEP_SUMMARY
           ## Skills.sh Scrape Summary
 
           **Run Type**: ${{ github.event_name == 'schedule' && 'Scheduled (Daily)' || 'Manual' }}
+          **View**: ${VIEW:-hot}
+          **Requested Pages**: ${PAGES:-5}
+          **Pages Scanned**: ${PAGES_SCANNED:-N/A}
+          **Page Size**: ${PAGE_SIZE:-200}
+          **Collect Metrics**: ${COLLECT_METRICS:-false}
+          **Metric Views**: ${METRIC_VIEWS:-N/A}
           **Dry Run**: ${DRY_RUN}
           **Limit**: ${{ inputs.limit || 10 }}
 
@@ -142,6 +310,14 @@ jobs:
           | Total skills on skills.sh | ${TOTAL:-N/A} |
           | Already in skillstore | ${EXISTING:-N/A} |
           | New (not yet imported) | ${NEW:-N/A} |
+          | Invalid / unsupported source | ${INVALID:-N/A} |
+          | Metric matched | ${METRIC_MATCHED:-0} |
+          | Metric unmatched | ${METRIC_UNMATCHED:-0} |
+          | Metric snapshots inserted | ${METRIC_SNAPSHOTS:-0} |
+          | Detail page failures | ${METRIC_DETAIL_FAILURES:-0} |
+          | Scores processed from metrics | ${RESCORE_PROCESSED:-0} |
+          | Scores updated from metrics | ${RESCORE_UPDATED:-0} |
+          | Score errors | ${RESCORE_ERRORS:-0} |
           EOF
 
           if [ "$DRY_RUN" != "true" ]; then
