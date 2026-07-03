@@ -1,4 +1,4 @@
-name: Plugin Review
+name: Pack Review
 
 on:
   issue_comment:
@@ -11,14 +11,15 @@ jobs:
     # trimmed and command-checked inside the script so leading blank lines before
     # /generate or /approve do not silently skip the workflow.
     if: >-
-      contains(github.event.issue.labels.*.name, 'plugin-review') &&
+      (contains(github.event.issue.labels.*.name, 'pack-review') ||
+       contains(github.event.issue.labels.*.name, 'plugin-review')) &&
       github.event.comment.user.type != 'Bot'
     runs-on: ubuntu-latest
     steps:
       - name: Process command
         uses: actions/github-script@v8
         env:
-          CALLBACK_URL: ${{ secrets.SKILLSTORE_API_URL }}/api/plugins/review/callback
+          CALLBACK_URL: ${{ secrets.SKILLSTORE_API_URL }}/api/packs/review/callback
           CALLBACK_SECRET: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
         with:
           script: |
@@ -41,36 +42,34 @@ jobs:
 
             const issueBody = context.payload.issue.body;
 
-            // Extract plugin ID from issue body. Tolerate both the table row
-            // `| Plugin ID | \`<id>\` |` (current buildIssueBody format) and the
-            // older `Plugin ID: \`<id>\`` colon format — match "Plugin ID" then
-            // the first backtick-quoted value after it.
-            const pluginIdMatch = issueBody.match(/Plugin ID[^`]*`([^`]+)`/);
-            if (!pluginIdMatch) {
-              console.log('Plugin ID not found in issue body');
+            // Extract pack ID from issue body. Tolerate legacy Plugin ID rows
+            // from issues opened before the product rename.
+            const packIdMatch = issueBody.match(/(?:Pack|Plugin) ID[^`]*`([^`]+)`/);
+            if (!packIdMatch) {
+              console.log('Pack ID not found in issue body');
               return;
             }
-            const pluginId = pluginIdMatch[1];
-            console.log(`Processing command for plugin: ${pluginId}`);
+            const packId = packIdMatch[1];
+            console.log(`Processing command for pack: ${packId}`);
 
             let event, payload;
 
             if (comment.startsWith('/generate')) {
               event = 'generate';
-              payload = { pluginId };
+              payload = { packId };
             } else if (comment.startsWith('/approve')) {
               event = 'approve';
               // Parse optional modifications
               const guideMatch = comment.match(/--guide\s+"([^"]+)"/);
               payload = {
-                pluginId,
+                packId,
                 approvedBy: context.actor,
                 modifiedGuide: guideMatch ? guideMatch[1] : null
               };
             } else if (comment.startsWith('/regenerate')) {
               event = 'regenerate';
               payload = {
-                pluginId,
+                packId,
                 coverOnly: comment.includes('--cover'),
                 guideOnly: comment.includes('--guide')
               };
@@ -78,7 +77,7 @@ jobs:
               event = 'reject';
               const reason = comment.replace('/reject', '').trim();
               payload = {
-                pluginId,
+                packId,
                 rejectedBy: context.actor,
                 reason: reason || 'No reason provided'
               };
