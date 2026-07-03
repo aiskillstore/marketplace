@@ -9,8 +9,9 @@
 # write) used to abort the whole run, wasting an entire daily recalc.
 # This wrapper:
 #
-#   1. Iterates one slug at a time (or all slugs when --recalculate is
-#      passed without an explicit slug list — see WORKFLOW_NOTE below).
+#   1. Runs isolated single-slug scoring jobs with bounded wrapper-level
+#      parallelism (or all slugs when --recalculate is passed without an
+#      explicit slug list — see WORKFLOW_NOTE below).
 #   2. Retries each slug with exponential backoff (default: 3 attempts).
 #   3. Isolates failures: one slug's failure is logged and counted in
 #      `Errors:`; the loop continues.
@@ -121,6 +122,10 @@ if ! [[ "$RETRY_BASE_SECONDS" =~ ^[0-9]+$ ]]; then
 	echo "::error::--retry-base-seconds must be a non-negative integer" >&2
 	exit 2
 fi
+if ! [[ "$CONCURRENCY" =~ ^[1-9][0-9]*$ ]]; then
+	echo "::error::--concurrency must be a positive integer" >&2
+	exit 2
+fi
 
 # ---------- timing ----------
 START_TS=$(date +%s)
@@ -227,6 +232,28 @@ ingest_one_slug_output() {
 	# aggregate at the end.
 }
 
+trim_slug() {
+	local slug="$1"
+	slug="${slug#"${slug%%[![:space:]]*}"}"
+	slug="${slug%"${slug##*[![:space:]]}"}"
+	printf '%s' "$slug"
+}
+
+run_one_slug_job() {
+	local slug="$1"
+	local output_path="$2"
+	local rc_path="$3"
+	local rc=0
+
+	{
+		echo ""
+		echo "--- processing slug: $slug ---"
+		score_one_slug "$slug" || rc=$?
+	} > "$output_path" 2>&1
+
+	printf '%s\n' "$rc" > "$rc_path"
+}
+
 # ---------- main ----------
 if [ "$RECALCULATE" -eq 1 ]; then
 	# Legacy "all skills" path. Wrap the single CLI call in a top-level
@@ -289,15 +316,24 @@ else
 	# ~2 MiB Linux ARG_MAX that previously failed when 5k+ slugs were
 	# concatenated into one argument.
 	echo "=== recalculate-scores.sh: per-slug mode (concurrency=$CONCURRENCY, max-attempts=$MAX_ATTEMPTS) ==="
-	SLUGS_ARR=()
+	RAW_SLUGS_ARR=()
 	if [ -n "$SLUGS_FILE" ]; then
 		# macOS still ships Bash 3.2, so avoid mapfile/readarray in tests.
 		while IFS= read -r slug_line || [ -n "$slug_line" ]; do
-			SLUGS_ARR+=("$slug_line")
+			RAW_SLUGS_ARR+=("$slug_line")
 		done < "$SLUGS_FILE"
 	else
-		IFS=',' read -ra SLUGS_ARR <<< "$SLUGS_CSV"
+		IFS=',' read -ra RAW_SLUGS_ARR <<< "$SLUGS_CSV"
 	fi
+
+	SLUGS_ARR=()
+	for raw_slug in "${RAW_SLUGS_ARR[@]}"; do
+		slug="$(trim_slug "$raw_slug")"
+		if [ -n "$slug" ]; then
+			SLUGS_ARR+=("$slug")
+		fi
+	done
+
 	if [ -n "$LIMIT" ] && [ "$LIMIT" -gt 0 ] 2>/dev/null; then
 		if [ "${#SLUGS_ARR[@]}" -gt "$LIMIT" ]; then
 			SLUGS_ARR=( "${SLUGS_ARR[@]:0:$LIMIT}" )
@@ -305,30 +341,56 @@ else
 	fi
 	echo "Total slugs to process: ${#SLUGS_ARR[@]}"
 
-	for slug in "${SLUGS_ARR[@]}"; do
-		# Trim whitespace defensively.
-		slug="${slug#"${slug%%[![:space:]]*}"}"
-		slug="${slug%"${slug##*[![:space:]]}"}"
-		if [ -z "$slug" ]; then
-			continue
-		fi
-		echo ""
-		echo "--- processing slug: $slug ---"
-		out_path=$(mktemp -t recalc-out.XXXXXX)
-		err_path=$(mktemp -t recalc-err.XXXXXX)
-		# shellcheck disable=SC2064
-		trap "rm -f '$out_path' '$err_path'" RETURN
+	JOB_DIR=$(mktemp -d -t recalc-jobs.XXXXXX)
+	# shellcheck disable=SC2064
+	trap "rm -rf '$JOB_DIR'" EXIT
+	JOB_SLUGS=()
+	JOB_OUTPUTS=()
+	JOB_RCS=()
+	ACTIVE_PIDS=()
+	ACTIVE_JOBS=()
+	NEXT_JOB=0
 
-		# score_one_slug writes its per-call CLI output to its OWN temp
-		# files (stdout_path/stderr_path inside the function) and cats
-		# them to the caller's stdout. We capture the caller's stdout
-		# here in out_path. After the call we forward that captured
-		# output so workflow logs see it once.
-		rc=0
-		score_one_slug "$slug" > "$out_path" 2> "$err_path" || rc=$?
-		cat "$out_path"
-		ingest_one_slug_output "$slug" "$rc" "$out_path"
-		rm -f "$out_path" "$err_path"
+	collect_finished_job() {
+		local pid="$1"
+		local job_index="$2"
+		local job_rc=1
+
+		wait "$pid" || true
+		if [ -f "${JOB_OUTPUTS[$job_index]}" ]; then
+			cat "${JOB_OUTPUTS[$job_index]}"
+		fi
+		if [ -f "${JOB_RCS[$job_index]}" ]; then
+			job_rc="$(cat "${JOB_RCS[$job_index]}")"
+		fi
+		ingest_one_slug_output "${JOB_SLUGS[$job_index]}" "$job_rc" "${JOB_OUTPUTS[$job_index]}"
+	}
+
+	for slug in "${SLUGS_ARR[@]}"; do
+		job_index="$NEXT_JOB"
+		NEXT_JOB=$(( NEXT_JOB + 1 ))
+		out_path="$JOB_DIR/${job_index}.out"
+		rc_path="$JOB_DIR/${job_index}.rc"
+
+		JOB_SLUGS[$job_index]="$slug"
+		JOB_OUTPUTS[$job_index]="$out_path"
+		JOB_RCS[$job_index]="$rc_path"
+
+		run_one_slug_job "$slug" "$out_path" "$rc_path" &
+		ACTIVE_PIDS+=( "$!" )
+		ACTIVE_JOBS+=( "$job_index" )
+
+		if [ "${#ACTIVE_PIDS[@]}" -ge "$CONCURRENCY" ]; then
+			collect_finished_job "${ACTIVE_PIDS[0]}" "${ACTIVE_JOBS[0]}"
+			ACTIVE_PIDS=( "${ACTIVE_PIDS[@]:1}" )
+			ACTIVE_JOBS=( "${ACTIVE_JOBS[@]:1}" )
+		fi
+	done
+
+	while [ "${#ACTIVE_PIDS[@]}" -gt 0 ]; do
+		collect_finished_job "${ACTIVE_PIDS[0]}" "${ACTIVE_JOBS[0]}"
+		ACTIVE_PIDS=( "${ACTIVE_PIDS[@]:1}" )
+		ACTIVE_JOBS=( "${ACTIVE_JOBS[@]:1}" )
 	done
 fi
 
