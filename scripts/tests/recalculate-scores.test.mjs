@@ -283,7 +283,7 @@ test('recalculate-scores workflow checks out wrapper and skill paths', () => {
 
 test('recalculate-scores workflow default all-skills path uses per-slug wrapper', () => {
 	const workflow = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
-	assert.match(workflow, /find skills -name "SKILL\.md"/, 'workflow must enumerate skills from the checkout');
+	assert.match(workflow, /find skills -name "skill-report\.json"/, 'workflow must enumerate published skill reports from the checkout');
 	assert.match(workflow, /SLUGS_FILE=/, 'workflow must materialize the full no-limit slug list into a file');
 	assert.match(workflow, /WRAPPER_ARGS\+=\( --slugs-file "\$SLUGS_FILE" \)/, 'default full run must pass a slug file, not a giant CSV argv');
 	assert.doesNotMatch(workflow, /WRAPPER_ARGS\+=\( --slugs "\$SLUGS_CSV" \)/, 'default full run must not put all slugs in one argv');
