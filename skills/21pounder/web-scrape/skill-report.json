@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-27T15:56:27.941Z",
+    "generated_at": "2026-07-04T18:03:03.292Z",
     "slug": "21pounder-web-scrape",
     "source_url": "https://github.com/21pounder/terminalAgent/tree/main/deepresearch/.claude/skills/web-scrape",
     "source_ref": "main",
@@ -9,12 +9,25 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "8e2cbc33eae0d5a6cc4022b4af72d3a8097b28abcab4dc746478abd24fb2e1af",
-    "tree_hash": "49cf1ff54bfa4597139bfe39999db66ec8dc234644297b50761fa55e37a514e0"
+    "tree_hash": "7e83d16187e8627744c097c6d51de71d3ba218e9c2db09e45ceb186ad2518a29",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "web-scrape",
-    "description": "Extracts readable content from web pages using browser navigation, smart filtering, and optional screenshots.",
-    "summary": "Scrape web pages into clean markdown, text, or structured summaries.",
+    "description": "Extract readable content from web pages using Playwright, with markdown, JSON, text output, and optional screenshots.",
+    "summary": "Scrape and clean web page content into readable outputs.",
     "icon": "📦",
     "version": "3.0.0",
     "author": "21pounder",
@@ -22,7 +35,7 @@
     "tags": [
       "web-scraping",
       "content-extraction",
-      "browser-automation",
+      "playwright",
       "markdown",
       "research"
     ],
@@ -32,165 +45,33 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
-      "network",
-      "external_commands"
+      "external_commands",
+      "network"
     ],
     "category": "research"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "low",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static command and weak-cryptography detections are mostly false positives from Markdown code fences, Cheerio selector syntax, and ordinary words such as description. The skill still has medium risk because it intentionally navigates to user-provided URLs, extracts untrusted webpage text, and uses browser_evaluate for scrolling without explicit prompt-injection safeguards.",
+    "analysis_status": "ok",
+    "summary": "The static command-execution alerts are false positives caused by Markdown code fences, inline backticks, and Cheerio $() selector calls. The hardcoded URL alerts are documentation examples, not hidden network destinations. The remaining risk is the intended user-controlled web navigation, which should be bounded by consent and URL safety checks.",
+    "remediation": [
+      {
+        "issue": "User-controlled URL navigation",
+        "suggestion": "Require explicit user consent for each target URL, and block localhost, private IP ranges, and file URLs unless the user clearly approves.",
+        "severity": "low"
+      },
+      {
+        "issue": "Authenticated or sensitive page scraping",
+        "suggestion": "Keep the existing warning and add a confirmation step before using cookies, credentials, or logged-in browser sessions.",
+        "severity": "low"
+      }
+    ],
     "risk_factor_evidence": [
-      {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "scripts/html_clean.js",
-            "line_start": 1,
-            "line_end": 47
-          }
-        ]
-      },
-      {
-        "factor": "network",
-        "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 12,
-            "line_end": 12
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 23,
-            "line_end": 25
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 35,
-            "line_end": 36
-          }
-        ]
-      },
       {
         "factor": "external_commands",
         "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 44,
-            "line_end": 51
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 252,
-            "line_end": 252
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "Arbitrary URL Navigation",
-        "description": "The skill accepts a user-provided URL and navigates a browser to that target. This is expected for scraping, but it can expose the runtime to untrusted websites or internal network targets if URL scope is not controlled.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 12,
-            "line_end": 12
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 23,
-            "line_end": 25
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 35,
-            "line_end": 36
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The usage and execution flow directly show navigation to a target URL supplied by the user. This is legitimate functionality, but the network exposure is real."
-      },
-      {
-        "title": "Untrusted Webpage Content Without Prompt-Injection Guardrails",
-        "description": "The workflow captures full page text and then applies model-based extraction, but it does not state that webpage content must be treated as untrusted. A malicious page could include instructions that try to influence the assistant during summarization or extraction.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 57,
-            "line_end": 58
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 78,
-            "line_end": 79
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 258,
-            "line_end": 258
-          }
-        ],
-        "confidence": 0.8,
-        "confidence_reasoning": "The skill clearly processes arbitrary page text, and no prompt-injection boundary is documented. This is a semantic risk rather than a confirmed malicious behavior."
-      },
-      {
-        "title": "Browser Context JavaScript Execution",
-        "description": "The skill uses browser_evaluate to run a fixed scrolling script inside the page context. The current script is limited to scrolling and waiting, but browser evaluation is a powerful capability that should remain constrained to fixed, non-user-controlled scripts.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 44,
-            "line_end": 51
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 252,
-            "line_end": 252
-          }
-        ],
-        "confidence": 0.72,
-        "confidence_reasoning": "The execution is explicit and observable, but the provided JavaScript is fixed and benign. Risk would increase if user input were inserted into evaluated code."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "False Positive: Markdown Code Fences Flagged as Shell Execution",
-        "description": "Most SKILL.md external-command detections point to fenced examples, option literals, markdown templates, and procedural tool-call documentation. These lines are instructions and examples, not executable shell commands inside the skill package.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 11,
-            "line_end": 26
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 103,
-            "line_end": 130
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 172,
-            "line_end": 217
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 243,
-            "line_end": 256
-          }
-        ],
-        "confidence": 0.96,
-        "confidence_reasoning": "The cited content is Markdown documentation and fenced examples. I did not find shell command execution in SKILL.md."
-      },
-      {
-        "title": "False Positive: Cheerio Selector Calls Flagged as Shell Substitution",
-        "description": "The JavaScript file uses Cheerio selector syntax to remove noise and select article, main, or body HTML. The dollar-sign calls are library selectors, not shell command substitution.",
-        "locations": [
           {
             "file": "scripts/html_clean.js",
             "line_start": 31,
@@ -200,204 +81,1146 @@
             "file": "scripts/html_clean.js",
             "line_start": 38,
             "line_end": 38
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 11,
+            "line_end": 13
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 16
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 17
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 17,
+            "line_end": 18
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 19
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 19,
+            "line_end": 22
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 22,
+            "line_end": 26
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 26,
+            "line_end": 34
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 40
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 42
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 52
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 52,
+            "line_end": 56
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 59
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 59,
+            "line_end": 61
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 61,
+            "line_end": 62
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 62,
+            "line_end": 66
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 66,
+            "line_end": 70
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 70,
+            "line_end": 72
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 72,
+            "line_end": 84
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 84,
+            "line_end": 104
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 104,
+            "line_end": 114
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 114,
+            "line_end": 117
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 117,
+            "line_end": 130
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 130,
+            "line_end": 140
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 140,
+            "line_end": 151
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 151,
+            "line_end": 172
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 172,
+            "line_end": 182
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 182,
+            "line_end": 189
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 189,
+            "line_end": 194
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 194,
+            "line_end": 197
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 197,
+            "line_end": 201
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 201,
+            "line_end": 204
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 204,
+            "line_end": 209
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 209,
+            "line_end": 212
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 212,
+            "line_end": 217
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 217,
+            "line_end": 244
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 244,
+            "line_end": 246
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 246,
+            "line_end": 249
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 249,
+            "line_end": 256
           }
-        ],
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 23,
+            "line_end": 23
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 24
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 25,
+            "line_end": 25
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 142,
+            "line_end": 142
+          }
+        ]
+      }
+    ],
+    "static_findings": [
+      {
+        "id": "external_commands:scripts/html_clean.js:31:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/html_clean.js",
+        "line_start": 31,
+        "line_end": 31,
+        "snippet": "$(noiseSelectors.join(',')).remove();"
+      },
+      {
+        "id": "external_commands:scripts/html_clean.js:38:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/html_clean.js",
+        "line_start": 38,
+        "line_end": 38,
+        "snippet": "let contentHtml = $('article').html() || $('main').html() || $('body').html();"
+      },
+      {
+        "id": "external_commands:SKILL.md:11:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 11,
+        "line_end": 13,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:13:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 13,
+        "line_end": 16,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 16,
+        "line_end": 17,
+        "snippet": "- `--format=markdown|json|text` - Output format (default: markdown)"
+      },
+      {
+        "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 17,
+        "line_end": 18,
+        "snippet": "- `--full` - Include full page content (skip smart extraction)"
+      },
+      {
+        "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 18,
+        "line_end": 19,
+        "snippet": "- `--screenshot` - Also save a screenshot"
+      },
+      {
+        "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 19,
+        "line_end": 22,
+        "snippet": "- `--scroll` - Scroll to load dynamic content (infinite scroll pages)"
+      },
+      {
+        "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 22,
+        "line_end": 26,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 26,
+        "line_end": 34,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 34,
+        "line_end": 40,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 40,
+        "line_end": 42,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 42,
+        "line_end": 43,
+        "snippet": "**If `--scroll` option:** Execute scroll sequence to trigger lazy loading:"
+      },
+      {
+        "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 43,
+        "line_end": 52,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 52,
+        "line_end": 56,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 56,
+        "line_end": 59,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 59,
+        "line_end": 61,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 61,
+        "line_end": 62,
+        "snippet": "**If `--screenshot` option:**"
+      },
+      {
+        "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 62,
+        "line_end": 66,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 66,
+        "line_end": 70,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 70,
+        "line_end": 72,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 72,
+        "line_end": 84,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:84:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 84,
+        "line_end": 104,
+        "snippet": "| **Article/Blog** | `<article>`, long paragraphs, date/author | Extract main article body |"
+      },
+      {
+        "id": "external_commands:SKILL.md:104:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 104,
+        "line_end": 114,
+        "snippet": "```markdown"
+      },
+      {
+        "id": "external_commands:SKILL.md:114:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 114,
+        "line_end": 117,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:117:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 117,
+        "line_end": 130,
+        "snippet": "```markdown"
+      },
+      {
+        "id": "external_commands:SKILL.md:130:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 130,
+        "line_end": 140,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:140:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 140,
+        "line_end": 151,
+        "snippet": "```json"
+      },
+      {
+        "id": "external_commands:SKILL.md:151:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 151,
+        "line_end": 172,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:172:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 172,
+        "line_end": 182,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:182:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 182,
+        "line_end": 189,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 189,
+        "line_end": 194,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:194:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 194,
+        "line_end": 197,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:197:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 197,
+        "line_end": 201,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:201:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 201,
+        "line_end": 204,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:204:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 204,
+        "line_end": 209,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:209:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 209,
+        "line_end": 212,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:212:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 212,
+        "line_end": 217,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:217:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 217,
+        "line_end": 244,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:244:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 244,
+        "line_end": 246,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:246:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 246,
+        "line_end": 249,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:249:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 249,
+        "line_end": 256,
+        "snippet": "```"
+      },
+      {
+        "id": "network:SKILL.md:23:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 23,
+        "line_end": 23,
+        "snippet": "/web-scrape https://example.com/article"
+      },
+      {
+        "id": "network:SKILL.md:24:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 24,
+        "line_end": 24,
+        "snippet": "/web-scrape https://news.site.com/story --format=json"
+      },
+      {
+        "id": "network:SKILL.md:25:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 25,
+        "line_end": 25,
+        "snippet": "/web-scrape https://spa-app.com/page --scroll --screenshot"
+      },
+      {
+        "id": "network:SKILL.md:142:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 142,
+        "line_end": 142,
+        "snippet": "\"url\": \"https://...\","
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "external_commands:scripts/html_clean.js:31:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "Line 31 uses Cheerio selector syntax to remove matched HTML elements from a parsed document. The $() call is not shell command substitution and does not invoke an OS command."
+      },
+      {
+        "id": "external_commands:scripts/html_clean.js:38:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "Line 38 uses Cheerio selectors to choose article, main, or body HTML before markdown conversion. This is DOM parsing syntax, not Ruby or shell backtick execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:11:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
         "confidence": 0.94,
-        "confidence_reasoning": "The file imports Cheerio and uses its documented selector API. I did not find child_process, exec, spawn, or shell invocation."
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
       },
       {
-        "title": "False Positive: Weak Cryptography Pattern Matches Ordinary Text",
-        "description": "The weak-cryptography detections occur in normal prose or placeholder content, not cryptographic API calls. No evidence found of MD5, DES, SHA1, or other weak algorithms being used for security decisions.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 85,
-            "line_end": 85
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 123,
-            "line_end": 124
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 236,
-            "line_end": 236
-          }
-        ],
-        "confidence": 0.97,
-        "confidence_reasoning": "The cited lines contain words such as description or credential-related prose. There is no cryptographic code in the scanned files."
-      }
-    ],
-    "dangerous_patterns": [
-      {
-        "title": "Network Access to User-Supplied Targets",
-        "description": "The skill is designed to open URLs supplied at runtime. Marketplace users should restrict sensitive internal hosts and avoid scraping pages that require authentication.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 12,
-            "line_end": 12
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 35,
-            "line_end": 36
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The command syntax and execution flow both show target URL navigation. The pattern is intended, but it is still security-relevant."
+        "id": "external_commands:SKILL.md:13:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
       },
       {
-        "title": "Browser Evaluation Primitive",
-        "description": "The documented scroll workflow runs JavaScript in the browser page context. The current usage is constrained, but browser_evaluate should not include page content or user-controlled code.",
+        "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:84:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:104:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:114:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:117:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:130:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:140:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:151:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:172:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:182:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:194:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:197:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:201:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:204:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:209:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:212:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:217:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:244:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:246:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "external_commands:SKILL.md:249:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The snippet is Markdown formatting, inline option text, or a fenced example in prose documentation. It is not executable Ruby or shell syntax, and SKILL.md is not run as a command script."
+      },
+      {
+        "id": "network:SKILL.md:23:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The URL appears only in a usage example or output-format template inside documentation. It does not hardcode a hidden destination or trigger a network request by itself."
+      },
+      {
+        "id": "network:SKILL.md:24:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The URL appears only in a usage example or output-format template inside documentation. It does not hardcode a hidden destination or trigger a network request by itself."
+      },
+      {
+        "id": "network:SKILL.md:25:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The URL appears only in a usage example or output-format template inside documentation. It does not hardcode a hidden destination or trigger a network request by itself."
+      },
+      {
+        "id": "network:SKILL.md:142:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The URL appears only in a usage example or output-format template inside documentation. It does not hardcode a hidden destination or trigger a network request by itself."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "User-Controlled URL Navigation",
+        "description": "The skill accepts a user supplied URL and directs Playwright to navigate to that target. This is expected for scraping, but it can contact untrusted, internal, or credentialed pages without clear scope controls.",
+        "severity": "low",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 44,
-            "line_end": 51
+            "line_start": 11,
+            "line_end": 13
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 39
           }
         ],
-        "confidence": 0.72,
-        "confidence_reasoning": "The pattern is explicitly documented. The current evaluated script is fixed, so the finding is moderate rather than high."
+        "confidence": 0.85,
+        "confidence_reasoning": "The usage block explicitly takes a URL argument, and the execution flow navigates Playwright to the target URL. The risk is contextual rather than malicious because web navigation is the skill purpose."
       }
     ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [],
+    "low_findings": [
+      {
+        "title": "User-Controlled URL Navigation",
+        "description": "The skill accepts a user supplied URL and directs Playwright to navigate to that target. This is expected for scraping, but it can contact untrusted, internal, or credentialed pages without clear scope controls.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 11,
+            "line_end": 13
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 39
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "low",
+        "confidence": 0.85,
+        "confidence_reasoning": "The usage block explicitly takes a URL argument, and the execution flow navigates Playwright to the target URL. The risk is contextual rather than malicious because web navigation is the skill purpose."
+      }
+    ],
+    "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 306,
     "audit_model": "codex",
-    "audited_at": "2026-06-27T15:56:27.941Z",
-    "risk_factors": [
-      "scripts",
-      "network",
-      "external_commands"
-    ]
+    "audited_at": "2026-07-04T18:03:03.292Z",
+    "agent_auto_install_policy": "allowed",
+    "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Extract Clean Web Page Content",
-    "value_statement": "Web pages often contain navigation, ads, popups, and repeated elements that obscure the useful content. This skill uses browser capture and smart extraction steps to return clean markdown, text, or structured page summaries.",
+    "value_statement": "Web pages mix useful content with navigation, ads, and dynamic loading. This skill uses browser scraping and cleanup guidance to return readable markdown, JSON, text, or screenshots.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "web scraping",
+      "Playwright scraping",
       "content extraction",
-      "browser automation",
-      "markdown scraper",
-      "article extraction",
-      "page snapshot",
-      "research automation"
+      "markdown output",
+      "JSON extraction",
+      "research automation",
+      "web page screenshot"
     ],
     "actual_capabilities": [
-      "Navigates to a target URL with Playwright browser tools.",
-      "Waits for page rendering before capturing visible content.",
-      "Optionally scrolls pages to load lazy or infinite-scroll content.",
-      "Captures screenshots when requested by the user.",
-      "Filters common noise such as navigation, footers, sidebars, ads, and popups.",
-      "Formats extracted content as markdown, plain text, or structured summaries."
+      "Guides browser navigation to a user supplied URL and waits for initial rendering.",
+      "Supports optional scrolling for pages that lazy load content.",
+      "Captures page text through Playwright snapshots and optional full page screenshots.",
+      "Classifies common page types such as articles, products, documentation, lists, and landing pages.",
+      "Describes markdown, JSON, and plain text output formats.",
+      "Includes a helper script that removes common page noise and converts HTML to markdown."
     ],
     "limitations": [
-      "It cannot reliably bypass CAPTCHAs, paywalls, or access restrictions.",
-      "It should not scrape authenticated pages unless the user explicitly controls the session.",
-      "Dynamic pages may still miss content that loads after unusual interactions.",
-      "It does not provide a complete compliance review for robots.txt or site terms."
+      "It does not bypass CAPTCHA, access restrictions, or paywalls.",
+      "It relies on browser snapshot quality, so heavily scripted pages may need extra waits.",
+      "It requires network access to target web pages.",
+      "It should not scrape authenticated pages without explicit user direction."
     ],
     "use_cases": [
       {
-        "title": "Article Research",
-        "description": "Extract the main article body, title, author, date, and source link from a public page.",
-        "target_user": "Researchers and analysts"
+        "title": "Collect Article Text",
+        "description": "Extract the main story from a news article or blog post without menus, ads, or footer links.",
+        "target_user": "Researcher"
       },
       {
-        "title": "Product Page Capture",
-        "description": "Collect product names, prices, availability, descriptions, and specifications from visible page content.",
-        "target_user": "Product managers and ecommerce teams"
+        "title": "Review Product Pages",
+        "description": "Capture product names, prices, descriptions, availability, and specifications for comparison work.",
+        "target_user": "Product analyst"
       },
       {
-        "title": "Documentation Cleanup",
-        "description": "Convert documentation pages into readable markdown while preserving headings, lists, and code block structure.",
-        "target_user": "Developers and technical writers"
+        "title": "Convert Documentation Pages",
+        "description": "Preserve headings, lists, and code blocks from technical documentation in a readable format.",
+        "target_user": "Documentation writer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Page Extract",
-        "scenario": "Beginner request for one public page.",
-        "prompt": "Use web-scrape on this URL and return the main content in clean markdown: [URL]"
+        "title": "Scrape an Article",
+        "scenario": "Beginner extraction from a simple article page.",
+        "prompt": "Use web-scrape on this article URL. Return clean markdown with title, source, date, and author when available."
       },
       {
-        "title": "Article Summary",
-        "scenario": "Extract content and produce a concise research summary.",
-        "prompt": "Scrape this article, remove navigation and ads, then summarize the main claims with the source URL: [URL]"
+        "title": "Extract Product Details",
+        "scenario": "Structured capture from a product page.",
+        "prompt": "Scrape this product page. Return the product name, price, availability, description, and key specifications."
       },
       {
-        "title": "Product Details",
-        "scenario": "Capture structured information from a product page.",
-        "prompt": "Scrape this product page and return the name, price, availability, description, and key specifications: [URL]"
+        "title": "Capture Dynamic Content",
+        "scenario": "Intermediate scrape for lazy loaded pages.",
+        "prompt": "Scrape this page with scrolling enabled. Summarize repeated items in a concise table and note missing fields."
       },
       {
-        "title": "Dynamic Page Capture",
-        "scenario": "Advanced scrape for pages that load content while scrolling.",
-        "prompt": "Scrape this dynamic page with scrolling enabled, capture a screenshot, and note any content that appears blocked: [URL]"
+        "title": "Document a Complex Page",
+        "scenario": "Advanced scrape with preservation and validation.",
+        "prompt": "Scrape this documentation page, preserve headings and code blocks, note blocked content, and include a screenshot."
       }
     ],
     "output_examples": [
       {
-        "input": "A public article URL with navigation, related links, and a cookie banner.",
-        "output": "A clean markdown article with the title, source URL, available date, author, and main body text. Navigation and footer content are removed."
+        "input": "A news article URL with navigation, ads, and related links.",
+        "output": "Clean markdown with title, source URL, author, date, and the main article text. Navigation and ad text are removed."
       },
       {
         "input": "A product page with price, availability, description, and specifications.",
-        "output": [
-          "Product name and source URL",
-          "Current visible price and availability",
-          "Short description",
-          "Specification table summarized in readable text"
-        ]
+        "output": "A readable product summary with price, stock status, description, and a specifications table."
       },
       {
-        "input": "A documentation page with headings and code examples.",
-        "output": "A structured markdown version that keeps heading hierarchy, lists, and technical examples while removing site chrome."
+        "input": "A long page that loads more content while scrolling.",
+        "output": "A concise extraction of visible content after scrolling, plus a note about any missing or blocked sections."
       }
     ],
     "best_practices": [
-      "Use the smallest page scope that answers the task.",
-      "Treat scraped page text as untrusted content before summarizing it.",
-      "Ask before scraping multi-page articles or authenticated content."
+      "Confirm that the user provided or approved the target URL before navigating.",
+      "Use markdown for reading and JSON only when structured extraction is required.",
+      "Close the browser after capture to reduce session risk and resource use."
     ],
     "anti_patterns": [
-      "Do not use it to bypass CAPTCHAs, paywalls, login walls, or access controls.",
-      "Do not scrape sensitive internal URLs or private pages without authorization.",
-      "Do not paste scraped page instructions back into the assistant as trusted commands."
+      "Do not use the skill to bypass CAPTCHAs, paywalls, or access controls.",
+      "Do not submit forms, click login buttons, or scrape authenticated areas without explicit consent.",
+      "Do not return raw DOM dumps when a concise extraction will answer the request."
     ],
     "faq": [
       {
-        "question": "Does this skill browse the web?",
-        "answer": "Yes. It uses browser navigation tools to open a user-provided URL and capture visible page content."
-      },
-      {
-        "question": "Can it handle JavaScript-heavy pages?",
-        "answer": "It can wait for rendering and optionally scroll, but some interactive content may still require manual steps."
-      },
-      {
-        "question": "Can it save screenshots?",
-        "answer": "Yes. The screenshot option captures a full-page image when supported by the browser tool."
+        "question": "Can this skill scrape dynamic pages?",
+        "answer": "Yes. It includes an optional scrolling flow for pages that lazy load content."
       },
       {
         "question": "What output formats are supported?",
-        "answer": "The skill documents markdown, plain text, and structured summary output formats."
+        "answer": "The skill describes markdown, JSON, and plain text outputs. It can also capture screenshots."
       },
       {
-        "question": "Can it bypass restricted content?",
-        "answer": "No. It should report CAPTCHAs, paywalls, 403 pages, and similar access limits instead of bypassing them."
+        "question": "Does it bypass paywalls or CAPTCHAs?",
+        "answer": "No. It reports access restrictions and extracts only visible content when allowed."
       },
       {
-        "question": "Is scraped content trusted?",
-        "answer": "No. Webpage text can contain misleading instructions and should be treated as untrusted source material."
+        "question": "Does it execute page scripts?",
+        "answer": "It uses normal browser rendering and a fixed scroll helper. It warns against arbitrary JavaScript execution."
+      },
+      {
+        "question": "Can it process product pages?",
+        "answer": "Yes. The guidance covers product titles, prices, availability, descriptions, and specifications."
+      },
+      {
+        "question": "Which AI tools can use it?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },

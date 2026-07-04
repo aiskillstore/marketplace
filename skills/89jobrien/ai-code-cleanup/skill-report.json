@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-27T17:37:45.210Z",
+    "generated_at": "2026-07-04T17:49:13.956Z",
     "slug": "89jobrien-ai-code-cleanup",
     "source_url": "https://github.com/89jobrien/steve/tree/main/steve/skills/ai-code-cleanup",
     "source_ref": "main",
@@ -9,12 +9,25 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "e858ba49d70fbbc951cedecafba9e99b361e911cfa1928306b46f95fd696089e",
-    "tree_hash": "bbb390e035c85bc5795b9b684ef752dd89fba89006351e59a8866f45a9dd5668"
+    "tree_hash": "cb5e7e04cc8bb4801f98ebc0ac1d7dc2975a874d9bc24e0ef913798136dd6bed",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "ai-code-cleanup",
-    "description": "Find and remove common AI-generated code artifacts such as redundant comments, defensive bloat, type workarounds, and style drift.",
-    "summary": "Clean AI-assisted code changes while preserving behavior and project style.",
+    "description": "Clean up AI-assisted code by removing redundant comments, defensive bloat, unnecessary type workarounds, and style drift while preserving behavior.",
+    "summary": "Remove AI-generated artifacts from code before review or merge.",
     "icon": "📦",
     "version": "1.0.1",
     "author": "Joseph OBrien",
@@ -22,8 +35,8 @@
     "tags": [
       "code-cleanup",
       "refactoring",
-      "ai-generated-code",
       "code-review",
+      "ai-generated-code",
       "typescript"
     ],
     "supported_tools": [
@@ -41,127 +54,38 @@
     "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static analysis flagged many backticks, placeholder words, and Markdown code fences as high-risk patterns. Review found no prompt injection, malware intent, credential access, network exfiltration, or automatic command execution. The main remaining risk is semantic: the skill can guide agents to remove defensive checks, so users should verify trust boundaries and run tests.",
+    "analysis_status": "ok",
+    "summary": "Static hits are false positives from Markdown code fences, inline code, regex dots, and example snippets. No prompt injection, malware intent, or data exfiltration evidence was found. One semantic risk remains: the cleanup guidance can encourage removal of validation or error handling without proof that it is redundant.",
+    "remediation": [
+      {
+        "issue": "Validation and error handling can be removed too broadly.",
+        "suggestion": "Require proof that callers or framework boundaries already validate data before removing guards, catches, or input checks.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Examples show removing userId validation without showing the trusted boundary.",
+        "suggestion": "Add context that the input is already validated, or change the example to keep boundary validation for user-controlled data.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Cleanup criteria rely on judgment and may be applied mechanically.",
+        "suggestion": "Add a checklist that preserves authorization, authentication, validation, and security logging unless tests and design contracts prove redundancy.",
+        "severity": "low"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 165,
-            "line_end": 167
-          },
-          {
-            "file": "references/refactoring-plan.template.md",
-            "line_start": 136,
-            "line_end": 138
-          }
-        ]
-      },
-      {
-        "factor": "filesystem",
-        "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 171,
-            "line_end": 176
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 286,
-            "line_end": 290
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "Security Regression Risk From Removing Defensive Checks",
-        "description": "The skill recommends removing redundant validation and defensive null checks when callers already validate inputs. This can be useful, but a wrong trust-boundary judgment could weaken production code.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 77,
-            "line_end": 84
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 231,
-            "line_end": 267
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 292,
-            "line_end": 298
-          }
-        ],
-        "severity": "medium",
-        "verdict": "NEEDS_REVIEW",
-        "confidence": 0.74,
-        "confidence_reasoning": "The guidance explicitly targets defensive code removal, but also tells users to keep defensive code for untrusted inputs. The risk depends on correct project context and test coverage."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Local Git Command Example",
-        "description": "The concrete shell command is a local git diff example for listing changed files. It has no network access, secret reads, destructive flags, or evidence of automatic execution.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 165,
-            "line_end": 167
-          }
-        ],
-        "severity": "low",
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.88,
-        "confidence_reasoning": "The command is a standard repository inspection command in a documentation block. It uses command substitution, but only to compute a merge base for git diff."
-      },
-      {
-        "title": "Placeholder Test Command Block",
-        "description": "The reference template contains a bash fenced block with a user-filled test command placeholder. It is documentation, not an executable script bundled with the skill.",
-        "locations": [
-          {
-            "file": "references/refactoring-plan.template.md",
-            "line_start": 136,
-            "line_end": 138
-          }
-        ],
-        "severity": "low",
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.83,
-        "confidence_reasoning": "The static pattern is real Markdown shell syntax, but the content is a placeholder. Any risk would come from later user-supplied commands, not from this skill file."
-      },
-      {
-        "title": "Markdown Backtick and Code Fence Matches",
-        "description": "Most external-command alerts are Markdown prompts, inline file references, code samples, or template fences. No evidence found of Ruby backtick execution or automatic command execution.",
-        "locations": [
-          {
-            "file": "references/refactoring-plan.template.md",
-            "line_start": 35,
-            "line_end": 35
-          },
-          {
-            "file": "references/refactoring-plan.template.md",
-            "line_start": 48,
-            "line_end": 50
-          },
-          {
-            "file": "references/refactoring-plan.template.md",
-            "line_start": 69,
-            "line_end": 71
-          },
-          {
-            "file": "references/refactoring-plan.template.md",
-            "line_start": 75,
-            "line_end": 77
-          },
-          {
-            "file": "SKILL.md",
             "line_start": 41,
             "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 45
           },
           {
             "file": "SKILL.md",
@@ -170,8 +94,18 @@
           },
           {
             "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 51
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 51,
             "line_end": 53
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 68
           },
           {
             "file": "SKILL.md",
@@ -180,12 +114,32 @@
           },
           {
             "file": "SKILL.md",
+            "line_start": 75,
+            "line_end": 88
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 88,
             "line_end": 106
           },
           {
             "file": "SKILL.md",
+            "line_start": 106,
+            "line_end": 112
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 112,
+            "line_end": 113
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 113,
+            "line_end": 114
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 114,
             "line_end": 114
           },
           {
@@ -195,8 +149,28 @@
           },
           {
             "file": "SKILL.md",
+            "line_start": 127,
+            "line_end": 140
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 140,
             "line_end": 150
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 150,
+            "line_end": 165
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 165,
+            "line_end": 167
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 167,
+            "line_end": 189
           },
           {
             "file": "SKILL.md",
@@ -206,7 +180,17 @@
           {
             "file": "SKILL.md",
             "line_start": 193,
+            "line_end": 202
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 202,
             "line_end": 221
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 221,
+            "line_end": 229
           },
           {
             "file": "SKILL.md",
@@ -221,58 +205,38 @@
           {
             "file": "SKILL.md",
             "line_start": 236,
+            "line_end": 245
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 245,
             "line_end": 268
           },
           {
             "file": "SKILL.md",
             "line_start": 268,
             "line_end": 276
-          }
-        ],
-        "severity": "low",
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.97,
-        "confidence_reasoning": "The flagged lines are in Markdown documentation and examples. They do not define executable code paths, package scripts, hooks, or runtime files."
-      },
-      {
-        "title": "Sensitive and Cryptography Keyword Collisions",
-        "description": "The Windows SAM and weak-cryptography alerts are substring matches inside placeholders or prose, such as sample code placeholders and description text. No credential store or cryptographic algorithm usage was found.",
-        "locations": [
+          },
           {
             "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 6
+            "line_start": 276,
+            "line_end": 280
           },
           {
-            "file": "references/refactoring-plan.template.md",
-            "line_start": 21,
-            "line_end": 21
+            "file": "SKILL.md",
+            "line_start": 166,
+            "line_end": 166
           },
           {
-            "file": "references/refactoring-plan.template.md",
-            "line_start": 49,
-            "line_end": 49
-          },
-          {
-            "file": "references/refactoring-plan.template.md",
-            "line_start": 61,
-            "line_end": 61
-          },
-          {
-            "file": "references/refactoring-plan.template.md",
-            "line_start": 76,
-            "line_end": 76
+            "file": "SKILL.md",
+            "line_start": 165,
+            "line_end": 167
           }
-        ],
-        "severity": "low",
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.98,
-        "confidence_reasoning": "The suspicious terms appear as parts of ordinary words or placeholder names. There is no file access to Windows SAM, and no MD5, SHA1, DES, or RC4 implementation."
+        ]
       },
       {
-        "title": "Hidden File Access False Positive in Regex Example",
-        "description": "The filesystem alerts point to dot characters inside an email-regex example. The lines do not access dotfiles, hidden directories, or filesystem APIs.",
-        "locations": [
+        "factor": "filesystem",
+        "evidence": [
           {
             "file": "SKILL.md",
             "line_start": 213,
@@ -283,196 +247,740 @@
             "line_start": 219,
             "line_end": 219
           }
-        ],
+        ]
+      }
+    ],
+    "static_findings": [
+      {
+        "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 41,
+        "line_end": 43,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 43,
+        "line_end": 45,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 45,
+        "line_end": 47,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 47,
+        "line_end": 51,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 51,
+        "line_end": 53,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 53,
+        "line_end": 68,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 68,
+        "line_end": 75,
+        "snippet": "```javascript"
+      },
+      {
+        "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 75,
+        "line_end": 88,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 88,
+        "line_end": 106,
+        "snippet": "```javascript"
+      },
+      {
+        "id": "external_commands:SKILL.md:106:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 106,
+        "line_end": 112,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:112:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 112,
+        "line_end": 113,
+        "snippet": "- Casts to `any` to bypass type issues"
+      },
+      {
+        "id": "external_commands:SKILL.md:113:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 113,
+        "line_end": 114,
+        "snippet": "- Unnecessary type assertions (`as X`)"
+      },
+      {
+        "id": "external_commands:SKILL.md:114:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 114,
+        "line_end": 114,
+        "snippet": "- `@ts-ignore` or `@ts-expect-error` without legitimate reason"
+      },
+      {
+        "id": "external_commands:SKILL.md:119:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 119,
+        "line_end": 127,
+        "snippet": "```typescript"
+      },
+      {
+        "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 127,
+        "line_end": 140,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:140:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 140,
+        "line_end": 150,
+        "snippet": "```javascript"
+      },
+      {
+        "id": "external_commands:SKILL.md:150:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 150,
+        "line_end": 165,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:165:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 165,
+        "line_end": 167,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:167:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 167,
+        "line_end": 189,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 189,
+        "line_end": 193,
+        "snippet": "**Input**: Remove unnecessary comments from `src/auth.js`"
+      },
+      {
+        "id": "external_commands:SKILL.md:193:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 193,
+        "line_end": 202,
+        "snippet": "```markdown"
+      },
+      {
+        "id": "external_commands:SKILL.md:202:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 202,
+        "line_end": 221,
+        "snippet": "```javascript"
+      },
+      {
+        "id": "external_commands:SKILL.md:221:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 221,
+        "line_end": 229,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:229:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 229,
+        "line_end": 233,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:233:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 233,
+        "line_end": 236,
+        "snippet": "**Input**: Remove defensive bloat from `src/api/users.js`"
+      },
+      {
+        "id": "external_commands:SKILL.md:236:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 236,
+        "line_end": 245,
+        "snippet": "```markdown"
+      },
+      {
+        "id": "external_commands:SKILL.md:245:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 245,
+        "line_end": 268,
+        "snippet": "```javascript"
+      },
+      {
+        "id": "external_commands:SKILL.md:268:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 268,
+        "line_end": 276,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:276:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 276,
+        "line_end": 280,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:166:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "SKILL.md",
+        "line_start": 166,
+        "line_end": 166,
+        "snippet": "git diff $(git merge-base HEAD main)..HEAD --name-only"
+      },
+      {
+        "id": "external_commands:SKILL.md:165:template-literal-with-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Template literal with command substitution",
+        "file": "SKILL.md",
+        "line_start": 165,
+        "line_end": 167,
+        "snippet": "```bash"
+      },
+      {
+        "id": "filesystem:SKILL.md:213:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "SKILL.md",
+        "line_start": 213,
+        "line_end": 213,
+        "snippet": "return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);"
+      },
+      {
+        "id": "filesystem:SKILL.md:219:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "SKILL.md",
+        "line_start": 219,
+        "line_end": 219,
+        "snippet": "return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);"
+      },
+      {
+        "id": "blocker:SKILL.md:250:system-reconnaissance",
+        "category": "blocker",
         "severity": "low",
-        "verdict": "FALSE_POSITIVE",
+        "pattern": "System reconnaissance",
+        "file": "SKILL.md",
+        "line_start": 250,
+        "line_end": 250,
+        "snippet": "throw new Error('Invalid userId');"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
         "confidence": 0.96,
-        "confidence_reasoning": "The exact lines are inside a before-and-after code sample for comment cleanup. The dot is part of a regular expression, not a path."
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
       },
       {
-        "title": "System Reconnaissance Keyword Collision",
-        "description": "The system-reconnaissance alert points to an example type check on a userId value. No operating-system probing or environment discovery was found.",
+        "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:106:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:112:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is inline Markdown code or an example filename in documentation, not Ruby or shell backtick execution. It has no executable behavior by itself."
+      },
+      {
+        "id": "external_commands:SKILL.md:113:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is inline Markdown code or an example filename in documentation, not Ruby or shell backtick execution. It has no executable behavior by itself."
+      },
+      {
+        "id": "external_commands:SKILL.md:114:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is inline Markdown code or an example filename in documentation, not Ruby or shell backtick execution. It has no executable behavior by itself."
+      },
+      {
+        "id": "external_commands:SKILL.md:119:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:140:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:150:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:165:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:167:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is inline Markdown code or an example filename in documentation, not Ruby or shell backtick execution. It has no executable behavior by itself."
+      },
+      {
+        "id": "external_commands:SKILL.md:193:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:202:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:221:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:229:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:233:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is inline Markdown code or an example filename in documentation, not Ruby or shell backtick execution. It has no executable behavior by itself."
+      },
+      {
+        "id": "external_commands:SKILL.md:236:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:245:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:268:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:276:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a Markdown code fence or documentation example, not Ruby or shell backtick execution. It does not execute code when the skill is loaded."
+      },
+      {
+        "id": "external_commands:SKILL.md:166:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.84,
+        "reason": "The command is a read-only git diff example with fixed arguments for listing changed files. No untrusted input is interpolated beyond git's own merge-base output."
+      },
+      {
+        "id": "external_commands:SKILL.md:165:template-literal-with-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The hit is on a Markdown bash fence that documents an example command. The fence itself does not execute code or introduce command substitution."
+      },
+      {
+        "id": "filesystem:SKILL.md:213:hidden-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The dot is an escaped period inside an email validation regex in a code example. It does not access a hidden file or path."
+      },
+      {
+        "id": "filesystem:SKILL.md:219:hidden-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The dot is an escaped period inside an email validation regex in a code example. It does not access a hidden file or path."
+      },
+      {
+        "id": "blocker:SKILL.md:250:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is a thrown validation error inside a before-and-after code example. It performs no system inspection or reconnaissance."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Overbroad Defensive Code Removal Guidance",
+        "description": "The skill tells agents to remove redundant validation and shows an example that removes userId validation and catch handling. Without proving validation exists upstream, this can delete security controls.",
+        "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 250,
-            "line_end": 250
+            "line_start": 81,
+            "line_end": 84
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 247,
+            "line_end": 267
           }
         ],
-        "severity": "low",
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.9,
-        "confidence_reasoning": "The line is contained in an illustrative JavaScript function and checks application input type. It does not run host reconnaissance commands or read system metadata."
+        "confidence": 0.78,
+        "confidence_reasoning": "The guidance and example explicitly remove validation and error handling, but later best practices say to keep legitimate controls. The risk is contextual rather than clearly malicious."
       }
     ],
-    "dangerous_patterns": [
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
       {
-        "title": "Shell Command Substitution in Documentation",
-        "description": "The skill documents a git command that uses shell command substitution. It is legitimate local repository analysis, but users should review commands before execution.",
+        "title": "Overbroad Defensive Code Removal Guidance",
+        "description": "The skill tells agents to remove redundant validation and shows an example that removes userId validation and catch handling. Without proving validation exists upstream, this can delete security controls.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 165,
-            "line_end": 167
-          }
-        ],
-        "severity": "low",
-        "verdict": "TRUE_POSITIVE_SAFE_CONTEXT",
-        "confidence": 0.86,
-        "confidence_reasoning": "The command-substitution syntax is present and could be risky in other contexts. Here it is a static git example with no untrusted data source shown."
-      },
-      {
-        "title": "Placeholder Shell Commands in Template",
-        "description": "The refactoring template reserves space for verification commands. It does not ship executable commands, but generated plans should not add destructive commands.",
-        "locations": [
+            "line_start": 81,
+            "line_end": 84
+          },
           {
-            "file": "references/refactoring-plan.template.md",
-            "line_start": 136,
-            "line_end": 138
+            "file": "SKILL.md",
+            "line_start": 247,
+            "line_end": 267
           }
         ],
-        "severity": "low",
-        "verdict": "NEEDS_REVIEW",
-        "confidence": 0.62,
-        "confidence_reasoning": "The risk is contextual because the template expects future user-provided commands. The current file contains only a placeholder."
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "The guidance and example explicitly remove validation and error handling, but later best practices say to keep legitimate controls. The risk is contextual rather than clearly malicious."
       }
     ],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 488,
     "audit_model": "codex",
-    "audited_at": "2026-06-27T17:37:45.210Z",
-    "risk_factors": [
-      "external_commands",
-      "filesystem"
-    ]
+    "audited_at": "2026-07-04T17:49:13.956Z",
+    "agent_auto_install_policy": "allowed",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Clean Up AI-Generated Code",
-    "value_statement": "AI-assisted coding can leave redundant comments, defensive bloat, type workarounds, and style drift. This skill guides Claude, Codex, or Claude Code through focused cleanup while preserving behavior and tests.",
+    "user_title": "Clean AI-Generated Code Before Review",
+    "value_statement": "AI-assisted code can include redundant comments, defensive bloat, and style drift. This skill guides targeted cleanup while preserving behavior and tests.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "AI code cleanup",
-      "code refactoring",
       "code review preparation",
-      "remove AI artifacts",
+      "refactoring",
       "defensive code cleanup",
       "TypeScript cleanup",
-      "developer productivity"
+      "AI-generated code",
+      "technical debt"
     ],
     "actual_capabilities": [
-      "Identifies redundant comments that restate obvious code.",
-      "Finds unnecessary defensive checks on trusted paths.",
-      "Flags type casts and TypeScript suppressions that hide weak typing.",
-      "Standardizes naming, formatting, imports, and variable declarations against local style.",
-      "Uses git diff context to focus cleanup on changed branch files.",
-      "Encourages compilation and test verification after edits."
+      "Identifies obvious comments, redundant explanations, and documentation that does not match nearby style.",
+      "Flags unnecessary try/catch blocks, null checks, and validation when existing contracts make them redundant.",
+      "Finds type casts, any usage, and TypeScript suppression comments used as workarounds.",
+      "Compares changed files against project style and recommends surgical edits.",
+      "Uses branch diffs to focus cleanup on modified files.",
+      "Provides a refactoring plan template for larger cleanup work."
     ],
     "limitations": [
-      "It cannot prove behavior is unchanged without project tests or review.",
-      "It may misjudge whether validation is redundant at trust boundaries.",
-      "It does not provide a full security audit of the codebase.",
-      "It depends on existing project conventions being clear enough to follow."
+      "Cannot prove behavior is unchanged without running project tests.",
+      "Requires human judgment before removing validation or error handling.",
+      "Works best with enough surrounding code to infer project conventions.",
+      "Does not include an executable cleanup script or automated linter."
     ],
     "use_cases": [
       {
-        "title": "Prepare AI-Assisted Pull Requests",
-        "target_user": "Software engineers",
-        "description": "Clean branch diffs before review by removing artifacts that make code harder to scan."
+        "title": "Prepare an AI-built pull request",
+        "description": "Remove redundant comments, noisy guards, and style drift before a reviewer sees the branch.",
+        "target_user": "Software developer"
       },
       {
-        "title": "Reduce Review Noise",
-        "target_user": "Tech leads",
-        "description": "Focus review on behavior changes by removing verbose comments, extra guards, and inconsistent style."
+        "title": "Standardize mixed AI edits",
+        "description": "Bring AI-assisted changes back in line with local naming, formatting, and error-handling conventions.",
+        "target_user": "Tech lead"
       },
       {
-        "title": "Standardize Generated Code",
-        "target_user": "Engineering teams",
-        "description": "Align AI-produced changes with local naming, typing, and error-handling practices."
+        "title": "Plan a larger cleanup",
+        "description": "Document code smells, target state, testing steps, and rollback plans before refactoring a component.",
+        "target_user": "Maintainer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Clean Current Branch",
-        "scenario": "Beginner cleanup after an AI coding session",
-        "prompt": "Clean up AI-generated artifacts in the current branch. Preserve behavior, follow project style, and run the relevant tests."
+        "title": "Clean My Branch",
+        "scenario": "Beginner branch cleanup",
+        "prompt": "Review the current branch for AI-generated cleanup issues. List redundant comments, defensive bloat, type workarounds, and style inconsistencies before editing."
       },
       {
-        "title": "Review Changed Files",
-        "scenario": "Focused pull request preparation",
-        "prompt": "Inspect the changed files in this branch for redundant comments, defensive bloat, type workarounds, and style drift. Make minimal edits only."
+        "title": "Prepare A Pull Request",
+        "scenario": "Pre-review cleanup",
+        "prompt": "Clean the files changed in this pull request. Preserve behavior, keep legitimate validation, and run the project checks that apply."
       },
       {
-        "title": "Audit Defensive Checks",
-        "scenario": "Careful validation cleanup",
-        "prompt": "Find defensive checks added by AI. Remove only checks that are redundant after verifying callers, trust boundaries, and existing tests."
+        "title": "Target A Risky Module",
+        "scenario": "Focused module cleanup",
+        "prompt": "Review src/api for AI-generated artifacts. Explain each proposed removal, identify any validation that must stay, and make small grouped edits."
       },
       {
-        "title": "Create Refactoring Plan",
+        "title": "Create A Refactoring Plan",
         "scenario": "Advanced cleanup planning",
-        "prompt": "Create a cleanup plan for this component. Include code smells, target state, verification steps, risks, and rollback notes before editing."
+        "prompt": "Use the refactoring plan template for the selected component. Include current smells, target state, step order, risk controls, tests, and rollback steps."
       }
     ],
     "output_examples": [
       {
-        "input": "A pull request contains verbose comments, extra null checks, and inconsistent variable names after AI assistance.",
+        "input": "Clean redundant comments in an authentication helper.",
         "output": [
-          "A concise cleanup summary grouped by file.",
-          "A list of removed redundant comments and unnecessary guards.",
-          "A verification note showing which tests or checks passed."
+          "Removed comments that repeated simple assignments and return statements.",
+          "Kept one comment that explained a non-obvious security decision.",
+          "Reported that behavior should be verified with the existing authentication tests."
         ]
       },
       {
-        "input": "A TypeScript change includes broad casts and suppressions added to satisfy the compiler quickly.",
+        "input": "Review a branch after an AI coding session.",
         "output": [
-          "A focused review of type workarounds that should be removed or replaced.",
-          "Cleaner typing suggestions that preserve behavior.",
-          "A short list of items needing human judgment."
+          "Found noisy null checks in files where callers already validate inputs.",
+          "Kept boundary validation for user-controlled request data.",
+          "Recommended running type checks and the affected unit test suite."
         ]
       },
       {
-        "input": "A component needs cleanup before a larger refactor.",
+        "input": "Plan cleanup for a service module.",
         "output": [
-          "A refactoring plan with current problems, target state, steps, risks, and verification strategy.",
-          "A rollback note for each meaningful change phase."
+          "Created a phased cleanup plan with current smells and target outcomes.",
+          "Listed test coverage needed before removing defensive code.",
+          "Included a rollback plan for each cleanup phase."
         ]
       }
     ],
     "best_practices": [
-      "Run the cleanup on a small branch and review every behavior-affecting edit.",
-      "Keep defensive code when inputs cross a trust boundary or caller guarantees are unclear.",
-      "Run tests, type checks, and formatters after each meaningful cleanup step."
+      "Review the diff first and limit edits to changed files unless the user expands scope.",
+      "Keep validation, authorization checks, and error handling unless redundancy is proven.",
+      "Run tests or type checks after each meaningful cleanup batch."
     ],
     "anti_patterns": [
-      "Do not remove validation only because it looks verbose.",
-      "Do not replace project conventions with a generic style preference.",
-      "Do not make broad refactors while performing AI artifact cleanup."
+      "Removing guards because they look verbose without proving callers validate the data.",
+      "Changing architecture while doing a cleanup pass.",
+      "Replacing clear code with clever shortcuts only to reduce line count."
     ],
     "faq": [
       {
-        "question": "Does this skill automatically delete code?",
-        "answer": "No. It guides an AI assistant to inspect changed files and make focused cleanup edits with verification."
+        "question": "What does this skill clean up?",
+        "answer": "It targets redundant comments, defensive bloat, type workarounds, style drift, and other common AI-generated artifacts."
       },
       {
-        "question": "Is this a security auditing skill?",
-        "answer": "No. It improves code quality after AI-assisted development, but it does not replace a security review."
+        "question": "Can it change code behavior?",
+        "answer": "It is designed to preserve behavior, but users should verify changes with tests and review."
       },
       {
-        "question": "Can it remove important validation?",
-        "answer": "Yes, if used carelessly. Validate trust boundaries and keep checks for untrusted inputs."
+        "question": "Should it remove validation code?",
+        "answer": "Only remove validation when another trusted layer already enforces the same rule. Keep checks for untrusted input."
       },
       {
-        "question": "Which languages does it support?",
-        "answer": "The guidance is language-neutral, with examples in JavaScript and TypeScript."
+        "question": "Does it run automatically?",
+        "answer": "No. It provides guidance and examples for an AI assistant to apply during a cleanup task."
       },
       {
-        "question": "When should I use it?",
-        "answer": "Use it after AI-assisted coding and before code review or branch merge."
+        "question": "Which tools can use it?",
+        "answer": "The skill metadata lists Claude, Codex, and Claude Code as supported tools."
       },
       {
-        "question": "Does it require project tests?",
-        "answer": "Tests are strongly recommended because the skill depends on verification to preserve behavior."
+        "question": "When should I use the refactoring template?",
+        "answer": "Use it when cleanup is broad enough to need phases, risk tracking, tests, or rollback planning."
       }
     ]
   },
