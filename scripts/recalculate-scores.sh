@@ -23,7 +23,7 @@
 #     --cli /path/to/skillstore-cli \
 #     [--slugs slug1,slug2,... | --slugs-file PATH] [--limit N] \
 #     [--concurrency N] [--dry-run] \
-#     [--max-attempts N] [--retry-base-seconds N]
+#     [--max-attempts N] [--retry-base-seconds N] [--timeout-seconds N]
 #
 # Exit codes:
 #   0  - all slugs processed, no per-slug failures
@@ -54,6 +54,7 @@ CONCURRENCY=5
 DRY_RUN=0
 MAX_ATTEMPTS=3
 RETRY_BASE_SECONDS=2
+TIMEOUT_SECONDS=180
 RECALCULATE=0
 EXTRA_FLAGS=()
 
@@ -70,6 +71,7 @@ Options:
   --dry-run                   Pass-through to CLI
   --max-attempts N            Per-slug retry attempts (default: 3)
   --retry-base-seconds N      Initial backoff seconds (default: 2, doubled each retry)
+  --timeout-seconds N         Per-slug wall-clock timeout in seconds (default: 180; 0 disables)
   --recalculate               Legacy "all skills" mode (no per-slug isolation; wrapped in top-level retry)
   --                          Forwarded as additional CLI flags
   -h | --help                 Show this help
@@ -86,6 +88,7 @@ while [ $# -gt 0 ]; do
 		--dry-run)           DRY_RUN=1; shift ;;
 		--max-attempts)      MAX_ATTEMPTS="${2:-3}"; shift 2 ;;
 		--retry-base-seconds) RETRY_BASE_SECONDS="${2:-2}"; shift 2 ;;
+		--timeout-seconds)   TIMEOUT_SECONDS="${2:-180}"; shift 2 ;;
 		--recalculate)       RECALCULATE=1; shift ;;
 		--)                  shift; while [ $# -gt 0 ]; do EXTRA_FLAGS+=("$1"); shift; done ;;
 		-h|--help)           usage; exit 0 ;;
@@ -120,6 +123,10 @@ if ! [[ "$MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
 fi
 if ! [[ "$RETRY_BASE_SECONDS" =~ ^[0-9]+$ ]]; then
 	echo "::error::--retry-base-seconds must be a non-negative integer" >&2
+	exit 2
+fi
+if ! [[ "$TIMEOUT_SECONDS" =~ ^[0-9]+$ ]]; then
+	echo "::error::--timeout-seconds must be a non-negative integer" >&2
 	exit 2
 fi
 if ! [[ "$CONCURRENCY" =~ ^[1-9][0-9]*$ ]]; then
@@ -163,6 +170,7 @@ score_one_slug() {
 	trap "rm -f '$stdout_path' '$stderr_path'" RETURN
 
 	while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
+		local current_attempt="$attempt"
 		if [ "$attempt" -gt 1 ]; then
 			echo "  [retry $attempt/$MAX_ATTEMPTS for $slug after ${sleep_secs}s]"
 			sleep "$sleep_secs"
@@ -181,8 +189,32 @@ score_one_slug() {
 		if [ "${#EXTRA_FLAGS[@]}" -gt 0 ]; then
 			cli_args+=( "${EXTRA_FLAGS[@]}" )
 		fi
-		"$CLI" "${cli_args[@]}" > "$stdout_path" 2> "$stderr_path"
-		rc=$?
+		if [ "$TIMEOUT_SECONDS" -gt 0 ]; then
+			"$CLI" "${cli_args[@]}" > "$stdout_path" 2> "$stderr_path" &
+			local cli_pid="$!"
+			local elapsed=0
+			local timed_out=0
+			while kill -0 "$cli_pid" 2>/dev/null; do
+				if [ "$elapsed" -ge "$TIMEOUT_SECONDS" ]; then
+					timed_out=1
+					echo "Timed out after ${TIMEOUT_SECONDS}s" >> "$stderr_path"
+					kill "$cli_pid" 2>/dev/null || true
+					sleep 2
+					kill -9 "$cli_pid" 2>/dev/null || true
+					break
+				fi
+				sleep 1
+				elapsed=$(( elapsed + 1 ))
+			done
+			wait "$cli_pid" 2>/dev/null
+			rc=$?
+			if [ "$timed_out" -eq 1 ]; then
+				rc=124
+			fi
+		else
+			"$CLI" "${cli_args[@]}" > "$stdout_path" 2> "$stderr_path"
+			rc=$?
+		fi
 		set -e 2>/dev/null || true
 
 		# Forward CLI output to the caller's stdout (matches single-run
@@ -200,7 +232,10 @@ score_one_slug() {
 		# in GitHub Actions UI without failing the step).
 		local err_summary
 		err_summary="$(_truncate "$(tail -n 5 "$stderr_path" 2>/dev/null | tr '\n' ' ')" 200)"
-		echo "::warning::score failed for slug=$slug attempt=$attempt/$MAX_ATTEMPTS exit=$rc err=$( _truncate "$err_summary" 200 )"
+		if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+			err_summary="timed out after ${TIMEOUT_SECONDS}s ${err_summary}"
+		fi
+		echo "::warning::score failed for slug=$slug attempt=$current_attempt/$MAX_ATTEMPTS exit=$rc err=$( _truncate "$err_summary" 200 )"
 	done
 
 	echo "::error::score ultimately failed for slug=$slug after $MAX_ATTEMPTS attempts"

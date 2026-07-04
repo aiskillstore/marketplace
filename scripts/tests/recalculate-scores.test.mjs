@@ -45,6 +45,7 @@ function runWrapper({
 	concurrency = 5,
 	dryRun = false,
 	sleepSeconds,
+	timeoutSeconds = 0,
 }) {
 	const tmp = mkdtempSync(join(tmpdir(), 'recalc-test-'));
 	const fakeCli = join(tmp, 'skillstore-cli');
@@ -68,6 +69,7 @@ function runWrapper({
 		'--max-attempts', String(maxAttempts),
 		'--retry-base-seconds', String(retryBase),
 		'--concurrency', String(concurrency),
+		'--timeout-seconds', String(timeoutSeconds),
 	];
 	if (slugsFile) {
 		args.push('--slugs-file', slugsFile);
@@ -317,6 +319,7 @@ test('recalculate-scores workflow default all-skills path uses per-slug wrapper'
 	assert.match(workflow, /find skills -name "skill-report\.json"/, 'workflow must enumerate published skill reports from the checkout');
 	assert.match(workflow, /SLUGS_FILE=/, 'workflow must materialize the full no-limit slug list into a file');
 	assert.match(workflow, /WRAPPER_ARGS\+=\( --slugs-file "\$SLUGS_FILE" \)/, 'default full run must pass a slug file, not a giant CSV argv');
+	assert.match(workflow, /--timeout-seconds "\$INPUT_TIMEOUT_SECONDS"/, 'default full run must bound each per-skill CLI child');
 	assert.doesNotMatch(workflow, /WRAPPER_ARGS\+=\( --slugs "\$SLUGS_CSV" \)/, 'default full run must not put all slugs in one argv');
 	assert.doesNotMatch(workflow, /SLUGS_CSV=/, 'workflow must not build an all-skills CSV that can exceed ARG_MAX');
 	assert.match(workflow, /SUPPORTS_SLUGS=0/, 'workflow must feature-probe whether the downloaded CLI supports --slugs');
