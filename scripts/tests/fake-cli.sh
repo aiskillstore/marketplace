@@ -54,7 +54,9 @@ if [ "$SCORE" -ne 1 ]; then
 	exit 64
 fi
 
-if [ -n "${FAKE_CLI_SLEEP_SECONDS:-}" ]; then
+if [ -n "${FAKE_CLI_SLOW_SLUG:-}" ] && [ "$SLUGS" = "$FAKE_CLI_SLOW_SLUG" ]; then
+	sleep "${FAKE_CLI_SLOW_SECONDS:-2}"
+elif [ -n "${FAKE_CLI_SLEEP_SECONDS:-}" ]; then
 	sleep "$FAKE_CLI_SLEEP_SECONDS"
 fi
 
@@ -80,7 +82,7 @@ IFS=',' read -ra ARR <<< "$SLUGS"
 # Count how many times this exact slug has been seen so far in the log.
 slug_call_count() {
 	local target="$1"
-	grep -c "|slugs=$target" "$LOG" 2>/dev/null || true
+	grep -F -c -- "slugs=$target " "$LOG" 2>/dev/null || true
 }
 
 for slug in "${ARR[@]}"; do
