@@ -347,7 +347,10 @@ test('recalculate-scores workflow checks out wrapper and skill paths', () => {
 
 test('recalculate-scores workflow default all-skills path uses per-slug wrapper', () => {
 	const workflow = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
-	assert.match(workflow, /find skills -name "skill-report\.json"/, 'workflow must enumerate published skill reports from the checkout');
+	assert.match(workflow, /report\?\.meta\?\.slug/, 'workflow must enumerate canonical DB slugs from skill-report meta.slug');
+	assert.doesNotMatch(workflow, /sed 's\|\^skills\/\|\|; s\|\/skill-report\.json\$\|\|'/, 'workflow must not derive DB slugs from owner-qualified paths');
+	assert.match(workflow, /NODE_EXTRA_CA_CERTS=\/etc\/ssl\/certs\/ca-certificates\.crt/, 'workflow must configure the Node CA bundle before Supabase calls');
+	assert.match(workflow, /--use-openssl-ca/, 'workflow must force Node to use the system OpenSSL CA store');
 	assert.match(workflow, /SLUGS_FILE=/, 'workflow must materialize the full no-limit slug list into a file');
 	assert.match(workflow, /WRAPPER_ARGS\+=\( --slugs-file "\$SLUGS_FILE" \)/, 'default full run must pass a slug file, not a giant CSV argv');
 	assert.match(workflow, /--timeout-seconds "\$INPUT_TIMEOUT_SECONDS"/, 'default full run must bound each per-skill CLI child');

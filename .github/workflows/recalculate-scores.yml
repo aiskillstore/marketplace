@@ -93,6 +93,35 @@ jobs:
           echo ""
           INVALIDATE_SLUGS_FILE=""
 
+          configure_tls() {
+            if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && command -v apt-get >/dev/null 2>&1; then
+              echo "CA bundle missing; attempting to install ca-certificates"
+              if command -v sudo >/dev/null 2>&1; then
+                sudo apt-get update -y && sudo apt-get install -y ca-certificates || true
+              else
+                apt-get update -y && apt-get install -y ca-certificates || true
+              fi
+            fi
+
+            if command -v update-ca-certificates >/dev/null 2>&1; then
+              if command -v sudo >/dev/null 2>&1; then
+                sudo update-ca-certificates || true
+              else
+                update-ca-certificates || true
+              fi
+            fi
+
+            if [ -s /etc/ssl/certs/ca-certificates.crt ]; then
+              export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+              export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+              export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+              export GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt
+            fi
+            export NODE_OPTIONS="${NODE_OPTIONS:-} --use-openssl-ca"
+          }
+
+          configure_tls
+
           # Build wrapper args. The wrapper script (scripts/recalculate-scores.sh)
           # runs the CLI in per-slug mode with retry/backoff so a single
           # breakdown update TimeoutError does not take down the whole run.
@@ -125,11 +154,31 @@ jobs:
           elif [ "$SUPPORTS_SLUGS" -eq 1 ]; then
             # Scheduled/default full recalculation must still use the
             # per-slug isolation wrapper when the downloaded CLI supports
-            # it. Enumerate published skills from reports and pass explicit
-            # slugs instead of the legacy top-level --recalculate retry path.
-            # Some packages contain nested/example SKILL.md files that are
-            # resources, not marketplace entries.
-            mapfile -t ALL_SLUGS < <(find skills -name "skill-report.json" -type f -print | sed 's|^skills/||; s|/skill-report.json$||' | sort)
+            # it. Enumerate the canonical DB slug from each report; path
+            # segments are owner-qualified and do not necessarily match
+            # skillstore.skills.slug.
+            mapfile -t ALL_SLUGS < <(node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const slugs = new Set();
+          function walk(dir) {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                walk(fullPath);
+              } else if (entry.isFile() && entry.name === 'skill-report.json') {
+                const report = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+                const slug = report?.meta?.slug;
+                if (typeof slug === 'string' && slug.trim()) slugs.add(slug.trim());
+              }
+            }
+          }
+
+          walk('skills');
+          for (const slug of [...slugs].sort()) console.log(slug);
+          NODE
+          )
             if [ -n "$INPUT_LIMIT" ]; then
               if ! [[ "$INPUT_LIMIT" =~ ^[1-9][0-9]*$ ]]; then
                 echo "::error::limit must be a positive integer when provided: $INPUT_LIMIT"
