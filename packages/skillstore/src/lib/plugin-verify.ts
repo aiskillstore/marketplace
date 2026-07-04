@@ -1,5 +1,5 @@
-import { createHmac, createHash, timingSafeEqual as cryptoTimingSafeEqual } from 'node:crypto';
-import type { PluginManifest } from './plugin-api.js';
+import { createHmac, createHash, timingSafeEqual as cryptoTimingSafeEqual, webcrypto } from 'node:crypto';
+import type { ManifestSignatureInfo, PluginManifest } from './plugin-api.js';
 import type { SkillManifest } from './skill-api.js';
 
 /**
@@ -45,6 +45,10 @@ export function verifyManifestSignature(
 			return { valid: false, error: 'Manifest has no signature' };
 		}
 
+		if (typeof signature !== 'string') {
+			return { valid: false, error: 'Manifest uses a non-HMAC signature' };
+		}
+
 		// Compute expected signature (matching server-side implementation)
 		const dataToSign = JSON.stringify(unsignedManifest, null, 0);
 		const expectedSignature = createHmac('sha256', key)
@@ -53,6 +57,80 @@ export function verifyManifestSignature(
 
 		// Constant-time comparison to prevent timing attacks
 		const valid = timingSafeEqual(signature, expectedSignature);
+
+		if (!valid) {
+			return { valid: false, error: 'Signature verification failed' };
+		}
+
+		return { valid: true };
+	} catch (err) {
+		return {
+			valid: false,
+			error: `Verification error: ${err instanceof Error ? err.message : 'Unknown error'}`,
+		};
+	}
+}
+
+function normalizeForJson(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(normalizeForJson);
+	}
+
+	if (value && typeof value === 'object') {
+		const entries = Object.entries(value as Record<string, unknown>)
+			.filter(([, entryValue]) => entryValue !== undefined)
+			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+		return Object.fromEntries(entries.map(([key, entryValue]) => [key, normalizeForJson(entryValue)]));
+	}
+
+	return value;
+}
+
+function canonicalJson(value: unknown): string {
+	return JSON.stringify(normalizeForJson(value));
+}
+
+function isManifestSignatureInfo(value: unknown): value is ManifestSignatureInfo {
+	return !!value
+		&& typeof value === 'object'
+		&& (value as ManifestSignatureInfo).algorithm === 'Ed25519'
+		&& !!(value as ManifestSignatureInfo).value
+		&& (value as ManifestSignatureInfo).publicKeyJwk?.kty === 'OKP'
+		&& (value as ManifestSignatureInfo).publicKeyJwk?.crv === 'Ed25519'
+		&& !!(value as ManifestSignatureInfo).publicKeyJwk?.x;
+}
+
+function decodeBase64Url(value: string): ArrayBuffer {
+	const padded = value.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - value.length % 4) % 4);
+	const buffer = Buffer.from(padded, 'base64');
+	return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+}
+
+async function verifyEd25519Envelope(manifest: PluginManifest): Promise<VerifyResult> {
+	try {
+		if (!isManifestSignatureInfo(manifest.signature)) {
+			return { valid: false, error: 'Invalid Ed25519 signature metadata' };
+		}
+
+		if (!manifest.signed || typeof manifest.signed !== 'object') {
+			return { valid: false, error: 'Manifest is missing signed payload' };
+		}
+
+		const subtle = globalThis.crypto?.subtle || webcrypto.subtle;
+		const verifyKey = await subtle.importKey(
+			'jwk',
+			manifest.signature.publicKeyJwk,
+			{ name: 'Ed25519' },
+			false,
+			['verify']
+		);
+
+		const valid = await subtle.verify(
+			{ name: 'Ed25519' },
+			verifyKey,
+			decodeBase64Url(manifest.signature.value),
+			new TextEncoder().encode(canonicalJson(manifest.signed))
+		);
 
 		if (!valid) {
 			return { valid: false, error: 'Signature verification failed' };
@@ -106,7 +184,7 @@ export async function verifyManifest(
 		return { valid: false, error: 'Unsupported manifest version' };
 	}
 
-	if (!manifest.plugin?.slug) {
+	if (!manifest.plugin?.slug && !manifest.pack?.slug) {
 		return { valid: false, error: 'Missing plugin slug in manifest' };
 	}
 
@@ -123,8 +201,9 @@ export async function verifyManifest(
 
 	// Verify signature unless skipped
 	if (!options.skipSignature) {
-		const key = getVerificationKey();
-		const signatureResult = verifyManifestSignature(manifest, key);
+		const signatureResult = isManifestSignatureInfo(manifest.signature)
+			? await verifyEd25519Envelope(manifest)
+			: verifyManifestSignature(manifest, getVerificationKey());
 		if (!signatureResult.valid) {
 			return signatureResult;
 		}

@@ -21,17 +21,38 @@ export interface ManifestSkill {
 	downloadUrl: string;
 }
 
+export interface ManifestSignatureInfo {
+	algorithm: 'Ed25519';
+	keyId: string;
+	publicKeyJwk: {
+		kty: 'OKP';
+		crv: 'Ed25519';
+		x: string;
+	};
+	signedAt: string;
+	value: string;
+}
+
 /** Plugin manifest response */
 export interface PluginManifest {
 	version: '1.0';
+	kind?: 'pack';
 	plugin: {
 		slug: string;
 		name: string;
 		version: string;
 	};
+	pack?: {
+		slug: string;
+		name: string;
+		version: string;
+		visibility?: 'public' | 'private';
+	};
 	skills: ManifestSkill[];
-	signature: string;
+	signature: string | ManifestSignatureInfo;
 	generatedAt: string;
+	schemaVersion?: '2.0';
+	signed?: unknown;
 }
 
 /** Plugin info response */
@@ -65,6 +86,7 @@ export interface PluginListItem {
 	name: string;
 	description: string | null;
 	pluginType: 'curated' | 'scenario' | 'user';
+	type?: 'curated' | 'scenario' | 'user';
 	visibility: 'public' | 'private';
 	pricing: 'free' | 'paid';
 	skillCount: number;
@@ -104,6 +126,65 @@ export class PluginApiError extends Error {
 	}
 }
 
+type JsonObject = Record<string, unknown>;
+
+function isJsonObject(value: unknown): value is JsonObject {
+	return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeManifest(rawManifest: unknown): PluginManifest {
+	if (!isJsonObject(rawManifest)) {
+		return rawManifest as PluginManifest;
+	}
+
+	const manifest = { ...rawManifest } as JsonObject;
+	const pack = isJsonObject(manifest.pack) ? manifest.pack : null;
+	const signed = isJsonObject(manifest.signed) ? manifest.signed : null;
+	const signedPack = signed && isJsonObject(signed.pack) ? signed.pack : null;
+	const sourcePack = pack || signedPack;
+
+	if (!manifest.plugin && sourcePack?.slug && sourcePack.name) {
+		manifest.plugin = {
+			slug: String(sourcePack.slug),
+			name: String(sourcePack.name),
+			version: String(sourcePack.version || '1.0.0'),
+		};
+	}
+
+	if (!manifest.pack && sourcePack?.slug && sourcePack.name) {
+		manifest.pack = {
+			slug: String(sourcePack.slug),
+			name: String(sourcePack.name),
+			version: String(sourcePack.version || '1.0.0'),
+			visibility: sourcePack.visibility,
+		};
+	}
+
+	if (!manifest.skills && signed && Array.isArray(signed.skills)) {
+		manifest.skills = signed.skills;
+	}
+
+	if (!manifest.version) {
+		manifest.version = signed?.version || '1.0';
+	}
+
+	if (!manifest.generatedAt && signed?.generatedAt) {
+		manifest.generatedAt = signed.generatedAt;
+	}
+
+	return manifest as unknown as PluginManifest;
+}
+
+function normalizePluginItem(item: JsonObject): JsonObject {
+	const normalized = { ...item };
+	const type = normalized.pluginType ?? normalized.packType ?? normalized.type;
+	if (type && !normalized.pluginType) normalized.pluginType = type;
+	if (!normalized.pricing) normalized.pricing = 'free';
+	if (normalized.priceCents === undefined) normalized.priceCents = 0;
+	if (!normalized.currency) normalized.currency = 'USD';
+	return normalized;
+}
+
 /**
  * Fetch plugin manifest for installation
  */
@@ -137,8 +218,7 @@ export async function fetchManifest(
 		);
 	}
 
-	const manifest = (await response.json()) as PluginManifest;
-	return manifest;
+	return normalizeManifest(await response.json());
 }
 
 /**
@@ -174,8 +254,8 @@ export async function fetchPluginInfo(
 		);
 	}
 
-	const result = (await response.json()) as { data: PluginInfo };
-	return result.data;
+	const result = (await response.json()) as { data: JsonObject };
+	return normalizePluginItem(result.data) as unknown as PluginInfo;
 }
 
 /**
@@ -212,7 +292,11 @@ export async function fetchPluginList(
 		);
 	}
 
-	return (await response.json()) as PluginListResponse;
+	const result = (await response.json()) as { data: JsonObject[]; pagination: PluginListResponse['pagination'] };
+	return {
+		...result,
+		data: (result.data || []).map((item) => normalizePluginItem(item)) as unknown as PluginListItem[],
+	};
 }
 
 /**

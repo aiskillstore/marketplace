@@ -67,31 +67,34 @@ export function getSkillPath(config: PluginConfig, skillSlug: string): string {
 }
 
 /**
- * Get the API endpoint for a specific plugin manifest
+ * Get the API endpoint for a specific pack manifest.
+ *
+ * Function names keep the old "plugin" wording for SDK compatibility, but new
+ * clients should use the canonical /packs API.
  */
 export function getManifestUrl(config: PluginConfig, pluginSlug: string): string {
-	return `${config.apiBaseUrl}/plugins/${pluginSlug}/manifest`;
+	return `${config.apiBaseUrl}/packs/${pluginSlug}/manifest`;
 }
 
 /**
  * Get the API endpoint for recording an installation
  */
 export function getInstallUrl(config: PluginConfig, pluginSlug: string): string {
-	return `${config.apiBaseUrl}/plugins/${pluginSlug}/install`;
+	return `${config.apiBaseUrl}/packs/${pluginSlug}/install`;
 }
 
 /**
  * Get the API endpoint for plugin info
  */
 export function getPluginInfoUrl(config: PluginConfig, pluginSlug: string): string {
-	return `${config.apiBaseUrl}/plugins/${pluginSlug}`;
+	return `${config.apiBaseUrl}/packs/${pluginSlug}`;
 }
 
 /**
  * Get the API endpoint for plugin listing
  */
 export function getPluginListUrl(config: PluginConfig): string {
-	return `${config.apiBaseUrl}/plugins`;
+	return `${config.apiBaseUrl}/packs`;
 }
 
 /**

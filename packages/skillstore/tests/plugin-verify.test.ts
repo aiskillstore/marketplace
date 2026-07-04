@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { createHmac, createHash } from 'node:crypto';
+import { createHmac, createHash, webcrypto } from 'node:crypto';
 import {
 	getVerificationKey,
 	verifyManifestSignature,
@@ -12,6 +12,31 @@ import {
 } from '../src/lib/plugin-verify.js';
 import type { PluginManifest } from '../src/lib/plugin-api.js';
 import type { SkillManifest } from '../src/lib/skill-api.js';
+
+function normalizeForJson(value: unknown): unknown {
+	if (Array.isArray(value)) {
+		return value.map(normalizeForJson);
+	}
+	if (value && typeof value === 'object') {
+		const entries = Object.entries(value as Record<string, unknown>)
+			.filter(([, entryValue]) => entryValue !== undefined)
+			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+		return Object.fromEntries(entries.map(([key, entryValue]) => [key, normalizeForJson(entryValue)]));
+	}
+	return value;
+}
+
+function canonicalJson(value: unknown): string {
+	return JSON.stringify(normalizeForJson(value));
+}
+
+function encodeBase64Url(bytes: Uint8Array): string {
+	return Buffer.from(bytes)
+		.toString('base64')
+		.replace(/\+/g, '-')
+		.replace(/\//g, '_')
+		.replace(/=+$/g, '');
+}
 
 describe('plugin-verify', () => {
 	describe('getVerificationKey', () => {
@@ -288,6 +313,63 @@ describe('plugin-verify', () => {
 			manifest.signature = 'invalid';
 
 			const result = await verifyManifest(manifest, { skipSignature: true });
+
+			expect(result.valid).toBe(true);
+		});
+
+		it('should validate a canonical pack manifest with Ed25519 signature', async () => {
+			const subtle = globalThis.crypto?.subtle || webcrypto.subtle;
+			const keyPair = await subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+			const privateJwk = await subtle.exportKey('jwk', keyPair.privateKey);
+			const publicJwk = await subtle.exportKey('jwk', keyPair.publicKey);
+			const signed = {
+				kind: 'pack',
+				version: '1.0',
+				generatedAt: '2026-07-04T00:00:00Z',
+				pack: {
+					slug: 'frontend-ui-builder-pack',
+					name: 'Frontend UI Builder Pack',
+					version: '2026.07.04',
+					visibility: 'public',
+				},
+				skills: [
+					{
+						slug: 'skill-1',
+						name: 'Skill 1',
+						version: '1.0.0',
+						downloadUrl: 'https://example.com/SKILL.md',
+						contentHash: 'abc',
+					},
+				],
+			};
+			const rawSignature = await subtle.sign(
+				{ name: 'Ed25519' },
+				await subtle.importKey('jwk', privateJwk, { name: 'Ed25519' }, false, ['sign']),
+				new TextEncoder().encode(canonicalJson(signed))
+			);
+			const manifest = {
+				...signed,
+				plugin: {
+					slug: signed.pack.slug,
+					name: signed.pack.name,
+					version: signed.pack.version,
+				},
+				schemaVersion: '2.0',
+				signed,
+				signature: {
+					algorithm: 'Ed25519',
+					keyId: 'test-key',
+					publicKeyJwk: {
+						kty: 'OKP',
+						crv: 'Ed25519',
+						x: publicJwk.x,
+					},
+					signedAt: '2026-07-04T00:00:00Z',
+					value: encodeBase64Url(new Uint8Array(rawSignature)),
+				},
+			} as PluginManifest;
+
+			const result = await verifyManifest(manifest);
 
 			expect(result.valid).toBe(true);
 		});

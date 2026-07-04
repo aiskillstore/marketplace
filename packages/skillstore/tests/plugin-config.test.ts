@@ -116,33 +116,33 @@ describe('plugin-config', () => {
 		describe('getManifestUrl', () => {
 			it('should build correct manifest URL', () => {
 				const url = getManifestUrl(config, 'my-plugin');
-				expect(url).toBe('https://api.test.com/plugins/my-plugin/manifest');
+				expect(url).toBe('https://api.test.com/packs/my-plugin/manifest');
 			});
 
 			it('should handle special characters in slug', () => {
 				const url = getManifestUrl(config, 'plugin-with-dashes');
-				expect(url).toBe('https://api.test.com/plugins/plugin-with-dashes/manifest');
+				expect(url).toBe('https://api.test.com/packs/plugin-with-dashes/manifest');
 			});
 		});
 
 		describe('getInstallUrl', () => {
 			it('should build correct install URL', () => {
 				const url = getInstallUrl(config, 'my-plugin');
-				expect(url).toBe('https://api.test.com/plugins/my-plugin/install');
+				expect(url).toBe('https://api.test.com/packs/my-plugin/install');
 			});
 		});
 
 		describe('getPluginInfoUrl', () => {
 			it('should build correct plugin info URL', () => {
 				const url = getPluginInfoUrl(config, 'my-plugin');
-				expect(url).toBe('https://api.test.com/plugins/my-plugin');
+				expect(url).toBe('https://api.test.com/packs/my-plugin');
 			});
 		});
 
 		describe('getPluginListUrl', () => {
 			it('should build correct plugin list URL', () => {
 				const url = getPluginListUrl(config);
-				expect(url).toBe('https://api.test.com/plugins');
+				expect(url).toBe('https://api.test.com/packs');
 			});
 		});
 

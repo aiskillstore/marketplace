@@ -73,13 +73,63 @@ describe('plugin-api', () => {
 			const result = await fetchManifest(config, 'test-plugin');
 
 			expect(mockFetch).toHaveBeenCalledWith(
-				'https://api.test.com/plugins/test-plugin/manifest',
+				'https://api.test.com/packs/test-plugin/manifest',
 				expect.objectContaining({
 					method: 'GET',
 					headers: { Accept: 'application/json' },
 				})
 			);
 			expect(result).toEqual(mockManifest);
+		});
+
+		it('should normalize canonical pack manifest to plugin-compatible shape', async () => {
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: () => Promise.resolve({
+					kind: 'pack',
+					version: '1.0',
+					generatedAt: '2026-07-04T00:00:00Z',
+					pack: {
+						slug: 'frontend-ui-builder-pack',
+						name: 'Frontend UI Builder Pack',
+						version: '2026.07.04',
+						visibility: 'public',
+					},
+					skills: [
+						{ slug: 'skill-1', name: 'Skill 1', contentHash: 'abc', downloadUrl: 'https://example.com/SKILL.md' },
+					],
+					schemaVersion: '2.0',
+					signed: {
+						kind: 'pack',
+						version: '1.0',
+						pack: {
+							slug: 'frontend-ui-builder-pack',
+							name: 'Frontend UI Builder Pack',
+							version: '2026.07.04',
+							visibility: 'public',
+						},
+						skills: [],
+					},
+					signature: {
+						algorithm: 'Ed25519',
+						keyId: 'key',
+						publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'abc' },
+						signedAt: '2026-07-04T00:00:00Z',
+						value: 'sig',
+					},
+				}),
+			});
+
+			const result = await fetchManifest(config, 'frontend-ui-builder-pack');
+
+			expect(result.plugin).toEqual({
+				slug: 'frontend-ui-builder-pack',
+				name: 'Frontend UI Builder Pack',
+				version: '2026.07.04',
+			});
+			expect(result.pack?.slug).toBe('frontend-ui-builder-pack');
+			expect(result.skills).toHaveLength(1);
+			expect(typeof result.signature).toBe('object');
 		});
 
 		it('should throw PluginApiError on 404', async () => {
@@ -151,10 +201,37 @@ describe('plugin-api', () => {
 			const result = await fetchPluginInfo(config, 'test-plugin');
 
 			expect(mockFetch).toHaveBeenCalledWith(
-				'https://api.test.com/plugins/test-plugin',
+				'https://api.test.com/packs/test-plugin',
 				expect.any(Object)
 			);
 			expect(result).toEqual(mockInfo);
+		});
+
+		it('should normalize canonical pack detail fields', async () => {
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: () => Promise.resolve({
+					data: {
+						id: '123',
+						slug: 'test-pack',
+						name: 'Test Pack',
+						description: null,
+						type: 'scenario',
+						visibility: 'public',
+						skillCount: 3,
+						installCount: 10,
+						scenarioTags: ['frontend'],
+						skills: [],
+					},
+				}),
+			});
+
+			const result = await fetchPluginInfo(config, 'test-pack');
+
+			expect(result.pluginType).toBe('scenario');
+			expect(result.pricing).toBe('free');
+			expect(result.priceCents).toBe(0);
+			expect(result.currency).toBe('USD');
 		});
 
 		it('should throw error on failure', async () => {
@@ -183,6 +260,8 @@ describe('plugin-api', () => {
 					pluginType: 'curated',
 					visibility: 'public',
 					pricing: 'free',
+					priceCents: 0,
+					currency: 'USD',
 					skillCount: 3,
 					installCount: 50,
 					score: 85,
@@ -200,10 +279,37 @@ describe('plugin-api', () => {
 			const result = await fetchPluginList(config);
 
 			expect(mockFetch).toHaveBeenCalledWith(
-				'https://api.test.com/plugins',
+				'https://api.test.com/packs',
 				expect.any(Object)
 			);
 			expect(result).toEqual(mockResponse);
+		});
+
+		it('should normalize canonical pack list fields', async () => {
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: () => Promise.resolve({
+					data: [
+						{
+							id: '1',
+							slug: 'pack-1',
+							name: 'Pack 1',
+							description: null,
+							type: 'user',
+							visibility: 'public',
+							skillCount: 3,
+							installCount: 50,
+							score: 85,
+						},
+					],
+					pagination: { page: 1, limit: 10, total: 1, totalPages: 1 },
+				}),
+			});
+
+			const result = await fetchPluginList(config);
+
+			expect(result.data[0].pluginType).toBe('user');
+			expect(result.data[0].pricing).toBe('free');
 		});
 
 		it('should apply filter options to URL', async () => {
@@ -249,7 +355,7 @@ describe('plugin-api', () => {
 			const result = await reportInstallation(config, 'test-plugin');
 
 			expect(mockFetch).toHaveBeenCalledWith(
-				'https://api.test.com/plugins/test-plugin/install',
+				'https://api.test.com/packs/test-plugin/install',
 				expect.objectContaining({
 					method: 'POST',
 					body: JSON.stringify({ method: 'cli' }),
