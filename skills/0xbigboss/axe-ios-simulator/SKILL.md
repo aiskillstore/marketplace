@@ -1,6 +1,6 @@
 ---
 name: axe-ios-simulator
-description: iOS Simulator automation using AXe CLI for touch gestures, text input, hardware buttons, screenshots, video recording, and accessibility inspection. Use when automating iOS Simulator interactions, writing UI tests, capturing screenshots/video, or inspecting accessibility elements. Triggers on iOS Simulator automation, AXe CLI usage, simulator tap/swipe/gesture commands, or accessibility testing tasks.
+description: Use when automating iOS Simulator interactions, capturing screenshots/video, or inspecting accessibility via AXe CLI.
 ---
 
 # AXe iOS Simulator Automation

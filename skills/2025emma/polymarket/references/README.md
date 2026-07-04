@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Real time data client
 
 This client provides a wrapper to connect to the `real-time-data-streaming` `WebSocket` service.

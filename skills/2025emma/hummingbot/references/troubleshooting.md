@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Hummingbot - Troubleshooting
 
 **Pages:** 1

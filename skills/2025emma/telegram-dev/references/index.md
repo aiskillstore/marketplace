@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Telegram 生态开发资源索引
 
 ## 官方文档

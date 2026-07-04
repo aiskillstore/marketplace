@@ -1,8 +1,11 @@
 ---
 name: file-search
 description: "Modern file and content search using fd, ripgrep (rg), and fzf. Triggers on: fd, ripgrep, rg, find files, search code, fzf, fuzzy find, search codebase."
+license: MIT
 compatibility: "Requires fd, ripgrep (rg), and optionally fzf. Install: brew install fd ripgrep fzf (macOS)."
 allowed-tools: "Bash"
+metadata:
+  author: claude-mods
 ---
 
 # File Search

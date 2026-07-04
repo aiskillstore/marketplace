@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Coingecko - Introduction
 
 **Pages:** 4

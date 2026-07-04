@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Polymarket - Trading
 
 **Pages:** 26

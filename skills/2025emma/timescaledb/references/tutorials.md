@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb - Tutorials
 
 **Pages:** 12

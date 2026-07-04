@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Get comments by comment id
 Source: https://docs.polymarket.com/api-reference/comments/get-comments-by-comment-id
 

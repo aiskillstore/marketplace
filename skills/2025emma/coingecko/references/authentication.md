@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Coingecko - Authentication
 
 **Pages:** 3

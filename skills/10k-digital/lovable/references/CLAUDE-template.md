@@ -10,11 +10,13 @@
 - **GitHub**: [GITHUB_URL]
 - **Backend**: [Lovable Cloud / Own Supabase]
 - **Supabase Ref**: [SUPABASE_REF] (if own Supabase)
+- **Architecture**: [Vite SPA (CSR) / TanStack Start (SSR)]
 
 ## Project Structure Map
 
 > Quick navigation guide - run `/lovable:map --update` to refresh
 
+<!-- FOR VITE SPA PROJECTS (vite.config.ts): use this layout -->
 ### Directory Layout
 ```
 src/
@@ -28,7 +30,7 @@ src/
 [ADDITIONAL_DIRS]
 
 supabase/
-├── functions/     # Edge Functions ([FUNCTION_COUNT] functions)
+├── functions/     # Supabase Edge Functions ([FUNCTION_COUNT]) — needs deploy
 └── migrations/    # Database migrations ([MIGRATION_COUNT] migrations)
 ```
 
@@ -52,7 +54,58 @@ supabase/
 | Page routes | `src/pages/` or `src/App.tsx` |
 | API calls | `src/hooks/` or `src/integrations/` |
 | Types | `src/integrations/supabase/types.ts` |
-| Edge functions | `supabase/functions/[name]/index.ts` |
+| Supabase Edge functions | `supabase/functions/[name]/index.ts` |
+
+<!-- FOR TANSTACK START PROJECTS (app.config.ts): replace above with this layout -->
+<!--
+### Directory Layout
+```
+app/
+├── routes/        # File-based routes ([ROUTE_COUNT] routes)
+│   ├── __root.tsx # Root layout
+│   └── *.tsx      # Page routes (filename = URL path)
+├── components/    # [COMPONENT_PATTERN] ([COMPONENT_COUNT] components)
+│   └── ui/        # shadcn/ui primitives
+├── lib/           # Utilities and helpers
+├── integrations/  # External integrations
+│   └── supabase/  # Supabase client and generated types
+[ADDITIONAL_DIRS]
+
+supabase/
+├── functions/     # Supabase Edge Functions ([FUNCTION_COUNT]) — needs deploy
+└── migrations/    # Database migrations ([MIGRATION_COUNT] migrations)
+```
+
+### Key Files
+| File | Purpose |
+|------|---------|
+| `app/routes/__root.tsx` | Root layout (wraps all pages) |
+| `app/routes/index.tsx` | Home page (/) |
+| `app/lib/utils.ts` | Shared utilities |
+| `app/integrations/supabase/client.ts` | Supabase client |
+| `app.config.ts` | TanStack Start configuration |
+[ADDITIONAL_KEY_FILES]
+
+### Patterns
+- **Architecture**: SSR — HTML rendered server-side before browser
+- **Routing**: File-based (app/routes/*.tsx = URL routes)
+- **Server functions**: *.server.ts files auto-deploy — no Lovable prompt needed
+- **Components**: [COMPONENT_PATTERN_DESC]
+- **State**: [STATE_MANAGEMENT]
+- **Data Flow**: Routes (loaders) → Supabase Client → Edge Functions
+
+### Quick Lookup
+| Looking for... | Check here |
+|----------------|------------|
+| UI components | `app/components/ui/` |
+| Page routes | `app/routes/` (file = route) |
+| Root layout | `app/routes/__root.tsx` |
+| Server functions | `app/**/*.server.ts` (auto-deploy) |
+| API calls | `app/lib/` or `app/integrations/` |
+| Types | `app/integrations/supabase/types.ts` |
+| Supabase Edge functions | `supabase/functions/[name]/index.ts` |
+```
+-->
 
 *Map generated: [MAP_TIMESTAMP]*
 
@@ -89,9 +142,10 @@ Changes live in Lovable
 
 ## Workflow Rules
 
+<!-- If Architecture: Vite SPA, use these rules -->
 ### ✅ Safe to edit and push to `main`:
 - All files in `src/` (components, pages, hooks, utils)
-- Config files (vite.config.ts, tailwind.config.js)
+- Config files (`vite.config.ts`, `tailwind.config.js`)
 - Package.json dependencies
 - Edge Function **code** in `supabase/functions/`
 - Migration **files** in `supabase/migrations/`
@@ -105,7 +159,32 @@ Changes live in Lovable
 - Set up RLS policies
 - Add secrets (Cloud → Secrets UI)
 - Create storage buckets
-- Deploy Edge Functions
+- Deploy Supabase Edge Functions
+
+<!-- If Architecture: TanStack Start, replace the above with:
+
+### ✅ Safe to edit and push to `main`:
+- All files in `app/` (routes, components, lib, integrations)
+- TanStack server functions (`app/**/*.server.ts`) — auto-deploy via GitHub, no prompt needed
+- Config files (`app.config.ts`, `tailwind.config.js`)
+- Package.json dependencies
+- Supabase Edge Function **code** in `supabase/functions/`
+- Migration **files** in `supabase/migrations/`
+
+### ⚠️ After editing, provide Lovable prompt:
+- **Supabase Edge Functions**: `"Deploy the [name] edge function"`
+- **Migrations**: `"Apply pending Supabase migrations"`
+
+> Note: TanStack server functions (`*.server.ts` in `app/`) are NOT Supabase Edge Functions.
+> They deploy automatically with the rest of your app — no Lovable prompt needed.
+
+### ❌ Must go through Lovable:
+- Create/modify database tables
+- Set up RLS policies
+- Add secrets (Cloud → Secrets UI)
+- Create storage buckets
+- Deploy Supabase Edge Functions
+-->
 
 ## Secrets
 
@@ -149,9 +228,10 @@ Changes live in Lovable
 
 ## Yolo Mode Configuration (Beta)
 
-> ⚠️ Beta feature - uses browser automation to auto-submit Lovable prompts and run tests
+> ⚠️ Beta feature - auto-submits Lovable prompts via MCP or browser automation
 
 - **Status**: [on / off]
+- **Deployment Method**: [auto / mcp / browser]  # auto tries MCP first, then browser
 - **Auto-Deploy**: [on / off]  # Auto-deploy to Lovable after git push (no manual command needed)
 - **Deployment Testing**: [on / off]  # Run verification tests after Lovable deployments
 - **Auto-run Tests**: [on / off]  # Run project tests after every git push
@@ -163,21 +243,50 @@ Changes live in Lovable
   - Migration application with verification
   - Automated code testing after every git push
 
-**Configure:** Run `/lovable:yolo on/off [--auto-deploy|--no-auto-deploy] [--testing|--no-testing] [--auto-tests|--no-auto-tests] [--debug]`
+**Configure:** Run `/lovable:yolo on/off [--mcp|--browser|--auto] [--testing|--no-testing] [--debug]`
+**Connect MCP:** Run `/lovable:connect-mcp` for faster, more reliable automation
+
+**Deployment methods:**
+- **MCP** (recommended): Sends prompts via Lovable API - faster, no Chrome extension needed
+  - Setup: `/lovable:connect-mcp`
+- **Browser** (fallback): Navigates to Lovable UI - requires Chrome extension
 
 **How it works:**
-- When yolo mode is on, I'll automatically navigate to Lovable and submit prompts
-- **Auto-Deploy** (NEW): Automatically deploys backend changes after git push - no need to run `/deploy-edge`
+- **Deployment Method: auto** - Tries MCP first, falls back to browser if not connected
+- **Deployment Method: mcp** - Uses Lovable MCP only (best performance)
+- **Deployment Method: browser** - Uses browser automation (legacy)
+- Auto-Deploy: Automatically deploys backend changes after git push - no need to run `/deploy-edge`
 - Deployment testing verifies deployments (3 levels: basic, console errors, functional)
-- Auto-run tests execute your project's test suite after every successful git push to main
-- Debug mode shows detailed browser automation logs
 - Always has manual fallback if automation fails
-- Test failures don't block deployments (manual review available)
 
 **Auto-Deploy Flow:**
 ```
-git push origin main → Claude detects backend changes → Automatic deployment starts
+git push origin main → Claude detects backend changes → Automatic deployment starts (MCP or browser)
 ```
+
+## Preview Testing Configuration
+
+> 🧪 Beta - tests the app in Lovable Preview mode via browser automation.
+> Test workspace: `.claude/lovable-claude/test/` (plans, profiles, results).
+
+- **Status**: [on / off]
+- **Preview URL**: [https://preview--app-name.lovable.app - WITHOUT token]
+- **Access Method**: [token / browser-login]
+- **Token Captured**: [date] (valid ~7 days - renew with `/lovable:test-init --refresh-token`)
+- **Test After Implementation**: [on / off]  # run affected test plans after each feature
+- **Test After Deploy**: [off / smoke / all]  # run after yolo auto-deploy
+- **Last Test Sync**: [commit hash]
+
+**Commands:**
+- `/lovable:test-run [TP-NNN | --all | --changed | --smoke]` - run tests in Preview
+- `/lovable:test-sync` - update test plans for new/changed features
+- `/lovable:test-init` - re-run setup wizard / refresh token
+
+**Maintenance rule:** when implementing a new feature, also add/update unit tests and
+test plans covering it (or run `/lovable:test-sync`). Keep plans' `covers:` paths accurate.
+
+> 🔐 The preview token is stored ONLY in `.claude/lovable-claude/test/preview-token.local`
+> (gitignored). Never write it to this file or commit it.
 
 ## Quick Prompts Reference
 

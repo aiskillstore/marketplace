@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Hummingbot - Connectors
 
 **Pages:** 100

@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Changelog
 Source: https://docs.coingecko.com/changelog
 

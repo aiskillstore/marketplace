@@ -1,259 +1,119 @@
 # Deep Research Skill for Claude Code
 
-A comprehensive research engine that brings Claude Desktop's Advanced Research capabilities (and more) to Claude Code terminal.
-
-## Features
-
-### Core Research Pipeline
-- **8.5-Phase Research Pipeline**: Scope → Plan → Retrieve (Parallel) → Triangulate → **Outline Refinement** → Synthesize → Critique → Refine → Package
-- **Multiple Research Modes**: Quick, Standard, Deep, and UltraDeep
-- **Graph-of-Thoughts Reasoning**: Non-linear exploration with branching thought paths
-
-### 2025 Enhancements (Latest - v2.2)
-- **🔄 Auto-Continuation System (NEW)**: **TRUE UNLIMITED length** (50K, 100K+ words) via recursive agent spawning with context preservation
-- **📄 Progressive File Assembly**: Section-by-section generation with quality safeguards
-- **⚡ Parallel Search Execution**: 5-10 concurrent searches + parallel agents (3-5x faster Phase 3)
-- **🎯 First Finish Search (FFS) Pattern**: Adaptive completion based on quality thresholds
-- **🔍 Enhanced Citation Validation (CiteGuard)**: Hallucination detection, URL verification, multi-source cross-checking
-- **📋 Dynamic Outline Evolution (WebWeaver)**: Adapt structure after Phase 4 based on evidence
-- **🔗 Attribution Gradients UI**: Interactive citation tooltips showing evidence chains in HTML reports
-- **🛡️ Anti-Fatigue Enforcement**: Prose-first quality checks prevent bullet-point degradation
-
-### Traditional Strengths
-- **Citation Management**: Automatic source tracking and bibliography generation
-- **Source Credibility Assessment**: Evaluates source quality and potential biases
-- **Structured Reports**: Professional markdown, HTML (McKinsey-style), and PDF outputs
-- **Verification & Triangulation**: Cross-references claims across multiple sources
+Enterprise-grade research engine for Claude Code. Produces citation-backed reports with source credibility scoring, multi-provider search, and automated validation.
 
 ## Installation
 
-The skill is already installed globally in `~/.claude/skills/deep-research/`
+```bash
+# Clone into Claude Code skills directory
+git clone https://github.com/199-biotechnologies/claude-deep-research-skill.git ~/.claude/skills/deep-research
+```
 
 No additional dependencies required for basic usage.
 
-## Usage
+### Optional: search-cli (multi-provider search)
 
-### In Claude Code
-
-Simply invoke the skill:
-
-```
-Use deep research to analyze the state of quantum computing in 2025
-```
-
-Or specify a mode:
-
-```
-Use deep research in ultradeep mode to compare PostgreSQL vs Supabase
-```
-
-### Direct CLI Usage
+For aggregated search across Brave, Serper, Exa, Jina, and Firecrawl:
 
 ```bash
-# Standard research
-python ~/.claude/skills/deep-research/research_engine.py --query "Your research question" --mode standard
+brew tap 199-biotechnologies/tap && brew install search-cli
+search config set keys.brave YOUR_KEY  # configure at least one provider
+```
 
-# Deep research (all 8 phases)
-python ~/.claude/skills/deep-research/research_engine.py --query "Your research question" --mode deep
+## Usage
 
-# Quick research (3 phases only)
-python ~/.claude/skills/deep-research/research_engine.py --query "Your research question" --mode quick
+```
+deep research on the current state of quantum computing
+```
 
-# Ultra-deep research (extended iterations)
-python ~/.claude/skills/deep-research/research_engine.py --query "Your research question" --mode ultradeep
+```
+deep research in ultradeep mode: compare PostgreSQL vs Supabase for our stack
 ```
 
 ## Research Modes
 
 | Mode | Phases | Duration | Best For |
 |------|--------|----------|----------|
-| **Quick** | 3 phases | 2-5 min | Simple topics, initial exploration |
-| **Standard** | 6 phases | 5-10 min | Most research questions |
-| **Deep** | 8 phases | 10-20 min | Complex topics requiring thorough analysis |
-| **UltraDeep** | 8+ phases | 20-45 min | Critical decisions, comprehensive reports |
+| Quick | 3 | 2-5 min | Initial exploration |
+| Standard | 6 | 5-10 min | Most research questions |
+| Deep | 8 | 10-20 min | Complex topics, critical decisions |
+| UltraDeep | 8+ | 20-45 min | Comprehensive reports, maximum rigor |
+
+## Pipeline
+
+Scope &rarr; Plan &rarr; **Retrieve** (parallel search + agents) &rarr; Triangulate &rarr; Outline Refinement &rarr; Synthesize &rarr; Critique (with loop-back) &rarr; Refine &rarr; Package
+
+Key features:
+- **Step 0**: Retrieves current date before searches (prevents stale training-data year assumptions)
+- **Parallel retrieval**: 5-10 concurrent searches + 2-3 focused sub-agents returning structured evidence objects
+- **First Finish Search**: Adaptive quality thresholds by mode
+- **Critique loop-back**: Phase 6 can return to Phase 3 with delta-queries if critical gaps found
+- **Multi-persona red teaming**: Skeptical Practitioner, Adversarial Reviewer, Implementation Engineer (Deep/UltraDeep)
+- **Disk-persisted citations**: `sources.json` survives context compaction and continuation agents
 
 ## Output
 
-Research reports are saved to organized folders in `~/Documents/[Topic]_Research_[Date]/`
+Reports saved to `~/Documents/[Topic]_Research_[Date]/`:
+- Markdown (primary source of truth)
+- HTML (McKinsey-style, auto-opened in browser)
+- PDF (professional print via WeasyPrint)
 
-Each report includes:
-- Executive Summary
-- Detailed Analysis with Citations
-- Synthesis & Insights
-- Limitations & Caveats
-- Recommendations
-- Full Bibliography
-- Methodology Appendix
-
-### Unlimited Report Generation (2025 Auto-Continuation System)
-
-Reports use **progressive file assembly with auto-continuation** - achieving truly unlimited length through recursive agent spawning:
-
-**How It Works:**
-
-1. **Initial Generation (18K words)**
-   - Generate sections 1-10 progressively
-   - Each section written to file immediately (stays under 32K limit per agent)
-   - Save continuation state with research context
-
-2. **Auto-Continuation (if needed)**
-   - Automatically spawns continuation agent via Task tool
-   - Continuation agent loads state: themes, narrative arc, citations, quality metrics
-   - Generates next batch of sections (another 18K words)
-   - Updates state and spawns next agent if more sections remain
-
-3. **Recursive Chaining**
-   - Each agent stays under 32K output token limit
-   - Chain continues until all sections complete
-   - Final agent generates bibliography and validates report
-
-**Realistic Report Sizes:**
-- **Quick mode**: 2,000-4,000 words (single run) ✅
-- **Standard mode**: 4,000-8,000 words (single run) ✅
-- **Deep mode**: 8,000-15,000 words (single run) ✅
-- **UltraDeep mode**: 20,000-100,000+ words (auto-continuation) ✅
-
-**Example: 50,000 word report:**
-- Agent 1: Sections 1-10 (18K words) → Spawns Agent 2
-- Agent 2: Sections 11-20 (18K words) → Spawns Agent 3
-- Agent 3: Sections 21-25 + Bibliography (14K words) → Complete!
-- Total: 50K words across 3 agents, each under 32K limit
-
-**Context Preservation (Quality Safeguards):**
-
-Continuation state includes:
-- ✅ Research question and key themes
-- ✅ Main findings summaries (100 words each)
-- ✅ Narrative arc position (beginning/middle/end)
-- ✅ Quality metrics (avg words, citation density, prose ratio)
-- ✅ All citations used + bibliography entries
-- ✅ Writing style characteristics
-
-Each continuation agent:
-- Reads last 3 sections to understand flow
-- Maintains established themes and style
-- Continues citation numbering correctly
-- Matches quality metrics (±20% tolerance)
-- Verifies coherence before each section
-
-**Quality Gates (Per Section):**
-- [ ] Word count: Within ±20% of average
-- [ ] Citation density: Matches established rate
-- [ ] Prose ratio: ≥80% prose (not bullets)
-- [ ] Theme alignment: Ties to key themes
-- [ ] Style consistency: Matches established patterns
-
-**Benefits:**
-- ✅ TRUE unlimited length (50K, 100K+ words achievable)
-- ✅ Fully automatic (no manual intervention)
-- ✅ Context preserved across continuations
-- ✅ Quality maintained throughout
-- ✅ Each agent stays under 32K token limit
-- ✅ Progressive assembly prevents truncation
-
-## Examples
-
-### Technology Analysis
-```
-Use deep research to evaluate whether we should adopt Next.js 15 for our project
-```
-
-### Market Research
-```
-Use deep research to analyze longevity biotech funding trends 2023-2025
-```
-
-### Technical Decision
-```
-Use deep research to compare authentication solutions: Auth0 vs Clerk vs Supabase Auth
-```
-
-### Scientific Review
-```
-Use deep research in ultradeep mode to summarize recent advances in senolytic therapies
-```
+Reports >18K words auto-continue via recursive agent spawning with context preservation.
 
 ## Quality Standards
 
-Every research output:
-- ✅ Minimum 10+ distinct sources
-- ✅ Citations for all major claims
-- ✅ Cross-verified facts (3+ sources)
-- ✅ Executive summary under 250 words
-- ✅ Limitations section
-- ✅ Full bibliography
-- ✅ Methodology documentation
+- 10+ sources, 3+ per major claim
+- Executive summary 200-400 words
+- Findings 600-2,000 words each, prose-first (>=80%)
+- Full bibliography with URLs, no placeholders
+- Automated validation: `validate_report.py` (9 checks) + `verify_citations.py` (DOI/URL/hallucination detection)
+- Validation loop: validate &rarr; fix &rarr; retry (max 3 cycles)
+
+## Search Tools
+
+| Tool | Priority | Setup |
+|------|----------|-------|
+| search-cli | **Primary** — all searches go here first | `brew install search-cli` + API keys |
+| WebSearch | Fallback — if search-cli fails or rate-limited | None (built-in) |
+| Exa MCP | Optional — semantic/neural search alongside search-cli | MCP config |
 
 ## Architecture
 
 ```
 deep-research/
-├── SKILL.md                    # Main skill definition
-├── research_engine.py          # Core orchestration engine
-├── utils/
-│   ├── citation_manager.py    # Citation tracking & bibliography
-│   └── source_evaluator.py    # Source credibility assessment
-├── requirements.txt
-└── README.md
+├── SKILL.md                          # Skill entry point (lean, ~100 lines)
+├── reference/
+│   ├── methodology.md                # 8-phase pipeline details
+│   ├── report-assembly.md            # Progressive generation strategy
+│   ├── quality-gates.md              # Validation standards
+│   ├── html-generation.md            # McKinsey HTML conversion
+│   ├── continuation.md               # Auto-continuation protocol
+│   └── weasyprint_guidelines.md      # PDF generation
+├── templates/
+│   ├── report_template.md            # Report structure template
+│   └── mckinsey_report_template.html # HTML report template
+├── scripts/
+│   ├── validate_report.py            # 9-check structure validator
+│   ├── verify_citations.py           # DOI/URL/hallucination checker
+│   ├── source_evaluator.py           # Source credibility scoring
+│   ├── citation_manager.py           # Citation tracking
+│   ├── md_to_html.py                 # Markdown to HTML converter
+│   ├── verify_html.py                # HTML verification
+│   └── research_engine.py            # Core orchestration engine
+└── tests/
+    └── fixtures/                     # Test report fixtures
 ```
 
-## Tips for Best Results
+## Version History
 
-1. **Be Specific**: Frame questions clearly with context
-2. **Set Expectations**: Specify if you need comparisons, recommendations, or pure analysis
-3. **Choose Appropriate Mode**: Use Quick for exploration, Deep for decisions
-4. **Review Scope**: Check Phase 1 output to ensure research is on track
-5. **Leverage Citations**: Use citation numbers to drill deeper into specific sources
-
-## Comparison with Claude Desktop Research
-
-| Feature | Claude Desktop | Deep Research Skill |
-|---------|---------------|---------------------|
-| Multi-source synthesis | ✅ | ✅ |
-| Citation tracking | ✅ | ✅ |
-| Iterative refinement | ✅ | ✅ |
-| Source verification | ✅ | ✅ Enhanced |
-| Credibility scoring | ❌ | ✅ |
-| 8-phase methodology | ❌ | ✅ |
-| Graph-of-Thoughts | ❌ | ✅ |
-| Multiple modes | ❌ | ✅ |
-| Local file integration | ❌ | ✅ |
-| Code execution | ❌ | ✅ |
-
-## 2025 Research Papers Implemented
-
-This skill now incorporates cutting-edge techniques from 2025 academic research:
-
-1. **Parallel Execution** (GAP, Flash-Searcher, TPS-Bench)
-   - DAG-based parallel tool use for independent subtasks
-   - 3-5x faster retrieval phase
-   - Concurrent search strategies
-
-2. **First Finish Search** (arXiv 2505.18149)
-   - Quality threshold gates by mode
-   - Continue background searches for depth
-   - Optimal latency-accuracy tradeoff
-
-3. **Citation Validation** (CiteGuard, arXiv 2510.17853)
-   - Hallucination pattern detection
-   - Multi-source verification (DOI + URL)
-   - Strict mode for critical reports
-
-4. **Dynamic Outlines** (WebWeaver, arXiv 2509.13312)
-   - Evidence-driven structure adaptation
-   - Phase 4.5 refinement step
-   - Prevents locked-in research paths
-
-5. **Attribution Gradients** (arXiv 2510.00361)
-   - Interactive evidence chains
-   - Hover tooltips in HTML reports
-   - Improved auditability
-
-## Version
-
-2.0 (2025-11-05) - Major update with 2025 research enhancements
-1.0 (2025-11-04) - Initial release
+| Version | Date | Changes |
+|---------|------|---------|
+| 2.3.1 | 2026-03-19 | Template/validator harmonization, structured evidence, critique loop-back, multi-persona red teaming |
+| 2.3 | 2026-03-19 | Contract harmonization, search-cli integration, dynamic year detection, disk-persisted citations, validation loops |
+| 2.2 | 2025-11-05 | Auto-continuation system for unlimited length |
+| 2.1 | 2025-11-05 | Progressive file assembly |
+| 1.0 | 2025-11-04 | Initial release |
 
 ## License
 
-User skill - modify as needed for your workflow
+MIT - modify as needed for your workflow.

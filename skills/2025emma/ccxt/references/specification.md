@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Ccxt - Specification
 
 **Pages:** 2

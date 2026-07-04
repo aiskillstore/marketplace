@@ -1,60 +1,49 @@
 ---
 name: figjam-plugin
-description: FigJam plugin development workflow. Use when working on plugin code (code.ts, ui.ts), debugging WebSocket communication, or building the plugin.
+description: FigJam plugin development workflow. Use when modifying code.ts (canvas rendering), ui.ts (WebSocket/UI), fixing plugin build errors, or adding new rendering features.
 ---
 
 # FigJam Plugin Development
 
 ## Architecture
 
-Two-thread model:
+| Thread | File | APIs | Role |
+|--------|------|------|------|
+| Main | `code.ts` | `figma.*` only | Canvas rendering |
+| UI | `ui.ts` | Browser APIs | WebSocket client, connection UI |
 
-- `packages/plugin/src/code.ts` - Main thread (Figma API, renderer)
-  - NO browser APIs (window, document, fetch)
-  - Access to figma.* API
-  - Renders nodes/edges to FigJam canvas
+**Critical**: `code.ts` has NO browser APIs (`window`, `document`, `fetch`, `WebSocket`).
 
-- `packages/plugin/src/ui.ts` - UI iframe (WebSocket client)
-  - Browser APIs available
-  - Manages WebSocket connection to CLI
-  - Handles connection UI
-
-## Communication Flow
+## Communication
 
 ```
-CLI (serve) ←→ WebSocket ←→ Plugin UI (ui.ts) ←→ postMessage ←→ Plugin Main (code.ts)
+CLI ←─ WebSocket ─→ ui.ts ←─ postMessage ─→ code.ts ←─ figma.* ─→ Canvas
 ```
 
-## JSON Import (UI)
-
-- Accepts DSL JSON (nodes as array) or IR JSON (nodes as object)
-- Validates with `@figram/core` and normalizes to IR before posting to main thread
-- Validation errors are surfaced in the UI alert with path/message details
-
-## Build
+## Build & Import
 
 ```bash
 cd packages/plugin && bun run build
 ```
 
-Output: `packages/plugin/dist/` (code.js, ui.html)
-
-## Import Plugin
-
-1. Open Figma Desktop
-2. Menu → Plugins → Development → Import plugin from manifest
-3. Select `packages/plugin/manifest.json`
+Import: Figma Desktop → Plugins → Development → Import from manifest → `packages/plugin/manifest.json`
 
 ## Debugging
 
-- **UI errors**: Browser DevTools console (right-click plugin UI → Inspect)
-- **Main thread errors**: Figma DevTools (Menu → Plugins → Development → Open console)
-- **WebSocket issues**: Check UI console for connection status
+- **UI errors**: Right-click plugin UI → Inspect
+- **Main errors**: Plugins → Development → Open console
+
+## JSON Import
+
+- Accepts DSL (nodes array) or IR (nodes object)
+- Validates with `@figram/core`, normalizes to IR
+- Errors shown in alert with path + message
 
 ## Key Files
 
-- `manifest.json` - Plugin configuration
-- `src/code.ts` - Canvas rendering logic
-- `src/ui.ts` - WebSocket client and connection UI
-- `src/ui.html` - UI template (bundled by build)
-- `src/icons/` - AWS service icons
+| File | Purpose |
+|------|---------|
+| `manifest.json` | Plugin config |
+| `src/code.ts` | Canvas rendering |
+| `src/ui.ts` | WebSocket + UI |
+| `src/icons/` | Service icons |

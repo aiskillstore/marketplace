@@ -34,12 +34,13 @@ dependencies = [
     "pydantic>=2.0",
 ]
 
-[project.optional-dependencies]
+# Dev tooling → dependency-groups (PEP 735); not shipped with the package.
+[dependency-groups]
 dev = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "ruff>=0.1",
-    "mypy>=1.0",
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
 ]
 
 [project.urls]
@@ -58,28 +59,25 @@ plugin1 = "my_package.plugins:Plugin1"
 ## Build and Upload
 
 ```bash
-# Install build tools
-uv pip install build twine
-
-# Build package
-python -m build
+# Build sdist + wheel — uv has a native builder, no separate `build` install
+uv build
 
 # Check build artifacts
 ls dist/
 # my_package-0.1.0-py3-none-any.whl
 # my_package-0.1.0.tar.gz
 
-# Check distribution
-twine check dist/*
+# Verify + upload with twine via uvx (ephemeral, nothing installed globally)
+uvx twine check dist/*
 
 # Upload to TestPyPI first
-twine upload --repository testpypi dist/*
+uvx twine upload --repository testpypi dist/*
 
-# Test installation from TestPyPI
+# Test installation from TestPyPI into a throwaway env
 uv pip install --index-url https://test.pypi.org/simple/ my-package
 
 # Upload to PyPI (production)
-twine upload dist/*
+uvx twine upload dist/*
 ```
 
 ## Version Management
@@ -187,15 +185,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install build tools
-        run: pip install build
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
 
       - name: Build package
-        run: python -m build
+        run: uv build
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -244,10 +238,10 @@ my-package/
 
 | Command | Purpose |
 |---------|---------|
-| `python -m build` | Build wheel and sdist |
-| `twine check dist/*` | Verify package |
-| `twine upload dist/*` | Upload to PyPI |
-| `twine upload --repository testpypi dist/*` | Upload to TestPyPI |
+| `uv build` | Build wheel and sdist (native, no `build` install) |
+| `uvx twine check dist/*` | Verify package |
+| `uvx twine upload dist/*` | Upload to PyPI |
+| `uvx twine upload --repository testpypi dist/*` | Upload to TestPyPI |
 
 | Version | When |
 |---------|------|

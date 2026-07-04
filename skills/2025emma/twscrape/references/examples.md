@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # twscrape Examples
 
 ## Basic Search Example

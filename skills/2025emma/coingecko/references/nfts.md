@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Coingecko - Nfts
 
 **Pages:** 2

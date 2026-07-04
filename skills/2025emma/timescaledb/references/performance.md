@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb - Performance
 
 **Pages:** 2

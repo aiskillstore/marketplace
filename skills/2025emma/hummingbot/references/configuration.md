@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Hummingbot - Configuration
 
 **Pages:** 24

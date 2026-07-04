@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Polymarket Documentation Index
 
 ## Platform Documentation

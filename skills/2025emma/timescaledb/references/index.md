@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb Documentation Index
 
 ## Categories

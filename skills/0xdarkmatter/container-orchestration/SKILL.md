@@ -1,8 +1,11 @@
 ---
 name: container-orchestration
-description: "Docker and Kubernetes patterns. Triggers on: Dockerfile, docker-compose, kubernetes, k8s, helm, pod, deployment, service, ingress, container, image."
+description: "Docker, Kubernetes, and AWS ECS/Fargate patterns. Triggers on: Dockerfile, docker-compose, kubernetes, k8s, helm, pod, deployment, service, ingress, container, image, ecs, fargate, task definition, ecs service, awsvpc, FARGATE_SPOT, ALB, ecs vs kubernetes."
+license: MIT
 compatibility: "Docker 20+, Kubernetes 1.25+, Helm 3+"
 allowed-tools: "Read Write Bash"
+metadata:
+  author: claude-mods
 ---
 
 # Container Orchestration
@@ -219,6 +222,7 @@ spec:
 - `./references/dockerfile-patterns.md` - Advanced Dockerfile techniques
 - `./references/k8s-manifests.md` - Full Kubernetes manifest examples
 - `./references/helm-patterns.md` - Helm chart structure and values
+- `./references/ecs-fargate.md` - Amazon ECS on AWS Fargate (task definitions, services, awsvpc networking, IAM roles, secrets, scaling, ALB/NLB, ECS vs Kubernetes)
 
 ## Scripts
 

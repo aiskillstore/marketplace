@@ -1,58 +1,105 @@
 ---
 name: python-env
 description: "Fast Python environment management with uv (10-100x faster than pip). Triggers on: uv, venv, pip, pyproject, python environment, install package, dependencies."
+license: MIT
 compatibility: "Requires uv CLI tool. Install: curl -LsSf https://astral.sh/uv/install.sh | sh"
 allowed-tools: "Bash"
-depends-on: []
-related-skills: []
+metadata:
+  author: claude-mods
 ---
 
 # Python Environment
 
-Fast Python environment management with uv.
+Fast Python environment management with uv. Prefer the uv **project** workflow
+(`uv add` / `uv sync` / `uv run`) over the `uv pip` compatibility layer — it
+manages `pyproject.toml` + a lockfile for you and is reproducible.
 
 ## Quick Commands
 
 | Task | Command |
 |------|---------|
-| Create venv | `uv venv` |
-| Install package | `uv pip install requests` |
-| Install from requirements | `uv pip install -r requirements.txt` |
-| Run script | `uv run python script.py` |
-| Show installed | `uv pip list` |
+| Start a project | `uv init <name>` (app) · `uv init --package <name>` (installable, `src/` layout) |
+| Add dependency | `uv add httpx` |
+| Add dev dependency | `uv add --dev pytest ruff` |
+| Remove dependency | `uv remove httpx` |
+| Sync env from lockfile | `uv sync` |
+| Run in project env | `uv run pytest` |
+| Update lockfile | `uv lock` |
+| Install a CLI tool | `uv tool install ruff` · one-shot: `uvx ruff` |
+| Install a Python | `uv python install 3.12` |
 
-## Virtual Environment
-
-```bash
-# Create venv (instant)
-uv venv
-
-# Create with specific Python
-uv venv --python 3.11
-
-# Activate (or use uv run)
-source .venv/bin/activate  # Unix
-.venv\Scripts\activate     # Windows
-```
-
-## Package Installation
+## Start a Project
 
 ```bash
-# Single package
-uv pip install requests
+# Application (flat layout, no package build)
+uv init myapp
 
-# Multiple packages
-uv pip install flask sqlalchemy pytest
-
-# With extras
-uv pip install "fastapi[all]"
-
-# Version constraints
-uv pip install "django>=4.0,<5.0"
-
-# Uninstall
-uv pip uninstall requests
+# Installable package (src/ layout — separate tests/ that import by name)
+uv init --package wordtools
+# → src/wordtools/__init__.py, pyproject.toml with build-system
 ```
+
+`uv init` creates `pyproject.toml`, pins a Python version, and prepares the
+project for `uv add` / `uv sync`. The `--package` (src) layout is preferred for
+anything with a test suite or that you intend to ship.
+
+## Manage Dependencies
+
+```bash
+# Add runtime deps (writes to [project.dependencies] + updates the lockfile)
+uv add "httpx>=0.25" pydantic
+
+# Add dev-only deps (writes to the dev dependency-group)
+uv add --dev pytest ruff mypy
+
+# Add with extras
+uv add "fastapi[standard]"
+
+# Remove
+uv remove httpx
+
+# Install everything from pyproject + uv.lock into .venv (reproducible)
+uv sync
+
+# Refresh the lockfile (e.g. after manual pyproject edits)
+uv lock
+```
+
+`uv` creates and manages `.venv` automatically — you rarely activate it; just
+prefix commands with `uv run`.
+
+## Run Code
+
+```bash
+uv run python script.py     # run a script in the project env
+uv run pytest               # run a tool from the dev group
+uv run -- ruff check .      # `--` ends uv flag parsing
+```
+
+Never call bare `python` / `pytest` / `ruff` in a uv project — they may resolve
+to a different interpreter. Always `uv run`.
+
+## CLI Tools (global, not project deps)
+
+```bash
+uv tool install ruff        # persistent, isolated, on PATH
+uv tool upgrade ruff
+uvx ruff check .            # ephemeral one-shot run, nothing installed
+```
+
+Use `uv tool` / `uvx` for developer CLIs (ruff, pre-commit, httpie). Use
+`uv add` only for things your code imports.
+
+## Python Versions
+
+```bash
+uv python install 3.12      # download a managed interpreter
+uv python list              # show available + installed
+uv init --python 3.12 app   # pin a project to a version
+```
+
+3.13 is the current stable release (free-threading and JIT, both opt-in); 3.11+
+is a sensible floor for new projects (TaskGroup, `Self`, faster interpreter).
 
 ## Minimal pyproject.toml
 
@@ -60,45 +107,52 @@ uv pip uninstall requests
 [project]
 name = "my-project"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.25",
     "pydantic>=2.0",
 ]
 
-[project.optional-dependencies]
+# Dev deps live here; `uv add --dev <pkg>` manages this group.
+[dependency-groups]
 dev = [
-    "pytest>=7.0",
-    "ruff>=0.1",
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
 ]
 ```
 
-## Project Setup Checklist
+## Compatibility Layer (`uv pip`) — last resort
+
+`uv pip` mirrors pip's interface for environments uv doesn't manage (a hand-made
+venv, a legacy `requirements.txt`, CI that isn't uv-native). It does **not**
+update `pyproject.toml` or the lockfile — prefer `uv add` / `uv sync` whenever
+you control the project.
 
 ```bash
-mkdir my-project && cd my-project
-uv venv
-# Create pyproject.toml
-uv pip install -e ".[dev]"
-uv pip list
+uv venv                              # bare venv (no project)
+uv pip install -r requirements.txt   # legacy requirements file
+uv pip install -e .                  # editable install into an unmanaged venv
+uv pip compile requirements.in -o requirements.txt   # pin a requirements.txt
 ```
 
 ## Troubleshooting
 
 | Issue | Solution |
 |-------|----------|
-| "No Python found" | `uv python install 3.11` |
-| Wrong Python version | `uv venv --python 3.11` |
-| Conflicting deps | `uv pip compile --resolver=backtracking` |
+| "No Python found" | `uv python install 3.12` |
+| Pin project Python | `uv init --python 3.12` or edit `requires-python` |
+| Lock/resolve conflict | `uv lock --resolution=lowest-direct` to probe, then loosen bounds |
+| Stale env after pull | `uv sync` |
 | Cache issues | `uv cache clean` |
 
 ## When to Use
 
-- **Always** use uv over pip for speed
-- Creating virtual environments
-- Installing packages
-- Managing dependencies
-- Running scripts in project context
+- **Always** use uv over pip — 10-100x faster
+- `uv add` / `uv remove` / `uv sync` for project dependencies (not `uv pip install`)
+- `uv run` to execute anything inside the project env
+- `uv tool install` / `uvx` for standalone developer CLIs
+- `uv pip` only for environments uv doesn't manage
 
 ## Additional Resources
 
@@ -114,6 +168,6 @@ For detailed patterns, load:
 This is a **foundation skill** with no prerequisites.
 
 **Build on this skill:**
-- `python-typing-patterns` - Type hints for projects
-- `python-pytest-patterns` - Testing infrastructure
-- `python-fastapi-patterns` - Web API development
+- `python-typing-ops` - Type hints for projects
+- `python-pytest-ops` - Testing infrastructure
+- `python-fastapi-ops` - Web API development

@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb - Api
 
 **Pages:** 100

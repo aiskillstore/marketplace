@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Postgresql - Sql
 
 **Pages:** 460

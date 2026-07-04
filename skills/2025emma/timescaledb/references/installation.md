@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb - Installation
 
 **Pages:** 37

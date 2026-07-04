@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Hummingbot - Getting Started
 
 **Pages:** 24

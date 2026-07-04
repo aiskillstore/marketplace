@@ -1,141 +1,104 @@
 ---
 name: tilt
-description: Manages Tilt development environments via CLI and Tiltfile authoring. Must use when working with Tilt or Tiltfiles.
+description: Use when checking deployment health, investigating errors, reading logs, or working with Tiltfiles. Queries Tilt resource status, logs, and manages dev environments.
 ---
 
-# Tilt Development Environment
+# Tilt
 
-## Automatic Reload Behaviors
+## First Action: Check for Errors
 
-Tilt live-reloads aggressively. **Never suggest restarting `tilt up` or manually refreshing resources**—Tilt handles this automatically in nearly all cases.
-
-### What Reloads Automatically
-
-| Change Type | What Happens | Your Action |
-|------------|--------------|-------------|
-| **Tiltfile edits** | Tilt re-evaluates the entire Tiltfile on save | Just save the file |
-| **Source code with `live_update`** | Files sync to container without rebuild | Just save the file |
-| **Source code without `live_update`** | Full image rebuild triggers automatically | Just save the file |
-| **Kubernetes manifests** | Resources re-apply automatically | Just save the file |
-| **Frontend with HMR** | Browser updates via Hot Module Replacement | Just save the file |
-| **Backend with watch tools** | Process restarts via nodemon/air/watchexec | Just save the file |
-
-### When Restart IS Actually Needed
-
-Restarting `tilt up` is required only for:
-- Tilt version upgrades
-- Changing Tilt's port or host settings
-- Recovering from Tilt crashes
-- Kubernetes context changes (switching clusters)
-
-### Verifying Updates Applied
-
-Instead of restarting, verify updates propagated:
+Before investigating issues or verifying deployments, check resource health. Run **errors first**, separately from pending/in-progress — otherwise real failures get buried in 20+ pending lines:
 
 ```bash
-# Check resource status after saving
-tilt get uiresource/<name> -o json | jq '.status.updateStatus'
+# 1. Errors only — surface the buildHistory[0].error so you see WHY, not just THAT
+tilt get uiresources -o json | jq -r '.items[] | select(.status.runtimeStatus == "error" or .status.updateStatus == "error") | "\(.metadata.name): runtime=\(.status.runtimeStatus) update=\(.status.updateStatus)\n  reason: \((.status.buildHistory[0].error // "(no buildHistory error; check tilt logs)") | gsub("\n"; " ") | .[0:240])"'
 
-# Watch for update completion
-tilt wait --for=condition=Ready uiresource/<name> --timeout=60s
+# 2. In-progress and pending — informational; an in-progress build may flip to error any moment
+tilt get uiresources -o json | jq -r '.items[] | select(.status.updateStatus == "in_progress" or .status.updateStatus == "pending" or .status.runtimeStatus == "pending") | "\(.metadata.name): runtime=\(.status.runtimeStatus) update=\(.status.updateStatus)"'
 
-# Check recent logs for reload confirmation
-tilt logs <resource> --since 1m
-tilt logs <resource> --since 5m | rg -i "reload|restart|updated|synced"
+# 3. Docker-compose container health — MISSED by the error filter above.
+#    An `Up (unhealthy)` compose container keeps runtimeStatus=ok/update=ok, so
+#    queries 1-2 never flag it; the red UI badge comes from healthStatus here.
+tilt get uiresources -o json | jq -r '.items[] | select(.status.composeResourceInfo.healthStatus == "unhealthy") | "\(.metadata.name): compose healthStatus=unhealthy (HEALTHCHECK failing — service may still be up)"'
+
+# 4. Quick status overview
+tilt get uiresources -o json | jq '[.items[].status.updateStatus] | group_by(.) | map({status: .[0], count: length})'
+```
+
+If a resource is `in_progress` when you check, **re-poll** before declaring it healthy — it can transition straight to `error` with a populated `buildHistory[0].error`. The `updateStatus` field reflects only the *current* build attempt; the last error always lives in `buildHistory[0].error` even when `updateStatus` is `none` or `not_applicable`.
+
+**Docker-compose resources are a blind spot.** Their `runtimeStatus`/`updateStatus` reflect only build/up state, NOT the container's docker `HEALTHCHECK` — so a probe-failing container (`docker ps` → `Up (unhealthy)`) reads `runtimeStatus=ok` and slips past queries 1-2, while the Tilt UI still reddens it. The authoritative signal is `.status.composeResourceInfo.healthStatus` (`healthy` / `unhealthy` / absent when the service has no healthcheck), which query 3 catches. These resources also have `k8sResourceInfo: null` (`spec.type == "docker-compose"`); to find *why* a probe fails, drop to docker: `docker inspect <compose-project>-<svc> --format '{{json .State.Health}}'` reads the probe's last exit code + output. A common cause is the healthcheck script invoking a CLI the image doesn't ship (e.g. `curl`/`grpcurl` removed in slimmed images) — the service is fine, the probe is broken.
+
+## Non-Default Ports
+
+When Tilt runs on a non-default port, add `--port`:
+
+```bash
+tilt get uiresources --port 37035
+tilt logs <resource> --port 37035
+```
+
+## Resource Status
+
+```bash
+# All resources with status
+tilt get uiresources -o json | jq '.items[] | {name: .metadata.name, runtime: .status.runtimeStatus, update: .status.updateStatus}'
+
+# Single resource detail
+tilt get uiresource/<name> -o json
+
+# Wait for ready
+tilt wait --for=condition=Ready uiresource/<name> --timeout=120s
+```
+
+**Status values:**
+- RuntimeStatus: `ok`, `error`, `pending`, `none`, `not_applicable`
+- UpdateStatus: `ok`, `error`, `pending`, `in_progress`, `none`, `not_applicable`
+
+## Logs
+
+```bash
+tilt logs <resource>
+tilt logs <resource> --since 5m
+tilt logs <resource> --tail 100
+tilt logs --json                    # JSON Lines output
+```
+
+## Trigger and Lifecycle
+
+```bash
+tilt trigger <resource>             # Force update
+tilt up                             # Start
+tilt down                           # Stop and clean up
 ```
 
 ## Running tilt up
 
-**Always run `tilt up` in a tmux session using send-keys.** This ensures:
-- Tilt survives Claude Code session reloads
-- Shell initialization runs (PATH, direnv, etc.)
+Follow `zmx` skill patterns — check for existing sessions, derive name from git root, use `zmx run` (not attach):
 
 ```bash
-SESSION=$(basename $(git rev-parse --show-toplevel 2>/dev/null) || basename $PWD)
+PROJECT=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" || basename "$PWD")
+SESSION="${PROJECT}-tilt"
 
-# Start tilt in tmux (idempotent, send-keys for proper shell init)
-if ! tmux has-session -t "$SESSION" 2>/dev/null; then
-  tmux new-session -d -s "$SESSION" -n tilt
-  tmux send-keys -t "$SESSION:tilt" 'tilt up' Enter
-  echo "Started tilt in tmux session: $SESSION"
-elif ! tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q "^tilt$"; then
-  tmux new-window -t "$SESSION" -n tilt
-  tmux send-keys -t "$SESSION:tilt" 'tilt up' Enter
-  echo "Added tilt window to session: $SESSION"
+if zmx list --short 2>/dev/null | grep -q "^${SESSION}$"; then
+  echo "Tilt session already exists: $SESSION"
 else
-  echo "Tilt already running in session: $SESSION"
+  zmx run "$SESSION" 'tilt up'
+  echo "Started tilt in zmx session: $SESSION"
 fi
 ```
 
-To check tilt output:
-```bash
-SESSION=$(basename $(git rev-parse --show-toplevel 2>/dev/null) || basename $PWD)
-tmux capture-pane -p -t "$SESSION:tilt" -S -50
-```
+## Critical: Never Restart for Code Changes
 
-To stop tilt:
-```bash
-SESSION=$(basename $(git rev-parse --show-toplevel 2>/dev/null) || basename $PWD)
-tmux send-keys -t "$SESSION:tilt" C-c
-```
+Tilt live-reloads automatically. **Never suggest restarting `tilt up`** for:
+- Tiltfile edits
+- Source code changes
+- Kubernetes manifest updates
 
-Never run `tilt up` directly in foreground or with `run_in_background`. Always use tmux.
-
-## Instructions
-
-- Use `tilt get uiresources -o json` to query resource status programmatically
-- Use `tilt get uiresource/<name> -o json` for detailed single resource state
-- Use `tilt logs` with `--since`, `--tail`, `--json` flags for log retrieval
-- Use `tilt trigger <resource>` to force updates when auto-reload didn't trigger
-- Use `tilt wait` to block until resources reach ready state
-- For Tiltfile authoring, see @TILTFILE_API.md
-- For complete CLI reference with JSON parsing patterns, see @CLI_REFERENCE.md
-
-## Quick Reference
-
-### Check Resource Status
-
-```bash
-tilt get uiresources -o json | jq '.items[] | {name: .metadata.name, runtime: .status.runtimeStatus, update: .status.updateStatus}'
-```
-
-### Wait for Resource Ready
-
-```bash
-tilt wait --for=condition=Ready uiresource/<name> --timeout=120s
-```
-
-### Get Resource Logs
-
-```bash
-tilt logs <resource>              # Current logs
-tilt logs <resource> --since 5m   # Logs from last 5 minutes
-tilt logs <resource> --tail 100   # Last 100 lines
-tilt logs --json                  # JSON Lines output
-```
-
-### Trigger Update
-
-```bash
-tilt trigger <resource>
-```
-
-### Lifecycle Commands
-
-```bash
-tilt up        # Start Tilt
-tilt down      # Stop and clean up
-tilt ci        # CI/batch mode
-```
-
-## Resource Status Values
-
-- **RuntimeStatus**: `unknown`, `none`, `pending`, `ok`, `error`, `not_applicable`
-- **UpdateStatus**: `none`, `pending`, `in_progress`, `ok`, `error`, `not_applicable`
+Restart only for: Tilt version upgrades, port/host changes, crashes, cluster context switches.
 
 ## References
 
-- Tilt Documentation: https://docs.tilt.dev/
-- CLI Reference: https://docs.tilt.dev/cli/tilt.html
-- Tiltfile API: https://docs.tilt.dev/api.html
-- Extensions: https://github.com/tilt-dev/tilt-extensions
+- [TILTFILE_API.md](TILTFILE_API.md) - Tiltfile authoring
+- [CLI_REFERENCE.md](CLI_REFERENCE.md) - Complete CLI with JSON patterns
+- https://docs.tilt.dev/

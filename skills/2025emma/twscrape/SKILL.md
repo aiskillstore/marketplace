@@ -1,8 +1,3 @@
----
-name: twscrape
-description: Python library for scraping Twitter/X data using GraphQL API with account rotation and session management. Use when extracting tweets, user profiles, followers, trends, or building social media monitoring tools.
----
-
 # twscrape
 
 Python library for scraping Twitter/X data using GraphQL API with account rotation and session management.

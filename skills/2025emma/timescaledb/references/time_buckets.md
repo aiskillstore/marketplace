@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb - Time Buckets
 
 **Pages:** 16

@@ -13,9 +13,9 @@ Brief description of the project and what it does.
 
 | Task | Agent | Example Prompt |
 |------|-------|----------------|
-| Code review | `javascript-expert` | "Review this PR for issues" |
-| Database work | `sql-expert` | "Optimize this query" |
-| Deployment | `bash-expert` | "Deploy to staging" |
+| Web scraping | `firecrawl-expert` | "Extract structured data from this site" |
+| Project cleanup | `project-organizer` | "Restructure this directory layout" |
+| Git operations | `git-agent` | "Commit and open a PR for these changes" |
 
 ## Primary Agents
 

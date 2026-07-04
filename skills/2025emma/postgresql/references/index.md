@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Postgresql Documentation Index
 
 ## Categories

@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Third Party Integrations
 
 Source: anthropics/claude-cookbooks/third_party

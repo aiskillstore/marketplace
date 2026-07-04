@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Proxychains 参考文档索引
 
 ## 核心文档

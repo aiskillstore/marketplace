@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb - Compression
 
 **Pages:** 19

@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Contributing to Claude Cookbooks
 
 Thank you for your interest in contributing to the Claude Cookbooks! This guide will help you get started with development and ensure your contributions meet our quality standards.

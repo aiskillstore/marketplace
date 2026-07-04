@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Tiger DataDocumentation
 
 Over 3 million Tiger Datadatabases power customer-facing applications. Speed without sacrifice for real-time analytics, time series, and vector workloads. Creators of TimescaleDB.

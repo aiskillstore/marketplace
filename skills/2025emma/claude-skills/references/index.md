@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Claude Skills Meta-Skill Reference Index
 
 This directory contains long-form documentation that supports the `claude-skills` meta-skill.

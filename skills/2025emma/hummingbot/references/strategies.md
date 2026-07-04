@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Hummingbot - Strategies
 
 **Pages:** 73

@@ -25,23 +25,35 @@ Activate when:
 - User asks about Lovable Cloud or backend deployment
 - Project appears to be a Lovable project (React + Supabase structure)
 
-## Core Concept
+## Project Architecture Types
 
-Lovable uses **two-way GitHub sync** on the `main` branch only:
-- Frontend code syncs automatically
-- Backend operations (Edge Functions, migrations, RLS) require Lovable prompts
+Lovable supports two architectures. **Always detect which one you're working with** before giving advice.
 
-## What Syncs Automatically (GitHub → Lovable)
+### Detecting Architecture
+
+Check the root directory of the user's project:
+- `app.config.ts` present → **TanStack Start** (new, SSR — post-April 2026)
+- `vite.config.ts` present → **Vite SPA** (legacy, CSR — pre-April 2026)
+
+Both are fully supported. Old projects remain on Vite and receive no forced migration.
+
+---
+
+## Vite SPA Architecture (Legacy)
+
+Projects created before April 2026. Client-side rendering only.
+
+### What Syncs Automatically (Vite SPA)
 
 ✅ Edit freely and push to `main`:
 - `src/` - All React components, pages, hooks, utils
 - `public/` - Static assets
-- Config files - vite.config.ts, tailwind.config.js, tsconfig.json
+- Config files - `vite.config.ts`, `tailwind.config.js`, `tsconfig.json`
 - `package.json` - Dependencies
 - `supabase/functions/*/index.ts` - Edge Function **code** (not deployment)
 - `supabase/migrations/*.sql` - Migration **files** (not application)
 
-## What Requires Lovable Deployment
+### What Requires Lovable Deployment (Vite SPA)
 
 ⚠️ After editing, provide Lovable prompt:
 
@@ -54,6 +66,76 @@ Lovable uses **two-way GitHub sync** on the `main` branch only:
 | RLS policy | `"Enable RLS on [table] allowing [who] to [what]"` |
 | Storage bucket | `"Create a [public/private] bucket called [name]"` |
 | Secret/env var | Manual: Cloud → Secrets → Add |
+
+---
+
+## TanStack Start Architecture (New Projects)
+
+Projects created after April 2026. Full server-side rendering (SSR) via TanStack Start.
+
+### Key Differences from Vite SPA
+
+- Routes are **file-based** in `app/routes/` (not React Router in `src/App.tsx`)
+- Config file is `app.config.ts` (not `vite.config.ts`)
+- **Server functions** (`createServerFn`) let server-side logic live directly in component files — no edge function needed for simple server logic
+- Files named `*.server.ts` are server-only and never sent to the browser
+- Pages are rendered as complete HTML on the server before reaching the browser
+
+### What Syncs Automatically (TanStack Start)
+
+✅ Edit freely and push to `main`:
+- `app/` - All routes, components, server functions, layouts
+- `app/routes/` - File-based route pages
+- `public/` - Static assets
+- `app.config.ts`, `tailwind.config.js`, `tsconfig.json` - Config files
+- `package.json` - Dependencies
+- `app/**/*.server.ts` - TanStack server functions (**auto-deploys, no Lovable prompt needed**)
+- `supabase/functions/*/index.ts` - Supabase Edge Function **code** (not deployment)
+- `supabase/migrations/*.sql` - Migration **files** (not application)
+
+### What Requires Lovable Deployment (TanStack Start)
+
+⚠️ After editing, provide Lovable prompt:
+
+| Change Type | Lovable Prompt |
+|-------------|----------------|
+| Supabase Edge Function code | `"Deploy the [name] edge function"` |
+| All Supabase Edge Functions | `"Deploy all edge functions"` |
+| New migration file | `"Apply pending Supabase migrations"` |
+| New table needed | `"Create a [name] table with columns: [list]"` |
+| RLS policy | `"Enable RLS on [table] allowing [who] to [what]"` |
+| Storage bucket | `"Create a [public/private] bucket called [name]"` |
+| Secret/env var | Manual: Cloud → Secrets → Add |
+
+> **Note:** TanStack server functions (`createServerFn`) are **not** Supabase Edge Functions. They live in `app/` and deploy automatically via GitHub sync — no Lovable prompt needed. Only `supabase/functions/` requires manual deployment.
+
+### TanStack Start File Structure
+
+```
+project/
+├── app/                          # ✅ Safe - auto-syncs
+│   ├── routes/                   # File-based routing
+│   │   ├── __root.tsx            # Root layout
+│   │   ├── index.tsx             # Home page (/)
+│   │   └── [route].tsx           # Other pages
+│   ├── components/               # Shared UI components
+│   ├── lib/                      # Utilities and helpers
+│   └── *.server.ts               # ✅ Server functions (auto-deploy)
+├── app.config.ts                 # TanStack Start config
+├── public/                       # Static assets
+├── supabase/
+│   ├── functions/                # ✅ Edit code, ⚠️ needs deploy
+│   └── migrations/               # ✅ Create files, ⚠️ needs apply
+└── CLAUDE.md                     # Project context
+```
+
+---
+
+## Core Concept (Both Architectures)
+
+Lovable uses **two-way GitHub sync** on the `main` branch only:
+- Frontend and server-side code (including TanStack server functions) sync automatically
+- Supabase Edge Functions and database migrations require Lovable prompts after code changes
 
 ## Response Format
 
@@ -71,6 +153,8 @@ For destructive operations, add:
 
 ## File Structure Reference
 
+### Vite SPA (Legacy — `vite.config.ts` present)
+
 ```
 project/
 ├── src/                          # ✅ Safe - auto-syncs
@@ -86,6 +170,32 @@ project/
 │   │   └── [function-name]/
 │   │       └── index.ts
 │   ├── migrations/               # ✅ Create files, ⚠️ needs apply
+│   │   └── YYYYMMDDHHMMSS_*.sql
+│   └── config.toml               # ⚠️ Lovable Cloud manages
+├── .env                          # Local only - Lovable ignores
+└── CLAUDE.md                     # Project context
+```
+
+### TanStack Start (New — `app.config.ts` present)
+
+```
+project/
+├── app/                          # ✅ Safe - auto-syncs
+│   ├── routes/                   # File-based routing
+│   │   ├── __root.tsx            # Root layout
+│   │   ├── index.tsx             # Home route (/)
+│   │   └── [name].tsx            # Named routes
+│   ├── components/               # Shared components
+│   ├── lib/                      # Utilities
+│   ├── integrations/supabase/    # Supabase client + types
+│   └── *.server.ts               # ✅ Server functions (auto-deploy, no prompt needed)
+├── app.config.ts                 # TanStack Start config
+├── public/                       # Static assets
+├── supabase/
+│   ├── functions/                # ✅ Edit code, ⚠️ needs deploy via Lovable
+│   │   └── [function-name]/
+│   │       └── index.ts
+│   ├── migrations/               # ✅ Create files, ⚠️ needs apply via Lovable
 │   │   └── YYYYMMDDHHMMSS_*.sql
 │   └── config.toml               # ⚠️ Lovable Cloud manages
 ├── .env                          # Local only - Lovable ignores

@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Snapdom Documentation Index
 
 ## Categories

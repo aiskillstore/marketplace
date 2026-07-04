@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Snapdom - Other
 
 **Pages:** 1

@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 #!/bin/bash
 # Proxychains 快速配置脚本
 # 自动配置代理指向 127.0.0.1:9910

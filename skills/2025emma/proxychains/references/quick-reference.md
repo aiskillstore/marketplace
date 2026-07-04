@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Proxychains 快速参考
 
 ## 基本语法

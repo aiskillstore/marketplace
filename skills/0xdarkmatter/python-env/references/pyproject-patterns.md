@@ -8,7 +8,7 @@ Comprehensive patterns for Python project configuration.
 [project]
 name = "my-project"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "httpx>=0.25",
     "pydantic>=2.0",
@@ -28,7 +28,7 @@ version = "0.1.0"
 description = "A short description of the project"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     { name = "Your Name", email = "you@example.com" }
 ]
@@ -49,14 +49,19 @@ dependencies = [
     "rich>=13.0",
 ]
 
-[project.optional-dependencies]
+# Dev tooling → dependency-groups (PEP 735). `uv add --dev <pkg>` writes here;
+# `uv sync` installs it by default. Not shipped with the published package.
+[dependency-groups]
 dev = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21",
-    "pytest-cov>=4.0",
-    "ruff>=0.1",
-    "mypy>=1.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
 ]
+
+# Opt-in extras users install explicitly: `uv add "my-package[docs]"`
+[project.optional-dependencies]
 docs = [
     "mkdocs>=1.5",
     "mkdocs-material>=9.0",
@@ -82,7 +87,7 @@ build-backend = "hatchling.build"
 [project]
 name = "my-cli"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "typer>=0.9",
     "rich>=13.0",
@@ -91,7 +96,7 @@ dependencies = [
 [project.scripts]
 mycli = "my_cli.main:app"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = ["pytest", "ruff"]
 ```
 
@@ -105,7 +110,7 @@ build-backend = "hatchling.build"
 [project]
 name = "my-api"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.100",
     "uvicorn[standard]>=0.23",
@@ -115,13 +120,13 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
     "httpx>=0.25",  # for testing
-    "ruff>=0.1",
-    "mypy>=1.0",
+    "ruff>=0.4",
+    "mypy>=1.10",
 ]
 ```
 
@@ -132,7 +137,7 @@ dev = [
 ```toml
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
 exclude = [
     ".git",
     ".venv",
@@ -206,7 +211,7 @@ filterwarnings = [
 
 ```toml
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true

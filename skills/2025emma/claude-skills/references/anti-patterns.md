@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Anti-Patterns (And How to Fix Them)
 
 This file documents common ways Skills fail in practice. Use it when refactoring existing Skills.
