@@ -21,6 +21,11 @@ on:
         required: false
         type: number
         default: 8
+      write_concurrency:
+        description: 'Parallel Supabase writes, 1-4'
+        required: false
+        type: number
+        default: 2
       max_updates_per_run:
         description: 'Maximum updated skills to refresh into a marketplace PR in one run; 0 means unlimited'
         required: false
@@ -62,7 +67,7 @@ on:
         type: string
         default: ''
       cli_version:
-        description: 'Skillstore CLI version, without cli-v prefix'
+        description: 'Skillstore CLI version: latest, 1.50.x, or cli-v1.50.x'
         required: false
         type: string
         default: 'latest'
@@ -123,6 +128,7 @@ jobs:
           SLUGS: ${{ inputs.slugs || '' }}
           LIMIT: ${{ inputs.limit || 0 }}
           CONCURRENCY: ${{ inputs.concurrency || 8 }}
+          WRITE_CONCURRENCY: ${{ inputs.write_concurrency || 2 }}
           MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 100 }}
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
           CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
@@ -148,6 +154,12 @@ jobs:
             --concurrency "$CONCURRENCY"
             --maxLocalUpdates "$MAX_UPDATES_PER_RUN"
           )
+
+          if "$GITHUB_WORKSPACE/skillstore-cli" skill monitor-upstream --help 2>&1 | grep -q -- '--writeConcurrency'; then
+            CMD+=(--writeConcurrency "$WRITE_CONCURRENCY")
+          else
+            echo "::warning::Downloaded Skillstore CLI does not support --writeConcurrency; Supabase writes will use scan concurrency."
+          fi
 
           if [ -n "$SLUGS" ]; then
             CMD+=(--slugs "$SLUGS")
@@ -190,6 +202,7 @@ jobs:
           echo "Dry run: $DRY_RUN"
           echo "Create PR: $CREATE_PR"
           echo "Source scan concurrency: $CONCURRENCY"
+          echo "Supabase write concurrency: $WRITE_CONCURRENCY"
           echo "Max local updates per run: $MAX_UPDATES_PER_RUN"
           echo "Archive missing: $ARCHIVE_MISSING"
           echo "Delete archived: $DELETE_ARCHIVED"
@@ -214,6 +227,7 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
           CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
           CONCURRENCY: ${{ inputs.concurrency || 8 }}
+          WRITE_CONCURRENCY: ${{ inputs.write_concurrency || 2 }}
           MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 100 }}
           ARCHIVE_MISSING: ${{ inputs.archive_missing || false }}
           DELETE_ARCHIVED: ${{ inputs.delete_archived || false }}
@@ -250,6 +264,7 @@ jobs:
             echo "- Supabase writes: $WRITES"
             echo "- Update PRs: $UPDATE_PRS"
             echo "- Source scan concurrency: $CONCURRENCY"
+            echo "- Supabase write concurrency: $WRITE_CONCURRENCY"
             echo "- Max local updates per run: $MAX_UPDATES_PER_RUN"
             echo "- Archive actions: $ARCHIVE_MODE"
             echo "- Marketplace deletions: $DELETE_MODE"
