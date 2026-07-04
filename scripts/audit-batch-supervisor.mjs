@@ -13,6 +13,11 @@ const getArg = (name, fallback = '') => {
 const repo = process.env.REPO || 'aiskillstore/marketplace';
 const worktree = process.env.WORKTREE || process.cwd();
 const model = process.env.MODEL || 'gpt-5.5:high';
+const cliVersion = process.env.CLI_VERSION || getArg('--cli-version', 'latest');
+const riskLevelFilter = (process.env.RISK_LEVEL || getArg('--risk-level', ''))
+  .split(',')
+  .map((level) => level.trim().toLowerCase())
+  .filter(Boolean);
 const cutoffIso = process.env.FRESH_CUTOFF || '2026-06-27T11:00:00Z';
 const cutoffMs = Date.parse(cutoffIso);
 const batchSize = Number(process.env.BATCH_SIZE || getArg('--batch-size', '200'));
@@ -21,6 +26,7 @@ const maxParallel = Number(process.env.MAX_PARALLEL || getArg('--max-parallel', 
 const pollSeconds = Number(process.env.POLL_SECONDS || getArg('--poll-seconds', '180'));
 const auditPrGraceSeconds = Number(process.env.AUDIT_PR_GRACE_SECONDS || getArg('--audit-pr-grace-seconds', '120'));
 const maxBatches = Number(process.env.MAX_BATCHES || getArg('--max-batches', '0'));
+const requireStructuredAudit = process.env.REQUIRE_STRUCTURED_AUDIT === '1' || args.has('--require-structured-audit');
 const autoMerge = process.env.AUTO_MERGE === '1' || args.has('--auto-merge');
 const dryRun = args.has('--dry-run');
 const once = args.has('--once');
@@ -31,6 +37,13 @@ if (!Number.isFinite(cutoffMs)) {
 if (!Number.isFinite(auditPrGraceSeconds) || auditPrGraceSeconds < 0) {
   throw new Error(`Invalid AUDIT_PR_GRACE_SECONDS: ${auditPrGraceSeconds}`);
 }
+
+const validRiskLevels = new Set(['safe', 'low', 'medium', 'high', 'critical']);
+const invalidRiskLevels = riskLevelFilter.filter((level) => !validRiskLevels.has(level));
+if (invalidRiskLevels.length > 0) {
+  throw new Error(`Invalid RISK_LEVEL: ${invalidRiskLevels.join(', ')}. Valid values: ${[...validRiskLevels].join(', ')}`);
+}
+const riskLevelSet = new Set(riskLevelFilter);
 
 function log(message) {
   console.log(`[${new Date().toISOString()}] ${message}`);
@@ -85,6 +98,44 @@ function reportSlug(reportPath, report) {
   throw new Error(`Cannot derive slug from ${reportPath}`);
 }
 
+function reportRiskLevel(report) {
+  return report?.security_audit?.risk_level || report?.skill?.risk_level || '';
+}
+
+function matchesRiskFilter(report) {
+  return riskLevelSet.size === 0 || riskLevelSet.has(reportRiskLevel(report));
+}
+
+function hasStructuredAuditVerdicts(report) {
+  const audit = report?.security_audit;
+  const staticFindings = audit?.static_findings;
+  const findingVerdicts = audit?.finding_verdicts;
+  const semanticFindings = audit?.semantic_findings;
+
+  if (!Array.isArray(staticFindings) || !Array.isArray(findingVerdicts) || !Array.isArray(semanticFindings)) {
+    return false;
+  }
+
+  const staticIds = staticFindings.map((finding) => finding?.id).filter((id) => typeof id === 'string' && id.length > 0);
+  const staticIdSet = new Set(staticIds);
+  if (staticIds.length !== staticFindings.length || staticIdSet.size !== staticIds.length) {
+    return false;
+  }
+
+  const verdictIds = new Set();
+  for (const verdict of findingVerdicts) {
+    if (!verdict || typeof verdict.id !== 'string' || !staticIdSet.has(verdict.id)) {
+      return false;
+    }
+    if (verdict.verdict !== 'confirmed' && verdict.verdict !== 'false_positive') {
+      return false;
+    }
+    verdictIds.add(verdict.id);
+  }
+
+  return findingVerdicts.length === staticIds.length && verdictIds.size === staticIds.length;
+}
+
 function walkReports(dir, reports = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
     const fullPath = path.join(dir, entry.name);
@@ -103,13 +154,17 @@ function auditState() {
   const stale = [];
   let fresh = 0;
   let missingAudit = 0;
+  let inScope = 0;
 
   for (const reportPath of reports) {
     const report = JSON.parse(readFileSync(reportPath, 'utf8'));
+    if (!matchesRiskFilter(report)) continue;
+
+    inScope += 1;
     const auditedAt = report?.security_audit?.audited_at;
     const auditedMs = auditedAt ? Date.parse(auditedAt) : NaN;
 
-    if (Number.isFinite(auditedMs) && auditedMs >= cutoffMs) {
+    if (Number.isFinite(auditedMs) && auditedMs >= cutoffMs && (!requireStructuredAudit || hasStructuredAuditVerdicts(report))) {
       fresh += 1;
       continue;
     }
@@ -124,6 +179,7 @@ function auditState() {
 
   return {
     all: reports.length,
+    inScope,
     fresh,
     stale,
     missingAudit,
@@ -348,11 +404,13 @@ function triggerAuditBatch(batch) {
     '-f',
     `max_parallel=${maxParallel}`,
     '-f',
-    'cli_version=latest',
+    `cli_version=${cliVersion}`,
     '-f',
     'dry_run=false',
     '-f',
     'failed_only=false',
+    '-f',
+    `risk_level=${riskLevelFilter.join(',')}`,
   ]);
 
   log('Triggered Audit Skills workflow.');
@@ -389,14 +447,18 @@ async function printStatus() {
         repo,
         worktree,
         model,
+        cliVersion,
+        riskLevel: riskLevelFilter.join(',') || 'all',
         cutoff: cutoffIso,
         batchSize,
         shardSize,
         maxParallel,
         auditPrGraceSeconds,
+        requireStructuredAudit,
         autoMerge,
         dryRun,
         all: state.all,
+        inScope: state.inScope,
         fresh: state.fresh,
         stale: state.stale.length,
         missingAudit: state.missingAudit,
@@ -444,7 +506,7 @@ async function main() {
     }
 
     const state = auditState();
-    log(`Audit state: all=${state.all}, fresh=${state.fresh}, stale=${state.stale.length}, remainingBatches=${state.remainingBatches}`);
+    log(`Audit state: all=${state.all}, inScope=${state.inScope}, fresh=${state.fresh}, stale=${state.stale.length}, remainingBatches=${state.remainingBatches}, requireStructuredAudit=${requireStructuredAudit}`);
 
     if (state.stale.length === 0) {
       log('All reports are fresh. Done.');
