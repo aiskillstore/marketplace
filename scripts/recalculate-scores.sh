@@ -384,6 +384,7 @@ else
 	JOB_RCS=()
 	ACTIVE_PIDS=()
 	ACTIVE_JOBS=()
+	JOB_POLL_SECONDS=0.05
 	NEXT_JOB=0
 
 	collect_finished_job() {
@@ -401,6 +402,52 @@ else
 		ingest_one_slug_output "${JOB_SLUGS[$job_index]}" "$job_rc" "${JOB_OUTPUTS[$job_index]}"
 	}
 
+	remove_active_job() {
+		local remove_index="$1"
+		local active_index
+		local new_pids=()
+		local new_jobs=()
+
+		for active_index in "${!ACTIVE_PIDS[@]}"; do
+			if [ "$active_index" = "$remove_index" ]; then
+				continue
+			fi
+			new_pids+=( "${ACTIVE_PIDS[$active_index]}" )
+			new_jobs+=( "${ACTIVE_JOBS[$active_index]}" )
+		done
+
+		ACTIVE_PIDS=()
+		ACTIVE_JOBS=()
+		if [ "${#new_pids[@]}" -gt 0 ]; then
+			ACTIVE_PIDS=( "${new_pids[@]}" )
+			ACTIVE_JOBS=( "${new_jobs[@]}" )
+		fi
+	}
+
+	collect_next_finished_job() {
+		local active_index pid job_index rc_path
+
+		while [ "${#ACTIVE_PIDS[@]}" -gt 0 ]; do
+			for active_index in "${!ACTIVE_PIDS[@]}"; do
+				pid="${ACTIVE_PIDS[$active_index]}"
+				job_index="${ACTIVE_JOBS[$active_index]}"
+				rc_path="${JOB_RCS[$job_index]}"
+				if [ -f "$rc_path" ]; then
+					collect_finished_job "$pid" "$job_index"
+					remove_active_job "$active_index"
+					return 0
+				fi
+				if ! kill -0 "$pid" 2>/dev/null; then
+					printf '1\n' > "$rc_path"
+					collect_finished_job "$pid" "$job_index"
+					remove_active_job "$active_index"
+					return 0
+				fi
+			done
+			sleep "$JOB_POLL_SECONDS"
+		done
+	}
+
 	for slug in "${SLUGS_ARR[@]}"; do
 		job_index="$NEXT_JOB"
 		NEXT_JOB=$(( NEXT_JOB + 1 ))
@@ -416,16 +463,12 @@ else
 		ACTIVE_JOBS+=( "$job_index" )
 
 		if [ "${#ACTIVE_PIDS[@]}" -ge "$CONCURRENCY" ]; then
-			collect_finished_job "${ACTIVE_PIDS[0]}" "${ACTIVE_JOBS[0]}"
-			ACTIVE_PIDS=( "${ACTIVE_PIDS[@]:1}" )
-			ACTIVE_JOBS=( "${ACTIVE_JOBS[@]:1}" )
+			collect_next_finished_job
 		fi
 	done
 
 	while [ "${#ACTIVE_PIDS[@]}" -gt 0 ]; do
-		collect_finished_job "${ACTIVE_PIDS[0]}" "${ACTIVE_JOBS[0]}"
-		ACTIVE_PIDS=( "${ACTIVE_PIDS[@]:1}" )
-		ACTIVE_JOBS=( "${ACTIVE_JOBS[@]:1}" )
+		collect_next_finished_job
 	done
 fi
 

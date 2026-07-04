@@ -45,6 +45,8 @@ function runWrapper({
 	concurrency = 5,
 	dryRun = false,
 	sleepSeconds,
+	slowSlug,
+	slowSeconds,
 	timeoutSeconds = 0,
 }) {
 	const tmp = mkdtempSync(join(tmpdir(), 'recalc-test-'));
@@ -61,6 +63,8 @@ function runWrapper({
 	if (failSlug) env.FAKE_CLI_FAIL_SLUG = failSlug;
 	if (timeoutSlug) env.FAKE_CLI_TIMEOUT_SLUG = timeoutSlug;
 	if (sleepSeconds) env.FAKE_CLI_SLEEP_SECONDS = String(sleepSeconds);
+	if (slowSlug) env.FAKE_CLI_SLOW_SLUG = slowSlug;
+	if (slowSeconds) env.FAKE_CLI_SLOW_SECONDS = String(slowSeconds);
 	if (recalcFail) env.FAKE_CLI_MODE = 'recalc-fail';
 
 	const args = [
@@ -125,10 +129,10 @@ test('single slug timeout does not abort the whole run; others succeed', () => {
 	const s = lastSummary(result.stdout);
 	assert.ok(s, 'summary block must be present');
 	assert.equal(s.processed, '5', 'all 5 slugs should be processed');
-	// bad-slug ultimately succeeds after retry, so it counts as
-	// updated too. 5 processed = 4 updated + 1 error.
-	assert.equal(s.updated, '4', '4 slugs updated (1 error + 4 ok incl. retry success)');
-	assert.equal(s.errors, '1', 'only the timed-out slug should be in errors');
+	// bad-slug ultimately succeeds after retry, so the final aggregate
+	// should count it as a success, not a terminal error.
+	assert.equal(s.updated, '5', 'all 5 slugs updated after transient timeout retry');
+	assert.equal(s.errors, '0', 'transient timeout should not be counted as a terminal error');
 
 	// Verify retry happened: bad-slug should be called multiple times
 	// (1 fail + 1 success) per the fake CLI's mode=timeout contract.
@@ -145,7 +149,7 @@ test('single slug timeout does not abort the whole run; others succeed', () => {
 
 test('a slug that fails repeatedly lets the run finish; partial success -> exit 0', () => {
 	const { result } = runWrapper({
-		mode: 'fail-slug',
+		mode: 'fail-slug-always',
 		failSlug: 'doomed',
 		slugs: 'a,doomed,b',
 		maxAttempts: 3,
@@ -216,6 +220,33 @@ test('per-slug mode honors wrapper-level concurrency', () => {
 	assert.equal(sum.updated, '6');
 	assert.equal(sum.errors, '0');
 	assert.ok(elapsedMs < 4500, `expected bounded parallelism to finish well below sequential runtime; elapsed=${elapsedMs}ms`);
+});
+
+test('per-slug mode does not let a slow oldest child block ready work', () => {
+	const { result, log } = runWrapper({
+		mode: 'success',
+		slugs: 'slow,fast-a,fast-b,fast-c',
+		concurrency: 2,
+		slowSlug: 'slow',
+		slowSeconds: 3,
+		retryBase: 0,
+	});
+
+	assert.equal(result.status, 0, `wrapper should succeed\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+	const logLines = readFileSync(log, 'utf8').trim().split('\n');
+	const startedAt = (slug) => {
+		const line = logLines.find((l) => l.includes(`slugs=${slug}`));
+		assert.ok(line, `expected ${slug} to be launched`);
+		return BigInt(line.split('|')[0]);
+	};
+
+	const slowStart = startedAt('slow');
+	const fastCStart = startedAt('fast-c');
+	const elapsedSeconds = Number(fastCStart - slowStart) / 1_000_000_000;
+	assert.ok(
+		elapsedSeconds < 2,
+		`fast-c should launch before the slow first child finishes; elapsed=${elapsedSeconds}s`
+	);
 });
 
 test('large no-limit all-skills run reads slugs from file instead of one oversized argv', () => {
