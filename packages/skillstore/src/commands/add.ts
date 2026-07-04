@@ -10,7 +10,7 @@ import {
 } from '../lib/plugin-api.js';
 import { fetchSkillManifest, downloadSkillZip, SkillApiError } from '../lib/skill-api.js';
 import { verifyManifest, verifySkillManifest, verifyZipHash } from '../lib/plugin-verify.js';
-import { downloadAllSkills, printDownloadSummary, type DownloadSummary } from '../lib/plugin-download.js';
+import { downloadAllSkills, printDownloadSummary } from '../lib/plugin-download.js';
 import { logger } from '../lib/plugin-logger.js';
 import {
 	agents,
@@ -142,17 +142,31 @@ function getPluginInstallTargets(targetAgents: AgentConfig[], isGlobal: boolean)
 	}));
 }
 
-function combineDownloadSummaries(summaries: DownloadSummary[]): DownloadSummary {
-	return summaries.reduce<DownloadSummary>(
-		(combined, summary) => ({
-			total: combined.total + summary.total,
-			success: combined.success + summary.success,
-			failed: combined.failed + summary.failed,
-			skipped: combined.skipped + summary.skipped,
-			results: [...combined.results, ...summary.results],
-		}),
-		{ total: 0, success: 0, failed: 0, skipped: 0, results: [] }
-	);
+async function linkDownloadedSkillsToAgents(
+	skillSlugs: string[],
+	targetAgents: AgentConfig[],
+	isGlobal: boolean
+): Promise<{ successCount: number; failCount: number }> {
+	let successCount = 0;
+	let failCount = 0;
+
+	for (const skillSlug of skillSlugs) {
+		const installResult = await installToAgents(skillSlug, targetAgents, { global: isGlobal });
+		successCount += installResult.successCount;
+		failCount += installResult.failCount;
+
+		for (const result of installResult.agents) {
+			if (!result.success) {
+				logger.error(`  ${skillSlug} -> ${result.agentId}: ${result.error}`);
+			} else if (result.symlinkFailed) {
+				logger.warn(`  ${skillSlug} -> ${result.agentId}: copied (symlink failed)`);
+			} else {
+				logger.debug(`  ${skillSlug} -> ${result.agentId}: linked`);
+			}
+		}
+	}
+
+	return { successCount, failCount };
 }
 
 /**
@@ -315,16 +329,16 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 	const { targetAgents, isGlobal, skipVerify, dryRun, overwrite } = options;
 
 	const installTargets = getPluginInstallTargets(targetAgents, isGlobal);
-	const primaryInstallDir = installTargets[0]?.installDir || agents['claude-code'].globalPath;
 
 	const config = getPluginConfig({
-		installDir: primaryInstallDir,
+		installDir: CANONICAL_SKILLS_DIR,
 		skipVerify,
 		dryRun,
 	});
 
 	logger.info(`Adding plugin: @${slug}`);
 	logger.info(`Target agents: ${targetAgents.map((a) => a.name).join(', ')}`);
+	logger.info(`Canonical directory: ${CANONICAL_SKILLS_DIR}`);
 	for (const target of installTargets) {
 		logger.info(`Target directory (${target.agent.name}): ${target.installDir}`);
 	}
@@ -367,25 +381,27 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			`Generated: ${new Date(manifest.generatedAt).toLocaleDateString()}`,
 		]);
 
-		// Step 4: Download skills to every selected agent directory
-		const downloadSummaries: DownloadSummary[] = [];
-		for (const target of installTargets) {
-			logger.info('');
-			logger.info(`Installing to ${target.agent.name}...`);
-			const targetConfig = getPluginConfig({
-				installDir: target.installDir,
-				skipVerify,
-				dryRun,
-			});
-			const downloadResult = await downloadAllSkills(targetConfig, manifest.skills, {
-				overwrite,
-				verifyHash: !skipVerify,
-			});
-			printDownloadSummary(downloadResult);
-			downloadSummaries.push(downloadResult);
-		}
+		// Step 4: Download skills once to the canonical skills directory.
+		logger.info('');
+		const downloadResult = await downloadAllSkills(config, manifest.skills, {
+			overwrite,
+			verifyHash: !skipVerify,
+		});
+		printDownloadSummary(downloadResult);
 
-		const downloadResult = combineDownloadSummaries(downloadSummaries);
+		// Step 5: Link canonical skills into each selected agent directory.
+		const successfulSkillSlugs = downloadResult.results.filter((r) => r.success).map((r) => r.slug);
+		if (!dryRun && downloadResult.failed === 0 && successfulSkillSlugs.length > 0) {
+			logger.startSpinner('Linking skills to agents...');
+			const linkResult = await linkDownloadedSkillsToAgents(successfulSkillSlugs, targetAgents, isGlobal);
+			if (linkResult.failCount > 0) {
+				logger.spinnerError(`Linked with ${linkResult.failCount} failure${linkResult.failCount > 1 ? 's' : ''}`);
+			} else {
+				logger.spinnerSuccess(
+					`Linked ${successfulSkillSlugs.length} skill${successfulSkillSlugs.length > 1 ? 's' : ''} to ${targetAgents.length} agent${targetAgents.length > 1 ? 's' : ''}`
+				);
+			}
+		}
 
 		// Step 6: Report installation (non-blocking)
 		if (!dryRun && downloadResult.success > 0) {
@@ -401,12 +417,12 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 			}
 
 			// Report telemetry for each successfully installed skill
-			const successfulSkillSlugs = [
+			const newlyInstalledSkillSlugs = [
 				...new Set(downloadResult.results.filter((r) => r.success && !r.skipped).map((r) => r.slug)),
 			];
-			if (successfulSkillSlugs.length > 0) {
+			if (newlyInstalledSkillSlugs.length > 0) {
 				// Report in parallel, non-blocking
-				Promise.all(successfulSkillSlugs.map((skillSlug) => reportSkillInstall(config, skillSlug))).catch(() => {
+				Promise.all(newlyInstalledSkillSlugs.map((skillSlug) => reportSkillInstall(config, skillSlug))).catch(() => {
 					logger.debug('Telemetry reporting failed (non-critical)');
 				});
 			}

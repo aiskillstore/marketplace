@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdir, writeFile, access } from 'node:fs/promises';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createHash } from 'node:crypto';
+import { mkdir, rm, writeFile, access } from 'node:fs/promises';
 import {
 	downloadAllSkills,
 	printDownloadSummary,
@@ -12,13 +13,14 @@ import type { ManifestSkill } from '../src/lib/plugin-api.js';
 // Mock fs/promises
 vi.mock('node:fs/promises', () => ({
 	mkdir: vi.fn(),
+	rm: vi.fn(),
 	writeFile: vi.fn(),
 	access: vi.fn(),
 }));
 
 // Mock plugin-api
 vi.mock('../src/lib/plugin-api.js', () => ({
-	downloadSkill: vi.fn(),
+	downloadSkillFile: vi.fn(),
 }));
 
 // Mock plugin-verify
@@ -36,13 +38,14 @@ vi.mock('../src/lib/plugin-logger.js', () => ({
 	},
 }));
 
-import { downloadSkill } from '../src/lib/plugin-api.js';
+import { downloadSkillFile } from '../src/lib/plugin-api.js';
 import { verifyContentHash } from '../src/lib/plugin-verify.js';
 import { logger } from '../src/lib/plugin-logger.js';
 
-const mockDownloadSkill = vi.mocked(downloadSkill);
+const mockDownloadSkillFile = vi.mocked(downloadSkillFile);
 const mockVerifyContentHash = vi.mocked(verifyContentHash);
 const mockMkdir = vi.mocked(mkdir);
+const mockRm = vi.mocked(rm);
 const mockWriteFile = vi.mocked(writeFile);
 const mockAccess = vi.mocked(access);
 
@@ -65,9 +68,10 @@ describe('plugin-download', () => {
 		vi.clearAllMocks();
 
 		// Default mocks
-		mockDownloadSkill.mockResolvedValue('# Skill content');
+		mockDownloadSkillFile.mockResolvedValue(new TextEncoder().encode('# Skill content'));
 		mockVerifyContentHash.mockReturnValue(true);
 		mockMkdir.mockResolvedValue(undefined);
+		mockRm.mockResolvedValue(undefined);
 		mockWriteFile.mockResolvedValue(undefined);
 		mockAccess.mockRejectedValue(new Error('ENOENT')); // File doesn't exist
 	});
@@ -104,7 +108,7 @@ describe('plugin-download', () => {
 
 			expect(summary.skipped).toBe(3);
 			expect(summary.success).toBe(0);
-			expect(mockDownloadSkill).not.toHaveBeenCalled();
+			expect(mockDownloadSkillFile).not.toHaveBeenCalled();
 		});
 
 		it('should overwrite existing files when overwrite is true', async () => {
@@ -114,7 +118,8 @@ describe('plugin-download', () => {
 
 			expect(summary.success).toBe(3);
 			expect(summary.skipped).toBe(0);
-			expect(mockDownloadSkill).toHaveBeenCalledTimes(3);
+			expect(mockDownloadSkillFile).toHaveBeenCalledTimes(3);
+			expect(mockRm).toHaveBeenCalledWith('/test/skills/skill-1', { recursive: true, force: true });
 		});
 
 		it('should verify content hash when enabled', async () => {
@@ -129,7 +134,7 @@ describe('plugin-download', () => {
 			const summary = await downloadAllSkills(config, testSkills, { verifyHash: true });
 
 			expect(summary.failed).toBe(3);
-			expect(summary.results[0].error).toBe('Content hash verification failed');
+			expect(summary.results[0].error).toBe('Content hash verification failed for SKILL.md');
 		});
 
 		it('should skip hash verification when disabled', async () => {
@@ -139,7 +144,7 @@ describe('plugin-download', () => {
 		});
 
 		it('should handle download errors gracefully', async () => {
-			mockDownloadSkill.mockRejectedValue(new Error('Network error'));
+			mockDownloadSkillFile.mockRejectedValue(new Error('Network error'));
 
 			const summary = await downloadAllSkills(config, testSkills);
 
@@ -148,10 +153,10 @@ describe('plugin-download', () => {
 		});
 
 		it('should handle partial failures', async () => {
-			mockDownloadSkill
-				.mockResolvedValueOnce('# Content 1')
+			mockDownloadSkillFile
+				.mockResolvedValueOnce(new TextEncoder().encode('# Content 1'))
 				.mockRejectedValueOnce(new Error('Failed'))
-				.mockResolvedValueOnce('# Content 3');
+				.mockResolvedValueOnce(new TextEncoder().encode('# Content 3'));
 
 			const summary = await downloadAllSkills(config, testSkills);
 
@@ -162,16 +167,16 @@ describe('plugin-download', () => {
 		it('should respect maxConcurrent setting', async () => {
 			// With maxConcurrent=2, should process in batches
 			const downloadCalls: number[] = [];
-			mockDownloadSkill.mockImplementation(async () => {
+			mockDownloadSkillFile.mockImplementation(async () => {
 				downloadCalls.push(Date.now());
 				await new Promise((resolve) => setTimeout(resolve, 10));
-				return '# Content';
+				return new TextEncoder().encode('# Content');
 			});
 
 			await downloadAllSkills(config, testSkills);
 
 			// All 3 skills should be downloaded
-			expect(mockDownloadSkill).toHaveBeenCalledTimes(3);
+			expect(mockDownloadSkillFile).toHaveBeenCalledTimes(3);
 		});
 
 		it('should not download in dry run mode', async () => {
@@ -183,7 +188,7 @@ describe('plugin-download', () => {
 			const summary = await downloadAllSkills(dryRunConfig, testSkills);
 
 			expect(summary.skipped).toBe(3);
-			expect(mockDownloadSkill).not.toHaveBeenCalled();
+			expect(mockDownloadSkillFile).not.toHaveBeenCalled();
 			expect(mockWriteFile).not.toHaveBeenCalled();
 		});
 
@@ -202,8 +207,66 @@ describe('plugin-download', () => {
 			expect(summary.results[0]).toMatchObject({
 				slug: 'skill-1',
 				success: true,
-				path: '/test/skills/skill-1.md',
+				path: '/test/skills/skill-1',
 			});
+		});
+
+		it('should install all artifact files under the skill directory', async () => {
+			const skillMd = new TextEncoder().encode('# Skill');
+			const reference = new TextEncoder().encode('Reference');
+			const artifactSkill: ManifestSkill = {
+				slug: 'artifact-skill',
+				name: 'Artifact Skill',
+				contentHash: '',
+				downloadUrl: '/fallback',
+				artifact: {
+					type: 'skill-files',
+					files: [
+						{
+							path: 'SKILL.md',
+							url: '/files/SKILL.md',
+							sha256: createHash('sha256').update(skillMd).digest('hex'),
+						},
+						{
+							path: 'references/guide.md',
+							url: '/files/references/guide.md',
+							sha256: createHash('sha256').update(reference).digest('hex'),
+						},
+					],
+				},
+			};
+			mockDownloadSkillFile
+				.mockResolvedValueOnce(skillMd)
+				.mockResolvedValueOnce(reference);
+
+			const summary = await downloadAllSkills(config, [artifactSkill]);
+
+			expect(summary.success).toBe(1);
+			expect(mockWriteFile).toHaveBeenCalledWith('/test/skills/artifact-skill/SKILL.md', skillMd);
+			expect(mockWriteFile).toHaveBeenCalledWith('/test/skills/artifact-skill/references/guide.md', reference);
+		});
+
+		it('should reject artifact paths outside the skill directory before writing files', async () => {
+			const unsafeSkill: ManifestSkill = {
+				slug: 'unsafe-skill',
+				name: 'Unsafe Skill',
+				contentHash: '',
+				downloadUrl: '/fallback',
+				artifact: {
+					type: 'skill-files',
+					files: [
+						{ path: 'SKILL.md', url: '/files/SKILL.md' },
+						{ path: '../outside.md', url: '/files/outside.md' },
+					],
+				},
+			};
+
+			const summary = await downloadAllSkills(config, [unsafeSkill]);
+
+			expect(summary.failed).toBe(1);
+			expect(summary.results[0].error).toContain('Invalid artifact path');
+			expect(mockDownloadSkillFile).not.toHaveBeenCalled();
+			expect(mockWriteFile).not.toHaveBeenCalled();
 		});
 
 		it('should handle skills without contentHash', async () => {

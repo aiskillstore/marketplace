@@ -1,4 +1,4 @@
-import { mkdir, rm, symlink, lstat, readlink, access } from 'node:fs/promises';
+import { cp, mkdir, rm, symlink, lstat, readlink, access } from 'node:fs/promises';
 import { join, normalize, resolve, sep, relative } from 'node:path';
 import { platform } from 'node:os';
 import { type AgentConfig, type AgentId, CANONICAL_SKILLS_DIR } from './agents.js';
@@ -15,6 +15,15 @@ export type InstallMode = 'symlink' | 'copy';
 export interface InstallResult {
 	success: boolean;
 	agentId: AgentId;
+	path: string;
+	canonicalPath?: string;
+	mode: InstallMode;
+	symlinkFailed?: boolean;
+	error?: string;
+}
+
+export interface DirectoryInstallResult {
+	success: boolean;
 	path: string;
 	canonicalPath?: string;
 	mode: InstallMode;
@@ -131,6 +140,13 @@ async function createSymlink(target: string, linkPath: string): Promise<boolean>
 	}
 }
 
+async function copySkillDirectory(target: string, linkPath: string): Promise<void> {
+	const linkDir = join(linkPath, '..');
+	await mkdir(linkDir, { recursive: true });
+	await rm(linkPath, { recursive: true, force: true });
+	await cp(target, linkPath, { recursive: true, force: true });
+}
+
 /**
  * Install skill to canonical location (for later symlinking)
  * This should be called AFTER extracting the ZIP to canonical path
@@ -170,23 +186,57 @@ export async function symlinkToAgent(
 		};
 	}
 
-	try {
-		const symlinkCreated = await createSymlink(canonicalPath, agentPath);
+	const result = await linkSkillToDirectory(slug, agentBase);
+	return {
+		...result,
+		agentId: agent.id as AgentId,
+	};
+}
 
-		if (!symlinkCreated) {
+/**
+ * Link a canonical skill directory into an arbitrary skills directory.
+ */
+export async function linkSkillToDirectory(
+	slug: string,
+	targetSkillsDir: string
+): Promise<DirectoryInstallResult> {
+	const canonicalPath = getCanonicalSkillPath(slug);
+	const agentPath = join(targetSkillsDir, sanitizeName(slug));
+
+	if (!isPathSafe(targetSkillsDir, agentPath)) {
+		return {
+			success: false,
+			path: agentPath,
+			mode: 'symlink',
+			error: 'Invalid skill name: potential path traversal detected',
+		};
+	}
+
+	try {
+		if (resolve(canonicalPath) === resolve(agentPath)) {
 			return {
 				success: true,
-				agentId: agent.id as AgentId,
 				path: agentPath,
 				canonicalPath,
 				mode: 'symlink',
+			};
+		}
+
+		const symlinkCreated = await createSymlink(canonicalPath, agentPath);
+
+		if (!symlinkCreated) {
+			await copySkillDirectory(canonicalPath, agentPath);
+			return {
+				success: true,
+				path: agentPath,
+				canonicalPath,
+				mode: 'copy',
 				symlinkFailed: true,
 			};
 		}
 
 		return {
 			success: true,
-			agentId: agent.id as AgentId,
 			path: agentPath,
 			canonicalPath,
 			mode: 'symlink',
@@ -194,7 +244,6 @@ export async function symlinkToAgent(
 	} catch (error) {
 		return {
 			success: false,
-			agentId: agent.id as AgentId,
 			path: agentPath,
 			mode: 'symlink',
 			error: error instanceof Error ? error.message : 'Unknown error',

@@ -18,7 +18,7 @@ import {
 describe('plugin-config', () => {
 	describe('constants', () => {
 		it('should have correct default install directory in home', () => {
-			expect(DEFAULT_INSTALL_DIR).toBe(resolve(homedir(), '.claude/skills'));
+			expect(DEFAULT_INSTALL_DIR).toBe(resolve(homedir(), '.agents/skills'));
 		});
 
 		it('should have correct default API base URL', () => {

@@ -14,6 +14,7 @@ import type { AgentConfig } from '../src/lib/agents.js';
 
 // Mock fs/promises
 vi.mock('node:fs/promises', () => ({
+	cp: vi.fn(),
 	mkdir: vi.fn(),
 	rm: vi.fn(),
 	symlink: vi.fn(),
@@ -32,7 +33,7 @@ vi.mock('../src/lib/agents.js', () => ({
 	CANONICAL_SKILLS_DIR: '/mock/home/.agents/skills',
 }));
 
-import { mkdir, rm, symlink, lstat, readlink, access } from 'node:fs/promises';
+import { cp, mkdir, rm, symlink, lstat, readlink, access } from 'node:fs/promises';
 import { platform } from 'node:os';
 
 describe('installer', () => {
@@ -54,6 +55,7 @@ describe('installer', () => {
 
 	beforeEach(() => {
 		vi.mocked(mkdir).mockReset();
+		vi.mocked(cp).mockReset();
 		vi.mocked(rm).mockReset();
 		vi.mocked(symlink).mockReset();
 		vi.mocked(lstat).mockReset();
@@ -63,6 +65,7 @@ describe('installer', () => {
 
 		// Default mocks
 		vi.mocked(mkdir).mockResolvedValue(undefined);
+		vi.mocked(cp).mockResolvedValue(undefined);
 		vi.mocked(rm).mockResolvedValue(undefined);
 		vi.mocked(symlink).mockResolvedValue(undefined);
 	});
@@ -221,6 +224,30 @@ describe('installer', () => {
 
 			expect(result.success).toBe(true);
 			expect(result.symlinkFailed).toBe(true);
+			expect(result.mode).toBe('copy');
+			expect(cp).toHaveBeenCalledWith(
+				'/mock/home/.agents/skills/my-skill',
+				'/mock/home/.claude/skills/my-skill',
+				{ recursive: true, force: true }
+			);
+		});
+
+		it('should not symlink when the agent path is the canonical skill path', async () => {
+			const canonicalAgent: AgentConfig = {
+				id: 'codex',
+				name: 'Codex',
+				projectPath: '.agents/skills',
+				globalPath: '/mock/home/.agents/skills',
+				detectInstalled: () => true,
+			};
+
+			const result = await symlinkToAgent('my-skill', canonicalAgent);
+
+			expect(result.success).toBe(true);
+			expect(result.path).toBe('/mock/home/.agents/skills/my-skill');
+			expect(symlink).not.toHaveBeenCalled();
+			expect(rm).not.toHaveBeenCalled();
+			expect(cp).not.toHaveBeenCalled();
 		});
 
 		it('should use junction on Windows', async () => {

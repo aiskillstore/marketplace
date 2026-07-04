@@ -4,6 +4,8 @@ import { fetchManifest, reportInstallation, PluginApiError } from '../../lib/plu
 import { verifyManifest } from '../../lib/plugin-verify.js';
 import { downloadAllSkills, printDownloadSummary } from '../../lib/plugin-download.js';
 import { logger } from '../../lib/plugin-logger.js';
+import { CANONICAL_SKILLS_DIR } from '../../lib/agents.js';
+import { linkSkillToDirectory } from '../../lib/installer.js';
 
 export default defineCommand({
 	meta: {
@@ -18,8 +20,8 @@ export default defineCommand({
 		},
 		dir: {
 			type: 'string',
-			description: 'Installation directory (default: .claude/skills)',
-			default: '.claude/skills',
+			description: 'Directory to link skills into (default: ~/.agents/skills)',
+			default: CANONICAL_SKILLS_DIR,
 		},
 		'skip-verify': {
 			type: 'boolean',
@@ -42,13 +44,15 @@ export default defineCommand({
 
 		// Build config from args
 		const config = getPluginConfig({
-			installDir: dir,
+			installDir: CANONICAL_SKILLS_DIR,
 			skipVerify,
 			dryRun,
 		});
+		const targetConfig = getPluginConfig({ installDir: dir });
 
 		logger.info(`Installing plugin: ${slug}`);
-		logger.info(`Target directory: ${config.installDir}`);
+		logger.info(`Canonical directory: ${CANONICAL_SKILLS_DIR}`);
+		logger.info(`Target directory: ${targetConfig.installDir}`);
 
 		if (dryRun) {
 			logger.warn('Dry run mode - no files will be written');
@@ -98,6 +102,23 @@ export default defineCommand({
 
 			// Step 5: Print summary
 			printDownloadSummary(downloadResult);
+
+			if (!dryRun && downloadResult.failed === 0) {
+				logger.startSpinner('Linking skills...');
+				const successfulSkillSlugs = downloadResult.results.filter((r) => r.success).map((r) => r.slug);
+				const linkResults = await Promise.all(
+					successfulSkillSlugs.map((skillSlug) => linkSkillToDirectory(skillSlug, targetConfig.installDir))
+				);
+				const failedLinks = linkResults.filter((result) => !result.success);
+				if (failedLinks.length > 0) {
+					logger.spinnerError(`Failed to link ${failedLinks.length} skill${failedLinks.length > 1 ? 's' : ''}`);
+					for (const result of failedLinks) {
+						logger.error(result.error || `Failed to link ${result.path}`);
+					}
+					process.exit(1);
+				}
+				logger.spinnerSuccess(`Linked ${linkResults.length} skill${linkResults.length > 1 ? 's' : ''}`);
+			}
 
 			// Step 6: Report installation (non-blocking)
 			if (!dryRun && downloadResult.success > 0) {

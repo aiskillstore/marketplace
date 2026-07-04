@@ -1,10 +1,12 @@
-import { mkdir, writeFile, access } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { mkdir, rm, writeFile, access } from 'node:fs/promises';
+import { dirname, isAbsolute, join, normalize, resolve, sep } from 'node:path';
 import type { PluginConfig } from './plugin-config.js';
-import type { ManifestSkill } from './plugin-api.js';
-import { downloadSkill } from './plugin-api.js';
+import type { ManifestSkill, ManifestSkillArtifactFile } from './plugin-api.js';
+import { downloadSkillFile } from './plugin-api.js';
 import { verifyContentHash } from './plugin-verify.js';
 import { logger } from './plugin-logger.js';
+import { sanitizeName } from './installer.js';
 
 /**
  * Plugin Skill Downloader
@@ -29,6 +31,54 @@ export interface DownloadSummary {
 	failed: number;
 	skipped: number;
 	results: SkillDownloadResult[];
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+	return createHash('sha256').update(bytes).digest('hex');
+}
+
+function verifyBytesHash(bytes: Uint8Array, expectedHash: string): boolean {
+	const actualHash = sha256Hex(bytes);
+	const compareLength = Math.min(actualHash.length, expectedHash.length);
+	return actualHash.substring(0, compareLength) === expectedHash.substring(0, compareLength);
+}
+
+function getSkillDir(config: PluginConfig, skillSlug: string): string {
+	return join(config.installDir, sanitizeName(skillSlug));
+}
+
+function resolveSkillFilePath(skillDir: string, filePath: string): string {
+	if (!filePath || isAbsolute(filePath)) {
+		throw new Error(`Invalid artifact path: ${filePath || '<empty>'}`);
+	}
+
+	const normalizedPath = normalize(filePath);
+	if (normalizedPath === '..' || normalizedPath.startsWith(`..${sep}`)) {
+		throw new Error(`Invalid artifact path: ${filePath}`);
+	}
+
+	const targetPath = resolve(skillDir, normalizedPath);
+	const rootPath = resolve(skillDir);
+	if (targetPath !== rootPath && targetPath.startsWith(`${rootPath}${sep}`)) {
+		return targetPath;
+	}
+
+	throw new Error(`Invalid artifact path: ${filePath}`);
+}
+
+function getArtifactFiles(skill: ManifestSkill): ManifestSkillArtifactFile[] {
+	if (Array.isArray(skill.artifact?.files) && skill.artifact.files.length > 0) {
+		const hasSkillMd = skill.artifact.files.some((file) => normalize(file.path) === 'SKILL.md');
+		if (!hasSkillMd) {
+			throw new Error('Skill artifact is missing SKILL.md');
+		}
+		return skill.artifact.files;
+	}
+
+	return [{
+		path: 'SKILL.md',
+		url: skill.downloadUrl,
+	}];
 }
 
 /**
@@ -97,7 +147,8 @@ async function downloadSingleSkill(
 	skill: ManifestSkill,
 	options: { overwrite: boolean; verifyHash: boolean }
 ): Promise<SkillDownloadResult> {
-	const skillPath = join(config.installDir, `${skill.slug}.md`);
+	const skillDir = getSkillDir(config, skill.slug);
+	const skillPath = join(skillDir, 'SKILL.md');
 
 	try {
 		// Check if skill already exists
@@ -108,7 +159,7 @@ async function downloadSingleSkill(
 				return {
 					slug: skill.slug,
 					success: true,
-					path: skillPath,
+					path: skillDir,
 					skipped: true,
 				};
 			} catch {
@@ -121,36 +172,47 @@ async function downloadSingleSkill(
 			return {
 				slug: skill.slug,
 				success: true,
-				path: skillPath,
+				path: skillDir,
 				skipped: true,
 			};
 		}
 
-		// Download skill content
-		const content = await downloadSkill(config, skill.downloadUrl);
+		const artifactFiles = getArtifactFiles(skill).map((file) => ({
+			file,
+			targetPath: resolveSkillFilePath(skillDir, file.path),
+		}));
 
-		// Verify content hash if enabled
-		if (options.verifyHash && skill.contentHash) {
-			const hashValid = verifyContentHash(content, skill.contentHash);
-			if (!hashValid) {
-				return {
-					slug: skill.slug,
-					success: false,
-					error: 'Content hash verification failed',
-				};
-			}
+		if (options.overwrite) {
+			await rm(skillDir, { recursive: true, force: true });
 		}
 
-		// Ensure directory exists
-		await mkdir(dirname(skillPath), { recursive: true });
+		for (const { file, targetPath } of artifactFiles) {
+			const content = await downloadSkillFile(config, file.url);
 
-		// Write skill file
-		await writeFile(skillPath, content, 'utf-8');
+			if (options.verifyHash) {
+				const expectedHash = file.sha256 || (normalize(file.path) === 'SKILL.md' ? skill.contentHash : '');
+				if (expectedHash) {
+					const hashValid = normalize(file.path) === 'SKILL.md' && !file.sha256
+						? verifyContentHash(new TextDecoder().decode(content), expectedHash)
+						: verifyBytesHash(content, expectedHash);
+					if (!hashValid) {
+						return {
+							slug: skill.slug,
+							success: false,
+							error: `Content hash verification failed for ${file.path}`,
+						};
+					}
+				}
+			}
+
+			await mkdir(dirname(targetPath), { recursive: true });
+			await writeFile(targetPath, content);
+		}
 
 		return {
 			slug: skill.slug,
 			success: true,
-			path: skillPath,
+			path: skillDir,
 		};
 	} catch (err) {
 		return {

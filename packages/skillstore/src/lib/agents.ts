@@ -110,8 +110,8 @@ export const agents: Record<AgentId, AgentConfig> = {
 	codex: {
 		id: 'codex',
 		name: 'Codex',
-		projectPath: '.codex/skills',
-		globalPath: join(codexHome, 'skills'),
+		projectPath: '.agents/skills',
+		globalPath: CANONICAL_SKILLS_DIR,
 		detectInstalled: () => existsSync(codexHome) || existsSync('/etc/codex'),
 	},
 	'command-code': {

@@ -5,12 +5,14 @@ import { defineCommand, runMain } from 'citty';
 const main = defineCommand({
 	meta: {
 		name: 'skillstore',
-		version: '0.1.6',
+		version: '0.1.7',
 		description: 'Skillstore CLI - Manage AI skills for Claude, Codex, and Claude Code',
 	},
 	subCommands: {
 		// Primary command: add skills or plugins
 		add: () => import('../commands/add.js').then((m) => m.default),
+		// Alias-style install command for users who expect install semantics
+		install: () => import('../commands/install.js').then((m) => m.default),
 		// List installed skills
 		list: () => import('../commands/list.js').then((m) => m.default),
 		// Check for updates

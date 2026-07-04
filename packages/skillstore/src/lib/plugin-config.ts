@@ -7,8 +7,8 @@ import { homedir } from 'node:os';
  * Manages default settings for plugin installation and API access.
  */
 
-/** Default installation directory for skills (in user's home directory) */
-export const DEFAULT_INSTALL_DIR = resolve(homedir(), '.claude/skills');
+/** Default canonical installation directory for skills (in user's home directory) */
+export const DEFAULT_INSTALL_DIR = resolve(homedir(), '.agents/skills');
 
 /** Skillstore API base URL */
 export const API_BASE_URL =

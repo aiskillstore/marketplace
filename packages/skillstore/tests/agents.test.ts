@@ -77,6 +77,14 @@ describe('agents', () => {
 			expect(claude.projectPath).toBe('.claude/skills');
 			expect(claude.globalPath).toContain('.claude/skills');
 		});
+
+		it('should use the canonical user skills directory for Codex', () => {
+			const codex = agents.codex;
+
+			expect(codex.id).toBe('codex');
+			expect(codex.projectPath).toBe('.agents/skills');
+			expect(codex.globalPath).toBe(CANONICAL_SKILLS_DIR);
+		});
 	});
 
 	describe('getAllAgentIds', () => {

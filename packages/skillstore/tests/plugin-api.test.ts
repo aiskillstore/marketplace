@@ -5,6 +5,7 @@ import {
 	fetchPluginList,
 	reportInstallation,
 	downloadSkill,
+	downloadSkillFile,
 	reportSkillTelemetry,
 	reportSkillInstall,
 	PluginApiError,
@@ -407,7 +408,7 @@ describe('plugin-api', () => {
 
 			mockFetch.mockResolvedValueOnce({
 				ok: true,
-				text: () => Promise.resolve('# Skill Content'),
+				arrayBuffer: () => Promise.resolve(new TextEncoder().encode('# Skill Content').buffer),
 			});
 
 			const result = await downloadSkill(downloadConfig, '/downloads/skill.md');
@@ -423,7 +424,7 @@ describe('plugin-api', () => {
 		it('should download skill with absolute URL', async () => {
 			mockFetch.mockResolvedValueOnce({
 				ok: true,
-				text: () => Promise.resolve('# Content'),
+				arrayBuffer: () => Promise.resolve(new TextEncoder().encode('# Content').buffer),
 			});
 
 			await downloadSkill(config, 'https://cdn.example.com/skill.md');
@@ -444,6 +445,18 @@ describe('plugin-api', () => {
 			await expect(downloadSkill(config, '/skill.md')).rejects.toMatchObject({
 				statusCode: 403,
 			});
+		});
+
+		it('should download raw skill file bytes', async () => {
+			const bytes = new Uint8Array([1, 2, 3]);
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				arrayBuffer: () => Promise.resolve(bytes.buffer),
+			});
+
+			const result = await downloadSkillFile(config, '/skill.bin');
+
+			expect(result).toEqual(bytes);
 		});
 	});
 

@@ -14,11 +14,25 @@ import {
  */
 
 /** Manifest skill entry */
+export interface ManifestSkillArtifactFile {
+	path: string;
+	url: string;
+	sha256?: string;
+	bytes?: number;
+}
+
+export interface ManifestSkillArtifact {
+	type?: string;
+	files?: ManifestSkillArtifactFile[];
+	sha256?: string;
+}
+
 export interface ManifestSkill {
 	slug: string;
 	name: string;
 	contentHash: string;
 	downloadUrl: string;
+	artifact?: ManifestSkillArtifact;
 }
 
 export interface ManifestSignatureInfo {
@@ -331,6 +345,17 @@ export async function downloadSkill(
 	config: PluginConfig,
 	downloadUrl: string
 ): Promise<string> {
+	const bytes = await downloadSkillFile(config, downloadUrl);
+	return new TextDecoder().decode(bytes);
+}
+
+/**
+ * Download a skill artifact file from the API.
+ */
+export async function downloadSkillFile(
+	config: PluginConfig,
+	downloadUrl: string
+): Promise<Uint8Array> {
 	// downloadUrl is relative, construct full URL
 	const fullUrl = downloadUrl.startsWith('http')
 		? downloadUrl
@@ -348,7 +373,7 @@ export async function downloadSkill(
 		);
 	}
 
-	return await response.text();
+	return new Uint8Array(await response.arrayBuffer());
 }
 
 /**

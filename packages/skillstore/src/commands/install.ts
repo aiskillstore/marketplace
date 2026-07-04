@@ -7,6 +7,8 @@ import { fetchSkillManifest, downloadSkillZip, SkillApiError } from '../lib/skil
 import { verifyManifest, verifySkillManifest, verifyZipHash } from '../lib/plugin-verify.js';
 import { downloadAllSkills, printDownloadSummary } from '../lib/plugin-download.js';
 import { logger } from '../lib/plugin-logger.js';
+import { CANONICAL_SKILLS_DIR } from '../lib/agents.js';
+import { getCanonicalSkillPath, linkSkillToDirectory } from '../lib/installer.js';
 
 /**
  * Normalize skill/plugin slug
@@ -35,8 +37,8 @@ export default defineCommand({
 		},
 		dir: {
 			type: 'string',
-			description: 'Installation directory (default: .claude/skills)',
-			default: '.claude/skills',
+			description: 'Directory to link skills into (default: ~/.agents/skills)',
+			default: CANONICAL_SKILLS_DIR,
 		},
 		'skip-verify': {
 			type: 'boolean',
@@ -82,13 +84,15 @@ async function installSkill(
 	const { dir, skipVerify, dryRun, overwrite } = options;
 
 	const config = getPluginConfig({
-		installDir: dir,
+		installDir: CANONICAL_SKILLS_DIR,
 		skipVerify,
 		dryRun,
 	});
+	const targetConfig = getPluginConfig({ installDir: dir });
 
 	logger.info(`Installing skill: ${slug}`);
-	logger.info(`Target directory: ${config.installDir}`);
+	logger.info(`Canonical directory: ${CANONICAL_SKILLS_DIR}`);
+	logger.info(`Target directory: ${targetConfig.installDir}`);
 
 	if (dryRun) {
 		logger.warn('Dry run mode - no files will be written');
@@ -122,7 +126,7 @@ async function installSkill(
 		]);
 
 		// Step 4: Check if already installed
-		const skillDir = join(config.installDir, slug);
+		const skillDir = getCanonicalSkillPath(slug);
 		if (!overwrite) {
 			try {
 				await access(skillDir);
@@ -158,10 +162,24 @@ async function installSkill(
 
 		// Step 7: Extract ZIP
 		logger.startSpinner('Extracting files...');
-		await extractZip(zipBuffer, config.installDir);
+		await extractZip(zipBuffer, skillDir);
 		logger.spinnerSuccess('Extracted files');
 
-		// Step 8: Report installation (non-blocking telemetry)
+		// Step 8: Link to requested directory
+		logger.startSpinner('Linking skill...');
+		const linkResult = await linkSkillToDirectory(slug, targetConfig.installDir);
+		if (!linkResult.success) {
+			logger.spinnerError('Failed to link skill');
+			logger.error(linkResult.error || 'Unknown link error');
+			process.exit(1);
+		}
+		if (linkResult.symlinkFailed) {
+			logger.spinnerSuccess('Copied skill (symlink failed)');
+		} else {
+			logger.spinnerSuccess('Linked skill');
+		}
+
+		// Step 9: Report installation (non-blocking telemetry)
 		try {
 			await reportSkillInstall(config, slug);
 			logger.debug('Installation telemetry reported');
@@ -172,6 +190,7 @@ async function installSkill(
 		logger.success(`Skill "${manifest.skill.name}" installed successfully!`);
 		console.log('');
 		console.log(`Installed to: ${skillDir}`);
+		console.log(`Linked to: ${linkResult.path}`);
 	} catch (err) {
 		logger.stopSpinner();
 
@@ -202,13 +221,15 @@ async function installPlugin(
 	const { dir, skipVerify, dryRun, overwrite } = options;
 
 	const config = getPluginConfig({
-		installDir: dir,
+		installDir: CANONICAL_SKILLS_DIR,
 		skipVerify,
 		dryRun,
 	});
+	const targetConfig = getPluginConfig({ installDir: dir });
 
 	logger.info(`Installing plugin: @${slug}`);
-	logger.info(`Target directory: ${config.installDir}`);
+	logger.info(`Canonical directory: ${CANONICAL_SKILLS_DIR}`);
+	logger.info(`Target directory: ${targetConfig.installDir}`);
 
 	if (dryRun) {
 		logger.warn('Dry run mode - no files will be written');
@@ -257,6 +278,23 @@ async function installPlugin(
 
 		// Step 5: Print summary
 		printDownloadSummary(downloadResult);
+
+		if (!dryRun && downloadResult.failed === 0) {
+			logger.startSpinner('Linking skills...');
+			const successfulSkillSlugs = downloadResult.results.filter((r) => r.success).map((r) => r.slug);
+			const linkResults = await Promise.all(
+				successfulSkillSlugs.map((skillSlug) => linkSkillToDirectory(skillSlug, targetConfig.installDir))
+			);
+			const failedLinks = linkResults.filter((result) => !result.success);
+			if (failedLinks.length > 0) {
+				logger.spinnerError(`Failed to link ${failedLinks.length} skill${failedLinks.length > 1 ? 's' : ''}`);
+				for (const result of failedLinks) {
+					logger.error(result.error || `Failed to link ${result.path}`);
+				}
+				process.exit(1);
+			}
+			logger.spinnerSuccess(`Linked ${linkResults.length} skill${linkResults.length > 1 ? 's' : ''}`);
+		}
 
 		// Step 6: Report installation (non-blocking)
 		if (!dryRun && downloadResult.success > 0) {
