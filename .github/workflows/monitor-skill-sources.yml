@@ -16,6 +16,16 @@ on:
         required: false
         type: number
         default: 0
+      concurrency:
+        description: 'Parallel source scans, 1-8'
+        required: false
+        type: number
+        default: 8
+      max_updates_per_run:
+        description: 'Maximum updated skills to refresh into a marketplace PR in one run; 0 means unlimited'
+        required: false
+        type: number
+        default: 100
       dry_run:
         description: 'Preview only; do not write Supabase, update local files, or create PRs'
         required: false
@@ -69,7 +79,7 @@ jobs:
   scan:
     name: Source accuracy scan
     runs-on: self-hosted
-    timeout-minutes: 360
+    timeout-minutes: 1440
 
     steps:
       - name: Generate GitHub App Token
@@ -112,6 +122,8 @@ jobs:
           SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
           SLUGS: ${{ inputs.slugs || '' }}
           LIMIT: ${{ inputs.limit || 0 }}
+          CONCURRENCY: ${{ inputs.concurrency || 8 }}
+          MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 100 }}
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
           CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
           ARCHIVE_MISSING: ${{ inputs.archive_missing || false }}
@@ -133,6 +145,8 @@ jobs:
             --summary markdown
             --jsonlFile "$JSONL_FILE"
             --summaryFile "$SUMMARY_FILE"
+            --concurrency "$CONCURRENCY"
+            --maxLocalUpdates "$MAX_UPDATES_PER_RUN"
           )
 
           if [ -n "$SLUGS" ]; then
@@ -175,6 +189,8 @@ jobs:
 
           echo "Dry run: $DRY_RUN"
           echo "Create PR: $CREATE_PR"
+          echo "Source scan concurrency: $CONCURRENCY"
+          echo "Max local updates per run: $MAX_UPDATES_PER_RUN"
           echo "Archive missing: $ARCHIVE_MISSING"
           echo "Delete archived: $DELETE_ARCHIVED"
           echo "Command: ${CMD[*]}"
@@ -197,6 +213,8 @@ jobs:
         env:
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
           CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
+          CONCURRENCY: ${{ inputs.concurrency || 8 }}
+          MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 100 }}
           ARCHIVE_MISSING: ${{ inputs.archive_missing || false }}
           DELETE_ARCHIVED: ${{ inputs.delete_archived || false }}
         run: |
@@ -231,6 +249,8 @@ jobs:
             echo "- Dry run: $DRY_RUN"
             echo "- Supabase writes: $WRITES"
             echo "- Update PRs: $UPDATE_PRS"
+            echo "- Source scan concurrency: $CONCURRENCY"
+            echo "- Max local updates per run: $MAX_UPDATES_PER_RUN"
             echo "- Archive actions: $ARCHIVE_MODE"
             echo "- Marketplace deletions: $DELETE_MODE"
             echo "- Evidence artifact: skill-source-monitor-${{ github.run_id }}"
