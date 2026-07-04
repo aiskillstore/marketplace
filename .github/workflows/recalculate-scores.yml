@@ -79,8 +79,8 @@ jobs:
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          # lets `skill score` (CLI >= 1.32.0) bust the long-lived detail cache for
-          # rescored skills so the new score shows on the next request
+          # Used below for one batched score-cache invalidation after scoring.
+          # The per-slug CLI children intentionally run with this env cleared.
           CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           INPUT_SLUG: ${{ inputs.slug }}
           INPUT_LIMIT: ${{ inputs.limit }}
@@ -91,6 +91,7 @@ jobs:
           echo "=== Skill Quality Score Recalculation ==="
           echo "Time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo ""
+          INVALIDATE_SLUGS_FILE=""
 
           # Build wrapper args. The wrapper script (scripts/recalculate-scores.sh)
           # runs the CLI in per-slug mode with retry/backoff so a single
@@ -118,6 +119,8 @@ jobs:
             fi
             # Single-skill mode: per-slug wrapper
             WRAPPER_ARGS+=( --slugs "$INPUT_SLUG" )
+            INVALIDATE_SLUGS_FILE="$RUNNER_TEMP/recalculate-invalidate-slugs.txt"
+            printf '%s\n' "$INPUT_SLUG" > "$INVALIDATE_SLUGS_FILE"
             echo "Mode: Single skill ($INPUT_SLUG)"
           elif [ "$SUPPORTS_SLUGS" -eq 1 ]; then
             # Scheduled/default full recalculation must still use the
@@ -146,6 +149,7 @@ jobs:
             SLUGS_FILE="$RUNNER_TEMP/recalculate-slugs.txt"
             printf '%s\n' "${ALL_SLUGS[@]}" > "$SLUGS_FILE"
             WRAPPER_ARGS+=( --slugs-file "$SLUGS_FILE" )
+            INVALIDATE_SLUGS_FILE="$SLUGS_FILE"
             echo "Skills queued: ${#ALL_SLUGS[@]}"
             echo "Slug list file: $SLUGS_FILE"
           else
@@ -184,7 +188,10 @@ jobs:
           # with `-e`; temporarily disable it so we can inspect EXIT_CODE
           # and preserve partial-success behavior.
           set +e
-          bash scripts/recalculate-scores.sh "${WRAPPER_ARGS[@]}" 2>&1 | tee score-output.log
+          # Full recalculation launches one CLI process per slug. Do not let
+          # each child invalidate cache independently; that turns 5k skills
+          # into 5k network calls. We batch invalidate after scoring succeeds.
+          CACHE_INVALIDATE_SECRET= bash scripts/recalculate-scores.sh "${WRAPPER_ARGS[@]}" 2>&1 | tee score-output.log
           EXIT_CODE=${PIPESTATUS[0]}
           set -e
 
@@ -219,6 +226,83 @@ jobs:
             echo "::warning::Score recalculation finished with $ERRORS error(s) after processing $PROCESSED skill(s); keeping the workflow green because it made progress."
           elif [ "${ERRORS:-0}" -gt 0 ]; then
             echo "::warning::Score recalculation finished with $ERRORS error(s) after processing $PROCESSED skill(s)."
+          fi
+
+          if [ "$INPUT_DRY_RUN" != "true" ] && [ -n "$INVALIDATE_SLUGS_FILE" ] && [ -s "$INVALIDATE_SLUGS_FILE" ] && [ "$SUCCESSFUL" -gt 0 ]; then
+            echo ""
+            echo "Batch invalidating skill score cache from $INVALIDATE_SLUGS_FILE"
+            INVALIDATE_SLUGS_FILE="$INVALIDATE_SLUGS_FILE" node <<'NODE' || echo "::warning::Batch cache invalidation failed; scores were already written and will be visible after cache refresh."
+          const fs = require('node:fs');
+
+          const file = process.env.INVALIDATE_SLUGS_FILE;
+          const secret = process.env.CACHE_INVALIDATE_SECRET;
+          const site = (process.env.SKILLSTORE_SITE_URL || 'https://skillstore.io').replace(/\/+$/, '');
+          const batchSize = 50;
+          const timeoutMs = 10_000;
+
+          async function postBatch(batch, index) {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+              const res = await fetch(`${site}/api/cache/invalidate`, {
+                method: 'POST',
+                signal: controller.signal,
+                headers: {
+                  Authorization: `Bearer ${secret}`,
+                  'Content-Type': 'application/json',
+                  'User-Agent': 'skillstore-marketplace-workflow',
+                },
+                body: JSON.stringify({
+                  type: 'skills',
+                  slugs: batch,
+                  invalidateApi: true,
+                  invalidateArtifacts: false,
+                }),
+              });
+              const text = await res.text();
+              if (!res.ok) {
+                console.error(`::warning::cache invalidation batch ${index} failed ${res.status}: ${text.slice(0, 300)}`);
+                return false;
+              }
+              console.log(`[cache] invalidated ${batch.length} skills in batch ${index}`);
+              return true;
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              console.error(`::warning::cache invalidation batch ${index} skipped: ${message}`);
+              return false;
+            } finally {
+              clearTimeout(timeout);
+            }
+          }
+
+          (async () => {
+            if (!secret) {
+              console.log('[cache] skipped: CACHE_INVALIDATE_SECRET is not set');
+              return;
+            }
+            const slugs = [...new Set(
+              fs.readFileSync(file, 'utf8')
+                .split(/\r?\n/)
+                .map((slug) => slug.trim())
+                .filter(Boolean)
+            )];
+            if (slugs.length === 0) {
+              console.log('[cache] skipped: no slugs to invalidate');
+              return;
+            }
+
+            let failed = 0;
+            for (let i = 0; i < slugs.length; i += batchSize) {
+              const ok = await postBatch(slugs.slice(i, i + batchSize), Math.floor(i / batchSize) + 1);
+              if (!ok) failed++;
+            }
+            console.log(`[cache] batch invalidation complete: slugs=${slugs.length} failed_batches=${failed}`);
+            if (failed > 0) process.exitCode = 1;
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.stack || error.message : String(error));
+            process.exitCode = 1;
+          });
+          NODE
           fi
 
       - name: Cleanup

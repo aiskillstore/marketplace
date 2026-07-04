@@ -351,6 +351,11 @@ test('recalculate-scores workflow default all-skills path uses per-slug wrapper'
 	assert.match(workflow, /SLUGS_FILE=/, 'workflow must materialize the full no-limit slug list into a file');
 	assert.match(workflow, /WRAPPER_ARGS\+=\( --slugs-file "\$SLUGS_FILE" \)/, 'default full run must pass a slug file, not a giant CSV argv');
 	assert.match(workflow, /--timeout-seconds "\$INPUT_TIMEOUT_SECONDS"/, 'default full run must bound each per-skill CLI child');
+	assert.match(workflow, /CACHE_INVALIDATE_SECRET= bash scripts\/recalculate-scores\.sh/, 'per-slug CLI children must not invalidate cache one-by-one');
+	assert.match(workflow, /INVALIDATE_SLUGS_FILE="\$SLUGS_FILE"/, 'workflow must reuse the full slug file for batched cache invalidation');
+	assert.match(workflow, /Batch invalidating skill score cache/, 'workflow must batch invalidate score cache after successful scoring');
+	assert.match(workflow, /\/api\/cache\/invalidate/, 'workflow must call the Skillstore cache invalidation endpoint');
+	assert.match(workflow, /invalidateArtifacts:\s*false/, 'score recalculation must not invalidate unchanged skill artifacts');
 	assert.doesNotMatch(workflow, /WRAPPER_ARGS\+=\( --slugs "\$SLUGS_CSV" \)/, 'default full run must not put all slugs in one argv');
 	assert.doesNotMatch(workflow, /SLUGS_CSV=/, 'workflow must not build an all-skills CSV that can exceed ARG_MAX');
 	assert.match(workflow, /SUPPORTS_SLUGS=0/, 'workflow must feature-probe whether the downloaded CLI supports --slugs');
