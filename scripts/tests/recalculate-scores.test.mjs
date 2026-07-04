@@ -336,6 +336,9 @@ test('workflows fail no-success/global scoring failures instead of masking them'
 
 test('download action invalidates stale local CLI cache entries', () => {
 	const action = readFileSync(DOWNLOAD_CLI_ACTION, 'utf8');
+	assert.match(action, /\[\[ "\$CLI_VERSION" == cli-v\* \]\]/, 'download action must accept already-tagged cli-v versions');
+	assert.match(action, /RELEASE_TAG="\$CLI_VERSION"/, 'already-tagged cli-v input must not be prefixed again');
+	assert.match(action, /RELEASE_TAG="cli-v\$CLI_VERSION"/, 'plain semantic versions must still be converted to release tags');
 	assert.match(action, /CACHED_VERSION=/, 'local cache hit must inspect the cached binary version');
 	assert.match(action, /EXPECTED_VERSION=\$\{RELEASE_TAG#cli-v\}/, 'expected version must come from the resolved release tag');
 	assert.match(action, /rm -f "\$CACHE_FILE" "\$GITHUB_WORKSPACE\/skillstore-cli"/, 'stale local cache must be removed so the Download CLI step runs');
