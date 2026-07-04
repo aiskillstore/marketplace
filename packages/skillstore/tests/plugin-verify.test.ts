@@ -511,14 +511,63 @@ describe('plugin-verify', () => {
 			expect(result.error).toBe('Missing skill slug in manifest');
 		});
 
-		it('should reject missing zipHash', async () => {
+		it('should reject missing ZIP hash', async () => {
 			const manifest = createValidSkillManifest({
 				skill: { slug: 'test', name: 'Test', version: '1.0.0' },
 			});
 			const result = await verifySkillManifest(manifest);
 
 			expect(result.valid).toBe(false);
-			expect(result.error).toBe('Missing zipHash in manifest');
+			expect(result.error).toBe('Missing zipHash or artifact.sha256 in manifest');
+		});
+
+		it('should validate a canonical skill manifest with Ed25519 signature', async () => {
+			const subtle = globalThis.crypto?.subtle || webcrypto.subtle;
+			const keyPair = await subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+			const privateJwk = await subtle.exportKey('jwk', keyPair.privateKey);
+			const publicJwk = await subtle.exportKey('jwk', keyPair.publicKey);
+			const signed = {
+				kind: 'skill',
+				version: '1.0',
+				generatedAt: '2026-07-04T00:00:00Z',
+				skill: {
+					slug: 'test-skill',
+					name: 'Test Skill',
+					version: '1.0.0',
+					author: 'Test Author',
+				},
+				artifact: {
+					type: 'skill-zip',
+					url: 'https://skillstore.io/api/skills/test-skill/download?ref=abc123',
+					mediaType: 'application/zip',
+					sha256: 'abc123def456',
+				},
+			};
+			const rawSignature = await subtle.sign(
+				{ name: 'Ed25519' },
+				await subtle.importKey('jwk', privateJwk, { name: 'Ed25519' }, false, ['sign']),
+				new TextEncoder().encode(canonicalJson(signed))
+			);
+			const manifest = {
+				...signed,
+				schemaVersion: '2.0',
+				signed,
+				signature: {
+					algorithm: 'Ed25519',
+					keyId: 'test-key',
+					publicKeyJwk: {
+						kty: 'OKP',
+						crv: 'Ed25519',
+						x: publicJwk.x,
+					},
+					signedAt: '2026-07-04T00:00:00Z',
+					value: encodeBase64Url(new Uint8Array(rawSignature)),
+				},
+			} as SkillManifest;
+
+			const result = await verifySkillManifest(manifest);
+
+			expect(result.valid).toBe(true);
 		});
 
 		it('should skip signature verification when option is set', async () => {

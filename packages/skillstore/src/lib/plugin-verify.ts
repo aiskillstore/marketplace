@@ -1,6 +1,6 @@
 import { createHmac, createHash, timingSafeEqual as cryptoTimingSafeEqual, webcrypto } from 'node:crypto';
 import type { ManifestSignatureInfo, PluginManifest } from './plugin-api.js';
-import type { SkillManifest } from './skill-api.js';
+import { getSkillZipHash, type SkillManifest } from './skill-api.js';
 
 /**
  * Plugin Manifest Verification
@@ -106,7 +106,10 @@ function decodeBase64Url(value: string): ArrayBuffer {
 	return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
 }
 
-async function verifyEd25519Envelope(manifest: PluginManifest): Promise<VerifyResult> {
+async function verifyEd25519Envelope(manifest: {
+	signature: unknown;
+	signed?: unknown;
+}): Promise<VerifyResult> {
 	try {
 		if (!isManifestSignatureInfo(manifest.signature)) {
 			return { valid: false, error: 'Invalid Ed25519 signature metadata' };
@@ -229,6 +232,10 @@ export function verifySkillManifestSignature(
 			return { valid: false, error: 'Manifest has no signature' };
 		}
 
+		if (typeof signature !== 'string') {
+			return { valid: false, error: 'Manifest uses a non-HMAC signature' };
+		}
+
 		// Compute expected signature (matching server-side implementation)
 		const dataToSign = JSON.stringify(unsignedManifest, null, 0);
 		const expectedSignature = createHmac('sha256', key)
@@ -267,14 +274,16 @@ export async function verifySkillManifest(
 		return { valid: false, error: 'Missing skill slug in manifest' };
 	}
 
-	if (!manifest.skill?.zipHash) {
-		return { valid: false, error: 'Missing zipHash in manifest' };
+	if (!getSkillZipHash(manifest)) {
+		return { valid: false, error: 'Missing zipHash or artifact.sha256 in manifest' };
 	}
 
 	// Verify signature unless skipped
 	if (!options.skipSignature) {
 		const key = getVerificationKey();
-		const signatureResult = verifySkillManifestSignature(manifest, key);
+		const signatureResult = isManifestSignatureInfo(manifest.signature)
+			? await verifyEd25519Envelope(manifest)
+			: verifySkillManifestSignature(manifest, key);
 		if (!signatureResult.valid) {
 			return signatureResult;
 		}

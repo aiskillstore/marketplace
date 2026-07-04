@@ -3,6 +3,8 @@ import {
 	fetchSkillInfo,
 	fetchSkillManifest,
 	downloadSkillZip,
+	getSkillDownloadUrlFromManifest,
+	getSkillZipHash,
 	SkillApiError,
 	type SkillInfo,
 	type SkillManifest,
@@ -242,6 +244,94 @@ describe('skill-api', () => {
 		});
 	});
 
+	describe('manifest helpers', () => {
+		const legacyManifest: SkillManifest = {
+			version: '1.0',
+			skill: {
+				slug: 'test-skill',
+				name: 'Test Skill',
+				version: '1.0.0',
+				zipHash: 'legacy-hash',
+			},
+			downloadUrl: '/api/skills/test-skill/download',
+			signature: 'valid-signature',
+			generatedAt: '2024-01-01T00:00:00Z',
+		};
+
+		const modernManifest: SkillManifest = {
+			kind: 'skill',
+			version: '1.0',
+			schemaVersion: '2.0',
+			skill: {
+				slug: 'test-skill',
+				name: 'Test Skill',
+				version: '1.0.0',
+			},
+			artifact: {
+				type: 'skill-zip',
+				url: 'https://cdn.test.com/test-skill.zip',
+				mediaType: 'application/zip',
+				sha256: 'artifact-hash',
+			},
+			signature: {
+				algorithm: 'Ed25519',
+				keyId: 'test-key',
+				publicKeyJwk: {
+					kty: 'OKP',
+					crv: 'Ed25519',
+					x: 'test-public-key',
+				},
+				signedAt: '2026-07-04T00:00:00Z',
+				value: 'test-signature',
+			},
+			generatedAt: '2026-07-04T00:00:00Z',
+		};
+
+		it('should read ZIP hash from legacy skill.zipHash', () => {
+			expect(getSkillZipHash(legacyManifest)).toBe('legacy-hash');
+		});
+
+		it('should read ZIP hash from canonical artifact.sha256', () => {
+			expect(getSkillZipHash(modernManifest)).toBe('artifact-hash');
+		});
+
+		it('should prefer signed artifact hash when present', () => {
+			const manifest: SkillManifest = {
+				...modernManifest,
+				artifact: { ...modernManifest.artifact, sha256: 'tampered-hash' },
+				signed: {
+					kind: 'skill',
+					version: '1.0',
+					generatedAt: modernManifest.generatedAt,
+					skill: modernManifest.skill,
+					artifact: { ...modernManifest.artifact, sha256: 'signed-hash' },
+				},
+			};
+
+			expect(getSkillZipHash(manifest)).toBe('signed-hash');
+		});
+
+		it('should resolve canonical artifact download URL', () => {
+			expect(getSkillDownloadUrlFromManifest(config, modernManifest, 'test-skill')).toBe(
+				'https://cdn.test.com/test-skill.zip'
+			);
+		});
+
+		it('should resolve relative download URL against API base', () => {
+			expect(getSkillDownloadUrlFromManifest(config, legacyManifest, 'test-skill')).toBe(
+				'https://api.test.com/api/skills/test-skill/download'
+			);
+		});
+
+		it('should fall back to conventional download endpoint', () => {
+			const manifest = { ...legacyManifest, downloadUrl: undefined };
+
+			expect(getSkillDownloadUrlFromManifest(config, manifest, 'test-skill')).toBe(
+				'https://api.test.com/skills/test-skill/download'
+			);
+		});
+	});
+
 	describe('downloadSkillZip', () => {
 		it('should download skill as ArrayBuffer', async () => {
 			const mockBuffer = new ArrayBuffer(100);
@@ -325,6 +415,39 @@ describe('skill-api', () => {
 				'https://api.test.com/skills/complex-skill-slug/download',
 				expect.any(Object)
 			);
+		});
+
+		it('should download from manifest artifact URL when provided', async () => {
+			const mockBuffer = new ArrayBuffer(10);
+			const manifest: SkillManifest = {
+				version: '1.0',
+				skill: {
+					slug: 'test-skill',
+					name: 'Test Skill',
+					version: '1.0.0',
+				},
+				artifact: {
+					type: 'skill-zip',
+					url: 'https://cdn.test.com/test-skill.zip',
+					sha256: 'artifact-hash',
+				},
+				signature: 'valid-signature',
+				generatedAt: '2026-07-04T00:00:00Z',
+			};
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				arrayBuffer: () => Promise.resolve(mockBuffer),
+			});
+
+			const result = await downloadSkillZip(config, 'test-skill', manifest);
+
+			expect(mockFetch).toHaveBeenCalledWith(
+				'https://cdn.test.com/test-skill.zip',
+				expect.objectContaining({
+					method: 'GET',
+				})
+			);
+			expect(result).toBe(mockBuffer);
 		});
 	});
 });

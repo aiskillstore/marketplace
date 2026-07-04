@@ -1,13 +1,11 @@
 import { defineCommand } from 'citty';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
 import { getAllLockedSkills, addToLock, type SkillLockEntry } from '../lib/skill-lock.js';
-import { fetchSkillManifest, downloadSkillZip, SkillApiError } from '../lib/skill-api.js';
+import { fetchSkillManifest, downloadSkillZip, getSkillZipHash, SkillApiError } from '../lib/skill-api.js';
 import { verifySkillManifest, verifyZipHash } from '../lib/plugin-verify.js';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import { logger } from '../lib/plugin-logger.js';
 import { detectInstalledAgents, agents, CANONICAL_SKILLS_DIR } from '../lib/agents.js';
-import { installToAgents, getCanonicalSkillPath } from '../lib/installer.js';
+import { extractSkillZip, installToAgents, getCanonicalSkillPath } from '../lib/installer.js';
 import { reportSkillInstall } from '../lib/plugin-api.js';
 
 /**
@@ -85,11 +83,16 @@ export default defineCommand({
 			for (const skill of skillsToCheck) {
 				try {
 					const manifest = await fetchSkillManifest(config, skill.slug);
-					if (skill.zipHash !== manifest.skill.zipHash) {
+					const latestHash = getSkillZipHash(manifest);
+					if (!latestHash) {
+						logger.warn(`Failed to check "${skill.slug}": manifest is missing ZIP hash`);
+						continue;
+					}
+					if (skill.zipHash !== latestHash) {
 						updates.push({
 							skill,
 							latestVersion: manifest.skill.version,
-							latestHash: manifest.skill.zipHash,
+							latestHash,
 						});
 					}
 				} catch (err) {
@@ -140,6 +143,12 @@ export default defineCommand({
 
 					// Fetch manifest
 					const manifest = await fetchSkillManifest(config, skill.slug);
+					const zipHash = getSkillZipHash(manifest);
+					if (!zipHash) {
+						logger.spinnerError(`${skill.slug}: Manifest is missing ZIP hash`);
+						failCount++;
+						continue;
+					}
 
 					// Verify manifest signature
 					if (!skipVerify) {
@@ -152,11 +161,11 @@ export default defineCommand({
 					}
 
 					// Download ZIP
-					const zipBuffer = await downloadSkillZip(config, skill.slug);
+					const zipBuffer = await downloadSkillZip(config, skill.slug, manifest);
 
 					// Verify ZIP hash
 					if (!skipVerify) {
-						if (!verifyZipHash(zipBuffer, manifest.skill.zipHash)) {
+						if (!verifyZipHash(zipBuffer, zipHash)) {
 							logger.spinnerError(`${skill.slug}: Content verification failed`);
 							failCount++;
 							continue;
@@ -165,7 +174,7 @@ export default defineCommand({
 
 					// Extract to canonical location
 					const canonicalPath = getCanonicalSkillPath(skill.slug);
-					await extractZip(zipBuffer, canonicalPath);
+					await extractSkillZip(zipBuffer, canonicalPath);
 
 					// Update symlinks (in case agents changed)
 					await installToAgents(skill.slug, targetAgents, { global: true });
@@ -174,7 +183,7 @@ export default defineCommand({
 					await addToLock({
 						slug: skill.slug,
 						version: manifest.skill.version,
-						zipHash: manifest.skill.zipHash,
+						zipHash,
 						source: 'skillstore',
 						installedAt: skill.installedAt,
 					});
@@ -210,21 +219,3 @@ export default defineCommand({
 		}
 	},
 });
-
-/**
- * Extract ZIP buffer to directory
- */
-async function extractZip(buffer: ArrayBuffer, targetDir: string): Promise<void> {
-	const { unzipSync } = await import('fflate');
-
-	const data = new Uint8Array(buffer);
-	const unzipped = unzipSync(data);
-
-	for (const [path, content] of Object.entries(unzipped)) {
-		if (path.endsWith('/')) continue;
-
-		const fullPath = join(targetDir, path);
-		await mkdir(dirname(fullPath), { recursive: true });
-		await writeFile(fullPath, Buffer.from(content as Uint8Array));
-	}
-}

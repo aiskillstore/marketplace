@@ -1,5 +1,5 @@
-import { cp, mkdir, rm, symlink, lstat, readlink, access } from 'node:fs/promises';
-import { join, normalize, resolve, sep, relative } from 'node:path';
+import { cp, mkdir, rm, symlink, lstat, readlink, access, writeFile } from 'node:fs/promises';
+import { dirname, join, normalize, resolve, sep, relative } from 'node:path';
 import { platform } from 'node:os';
 import { type AgentConfig, type AgentId, CANONICAL_SKILLS_DIR } from './agents.js';
 
@@ -75,6 +75,77 @@ function isPathSafe(basePath: string, targetPath: string): boolean {
 export function getCanonicalSkillPath(slug: string): string {
 	const sanitized = sanitizeName(slug);
 	return join(CANONICAL_SKILLS_DIR, sanitized);
+}
+
+function normalizeZipPath(path: string): string {
+	return path.replace(/\\/g, '/').replace(/^\/+/, '');
+}
+
+function getStripRootDirectory(paths: string[]): string | undefined {
+	const files = paths
+		.map(normalizeZipPath)
+		.filter((path) => path && !path.endsWith('/'));
+	const topLevelFiles = files.filter((path) => !path.includes('/'));
+	if (files.length === 0 || topLevelFiles.length > 0) {
+		return undefined;
+	}
+
+	const roots = new Set(files.map((path) => path.split('/')[0]));
+	if (roots.size !== 1) {
+		return undefined;
+	}
+
+	const [root] = roots;
+	return files.includes(`${root}/SKILL.md`) ? root : undefined;
+}
+
+function getSafeZipEntryPath(rawPath: string, stripRoot?: string): string | undefined {
+	let path = normalizeZipPath(rawPath);
+	if (!path || path.endsWith('/')) {
+		return undefined;
+	}
+
+	if (stripRoot && path.startsWith(`${stripRoot}/`)) {
+		path = path.slice(stripRoot.length + 1);
+	}
+
+	const segments = path.split('/');
+	if (!path || segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+		throw new Error(`Invalid ZIP entry path: ${rawPath}`);
+	}
+
+	return path;
+}
+
+/**
+ * Extract a skill ZIP into its canonical directory.
+ *
+ * Skillstore ZIPs may contain either files at the archive root or a single
+ * top-level skill folder. The latter is normalized so agents always see
+ * `<skill>/SKILL.md` at the canonical skill root.
+ */
+export async function extractSkillZip(buffer: ArrayBuffer, targetDir: string): Promise<void> {
+	const { unzipSync } = await import('fflate');
+
+	const data = new Uint8Array(buffer);
+	const unzipped = unzipSync(data);
+	const stripRoot = getStripRootDirectory(Object.keys(unzipped));
+
+	await rm(targetDir, { recursive: true, force: true });
+	await mkdir(targetDir, { recursive: true });
+
+	for (const [rawPath, content] of Object.entries(unzipped)) {
+		const path = getSafeZipEntryPath(rawPath, stripRoot);
+		if (!path) continue;
+
+		const fullPath = join(targetDir, path);
+		if (!isPathSafe(targetDir, fullPath)) {
+			throw new Error(`Invalid ZIP entry path: ${rawPath}`);
+		}
+
+		await mkdir(dirname(fullPath), { recursive: true });
+		await writeFile(fullPath, Buffer.from(content as Uint8Array));
+	}
 }
 
 /**

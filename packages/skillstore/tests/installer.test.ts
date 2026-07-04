@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { zipSync } from 'fflate';
 import {
 	sanitizeName,
 	getCanonicalSkillPath,
 	getAgentSkillPath,
 	ensureCanonicalDir,
+	extractSkillZip,
 	symlinkToAgent,
 	installToAgents,
 	isSkillInstalledForAgent,
@@ -21,6 +23,7 @@ vi.mock('node:fs/promises', () => ({
 	lstat: vi.fn(),
 	readlink: vi.fn(),
 	access: vi.fn(),
+	writeFile: vi.fn(),
 }));
 
 // Mock os
@@ -33,7 +36,7 @@ vi.mock('../src/lib/agents.js', () => ({
 	CANONICAL_SKILLS_DIR: '/mock/home/.agents/skills',
 }));
 
-import { cp, mkdir, rm, symlink, lstat, readlink, access } from 'node:fs/promises';
+import { cp, mkdir, rm, symlink, lstat, readlink, access, writeFile } from 'node:fs/promises';
 import { platform } from 'node:os';
 
 describe('installer', () => {
@@ -61,6 +64,7 @@ describe('installer', () => {
 		vi.mocked(lstat).mockReset();
 		vi.mocked(readlink).mockReset();
 		vi.mocked(access).mockReset();
+		vi.mocked(writeFile).mockReset();
 		vi.mocked(platform).mockReturnValue('darwin');
 
 		// Default mocks
@@ -68,6 +72,7 @@ describe('installer', () => {
 		vi.mocked(cp).mockResolvedValue(undefined);
 		vi.mocked(rm).mockResolvedValue(undefined);
 		vi.mocked(symlink).mockResolvedValue(undefined);
+		vi.mocked(writeFile).mockResolvedValue(undefined);
 	});
 
 	afterEach(() => {
@@ -162,6 +167,69 @@ describe('installer', () => {
 			await expect(ensureCanonicalDir('../../../etc/passwd')).resolves.toBe(
 				'/mock/home/.agents/skills/etcpasswd'
 			);
+		});
+	});
+
+	describe('extractSkillZip', () => {
+		function zipBuffer(files: Record<string, string>): ArrayBuffer {
+			const zipped = zipSync(
+				Object.fromEntries(
+					Object.entries(files).map(([path, content]) => [
+						path,
+						new TextEncoder().encode(content),
+					])
+				)
+			);
+			return zipped.buffer.slice(zipped.byteOffset, zipped.byteOffset + zipped.byteLength) as ArrayBuffer;
+		}
+
+		it('should strip a single top-level skill directory containing SKILL.md', async () => {
+			await extractSkillZip(
+				zipBuffer({
+					'my-skill/SKILL.md': 'skill body',
+					'my-skill/assets/icon.txt': 'asset',
+				}),
+				'/mock/home/.agents/skills/my-skill'
+			);
+
+			expect(rm).toHaveBeenCalledWith('/mock/home/.agents/skills/my-skill', {
+				recursive: true,
+				force: true,
+			});
+			expect(mkdir).toHaveBeenCalledWith('/mock/home/.agents/skills/my-skill', { recursive: true });
+			expect(writeFile).toHaveBeenCalledWith(
+				'/mock/home/.agents/skills/my-skill/SKILL.md',
+				Buffer.from('skill body')
+			);
+			expect(writeFile).toHaveBeenCalledWith(
+				'/mock/home/.agents/skills/my-skill/assets/icon.txt',
+				Buffer.from('asset')
+			);
+		});
+
+		it('should keep a normal assets directory when no root SKILL.md exists', async () => {
+			await extractSkillZip(
+				zipBuffer({
+					'assets/icon.txt': 'asset',
+				}),
+				'/mock/home/.agents/skills/my-skill'
+			);
+
+			expect(writeFile).toHaveBeenCalledWith(
+				'/mock/home/.agents/skills/my-skill/assets/icon.txt',
+				Buffer.from('asset')
+			);
+		});
+
+		it('should reject unsafe ZIP entry paths', async () => {
+			await expect(
+				extractSkillZip(
+					zipBuffer({
+						'../evil.txt': 'evil',
+					}),
+					'/mock/home/.agents/skills/my-skill'
+				)
+			).rejects.toThrow('Invalid ZIP entry path');
 		});
 	});
 

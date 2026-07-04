@@ -1,7 +1,7 @@
 import { defineCommand } from 'citty';
 import { readdir, access } from 'node:fs/promises';
 import { writeSkillLock, LOCK_VERSION, type SkillLock, type SkillLockEntry } from '../lib/skill-lock.js';
-import { fetchSkillManifest, SkillApiError } from '../lib/skill-api.js';
+import { fetchSkillManifest, getSkillZipHash, SkillApiError } from '../lib/skill-api.js';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import { logger } from '../lib/plugin-logger.js';
 import { CANONICAL_SKILLS_DIR } from '../lib/agents.js';
@@ -72,11 +72,17 @@ export default defineCommand({
 				try {
 					// Try to fetch manifest from skillstore.io
 					const manifest = await fetchSkillManifest(config, slug);
+					const zipHash = getSkillZipHash(manifest);
+					if (!zipHash) {
+						skipped.push({ slug, reason: 'manifest is missing ZIP hash' });
+						console.log(`  ✗ ${slug} (manifest is missing ZIP hash)`);
+						continue;
+					}
 
 					matched.push({
 						slug,
 						version: manifest.skill.version,
-						zipHash: manifest.skill.zipHash,
+						zipHash,
 						source: 'skillstore',
 						installedAt: new Date().toISOString(),
 						updatedAt: new Date().toISOString(),

@@ -1,6 +1,6 @@
 import { defineCommand } from 'citty';
 import { getAllLockedSkills, type SkillLockEntry } from '../lib/skill-lock.js';
-import { fetchSkillManifest, SkillApiError } from '../lib/skill-api.js';
+import { fetchSkillManifest, getSkillZipHash, SkillApiError } from '../lib/skill-api.js';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import { logger } from '../lib/plugin-logger.js';
 
@@ -59,12 +59,17 @@ export default defineCommand({
 			for (const skill of skills) {
 				try {
 					const manifest = await fetchSkillManifest(config, skill.slug);
+					const latestHash = getSkillZipHash(manifest);
+					if (!latestHash) {
+						errors.push({ slug: skill.slug, error: 'Manifest is missing ZIP hash' });
+						continue;
+					}
 
 					const info: UpdateInfo = {
 						skill,
 						currentVersion: skill.version,
 						latestVersion: manifest.skill.version,
-						hasUpdate: skill.zipHash !== manifest.skill.zipHash,
+						hasUpdate: skill.zipHash !== latestHash,
 					};
 
 					if (info.hasUpdate) {

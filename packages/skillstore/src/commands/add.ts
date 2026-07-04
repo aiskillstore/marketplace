@@ -1,6 +1,5 @@
 import { defineCommand } from 'citty';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import {
 	fetchManifest,
@@ -8,7 +7,7 @@ import {
 	reportSkillInstall,
 	PluginApiError,
 } from '../lib/plugin-api.js';
-import { fetchSkillManifest, downloadSkillZip, SkillApiError } from '../lib/skill-api.js';
+import { fetchSkillManifest, downloadSkillZip, getSkillZipHash, SkillApiError } from '../lib/skill-api.js';
 import { verifyManifest, verifySkillManifest, verifyZipHash } from '../lib/plugin-verify.js';
 import { downloadAllSkills, printDownloadSummary } from '../lib/plugin-download.js';
 import { logger } from '../lib/plugin-logger.js';
@@ -21,7 +20,7 @@ import {
 	type AgentConfig,
 } from '../lib/agents.js';
 import { addToLock, getLockEntry } from '../lib/skill-lock.js';
-import { installToAgents, getCanonicalSkillPath } from '../lib/installer.js';
+import { extractSkillZip, installToAgents, getCanonicalSkillPath } from '../lib/installer.js';
 
 /**
  * Normalize skill/plugin slug
@@ -193,6 +192,7 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 		logger.startSpinner('Fetching skill manifest...');
 		const manifest = await fetchSkillManifest(config, slug);
 		logger.spinnerSuccess(`Found skill: "${manifest.skill.name}"`);
+		const zipHash = getSkillZipHash(manifest);
 
 		// Step 2: Verify manifest signature
 		if (!skipVerify) {
@@ -208,6 +208,11 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 			logger.warn('Skipping signature verification');
 		}
 
+		if (!zipHash) {
+			logger.error('Manifest is missing ZIP hash');
+			process.exit(1);
+		}
+
 		// Step 3: Show skill info
 		logger.box(`Skill: ${manifest.skill.name}`, [
 			`Slug: ${manifest.skill.slug}`,
@@ -218,7 +223,7 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 		// Step 4: Check if already installed
 		const existingLock = await getLockEntry(slug);
 		if (existingLock && !overwrite) {
-			if (existingLock.zipHash === manifest.skill.zipHash) {
+			if (existingLock.zipHash === zipHash) {
 				logger.warn(`Skill "${slug}" is already installed (v${existingLock.version})`);
 				logger.info('Use --overwrite to reinstall');
 				return;
@@ -236,13 +241,13 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 
 		// Step 5: Download skill ZIP
 		logger.startSpinner('Downloading skill...');
-		const zipBuffer = await downloadSkillZip(config, slug);
+		const zipBuffer = await downloadSkillZip(config, slug, manifest);
 		logger.spinnerSuccess('Downloaded skill package');
 
 		// Step 6: Verify ZIP hash
 		if (!skipVerify) {
 			logger.startSpinner('Verifying content integrity...');
-			if (!verifyZipHash(zipBuffer, manifest.skill.zipHash)) {
+			if (!verifyZipHash(zipBuffer, zipHash)) {
 				logger.spinnerError('Content verification failed');
 				logger.error('ZIP hash mismatch - content may be corrupted or tampered');
 				process.exit(1);
@@ -253,7 +258,7 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 		// Step 7: Extract ZIP to canonical location
 		logger.startSpinner('Extracting files...');
 		const canonicalPath = getCanonicalSkillPath(slug);
-		await extractZip(zipBuffer, canonicalPath);
+		await extractSkillZip(zipBuffer, canonicalPath);
 		logger.spinnerSuccess('Extracted files');
 
 		// Step 8: Create symlinks to agents
@@ -284,7 +289,7 @@ async function addSkill(slug: string, options: AddOptions): Promise<void> {
 		await addToLock({
 			slug,
 			version: manifest.skill.version,
-			zipHash: manifest.skill.zipHash,
+			zipHash,
 			source: 'skillstore',
 			installedAt: new Date().toISOString(),
 		});
@@ -456,25 +461,5 @@ async function addPlugin(slug: string, options: AddOptions): Promise<void> {
 		}
 
 		process.exit(1);
-	}
-}
-
-/**
- * Extract ZIP buffer to directory
- */
-async function extractZip(buffer: ArrayBuffer, targetDir: string): Promise<void> {
-	// Use fflate for extraction
-	const { unzipSync } = await import('fflate');
-
-	const data = new Uint8Array(buffer);
-	const unzipped = unzipSync(data);
-
-	for (const [path, content] of Object.entries(unzipped)) {
-		// Skip directories (they end with /)
-		if (path.endsWith('/')) continue;
-
-		const fullPath = join(targetDir, path);
-		await mkdir(dirname(fullPath), { recursive: true });
-		await writeFile(fullPath, Buffer.from(content as Uint8Array));
 	}
 }
