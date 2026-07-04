@@ -43,6 +43,10 @@ on:
         description: 'Only re-audit skills where AI analysis previously failed'
         type: boolean
         default: false
+      risk_level:
+        description: 'Only audit skills whose existing report risk level matches this comma-separated list'
+        type: string
+        default: ''
 
 env:
   CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
@@ -80,6 +84,7 @@ jobs:
         env:
           TARGET_SLUGS: ${{ inputs.slugs }}
           LIMIT: ${{ inputs.limit }}
+          RISK_LEVEL: ${{ inputs.risk_level }}
           SHARD_SIZE: ${{ inputs.shard_size || '50' }}
         run: |
           THRESHOLD=${{ env.SHARD_THRESHOLD }}
@@ -90,6 +95,9 @@ jobs:
             # Count slugs (comma-separated)
             SLUG_COUNT=$(echo "$TARGET_SLUGS" | tr ',' '\n' | grep -c .)
             echo "📌 Specific slugs mode: $SLUG_COUNT skills"
+            if [ -n "$RISK_LEVEL" ]; then
+              echo "   Risk filter: $RISK_LEVEL"
+            fi
 
             if [ "$SLUG_COUNT" -lt "$THRESHOLD" ]; then
               # Small batch: single shard
@@ -129,8 +137,45 @@ jobs:
             exit 0
           fi
           
-          # Count all skills
-          TOTAL=$(find skills -name "skill-report.json" -type f | wc -l | tr -d ' ')
+          # Count all skills after the optional risk-level filter. The CLI applies
+          # the same filter before offset/limit, so shard boundaries line up.
+          TOTAL=$(node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const VALID = new Set(['safe', 'low', 'medium', 'high', 'critical']);
+          const filter = (process.env.RISK_LEVEL || '')
+            .split(',')
+            .map((level) => level.trim().toLowerCase())
+            .filter(Boolean);
+          const invalid = filter.filter((level) => !VALID.has(level));
+          if (invalid.length > 0) {
+            console.error(`Invalid risk level(s): ${invalid.join(', ')}. Valid values: ${[...VALID].join(', ')}`);
+            process.exit(2);
+          }
+          const filterSet = new Set(filter);
+
+          let count = 0;
+          function walk(dir) {
+            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+              const fullPath = path.join(dir, entry.name);
+              if (entry.isDirectory()) {
+                walk(fullPath);
+              } else if (entry.isFile() && entry.name === 'skill-report.json') {
+                const report = JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+                const risk = report?.security_audit?.risk_level || report?.skill?.risk_level;
+                if (filterSet.size === 0 || filterSet.has(risk)) count++;
+              }
+            }
+          }
+
+          walk('skills');
+          console.log(count);
+          NODE
+          )
+          if [ -n "$RISK_LEVEL" ]; then
+            echo "Risk filter: $RISK_LEVEL"
+          fi
           echo "Found $TOTAL skills in repository"
           
           # Apply limit if specified
@@ -280,6 +325,11 @@ jobs:
           if [ "${{ inputs.failed_only }}" = "true" ]; then
             FAILED_ONLY_FLAG="--failed-only"
           fi
+
+          RISK_LEVEL_FLAG=""
+          if [ -n "${{ inputs.risk_level }}" ]; then
+            RISK_LEVEL_FLAG="--risk-level ${{ inputs.risk_level }}"
+          fi
           
           # CLI internally retries 3 times per skill on AI failures
           "$GITHUB_WORKSPACE/skillstore-cli" skill audit ./skills \
@@ -287,6 +337,7 @@ jobs:
             $SLUGS_FLAG \
             $DRY_RUN_FLAG \
             $FAILED_ONLY_FLAG \
+            $RISK_LEVEL_FLAG \
             --offset ${{ matrix.offset }} \
             --limit ${{ matrix.limit }} \
             2>&1 | tee audit-output-${{ matrix.shard }}.log
@@ -305,6 +356,7 @@ jobs:
               $SLUGS_FLAG \
               $DRY_RUN_FLAG \
               --failed-only \
+              $RISK_LEVEL_FLAG \
               --offset ${{ matrix.offset }} \
               --limit ${{ matrix.limit }} \
               2>&1 | tee -a audit-output-${{ matrix.shard }}.log
@@ -462,6 +514,7 @@ jobs:
           TOTAL_SKILLS="${{ needs.detect-and-plan.outputs.total_skills }}"
           IS_SHARDED="${{ needs.detect-and-plan.outputs.is_sharded }}"
           MODEL="${{ inputs.model || 'auto' }}"
+          RISK_LEVEL="${{ inputs.risk_level }}"
           
           git checkout -b "$BRANCH_NAME"
           git add skills/*/skill-report.json
@@ -504,6 +557,7 @@ jobs:
           | Updated | ${TOTAL_UPDATED} |
           | Errors | ${TOTAL_ERRORS} |
           | Model | \`${MODEL}\` |
+          | Risk Filter | \`${RISK_LEVEL:-all}\` |
           | CLI Version | \`${{ env.CLI_VERSION }}\` |
 
           ### Changes
