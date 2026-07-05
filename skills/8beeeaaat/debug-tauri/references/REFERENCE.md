@@ -54,17 +54,51 @@ import { sendDebugCommand } from "@/lib/debugBridge";
 await sendDebugCommand("get_gpu_state", { includeBuffers: true });
 ```
 
-### take_screenshot
+### copy_screenshot_to_debug_dir
 
-Request a screenshot (system command recommended).
+Copy a screenshot file to the debug-tools screenshots directory.
 
-**Error message:**
+**TypeScript implementation:**
+```typescript
+import { copyScreenshotToDebugDir } from "tauri-plugin-debug-tools/debugBridge";
+
+const result = await copyScreenshotToDebugDir("/path/to/screenshot.png");
+console.log(result.destination_path);
+// ~/Library/Logs/<bundle-id>/debug-tools/screenshots/1740145200_screenshot.png
 ```
-Use system screencapture command instead.
-Run: screencapture -x -T 0 /tmp/tauri_screenshot.png
+
+**Response example:**
+```json
+{
+  "source_path": "/path/to/original/window-1.png",
+  "destination_path": "/Users/you/Library/Logs/com.example.app/debug-tools/screenshots/1740145200_window-1.png"
+}
 ```
 
-## macOS screencapture commands
+## Screenshot Capture
+
+Screenshots are captured using `tauri-plugin-screenshots` and optionally copied to `debug-tools/screenshots/`.
+
+### Capture main window (recommended)
+
+```typescript
+import { captureMainWindowToDebugDir } from "tauri-plugin-debug-tools/screenshotHelper";
+
+// Capture and copy to debug directory in one step
+const path = await captureMainWindowToDebugDir();
+// Saved to: debug-tools/screenshots/1740145200_window-1.png
+```
+
+### Capture without copying
+
+```typescript
+import { captureMainWindow } from "tauri-plugin-debug-tools/screenshotHelper";
+
+const path = await captureMainWindow();
+// Saved to: app_data_dir/tauri-plugin-screenshots/window-1.png
+```
+
+## Legacy: macOS screencapture commands
 
 ### Full screen capture
 
@@ -73,16 +107,9 @@ screencapture -x -T 0 /tmp/screenshot.png
 ```
 
 **Options:**
+
 - `-x`: Disable sound
 - `-T <seconds>`: Delay (0 = immediate)
-
-### Window selection (interactive)
-
-```bash
-screencapture -w /tmp/window_screenshot.png
-```
-
-The user clicks a window to select it.
 
 ### Specify a window ID for a specific process
 

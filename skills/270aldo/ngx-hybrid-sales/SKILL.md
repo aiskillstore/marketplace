@@ -1,8 +1,3 @@
----
-name: ngx-hybrid-sales
-description: Framework completo para venta de HYBRID. Use para calificar leads, preparar llamadas de venta, manejar objeciones y analizar pipeline.
----
-
 # NGX HYBRID Sales Skill
 
 ## Descripción
