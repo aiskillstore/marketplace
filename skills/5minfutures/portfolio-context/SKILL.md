@@ -95,5 +95,11 @@ src/
     └── dataUtils.ts              (metric calculations, CSV parsing, correlations)
 ```
 
+## Key Conventions
+- **Path alias**: `@/` maps to `src/` — use it for all internal imports
+- **shadcn-ui**: Color tokens only — CSS variables in `src/index.css`, **no actual shadcn components installed**. Could add them later via `npx shadcn@latest add button`, etc.
+- **Git workflow**: Feature branches → `git checkout -b feature/name` → conventional commit (`feat:`, `fix:`, `chore:`) → PR to main
+- **Community branding**: 5minfutures.com trading community; Skool logo in assets; GoHighLevel form embedded
+
 ## Migration Context
-Migrating 40 features from old app (35/40 completed). See `migration-tracker` skill for details.
+Migrating 40 features from old app (90% complete). See `migration-tracker` skill for details.

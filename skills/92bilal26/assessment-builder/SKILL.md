@@ -1,14 +1,9 @@
 ---
 name: assessment-builder
-description: |
-  Creates assessments with varied question types (MCQ, code-completion, debugging, projects) aligned
-  to learning objectives with meaningful distractors based on common misconceptions. Activate when
-  educators design quizzes, exams, or tests measuring understanding; need questions at appropriate
-  cognitive levels (Bloom's taxonomy); want balanced cognitive distribution (60%+ non-recall); or
-  require rubrics for open-ended questions. Generates MCQs with diagnostic distractors, code-writing
-  prompts, debugging challenges, and project-based assessments targeting deep understanding.
-version: "2.1.0"
-constitution_alignment: v4.0.1
+description: Creates balanced programming assessments aligned to objectives, evals, Bloom's taxonomy, and CEFR with varied question types, diagnostic MCQ distractors, answer keys, and rubrics.
+metadata:
+  version: "2.1.0"
+  constitution_alignment: "v4.0.1"
 ---
 
 ## Purpose

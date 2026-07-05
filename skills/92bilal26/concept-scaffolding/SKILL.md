@@ -1,6 +1,6 @@
 ---
 name: concept-scaffolding
-description: Design progressive concept scaffolding with cognitive load management. Use when breaking down complex concepts into learnable steps for educational content.
+description: Design progressive learning scaffolds for complex concepts using cognitive load analysis, learner state, checkpoints, and worked examples.
 ---
 
 # Concept Scaffolding Skill v3.0 (Reasoning-Activated)

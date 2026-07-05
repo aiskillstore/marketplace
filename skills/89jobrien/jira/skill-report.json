@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T00:31:18.054Z",
+    "generated_at": "2026-07-05T12:41:09.142Z",
     "slug": "89jobrien-jira",
     "source_url": "https://github.com/89jobrien/steve/tree/main/steve/skills/jira",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "299fae99f7d0ee1852beaf3a399f8aba7eb132e97037fa98fd9ba8fee3b6e39a",
-    "tree_hash": "7477b0e3c6b16b7ee3caab7c7603a0a5c2e6c7f5a45a84357658160537177e8f",
+    "content_hash": "50bb30c0251685cd43680e3e6b3908cda152932795734a7927f7026e60c440ef",
+    "tree_hash": "8b5e46c69a8a800955435574c5aebe6e4fc9cbbb6d46b62527b1688e14031c19",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,17 +23,17 @@
   },
   "skill": {
     "name": "jira",
-    "description": "Jira Cloud integration for issue search, issue updates, comments, transitions, assignments, and REST API v3 workflows using JQL.",
-    "summary": "Manage Jira Cloud issues, searches, comments, transitions, and API workflows from an AI coding agent.",
+    "description": "Jira Cloud integration for searching issues, reading ticket details, creating and updating issues, adding comments, assigning work, and moving issues through Jira workflows with REST API v3 and JQL.",
+    "summary": "Manage Jira Cloud issues with REST API v3, JQL, and ADF guidance.",
     "icon": "📦",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "author": "Joseph OBrien",
     "license": "MIT",
     "tags": [
       "jira",
-      "issue-tracking",
+      "atlassian",
       "jql",
-      "rest-api",
+      "issue-tracking",
       "project-management"
     ],
     "supported_tools": [
@@ -56,27 +53,22 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The skill appears to be a legitimate Jira Cloud integration, and most Markdown backtick detections are false positives from examples and inline documentation. I confirmed intended network and environment access in the helper script, plus one high-risk .env loading issue because it reads from the current working directory. No prompt injection or covert exfiltration intent was found.",
+    "summary": "The skill is a legitimate Jira Cloud helper, and most markdown backtick findings are false positives from examples and inline references. It still handles Jira API credentials, reads .env configuration, and makes authenticated outbound requests. The main security concern is that JIRA_DOMAIN is not validated before credentials are sent.",
     "remediation": [
       {
-        "issue": "Unscoped .env file loading",
-        "suggestion": "Only load JIRA_DOMAIN, JIRA_EMAIL, and JIRA_API_TOKEN from an explicit config file, or require an opt-in flag before reading .env.",
+        "issue": "Jira domain is not validated before authenticated requests.",
+        "suggestion": "Require HTTPS and restrict JIRA_DOMAIN to Atlassian Cloud domains or an explicit user-approved allowlist before sending Authorization headers.",
         "severity": "high"
       },
       {
-        "issue": "Manual Basic Auth shell example",
-        "suggestion": "Prefer the helper script for authentication and replace manual base64 curl examples with safer guidance that avoids token exposure.",
+        "issue": "The helper automatically reads a .env file from the current working directory.",
+        "suggestion": "Load only the required JIRA_DOMAIN, JIRA_EMAIL, and JIRA_API_TOKEN keys from an explicit config path, and document secret storage expectations.",
+        "severity": "high"
+      },
+      {
+        "issue": "Shell examples derive Basic Auth values from Jira credentials.",
+        "suggestion": "Prefer helper-script usage and warn users not to paste tokens into shared shells, logs, committed files, or prompts.",
         "severity": "medium"
-      },
-      {
-        "issue": "Jira domain trust boundary",
-        "suggestion": "Validate that JIRA_DOMAIN points to an expected Atlassian host unless the user explicitly allows a custom Jira domain.",
-        "severity": "low"
-      },
-      {
-        "issue": "Script filename mismatch in documentation",
-        "suggestion": "Update SKILL.md examples to match scripts/jira-api.py, or rename the helper so users do not edit commands incorrectly.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -988,385 +980,442 @@
         "id": "network:references/adf-format.md:180:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "The URL is the placeholder https://example.com inside an Atlassian Document Format link example. It is documentation content and no network request is made."
+        "reason": "The URL appears inside an Atlassian Document Format link example using example.com. It is documentation data, not a live network request."
       },
       {
         "id": "blocker:references/adf-format.md:310:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The flagged text is normal documentation or an error message, not system reconnaissance. No host, user, or environment enumeration is performed at this location."
+        "confidence": 0.98,
+        "reason": "The line is an ADF validation tip about empty content arrays. It contains no reconnaissance command or system inspection behavior."
       },
       {
         "id": "external_commands:references/api-endpoints.md:20:shell-command-substitution",
-        "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This is a documentation example for forming a Jira Basic Auth header with placeholder credentials. It does not execute as part of the skill and does not include untrusted command interpolation."
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "The example builds a Basic Auth value from an email and API token in the shell. This is legitimate Jira documentation, but it handles credentials and can expose them if copied into unsafe shell history or logs.",
+        "severity": "medium"
       },
       {
         "id": "network:scripts/jira-api.py:85:http-client-library",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint.",
+        "confidence": 0.88,
+        "reason": "make_request constructs authenticated outbound Jira API calls. Network access is expected for this skill, but it sends credentials to the configured remote host.",
         "severity": "low"
       },
       {
         "id": "network:scripts/jira-api.py:151:http-client-library",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint.",
+        "confidence": 0.86,
+        "reason": "The CLI dispatches user-selected methods and endpoints to make_request. This is intended Jira functionality, but it performs authenticated outbound requests.",
         "severity": "low"
       },
       {
         "id": "network:scripts/jira-api.py:38:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint.",
+        "confidence": 0.83,
+        "reason": "urllib.request is imported to perform Jira Cloud HTTP requests. The library use is expected, but it enables outbound network communication.",
         "severity": "low"
       },
       {
         "id": "network:scripts/jira-api.py:106:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint.",
+        "confidence": 0.9,
+        "reason": "The script creates a urllib request containing the Authorization header. This is real network behavior with credential-bearing headers.",
         "severity": "low"
       },
       {
         "id": "network:scripts/jira-api.py:109:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint.",
+        "confidence": 0.9,
+        "reason": "The script opens the urllib request and sends it over the network. This is expected for Jira access, but it is authenticated outbound traffic.",
         "severity": "low"
       },
       {
         "id": "network:scripts/jira-api.py:80:hardcoded-url",
         "verdict": "confirmed",
         "confidence": 0.84,
-        "reason": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint.",
+        "reason": "The script prepends https to the configured Jira domain before making API calls. This is legitimate, but the resulting host controls where credentials are sent.",
         "severity": "low"
       },
       {
         "id": "env_access:scripts/jira-api.py:52:python-environment-access",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The helper reads Jira credentials and domain values from environment variables or values loaded into the environment. This is expected for authentication, but it handles secrets and should remain visible to users.",
+        "confidence": 0.76,
+        "reason": "The script checks process environment keys while importing values from a .env file. This is intended configuration handling, but it touches sensitive runtime state.",
         "severity": "low"
       },
       {
         "id": "env_access:scripts/jira-api.py:53:python-environment-access",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The helper reads Jira credentials and domain values from environment variables or values loaded into the environment. This is expected for authentication, but it handles secrets and should remain visible to users.",
+        "confidence": 0.78,
+        "reason": "The script writes parsed .env values into os.environ. That can affect credential resolution for the authenticated Jira request.",
         "severity": "low"
       },
       {
         "id": "env_access:scripts/jira-api.py:58:python-environment-access",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The helper reads Jira credentials and domain values from environment variables or values loaded into the environment. This is expected for authentication, but it handles secrets and should remain visible to users.",
+        "confidence": 0.88,
+        "reason": "The script reads JIRA_EMAIL from the environment for Basic Auth. This is required behavior, but it handles account-identifying credential material.",
         "severity": "low"
       },
       {
         "id": "env_access:scripts/jira-api.py:59:python-environment-access",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The helper reads Jira credentials and domain values from environment variables or values loaded into the environment. This is expected for authentication, but it handles secrets and should remain visible to users.",
+        "confidence": 0.9,
+        "reason": "The script reads JIRA_API_TOKEN from the environment for Basic Auth. This is sensitive credential access even though it is expected for Jira API use.",
         "severity": "low"
       },
       {
         "id": "env_access:scripts/jira-api.py:74:python-environment-access",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The helper reads Jira credentials and domain values from environment variables or values loaded into the environment. This is expected for authentication, but it handles secrets and should remain visible to users.",
+        "confidence": 0.86,
+        "reason": "The script reads JIRA_DOMAIN from the environment to decide the remote API host. A wrong or malicious value changes where authenticated requests go.",
         "severity": "low"
       },
       {
         "id": "sensitive:scripts/jira-api.py:25:environment-file-access",
-        "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "This location is documentation describing environment variable setup, not the file read itself. The actual .env access is adjudicated separately at scripts/jira-api.py line 44."
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "The script documentation explicitly supports credentials in a .env file. This is a common pattern, but it encourages local storage of Jira API tokens.",
+        "severity": "high"
       },
       {
         "id": "sensitive:scripts/jira-api.py:43:environment-file-access",
-        "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "This location is documentation describing environment variable setup, not the file read itself. The actual .env access is adjudicated separately at scripts/jira-api.py line 44."
+        "verdict": "confirmed",
+        "confidence": 0.84,
+        "reason": "load_env is dedicated to loading values from a .env file. Because those values include Jira credentials, this is sensitive file handling.",
+        "severity": "high"
       },
       {
         "id": "sensitive:scripts/jira-api.py:44:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The helper looks for a .env file in the current working directory and loads keys from it. That can expose local secrets to the process if the skill is run inside a project directory.",
+        "confidence": 0.86,
+        "reason": "The helper reads a .env file from the current working directory. That file can contain API tokens and domain configuration used in outbound requests.",
         "severity": "high"
       },
       {
         "id": "blocker:scripts/jira-api.py:148:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.95,
-        "reason": "The flagged text is normal documentation or an error message, not system reconnaissance. No host, user, or environment enumeration is performed at this location."
+        "reason": "The line prints an invalid JSON error to stderr. It does not collect host, user, process, or system information."
       },
       {
         "id": "external_commands:SKILL.md:21:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown inline formatting for JQL patterns or reference filenames. They are not shell execution syntax in this context."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:27:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown inline formatting for JQL patterns or reference filenames. They are not shell execution syntax in this context."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown inline formatting for JQL patterns or reference filenames. They are not shell execution syntax in this context."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown inline formatting for JQL patterns or reference filenames. They are not shell execution syntax in this context."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown inline formatting for JQL patterns or reference filenames. They are not shell execution syntax in this context."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown inline formatting for JQL patterns or reference filenames. They are not shell execution syntax in this context."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:89:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:96:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:102:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:115:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:121:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:123:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:131:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:137:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:145:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:149:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:151:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:157:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:164:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:168:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown inline formatting for JQL patterns or reference filenames. They are not shell execution syntax in this context."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:169:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown inline formatting for JQL patterns or reference filenames. They are not shell execution syntax in this context."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:170:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks are Markdown inline formatting for JQL patterns or reference filenames. They are not shell execution syntax in this context."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:178:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:180:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:186:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:193:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This detection is caused by Markdown code fence backticks around Jira usage examples. It is not Ruby backtick execution and does not run automatically."
+        "confidence": 0.91,
+        "reason": "The flagged backticks are markdown code fences or inline documentation markers in SKILL.md. They are not Ruby backtick execution and do not execute commands by themselves."
       },
       {
         "id": "external_commands:SKILL.md:159:shell-command-substitution",
-        "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The command substitution encodes quoted Jira credential variables for a curl example. It is not command injection, and credential handling is assessed separately in the environment findings."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "The curl example builds a Basic Auth value from Jira credentials using shell command substitution. It is legitimate, but copied commands can expose credential-derived values in shell contexts.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:157:template-literal-with-command-substitution",
         "verdict": "false_positive",
         "confidence": 0.86,
-        "reason": "The detected region is a Markdown bash example for direct curl usage. The only substitution is the quoted credential encoding assessed separately, not arbitrary code execution."
+        "reason": "The flagged line is the opening marker for a markdown bash block. The actual shell substitution is adjudicated separately at line 159."
       },
       {
         "id": "network:SKILL.md:29:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "This is a public Atlassian page where users generate Jira API tokens. It is documentation, not a hidden network call by the skill."
+        "reason": "The URL points to Atlassian account settings for generating API tokens. It is a user documentation link, not hidden outbound behavior."
       },
       {
         "id": "network:SKILL.md:161:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint.",
+        "confidence": 0.78,
+        "reason": "The curl example sends an authenticated request to the configured Jira Cloud domain. This is intended, but it is still credential-bearing outbound network access.",
         "severity": "low"
       },
       {
         "id": "sensitive:SKILL.md:21:environment-file-access",
-        "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "This location is documentation describing environment variable setup, not the file read itself. The actual .env access is adjudicated separately at scripts/jira-api.py line 44."
+        "verdict": "confirmed",
+        "confidence": 0.8,
+        "reason": "The skill instructs users to place Jira credentials in environment variables or a .env file. This is expected setup, but it creates secret-handling risk for users.",
+        "severity": "high"
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Unvalidated Jira Domain Can Receive Credentials",
+        "description": "The helper reads JIRA_DOMAIN from the environment, accepts arbitrary http-prefixed values, and sends the Basic Auth header to the resulting host. A mistaken or malicious domain value could receive the Jira email and API token.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "scripts/jira-api.py",
+            "line_start": 72,
+            "line_end": 82
+          },
+          {
+            "file": "scripts/jira-api.py",
+            "line_start": 93,
+            "line_end": 106
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The code directly derives the base URL from JIRA_DOMAIN and attaches Basic Auth headers before creating the request. This is legitimate Jira functionality, but the missing host allowlist creates a clear credential exposure risk."
+      }
+    ],
     "critical_findings": [],
     "high_findings": [
+      {
+        "title": "Environment file access",
+        "description": "Environment variables (or .env file):",
+        "locations": [
+          {
+            "file": "scripts/jira-api.py",
+            "line_start": 25,
+            "line_end": 25
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "high",
+        "confidence": 0.72,
+        "confidence_reasoning": "The script documentation explicitly supports credentials in a .env file. This is a common pattern, but it encourages local storage of Jira API tokens."
+      },
+      {
+        "title": "Environment file access",
+        "description": "\"\"\"Load environment variables from .env file if present.\"\"\"",
+        "locations": [
+          {
+            "file": "scripts/jira-api.py",
+            "line_start": 43,
+            "line_end": 43
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "high",
+        "confidence": 0.84,
+        "confidence_reasoning": "load_env is dedicated to loading values from a .env file. Because those values include Jira credentials, this is sensitive file handling."
+      },
       {
         "title": "Environment file access",
         "description": "env_file = Path.cwd() / \".env\"",
@@ -1380,11 +1429,81 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The helper looks for a .env file in the current working directory and loads keys from it. That can expose local secrets to the process if the skill is run inside a project directory."
+        "confidence": 0.86,
+        "confidence_reasoning": "The helper reads a .env file from the current working directory. That file can contain API tokens and domain configuration used in outbound requests."
+      },
+      {
+        "title": "Environment file access",
+        "description": "Set these environment variables (or in `.env` file):",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 21,
+            "line_end": 21
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "high",
+        "confidence": 0.8,
+        "confidence_reasoning": "The skill instructs users to place Jira credentials in environment variables or a .env file. This is expected setup, but it creates secret-handling risk for users."
+      },
+      {
+        "title": "Unvalidated Jira Domain Can Receive Credentials",
+        "description": "The helper reads JIRA_DOMAIN from the environment, accepts arbitrary http-prefixed values, and sends the Basic Auth header to the resulting host. A mistaken or malicious domain value could receive the Jira email and API token.",
+        "locations": [
+          {
+            "file": "scripts/jira-api.py",
+            "line_start": 72,
+            "line_end": 82
+          },
+          {
+            "file": "scripts/jira-api.py",
+            "line_start": 93,
+            "line_end": 106
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.86,
+        "confidence_reasoning": "The code directly derives the base URL from JIRA_DOMAIN and attaches Basic Auth headers before creating the request. This is legitimate Jira functionality, but the missing host allowlist creates a clear credential exposure risk."
       }
     ],
-    "medium_findings": [],
+    "medium_findings": [
+      {
+        "title": "Shell command substitution",
+        "description": "AUTH=$(echo -n \"email@example.com:API_TOKEN\" | base64)",
+        "locations": [
+          {
+            "file": "references/api-endpoints.md",
+            "line_start": 20,
+            "line_end": 20
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.72,
+        "confidence_reasoning": "The example builds a Basic Auth value from an email and API token in the shell. This is legitimate Jira documentation, but it handles credentials and can expose them if copied into unsafe shell history or logs."
+      },
+      {
+        "title": "Shell command substitution",
+        "description": "AUTH=$(echo -n \"$JIRA_EMAIL:$JIRA_API_TOKEN\" | base64)",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 159,
+            "line_end": 159
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "The curl example builds a Basic Auth value from Jira credentials using shell command substitution. It is legitimate, but copied commands can expose credential-derived values in shell contexts."
+      }
+    ],
     "low_findings": [
       {
         "title": "HTTP client library",
@@ -1399,8 +1518,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint."
+        "confidence": 0.88,
+        "confidence_reasoning": "make_request constructs authenticated outbound Jira API calls. Network access is expected for this skill, but it sends credentials to the configured remote host."
       },
       {
         "title": "HTTP client library",
@@ -1415,8 +1534,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint."
+        "confidence": 0.86,
+        "confidence_reasoning": "The CLI dispatches user-selected methods and endpoints to make_request. This is intended Jira functionality, but it performs authenticated outbound requests."
       },
       {
         "title": "Python HTTP libraries",
@@ -1431,8 +1550,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint."
+        "confidence": 0.83,
+        "confidence_reasoning": "urllib.request is imported to perform Jira Cloud HTTP requests. The library use is expected, but it enables outbound network communication."
       },
       {
         "title": "Python HTTP libraries",
@@ -1447,8 +1566,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint."
+        "confidence": 0.9,
+        "confidence_reasoning": "The script creates a urllib request containing the Authorization header. This is real network behavior with credential-bearing headers."
       },
       {
         "title": "Python HTTP libraries",
@@ -1463,8 +1582,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint."
+        "confidence": 0.9,
+        "confidence_reasoning": "The script opens the urllib request and sends it over the network. This is expected for Jira access, but it is authenticated outbound traffic."
       },
       {
         "title": "Hardcoded URL",
@@ -1480,7 +1599,7 @@
         "source_category": "network",
         "source_severity": "low",
         "confidence": 0.84,
-        "confidence_reasoning": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint."
+        "confidence_reasoning": "The script prepends https to the configured Jira domain before making API calls. This is legitimate, but the resulting host controls where credentials are sent."
       },
       {
         "title": "Python environment access",
@@ -1495,8 +1614,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The helper reads Jira credentials and domain values from environment variables or values loaded into the environment. This is expected for authentication, but it handles secrets and should remain visible to users."
+        "confidence": 0.76,
+        "confidence_reasoning": "The script checks process environment keys while importing values from a .env file. This is intended configuration handling, but it touches sensitive runtime state."
       },
       {
         "title": "Python environment access",
@@ -1511,8 +1630,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The helper reads Jira credentials and domain values from environment variables or values loaded into the environment. This is expected for authentication, but it handles secrets and should remain visible to users."
+        "confidence": 0.78,
+        "confidence_reasoning": "The script writes parsed .env values into os.environ. That can affect credential resolution for the authenticated Jira request."
       },
       {
         "title": "Python environment access",
@@ -1527,8 +1646,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The helper reads Jira credentials and domain values from environment variables or values loaded into the environment. This is expected for authentication, but it handles secrets and should remain visible to users."
+        "confidence": 0.88,
+        "confidence_reasoning": "The script reads JIRA_EMAIL from the environment for Basic Auth. This is required behavior, but it handles account-identifying credential material."
       },
       {
         "title": "Python environment access",
@@ -1543,8 +1662,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The helper reads Jira credentials and domain values from environment variables or values loaded into the environment. This is expected for authentication, but it handles secrets and should remain visible to users."
+        "confidence": 0.9,
+        "confidence_reasoning": "The script reads JIRA_API_TOKEN from the environment for Basic Auth. This is sensitive credential access even though it is expected for Jira API use."
       },
       {
         "title": "Python environment access",
@@ -1559,8 +1678,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "The helper reads Jira credentials and domain values from environment variables or values loaded into the environment. This is expected for authentication, but it handles secrets and should remain visible to users."
+        "confidence": 0.86,
+        "confidence_reasoning": "The script reads JIRA_DOMAIN from the environment to decide the remote API host. A wrong or malicious value changes where authenticated requests go."
       },
       {
         "title": "Hardcoded URL",
@@ -1575,137 +1694,138 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "This is an intended Jira Cloud network capability that sends authenticated requests to a configured Jira domain. It is not covert, but it still requires user trust in the configured endpoint."
+        "confidence": 0.78,
+        "confidence_reasoning": "The curl example sends an authenticated request to the configured Jira Cloud domain. This is intended, but it is still credential-bearing outbound network access."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 5,
     "total_lines": 1123,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T00:31:18.054Z",
+    "audited_at": "2026-07-05T12:41:09.142Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Manage Jira Issues from Your AI Agent",
-    "value_statement": "Jira work often requires repeated searches, updates, and status changes across tickets. This skill gives Claude, Codex, and Claude Code practical Jira Cloud workflows with REST API and JQL guidance.",
+    "user_title": "Manage Jira Cloud Workflows",
+    "value_statement": "Teams lose time switching between AI tools and Jira. This skill helps Claude, Codex, and Claude Code search, update, and manage Jira Cloud issues.",
     "seo_keywords": [
-      "Jira skill",
       "Jira Cloud",
+      "Jira REST API",
       "JQL",
-      "REST API v3",
-      "issue management",
+      "Atlassian",
+      "issue tracking",
       "Claude",
       "Codex",
       "Claude Code",
-      "Atlassian",
-      "AI Jira assistant"
+      "project management",
+      "ADF comments"
     ],
     "actual_capabilities": [
-      "Search Jira issues with JQL patterns and REST API v3 endpoints.",
-      "Retrieve issue details, project metadata, available transitions, and issue types.",
-      "Create and update issues using Atlassian Document Format guidance.",
-      "Add comments, change issue status, assign users, and unassign issues.",
-      "Use a Python helper script for authenticated Jira Cloud API requests.",
-      "Reference Jira API, JQL, and ADF documentation included with the skill."
+      "Retrieve Jira issue details through Jira Cloud REST API v3.",
+      "Search Jira issues with JQL queries and common query patterns.",
+      "Create and update issues with structured Jira field payloads.",
+      "Add ADF-formatted comments and descriptions to Jira issues.",
+      "Transition issue status and assign or unassign issues.",
+      "Reference Jira endpoints, JQL syntax, and Atlassian Document Format examples."
     ],
     "limitations": [
-      "Requires Jira Cloud credentials and a valid API token from the user.",
-      "Does not manage OAuth flows or Jira Server authentication.",
-      "Documentation examples reference scripts/jira_api.py, while the bundled file is scripts/jira-api.py.",
-      "Successful writes depend on the Jira user permissions and project field configuration."
+      "Requires Jira Cloud network access and valid API credentials.",
+      "Cannot bypass Jira project permissions, workflow rules, or required fields.",
+      "Requires valid ADF structure for rich text descriptions and comments.",
+      "Does not include a graphical Jira client or offline issue cache."
     ],
     "use_cases": [
       {
-        "title": "Triage sprint work",
-        "description": "Search open sprint issues, review status, and identify tickets that need updates or reassignment.",
+        "title": "Triage Sprint Work",
+        "description": "Find active issues, review owners and status, and identify tickets that need follow-up.",
         "target_user": "Engineering lead"
       },
       {
-        "title": "Create implementation tickets",
-        "description": "Turn product requirements into Jira tasks with structured descriptions, labels, and issue metadata.",
+        "title": "Create Structured Tickets",
+        "description": "Turn requirements into Jira tasks with summaries, labels, priorities, and formatted descriptions.",
         "target_user": "Product manager"
       },
       {
-        "title": "Automate support follow-up",
-        "description": "Find recent customer issues, add clear comments, and move tickets through configured workflow transitions.",
-        "target_user": "Support engineer"
+        "title": "Automate Routine Updates",
+        "description": "Add comments, assign tickets, and move issues through configured Jira workflow transitions.",
+        "target_user": "Developer or support engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Find my open work",
-        "scenario": "Beginner issue search",
-        "prompt": "Find my unresolved Jira issues updated in the last seven days. Summarize each issue key, status, assignee, and next action."
+        "title": "Find My Open Issues",
+        "scenario": "Beginner search task",
+        "prompt": "Search Jira for my unresolved issues in project PROJECT_KEY and summarize priority, status, and latest update."
       },
       {
-        "title": "Create a task",
-        "scenario": "Issue creation",
-        "prompt": "Create a Jira task in project PROJ for this requirement: [requirement]. Include a concise summary, clear description, and useful labels."
+        "title": "Review One Ticket",
+        "scenario": "Issue details review",
+        "prompt": "Get Jira issue PROJECT_KEY-123 and summarize the current status, assignee, blockers, and next useful action."
       },
       {
-        "title": "Update a ticket",
-        "scenario": "Issue maintenance",
-        "prompt": "Update PROJ-123 with this new summary and comment: [details]. Preserve existing context and use Jira-compatible rich text."
+        "title": "Create a Work Item",
+        "scenario": "New issue creation",
+        "prompt": "Create a Jira task in project PROJECT_KEY with this title, acceptance criteria, priority, and labels. Use a valid ADF description."
       },
       {
-        "title": "Coordinate a release queue",
-        "scenario": "Advanced JQL and workflow review",
-        "prompt": "Search release-blocking issues for version [version], group them by status and owner, then propose safe transition or comment updates for each issue."
+        "title": "Plan Bulk Triage",
+        "scenario": "Advanced workflow planning",
+        "prompt": "Build a JQL query for stale in-progress issues, explain the matching criteria, then propose safe updates for each result."
       }
     ],
     "output_examples": [
       {
-        "input": "Show my unresolved Jira issues from this sprint.",
+        "input": "Find unresolved issues assigned to me in project APP.",
         "output": [
-          "PROJ-142: Payment retry fails in staging. Status: In Progress. Next action: confirm latest test result.",
-          "PROJ-155: Update onboarding copy. Status: To Do. Next action: assign owner before sprint review."
+          "APP-14: Login error is in progress and was updated today.",
+          "APP-22: Payment timeout is open and has high priority.",
+          "Suggested next step: review stale issues before changing assignments."
         ]
       },
       {
-        "input": "Create a task for adding audit logs to admin exports.",
-        "output": "Created PROJ-482 with a concise task summary, structured description, and audit, admin, and backend labels."
+        "input": "Summarize APP-123 and suggest the next action.",
+        "output": "APP-123 is waiting on review. The next action is to add a reviewer note and confirm whether the acceptance criteria are complete."
       },
       {
-        "input": "Move PROJ-123 forward if a Ready for QA transition exists.",
-        "output": "Found the Ready for QA transition, applied it, and added a short comment with the verification context."
+        "input": "Prepare a comment for the deployment ticket.",
+        "output": "Prepared a Jira comment with deployment status, validation results, and the remaining owner action in Jira rich text format."
       }
     ],
     "best_practices": [
-      "Confirm project keys, issue types, and required fields before creating issues.",
-      "Use narrow JQL filters to avoid large result sets and rate limits.",
-      "Review write operations before applying comments, assignments, or transitions."
+      "Use least-privilege Jira API tokens and rotate them on a regular schedule.",
+      "Preview issue updates before writing comments, assignments, or transitions.",
+      "Keep JQL queries narrow to avoid large responses and rate limits."
     ],
     "anti_patterns": [
-      "Do not store Jira API tokens in shared repositories or committed files.",
-      "Do not run broad searches when a project, sprint, or issue key is known.",
-      "Do not transition issues without checking available workflow transitions first."
+      "Do not store Jira API tokens in committed files or shared prompts.",
+      "Do not run broad update operations without reviewing the affected issue list.",
+      "Do not use this skill to bypass project permissions or approval workflows."
     ],
     "faq": [
       {
-        "question": "Does this skill work with Jira Cloud?",
-        "answer": "Yes. It targets Jira Cloud REST API v3 and uses Jira Cloud API tokens."
+        "question": "Which Jira version does this skill support?",
+        "answer": "It targets Jira Cloud REST API v3 and Jira Query Language."
       },
       {
-        "question": "Does it support Jira Server or Data Center?",
-        "answer": "No. The included guidance and helper script are written for Jira Cloud endpoints."
-      },
-      {
-        "question": "Can it create and update issues?",
-        "answer": "Yes. It includes workflows for issue creation, field updates, comments, assignments, and transitions."
+        "question": "Does it create and update Jira issues?",
+        "answer": "Yes. It includes workflows for creating issues, updating fields, adding comments, assigning users, and changing status."
       },
       {
         "question": "What credentials are required?",
-        "answer": "Users need a Jira domain, Jira account email, and Jira API token with suitable permissions."
+        "answer": "It requires a Jira Cloud domain, Jira account email, and Jira API token."
       },
       {
-        "question": "Can it help write JQL?",
-        "answer": "Yes. It includes common JQL patterns and a reference file for fields, operators, and functions."
+        "question": "Can it format rich text comments?",
+        "answer": "Yes. It includes Atlassian Document Format guidance for descriptions and comments."
       },
       {
-        "question": "Does it automatically validate Jira permissions?",
-        "answer": "No. Jira returns permission and field errors, and users must resolve them in their Jira configuration."
+        "question": "Can it work without network access?",
+        "answer": "No. Jira reads and writes require network access to the configured Jira Cloud site."
+      },
+      {
+        "question": "Does it override Jira permissions?",
+        "answer": "No. All actions are limited by the permissions of the authenticated Jira account."
       }
     ]
   },

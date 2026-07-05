@@ -1,6 +1,6 @@
 ---
 name: code-example-generator
-description: Generate pedagogically effective code examples that activate understanding, not just demonstrate syntax. Use when creating code examples for educational content, tutorials, or documentation.
+description: Generate pedagogically sound, runnable code examples using spec-first validation, learner targeting, production-relevant patterns, and tests.
 ---
 
 # Code Example Generator Skill v3.0 (Reasoning-Activated)

@@ -34,7 +34,7 @@ Core features migrated and working:
   - Format auto-detection (1-row vs 2-row) ✓
   - User tested and verified ✓
   - Merged to main and deployed ✓
-  - **See:** `dev-docs/supabase-migration-plan.md`
+  - **See:** `dev-docs/database-architecture.md` for schema reference
 
 ### 🚧 In Progress (3/40)
 1. **Advanced filtering** - Partial implementation
@@ -130,7 +130,7 @@ Core features migrated and working:
 ### Database Integration Planning (Nov 16, 2025)
 **Status**: Planning complete, ready for implementation
 **What Changed**:
-- Created comprehensive migration plan (`dev-docs/supabase-migration-plan.md`)
+- Designed database integration plan (now implemented and deployed)
 - Analyzed new Supabase database schema (portfolios, strategies, trades tables)
 - Designed dual-mode support (CSV upload + database fetch)
 - Planned data transformation strategy (single-row trades vs entry/exit pairs)

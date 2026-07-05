@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T00:14:41.465Z",
+    "generated_at": "2026-07-05T15:35:22.102Z",
     "slug": "92bilal26-nextjs-devtools",
     "source_url": "https://github.com/92Bilal26/TaskPilotAI/tree/main/.claude/skills/nextjs-devtools",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "12184502441d777ba301032333f79e43ff6363ef8d0004808fccd2a62981905f",
-    "tree_hash": "a3b4f0f8a50d075a601399e8bcc05abb8af2f54c7d87fa173af54b9532015524",
+    "content_hash": "278acbb34f61feebf623a000d5d5dafd7bf920e51cce2a7b0921779c4c671f09",
+    "tree_hash": "cb9d001b53744e4f17a6b7b7c449a936cbb3207c36dcd6988de0cb933830e16a",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,10 +23,10 @@
   },
   "skill": {
     "name": "nextjs-devtools",
-    "description": "MCP helper for inspecting Next.js routes, components, build information, and Next.js configuration.",
-    "summary": "Inspect and debug Next.js applications through a Next.js DevTools MCP server.",
+    "description": "Next.js development tooling that connects to a Model Context Protocol server to inspect routes, components, build information, and configuration.",
+    "summary": "Inspect Next.js routes, components, build data, and configuration through an MCP client.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "92Bilal26",
     "license": "MIT",
     "tags": [
@@ -55,21 +52,26 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The skill provides legitimate Next.js MCP inspection features, but it includes real execution risk. The highest risk is the stdio transport using shell=True with a caller-supplied command, plus repeated unpinned npx @latest execution guidance. Most Markdown backtick and system reconnaissance alerts are false positives.",
+    "summary": "The main risks are intentional command execution and unpinned npm package execution. The Python client can run a user-supplied stdio command through a shell, and the shell script and docs run npx next-devtools-mcp@latest. Network use is mostly expected MCP communication, and many static hits were Markdown formatting or session bookkeeping false positives.",
     "remediation": [
       {
-        "issue": "Caller-supplied stdio command runs through shell=True.",
-        "suggestion": "Parse stdio commands into an argument list and call subprocess.Popen with shell=False. Prefer an allowlist for supported MCP server commands.",
+        "issue": "Shell-based stdio execution",
+        "suggestion": "Replace shell=True with an argument list, or allow only a reviewed command template for the Next.js MCP server.",
         "severity": "high"
       },
       {
-        "issue": "The skill runs next-devtools-mcp through an unpinned @latest package reference.",
-        "suggestion": "Pin next-devtools-mcp to a reviewed version and document the expected package source. Avoid automatic upgrades during agent execution.",
+        "issue": "Unpinned npm package execution",
+        "suggestion": "Pin next-devtools-mcp to a reviewed version and document how maintainers verify updates before changing the pin.",
         "severity": "high"
       },
       {
-        "issue": "HTTP MCP mode can send parameters and headers to a user-provided endpoint.",
-        "suggestion": "Warn users before sending secrets in headers or parameters. Default documentation should use trusted localhost endpoints only.",
+        "issue": "Agent-facing command examples",
+        "suggestion": "Require user confirmation before running bash, Python stdio, or npx commands from the skill documentation.",
+        "severity": "medium"
+      },
+      {
+        "issue": "User-selected HTTP MCP endpoints",
+        "suggestion": "Warn users before connecting to non-localhost MCP URLs or sending custom HTTP headers.",
         "severity": "low"
       }
     ],
@@ -766,329 +768,320 @@
       {
         "id": "external_commands:scripts/mcp-client.py:191:python-subprocess-popen",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This line only declares an Optional subprocess.Popen field. It does not start a process or consume user input."
+        "confidence": 0.98,
+        "reason": "This is only a type annotation for a subprocess handle. It does not start a process or pass data to a shell."
       },
       {
         "id": "external_commands:scripts/mcp-client.py:204:python-subprocess-popen",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.9,
         "severity": "high",
-        "reason": "StdioTransport starts self.command with subprocess.Popen and shell=True. The command comes from the --stdio argument, so untrusted input could execute arbitrary shell syntax."
+        "reason": "The code executes self.command through subprocess.Popen with shell=True. That command is supplied by the --stdio option, so untrusted input could execute arbitrary shell syntax."
       },
       {
         "id": "external_commands:scripts/mcp-client.py:348:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The line appends a Markdown heading that contains backticks. It formats generated documentation and does not execute shell or Ruby code."
+        "confidence": 0.94,
+        "reason": "These lines only format generated documentation with Markdown backticks or code fences. They do not evaluate the content or execute a shell command."
       },
       {
         "id": "external_commands:scripts/mcp-client.py:371:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are Markdown formatting for parameter names and types. The code only appends text to a documentation string."
+        "confidence": 0.94,
+        "reason": "These lines only format generated documentation with Markdown backticks or code fences. They do not evaluate the content or execute a shell command."
       },
       {
         "id": "external_commands:scripts/mcp-client.py:377:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "The triple backticks create a Markdown code fence in emitted documentation. They are not evaluated as shell commands."
+        "reason": "These lines only format generated documentation with Markdown backticks or code fences. They do not evaluate the content or execute a shell command."
       },
       {
         "id": "network:scripts/mcp-client.py:146:http-client-library",
         "verdict": "confirmed",
-        "confidence": 0.74,
+        "confidence": 0.78,
         "severity": "low",
-        "reason": "HTTPTransport.request sends JSON-RPC payloads to a user-provided MCP URL with urlopen. This is intended network access, but it can transmit tool names, parameters, and headers."
+        "reason": "This method sends JSON-RPC requests to the URL configured by the user through HTTPTransport. It is legitimate MCP behavior but can disclose supplied headers or parameters to a remote endpoint."
       },
       {
         "id": "network:scripts/mcp-client.py:271:http-client-library",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This request method belongs to the stdio transport and exchanges JSON-RPC messages over stdin and stdout. It does not perform HTTP or other network I/O."
+        "confidence": 0.9,
+        "reason": "This request method belongs to StdioTransport and writes JSON-RPC messages to a local child process over stdin. It does not perform HTTP or external network I/O."
       },
       {
         "id": "network:scripts/mcp-client.py:314:http-client-library",
         "verdict": "confirmed",
-        "confidence": 0.62,
+        "confidence": 0.68,
         "severity": "low",
-        "reason": "The high-level tools/list call can route through HTTPTransport when a URL transport is selected. This is normal MCP behavior, but it contacts the configured endpoint."
+        "reason": "The call uses transport.request to list MCP tools. When the selected transport is HTTP, this sends MCP traffic to the configured endpoint."
       },
       {
         "id": "network:scripts/mcp-client.py:323:http-client-library",
         "verdict": "confirmed",
         "confidence": 0.72,
         "severity": "low",
-        "reason": "The tools/call path can send tool names and arguments through the selected transport, including HTTP. It is intended functionality, but parameters may be exposed to that endpoint."
+        "reason": "The tool call is sent through transport.request and can include user-supplied arguments. With HTTPTransport, those arguments go to the configured MCP endpoint."
       },
       {
         "id": "network:scripts/mcp-client.py:328:http-client-library",
         "verdict": "confirmed",
-        "confidence": 0.62,
+        "confidence": 0.66,
         "severity": "low",
-        "reason": "The resources/list call can use the HTTP transport and contact the configured MCP server. No malicious destination is hardcoded, so the risk is low."
+        "reason": "The resource listing uses transport.request and may be sent over HTTP when that transport is selected. This is expected MCP behavior but remains a network data flow."
       },
       {
         "id": "network:scripts/mcp-client.py:333:http-client-library",
         "verdict": "confirmed",
-        "confidence": 0.62,
+        "confidence": 0.66,
         "severity": "low",
-        "reason": "The prompts/list call can use the HTTP transport and contact the configured MCP server. This is expected network behavior with low inherent risk."
+        "reason": "The prompt listing uses transport.request and may be sent over HTTP when that transport is selected. This is expected MCP behavior but remains a network data flow."
       },
       {
         "id": "network:scripts/mcp-client.py:33:python-http-libraries",
         "verdict": "confirmed",
         "confidence": 0.82,
         "severity": "low",
-        "reason": "urllib.request is imported and used by HTTPTransport for MCP communication. This confirms network capability, but no covert destination is present."
+        "reason": "The urllib imports are used by HTTPTransport to send MCP requests. This is an expected feature, but it provides real network capability to user-selected URLs."
       },
       {
         "id": "network:scripts/mcp-client.py:10:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL is a localhost example in the module docstring. It is not a runtime destination or external endpoint."
+        "confidence": 0.96,
+        "reason": "The URL appears only in usage text and points to localhost. It does not create an outbound network request or encode a remote destination."
       },
       {
         "id": "network:scripts/mcp-client.py:16:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL appears only in a usage example for localhost. It does not cause the client to contact that address automatically."
+        "confidence": 0.96,
+        "reason": "The URL appears only in usage text and points to localhost. It does not create an outbound network request or encode a remote destination."
       },
       {
         "id": "network:scripts/mcp-client.py:20:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL is documentation for a local MCP server. There is no hardcoded external network target."
+        "confidence": 0.96,
+        "reason": "The URL appears only in usage text and points to localhost. It does not create an outbound network request or encode a remote destination."
       },
       {
         "id": "network:scripts/mcp-client.py:23:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL is a localhost docstring example for JSON output. It is not used as an automatic network destination."
+        "confidence": 0.96,
+        "reason": "The URL appears only in usage text and points to localhost. It does not create an outbound network request or encode a remote destination."
       },
       {
         "id": "blocker:scripts/mcp-client.py:52:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The request_id field is protocol bookkeeping for JSON-RPC messages. It does not collect host, user, or system information."
+        "reason": "These lines manage JSON-RPC request counters, MCP session headers, or error output. They do not enumerate host files, processes, users, or system configuration."
       },
       {
         "id": "blocker:scripts/mcp-client.py:57:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "Incrementing a JSON-RPC request counter is normal client state. No reconnaissance data is gathered."
+        "reason": "These lines manage JSON-RPC request counters, MCP session headers, or error output. They do not enumerate host files, processes, users, or system configuration."
       },
       {
         "id": "blocker:scripts/mcp-client.py:58:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "Returning an internal request counter is protocol bookkeeping. It does not inspect the local system."
+        "reason": "These lines manage JSON-RPC request counters, MCP session headers, or error output. They do not enumerate host files, processes, users, or system configuration."
       },
       {
         "id": "blocker:scripts/mcp-client.py:88:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The code stores an MCP session header returned by the server. This is session management, not system reconnaissance."
+        "confidence": 0.96,
+        "reason": "Reading Mcp-Session-Id from an MCP response is protocol session management. It is not host reconnaissance."
       },
       {
         "id": "blocker:scripts/mcp-client.py:137:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "Forwarding the MCP session ID header maintains an existing protocol session. It does not enumerate system details."
+        "confidence": 0.96,
+        "reason": "Adding Mcp-Session-Id to a request header is MCP session continuity. It does not inspect local system state."
       },
       {
         "id": "blocker:scripts/mcp-client.py:165:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "Adding the MCP session ID to a request is normal protocol state. No local environment or host information is collected."
+        "confidence": 0.96,
+        "reason": "Adding Mcp-Session-Id to a request header is MCP session continuity. It does not inspect local system state."
       },
       {
         "id": "blocker:scripts/mcp-client.py:190:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "This initializes a local JSON-RPC request counter for stdio transport. It is not reconnaissance behavior."
+        "reason": "These lines manage JSON-RPC request counters, MCP session headers, or error output. They do not enumerate host files, processes, users, or system configuration."
       },
       {
         "id": "blocker:scripts/mcp-client.py:196:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "Incrementing an internal request ID is protocol bookkeeping. It does not inspect files, users, processes, or host data."
+        "reason": "These lines manage JSON-RPC request counters, MCP session headers, or error output. They do not enumerate host files, processes, users, or system configuration."
       },
       {
         "id": "blocker:scripts/mcp-client.py:197:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "Returning the next request ID is required for matching JSON-RPC responses. It is not system reconnaissance."
+        "reason": "These lines manage JSON-RPC request counters, MCP session headers, or error output. They do not enumerate host files, processes, users, or system configuration."
       },
       {
         "id": "blocker:scripts/mcp-client.py:275:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The request ID is used to match a stdio response to the current request. It does not reveal system information."
+        "reason": "These lines manage JSON-RPC request counters, MCP session headers, or error output. They do not enumerate host files, processes, users, or system configuration."
       },
       {
         "id": "blocker:scripts/mcp-client.py:286:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The line is a comment about waiting for a matching response ID. It performs no reconnaissance activity."
+        "confidence": 0.97,
+        "reason": "This comment describes waiting for a matching JSON-RPC response id. It is not host or environment reconnaissance."
       },
       {
         "id": "blocker:scripts/mcp-client.py:480:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "Printing an invalid JSON error to stderr is input validation feedback. It does not collect or transmit system details."
+        "reason": "This line prints a JSON parse error to stderr. It does not collect or reveal host system inventory."
       },
       {
         "id": "external_commands:scripts/start-server.sh:1:unix-shell-invocation",
         "verdict": "confirmed",
         "confidence": 0.82,
         "severity": "medium",
-        "reason": "This file is a shell script that starts next-devtools-mcp through npx later in the same script. Running it executes local shell commands and package code."
+        "reason": "The flagged line identifies a shell script, and the same script starts an MCP server with npx on line 8. Running it executes local commands and can fetch npm packages."
       },
       {
         "id": "network:scripts/start-server.sh:10:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "The line only prints a localhost URL for user instructions. It does not open a connection or hardcode an external destination."
+        "reason": "This line only prints a localhost URL for the user. It does not perform a network connection or target an external host."
       },
       {
         "id": "external_commands:SKILL.md:15:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.83,
+        "confidence": 0.82,
         "severity": "medium",
-        "reason": "The Quick Start shell block instructs running the helper script and a Python client that spawns npx next-devtools-mcp@latest. This is real external command guidance, even though the backticks are Markdown."
+        "reason": "The quick-start block instructs users or agents to run bash and Python commands that spawn npx next-devtools-mcp@latest. This is intentional external command execution from a community skill."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The cited text is a closing Markdown fence followed by documentation headings. It does not contain an executable command."
+        "confidence": 0.94,
+        "reason": "These lines are Markdown table entries or fence closings. They name tools or formatting only and do not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The backticks mark a tool name in a Markdown table. They do not indicate Ruby or shell execution."
+        "reason": "These lines are Markdown table entries or fence closings. They name tools or formatting only and do not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The backticks wrap an MCP tool name in documentation. No command is executed from this table row."
+        "reason": "These lines are Markdown table entries or fence closings. They name tools or formatting only and do not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The text documents an MCP tool name using inline Markdown code. It is not executable shell syntax."
+        "reason": "These lines are Markdown table entries or fence closings. They name tools or formatting only and do not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The backticks format the get-build-info tool name. This is documentation, not command execution."
+        "reason": "These lines are Markdown table entries or fence closings. They name tools or formatting only and do not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The backticks format a Next.js configuration tool name in a table. There is no execution behavior here."
+        "reason": "These lines are Markdown table entries or fence closings. They name tools or formatting only and do not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.83,
+        "confidence": 0.8,
         "severity": "medium",
-        "reason": "The route inspection block tells users or agents to run python3 mcp-client.py with npx next-devtools-mcp@latest. That guidance executes external commands."
+        "reason": "The route inspection workflow tells the user or agent to run the Python client with a stdio npx command. Following it executes a local shell command."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The cited range is a closing Markdown fence and section transition. It does not introduce a runnable command."
+        "confidence": 0.94,
+        "reason": "These lines are Markdown table entries or fence closings. They name tools or formatting only and do not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.83,
+        "confidence": 0.8,
         "severity": "medium",
-        "reason": "The build debugging block contains python3 mcp-client.py commands that spawn npx next-devtools-mcp@latest. This is external command execution guidance."
+        "reason": "The build debugging workflow instructs use of the Python client with npx next-devtools-mcp@latest. This is local external command execution."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The cited line closes a Markdown code block before the next section. It is not itself an execution primitive."
+        "confidence": 0.94,
+        "reason": "These lines are Markdown table entries or fence closings. They name tools or formatting only and do not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.82,
+        "confidence": 0.78,
         "severity": "medium",
-        "reason": "The component discovery block instructs running the Python MCP client with an npx-launched MCP server. This is real command execution guidance."
+        "reason": "The component discovery example runs the Python client with a stdio command. This launches an external MCP server process."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The cited range closes a Markdown code block and starts a scripts section. No shell command is present in the cited snippet."
+        "confidence": 0.94,
+        "reason": "These lines are Markdown table entries or fence closings. They name tools or formatting only and do not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.78,
+        "confidence": 0.76,
         "severity": "medium",
-        "reason": "The persistent server block instructs running bash scripts/start-server.sh. That helper script starts an npx package, so the command guidance is security relevant."
+        "reason": "The persistent server example instructs users to run bash scripts/start-server.sh. That script starts an npx-based MCP server process."
       },
       {
         "id": "external_commands:SKILL.md:84:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The cited line is a closing Markdown fence and nearby prose. It does not execute anything."
+        "confidence": 0.94,
+        "reason": "These lines are Markdown table entries or fence closings. They name tools or formatting only and do not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The inline backticks mark the -s flag name in prose. This is documentation for an option, not shell execution."
+        "verdict": "confirmed",
+        "confidence": 0.62,
+        "severity": "medium",
+        "reason": "The prose explicitly recommends the -s mode that spawns a server process per call. It is not execution by itself, but it directs command-spawning behavior."
       },
       {
         "id": "external_commands:SKILL.md:90:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.83,
+        "confidence": 0.8,
         "severity": "medium",
-        "reason": "The on-demand block instructs running python3 mcp-client.py with npx next-devtools-mcp@latest as the stdio server. This is external command execution guidance."
+        "reason": "The on-demand example runs the Python client with npx next-devtools-mcp@latest as the stdio command. Following it executes an external command."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "The cited item is the end of a command block and troubleshooting table framing. The actual npx troubleshooting text is covered by the separate line 100 finding."
+        "reason": "These lines are Markdown table entries or fence closings. They name tools or formatting only and do not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.71,
+        "confidence": 0.72,
         "severity": "medium",
-        "reason": "The troubleshooting row suggests checking npx next-devtools-mcp@latest manually. It is not automatic, but it still directs package execution."
+        "reason": "The troubleshooting table instructs manual execution of npx next-devtools-mcp@latest. That is external package execution from a community skill."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unpinned NPM Package Execution",
-        "description": "The skill repeatedly tells users or agents to run npx next-devtools-mcp@latest, and the helper script runs the same unpinned package. Package changes after review can change runtime behavior without a new marketplace audit.",
+        "title": "Unpinned MCP Package Execution",
+        "description": "The skill runs npx next-devtools-mcp@latest in the shell script and usage examples. This downloads and executes the newest npm package version without pinning or integrity controls.",
         "severity": "high",
         "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 22
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 91,
-            "line_end": 93
-          },
           {
             "file": "scripts/start-server.sh",
             "line_start": 8,
@@ -1096,12 +1089,17 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 100,
-            "line_end": 100
+            "line_start": 20,
+            "line_end": 22
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 43
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "Multiple instructions and the helper script use @latest with npx. This is clear supply-chain risk, although there is no evidence of malicious intent."
+        "confidence": 0.95,
+        "confidence_reasoning": "The script and documented workflows directly use npx with the @latest tag. That is clear evidence of unpinned package download and execution."
       }
     ],
     "critical_findings": [],
@@ -1119,23 +1117,13 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "StdioTransport starts self.command with subprocess.Popen and shell=True. The command comes from the --stdio argument, so untrusted input could execute arbitrary shell syntax."
+        "confidence": 0.9,
+        "confidence_reasoning": "The code executes self.command through subprocess.Popen with shell=True. That command is supplied by the --stdio option, so untrusted input could execute arbitrary shell syntax."
       },
       {
-        "title": "Unpinned NPM Package Execution",
-        "description": "The skill repeatedly tells users or agents to run npx next-devtools-mcp@latest, and the helper script runs the same unpinned package. Package changes after review can change runtime behavior without a new marketplace audit.",
+        "title": "Unpinned MCP Package Execution",
+        "description": "The skill runs npx next-devtools-mcp@latest in the shell script and usage examples. This downloads and executes the newest npm package version without pinning or integrity controls.",
         "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 22
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 91,
-            "line_end": 93
-          },
           {
             "file": "scripts/start-server.sh",
             "line_start": 8,
@@ -1143,15 +1131,20 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 100,
-            "line_end": 100
+            "line_start": 20,
+            "line_end": 22
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 43
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "Multiple instructions and the helper script use @latest with npx. This is clear supply-chain risk, although there is no evidence of malicious intent."
+        "confidence": 0.95,
+        "confidence_reasoning": "The script and documented workflows directly use npx with the @latest tag. That is clear evidence of unpinned package download and execution."
       }
     ],
     "medium_findings": [
@@ -1169,7 +1162,7 @@
         "source_category": "external_commands",
         "source_severity": "medium",
         "confidence": 0.82,
-        "confidence_reasoning": "This file is a shell script that starts next-devtools-mcp through npx later in the same script. Running it executes local shell commands and package code."
+        "confidence_reasoning": "The flagged line identifies a shell script, and the same script starts an MCP server with npx on line 8. Running it executes local commands and can fetch npm packages."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1184,8 +1177,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.83,
-        "confidence_reasoning": "The Quick Start shell block instructs running the helper script and a Python client that spawns npx next-devtools-mcp@latest. This is real external command guidance, even though the backticks are Markdown."
+        "confidence": 0.82,
+        "confidence_reasoning": "The quick-start block instructs users or agents to run bash and Python commands that spawn npx next-devtools-mcp@latest. This is intentional external command execution from a community skill."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1200,8 +1193,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.83,
-        "confidence_reasoning": "The route inspection block tells users or agents to run python3 mcp-client.py with npx next-devtools-mcp@latest. That guidance executes external commands."
+        "confidence": 0.8,
+        "confidence_reasoning": "The route inspection workflow tells the user or agent to run the Python client with a stdio npx command. Following it executes a local shell command."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1216,8 +1209,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.83,
-        "confidence_reasoning": "The build debugging block contains python3 mcp-client.py commands that spawn npx next-devtools-mcp@latest. This is external command execution guidance."
+        "confidence": 0.8,
+        "confidence_reasoning": "The build debugging workflow instructs use of the Python client with npx next-devtools-mcp@latest. This is local external command execution."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1232,8 +1225,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The component discovery block instructs running the Python MCP client with an npx-launched MCP server. This is real command execution guidance."
+        "confidence": 0.78,
+        "confidence_reasoning": "The component discovery example runs the Python client with a stdio command. This launches an external MCP server process."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1248,8 +1241,24 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The persistent server block instructs running bash scripts/start-server.sh. That helper script starts an npx package, so the command guidance is security relevant."
+        "confidence": 0.76,
+        "confidence_reasoning": "The persistent server example instructs users to run bash scripts/start-server.sh. That script starts an npx-based MCP server process."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "For single calls, use `-s` flag which spawns server per-call:",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 88,
+            "line_end": 90
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.62,
+        "confidence_reasoning": "The prose explicitly recommends the -s mode that spawns a server process per call. It is not execution by itself, but it directs command-spawning behavior."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1264,8 +1273,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.83,
-        "confidence_reasoning": "The on-demand block instructs running python3 mcp-client.py with npx next-devtools-mcp@latest as the stdio server. This is external command execution guidance."
+        "confidence": 0.8,
+        "confidence_reasoning": "The on-demand example runs the Python client with npx next-devtools-mcp@latest as the stdio command. Following it executes an external command."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1280,8 +1289,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.71,
-        "confidence_reasoning": "The troubleshooting row suggests checking npx next-devtools-mcp@latest manually. It is not automatic, but it still directs package execution."
+        "confidence": 0.72,
+        "confidence_reasoning": "The troubleshooting table instructs manual execution of npx next-devtools-mcp@latest. That is external package execution from a community skill."
       }
     ],
     "low_findings": [
@@ -1298,8 +1307,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.74,
-        "confidence_reasoning": "HTTPTransport.request sends JSON-RPC payloads to a user-provided MCP URL with urlopen. This is intended network access, but it can transmit tool names, parameters, and headers."
+        "confidence": 0.78,
+        "confidence_reasoning": "This method sends JSON-RPC requests to the URL configured by the user through HTTPTransport. It is legitimate MCP behavior but can disclose supplied headers or parameters to a remote endpoint."
       },
       {
         "title": "HTTP client library",
@@ -1314,8 +1323,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.62,
-        "confidence_reasoning": "The high-level tools/list call can route through HTTPTransport when a URL transport is selected. This is normal MCP behavior, but it contacts the configured endpoint."
+        "confidence": 0.68,
+        "confidence_reasoning": "The call uses transport.request to list MCP tools. When the selected transport is HTTP, this sends MCP traffic to the configured endpoint."
       },
       {
         "title": "HTTP client library",
@@ -1331,7 +1340,7 @@
         "source_category": "network",
         "source_severity": "low",
         "confidence": 0.72,
-        "confidence_reasoning": "The tools/call path can send tool names and arguments through the selected transport, including HTTP. It is intended functionality, but parameters may be exposed to that endpoint."
+        "confidence_reasoning": "The tool call is sent through transport.request and can include user-supplied arguments. With HTTPTransport, those arguments go to the configured MCP endpoint."
       },
       {
         "title": "HTTP client library",
@@ -1346,8 +1355,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.62,
-        "confidence_reasoning": "The resources/list call can use the HTTP transport and contact the configured MCP server. No malicious destination is hardcoded, so the risk is low."
+        "confidence": 0.66,
+        "confidence_reasoning": "The resource listing uses transport.request and may be sent over HTTP when that transport is selected. This is expected MCP behavior but remains a network data flow."
       },
       {
         "title": "HTTP client library",
@@ -1362,8 +1371,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.62,
-        "confidence_reasoning": "The prompts/list call can use the HTTP transport and contact the configured MCP server. This is expected network behavior with low inherent risk."
+        "confidence": 0.66,
+        "confidence_reasoning": "The prompt listing uses transport.request and may be sent over HTTP when that transport is selected. This is expected MCP behavior but remains a network data flow."
       },
       {
         "title": "Python HTTP libraries",
@@ -1379,133 +1388,135 @@
         "source_category": "network",
         "source_severity": "low",
         "confidence": 0.82,
-        "confidence_reasoning": "urllib.request is imported and used by HTTPTransport for MCP communication. This confirms network capability, but no covert destination is present."
+        "confidence_reasoning": "The urllib imports are used by HTTPTransport to send MCP requests. This is an expected feature, but it provides real network capability to user-selected URLs."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 605,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T00:14:41.465Z",
+    "audited_at": "2026-07-05T15:35:22.102Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Inspect Next.js Apps with MCP",
-    "value_statement": "Next.js projects can be hard to inspect when routes, components, and build settings are spread across the app. This skill connects Claude, Codex, or Claude Code to a Next.js DevTools MCP server for focused project inspection.",
+    "user_title": "Inspect Next.js Apps with MCP DevTools",
+    "value_statement": "Debugging Next.js routes, components, and build settings can require many manual checks. This skill connects Claude, Codex, and Claude Code to a Next.js MCP server for focused inspection.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "Next.js DevTools",
-      "MCP server",
+      "Next.js MCP",
+      "MCP client",
       "Next.js routes",
       "React components",
       "build debugging",
-      "next.config.js",
-      "AI coding tools"
+      "next.config.js"
     ],
     "actual_capabilities": [
-      "Connects to a Next.js DevTools MCP server through stdio or HTTP.",
-      "Lists Next.js app routes and requests details for a selected route.",
-      "Lists React components discovered by the MCP server.",
-      "Reads build information exposed by the MCP server.",
-      "Reads Next.js configuration details from the connected project.",
-      "Can emit MCP tool documentation for review or caching."
+      "Starts or connects to a Next.js DevTools MCP server.",
+      "Lists available MCP tools from HTTP or stdio transports.",
+      "Calls MCP tools for routes, route details, components, build information, and configuration.",
+      "Emits MCP tool schemas as Markdown or JSON documentation.",
+      "Supports custom HTTP headers for MCP requests."
     ],
     "limitations": [
-      "Supports Next.js projects only, not general React applications.",
-      "Requires Node.js, npx, Python 3, and the Next.js DevTools MCP package.",
-      "The stdio mode and helper script execute local shell commands.",
-      "Results depend on the MCP server and the current project state."
+      "Designed for Next.js projects, not general React applications.",
+      "Requires Python 3, Node.js, npx, and access to the MCP server package.",
+      "Can execute local commands when stdio or shell scripts are used.",
+      "Does not replace manual validation of build output or security settings."
     ],
     "use_cases": [
       {
-        "title": "Inspect Routing During Feature Work",
-        "description": "List routes and review details before changing navigation or API handlers.",
-        "target_user": "Next.js developer"
+        "title": "Route Inventory During Refactors",
+        "description": "Inspect all application routes before changing navigation, layouts, or API paths.",
+        "target_user": "Frontend developer"
       },
       {
-        "title": "Debug Build Configuration",
-        "description": "Check build information and Next.js config while investigating build or deployment issues.",
-        "target_user": "Release engineer"
+        "title": "Build Configuration Review",
+        "description": "Check build information and Next.js configuration while diagnosing compile or deployment issues.",
+        "target_user": "Full-stack engineer"
       },
       {
-        "title": "Map Project Structure for AI Assistance",
-        "description": "Give an AI coding tool structured route and component context before making edits.",
-        "target_user": "Claude Code or Codex user"
+        "title": "AI-Assisted Project Inspection",
+        "description": "Let an AI coding assistant query MCP tools and summarize project structure during development.",
+        "target_user": "Claude, Codex, or Claude Code user"
       }
     ],
     "prompt_templates": [
       {
         "title": "List Project Routes",
-        "scenario": "Beginner route inspection",
-        "prompt": "Use the Next.js DevTools MCP skill to list the routes in this project. Summarize the main app areas."
+        "scenario": "Beginner route discovery",
+        "prompt": "Inspect this Next.js project with the nextjs-devtools skill. List the available routes and summarize any dynamic routes."
       },
       {
-        "title": "Review One Route",
+        "title": "Inspect One Route",
         "scenario": "Focused route debugging",
-        "prompt": "Inspect the route I name and explain its available details. Point out anything that may affect routing behavior."
+        "prompt": "Use nextjs-devtools to review the route I am working on. Explain its route details and any configuration signals that matter."
       },
       {
-        "title": "Check Build Settings",
-        "scenario": "Build troubleshooting",
-        "prompt": "Use the MCP server to review build information and Next.js configuration. Summarize likely causes of build problems."
+        "title": "Review Build Setup",
+        "scenario": "Deployment troubleshooting",
+        "prompt": "Use nextjs-devtools to inspect build information and Next.js configuration. Identify settings that could affect deployment behavior."
       },
       {
-        "title": "Create an Inspection Plan",
-        "scenario": "Advanced project analysis",
-        "prompt": "Inspect routes, components, build information, and configuration. Produce a prioritized investigation plan for a Next.js refactor."
+        "title": "Map Route, Component, and Build Context",
+        "scenario": "Advanced project investigation",
+        "prompt": "Use nextjs-devtools to combine route data, component inventory, build information, and configuration. Produce a concise diagnosis for the feature area I am changing."
       }
     ],
     "output_examples": [
       {
-        "input": "List the routes in my Next.js app.",
-        "output": "The assistant returns a concise route inventory grouped by app area, with notes about dynamic routes and API handlers."
+        "input": "Inspect routes before a navigation refactor.",
+        "output": [
+          "A grouped route inventory for pages, app routes, and API endpoints.",
+          "A short note about dynamic routes that need extra review."
+        ]
       },
       {
-        "input": "Check why my production build behaves differently.",
-        "output": "The assistant summarizes build settings and Next.js config values that may affect production behavior."
+        "input": "Review why the build behaves differently in production.",
+        "output": "A plain-language summary of relevant build and configuration settings, with likely causes to check first."
       },
       {
-        "input": "Find components related to the dashboard.",
-        "output": "The assistant lists matching components and explains how they relate to the dashboard route area."
+        "input": "Find components related to a dashboard feature.",
+        "output": "A component inventory summary that highlights likely dashboard files and follow-up inspection targets."
       }
     ],
     "best_practices": [
-      "Run the skill from the root of a trusted Next.js project.",
-      "Review the MCP server command before allowing an agent to execute it.",
-      "Pin package versions when using this skill in shared or production workflows."
+      "Run the skill from the root of a trusted Next.js repository.",
+      "Pin and review the MCP server package before regular use.",
+      "Prefer localhost MCP endpoints unless a remote server is explicitly trusted."
     ],
     "anti_patterns": [
-      "Do not run the helper script in an untrusted repository.",
-      "Do not send sensitive headers to an MCP server you do not control.",
-      "Do not use the skill for non-Next.js React projects."
+      "Running shell commands from untrusted prompts without user review.",
+      "Sending secrets through MCP HTTP headers or tool parameters.",
+      "Using this skill for non-Next.js projects and trusting incomplete results."
     ],
     "faq": [
       {
-        "question": "What does this skill inspect?",
-        "answer": "It inspects routes, route details, components, build information, and Next.js configuration exposed by the MCP server."
+        "question": "What projects does this skill support?",
+        "answer": "It is intended for Next.js applications that can be inspected through a Next.js DevTools MCP server."
       },
       {
-        "question": "Does it modify my Next.js project?",
-        "answer": "The listed MCP tools are inspection focused. The helper commands still start local processes."
+        "question": "Does it modify my application?",
+        "answer": "The documented tools are inspection focused, but the helper scripts can start local processes."
       },
       {
-        "question": "Which AI tools can use it?",
-        "answer": "The report lists support for Claude, Codex, and Claude Code."
+        "question": "Can it work with Claude, Codex, and Claude Code?",
+        "answer": "Yes. The report marks support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "Does it need network access?",
-        "answer": "It can connect to a local or user-provided HTTP MCP endpoint. Stdio mode can run npx to start a server."
+        "question": "Does it require network access?",
+        "answer": "It can connect to HTTP MCP endpoints and can use npx to fetch the MCP server package."
       },
       {
-        "question": "Is it safe to run automatically?",
-        "answer": "Use confirmation before execution because the skill can run shell commands and an unpinned npm package."
+        "question": "What should I check before installing it?",
+        "answer": "Review the command execution behavior, pin the npm package version, and use trusted local projects."
       },
       {
-        "question": "Can it inspect any React app?",
-        "answer": "No. It is designed for Next.js applications and depends on Next.js DevTools MCP support."
+        "question": "Is it useful outside Next.js?",
+        "answer": "No. The skill is built around Next.js routes, configuration, components, and build information."
       }
     ]
   },

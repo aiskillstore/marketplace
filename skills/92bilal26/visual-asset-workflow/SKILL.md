@@ -1,6 +1,6 @@
 ---
 name: visual-asset-workflow
-description: Generate distinctive educational visuals using creative brief methodology. Use when creating chapter illustrations, diagrams, or teaching visuals with Gemini.
+description: Create professional creative briefs for educational visuals using story, intent, pedagogy, proficiency alignment, and duplicate prevention.
 ---
 
 # Visual Asset Workflow Skill

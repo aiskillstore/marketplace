@@ -1,6 +1,7 @@
 ---
 name: skills-proficiency-mapper
-description: Map skills to proficiency levels using CEFR, Bloom's taxonomy, and DigComp frameworks. Use when designing skill progressions or assessing learner proficiency.
+description: Maps curriculum skills to CEFR, Bloom's taxonomy, and DigComp levels with measurable indicators and progression checks.
+license: MIT
 ---
 
 # Skills Proficiency Mapper Skill v3.0 (Reasoning-Activated)
