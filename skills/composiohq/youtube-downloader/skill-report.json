@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-29T01:34:27.836Z",
+    "generated_at": "2026-07-05T07:31:41.793Z",
     "slug": "composiohq-youtube-downloader",
     "source_url": "https://github.com/ComposioHQ/awesome-claude-skills/tree/master/video-downloader",
     "source_ref": "master",
@@ -9,12 +9,25 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "093c29459a2e05eb076f64d069817d24f98e327b3dab24d9b72085b8ac2909c6",
-    "tree_hash": "0fd001674af2b28f612a3906d60114e3495e3cf4b2b441897e753ca3b936e93b"
+    "tree_hash": "1af1e899645b2f070271afd155f61ea9b3434ef3609a475fbd0fd26f61025efa",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "youtube-downloader",
-    "description": "Download single YouTube videos or audio files with selectable quality, output format, and destination folder options.",
-    "summary": "Download YouTube videos or MP3 audio through a local yt-dlp helper script.",
+    "description": "Download permitted YouTube videos or MP3 audio with selectable quality, format, and output directory settings through a yt-dlp wrapper.",
+    "summary": "Downloads permitted YouTube media with quality, format, audio-only, and destination controls.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "ComposioHQ",
@@ -22,8 +35,8 @@
     "tags": [
       "youtube",
       "video-download",
-      "audio-extraction",
       "yt-dlp",
+      "audio-extraction",
       "media-tools"
     ],
     "supported_tools": [
@@ -32,148 +45,58 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
-      "network",
-      "filesystem",
-      "external_commands"
+      "external_commands",
+      "network"
     ],
     "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "The static subprocess findings in scripts/download_video.py are true positives for elevated operational risk, but no malicious intent was found. The SKILL.md shell findings are documentation examples and the weak cryptography alerts at SKILL.md:3 and scripts/download_video.py:105 are false positives. Runtime pip installation, network downloads through yt-dlp, and caller-controlled output paths warrant a medium-risk warning.",
-    "risk_factor_evidence": [
+    "safe_to_publish": false,
+    "analysis_status": "ok",
+    "summary": "Most Markdown findings are false positives because they are fenced examples or inline option names, not Ruby backtick execution. The real risks are Python subprocess calls that install yt-dlp, process a user-provided URL, and run a downloader with user-controlled destination settings. No prompt injection was found in the reviewed files.",
+    "remediation": [
       {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 1,
-            "line_end": 145
-          }
-        ]
+        "issue": "Runtime package installation modifies the environment.",
+        "suggestion": "Declare yt-dlp as a pinned dependency installed before runtime. Remove --break-system-packages and require user confirmation for any install step.",
+        "severity": "high"
       },
+      {
+        "issue": "User-controlled URLs are processed by an external downloader.",
+        "suggestion": "Validate URL scheme and domain before invoking yt-dlp. Keep list-form subprocess calls and reject unsupported or local resource inputs.",
+        "severity": "high"
+      },
+      {
+        "issue": "Custom output paths are not restricted.",
+        "suggestion": "Resolve the output path and restrict writes to an approved output root. Reject parent traversal, system paths, and credential directories.",
+        "severity": "medium"
+      }
+    ],
+    "risk_factor_evidence": [
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "scripts/download_video.py",
             "line_start": 16,
+            "line_end": 16
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 19,
             "line_end": 19
           },
           {
             "file": "scripts/download_video.py",
             "line_start": 24,
-            "line_end": 29
+            "line_end": 24
           },
           {
             "file": "scripts/download_video.py",
             "line_start": 92,
             "line_end": 92
-          }
-        ]
-      },
-      {
-        "factor": "network",
-        "evidence": [
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 24,
-            "line_end": 25
           },
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 77,
-            "line_end": 77
-          }
-        ]
-      },
-      {
-        "factor": "filesystem",
-        "evidence": [
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 72,
-            "line_end": 74
-          },
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 109,
-            "line_end": 111
-          },
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 133,
-            "line_end": 138
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "Runtime Package Installation Modifies Environment",
-        "description": "The helper script automatically installs yt-dlp with pip and uses --break-system-packages when the command is missing. This creates supply chain and environment integrity risk during normal skill use.",
-        "locations": [
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 16,
-            "line_end": 19
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The subprocess call directly invokes pip install at runtime with a package name and --break-system-packages. This is legitimate setup behavior, but it modifies the Python environment and depends on package index trust."
-      },
-      {
-        "title": "External Downloader Runs Against User-Supplied URLs",
-        "description": "The script passes the provided URL to yt-dlp for metadata retrieval and download. Argument lists avoid shell injection, but the skill performs network access and processes remote media metadata from user-provided locations.",
-        "locations": [
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 24,
-            "line_end": 29
-          },
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 77,
-            "line_end": 92
-          }
-        ],
-        "confidence": 0.84,
-        "confidence_reasoning": "The URL is caller-controlled and reaches yt-dlp through subprocess.run. The absence of shell=True reduces command injection risk, but network retrieval and third-party parser exposure are confirmed."
-      },
-      {
-        "title": "Caller-Controlled Output Directory",
-        "description": "The script accepts an output directory and interpolates it into the yt-dlp output template. This can write downloaded files outside the default output directory if the caller supplies a different path.",
-        "locations": [
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 72,
-            "line_end": 74
-          },
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 109,
-            "line_end": 111
-          },
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 133,
-            "line_end": 138
-          }
-        ],
-        "confidence": 0.82,
-        "confidence_reasoning": "The output path is an argparse option and is used directly in the output template. The behavior is documented, but there is no path restriction to the default outputs directory."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Documentation Command Examples Are Static False Positives",
-        "description": "The shell-command detections in SKILL.md are fenced usage examples for invoking the helper script. They are not executable code inside the skill file itself.",
-        "locations": [
           {
             "file": "SKILL.md",
             "line_start": 14,
@@ -181,13 +104,93 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 33,
+            "line_start": 16,
+            "line_end": 18
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 24
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 24
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 26,
+            "line_end": 27
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 27,
+            "line_end": 28
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 28,
+            "line_end": 29
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 30
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 30,
+            "line_end": 31
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 31,
+            "line_end": 34
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
             "line_end": 36
           },
           {
             "file": "SKILL.md",
-            "line_start": 46,
+            "line_start": 36,
+            "line_end": 40
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 40
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 43
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 43,
+            "line_end": 44
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 44,
+            "line_end": 47
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
             "line_end": 49
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 53
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 53,
+            "line_end": 53
           },
           {
             "file": "SKILL.md",
@@ -196,40 +199,69 @@
           },
           {
             "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 61
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 61,
+            "line_end": 61
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 63,
             "line_end": 65
           },
           {
             "file": "SKILL.md",
-            "line_start": 69,
-            "line_end": 82
-          }
-        ],
-        "confidence": 0.96,
-        "confidence_reasoning": "The cited lines are Markdown fenced bash examples and option descriptions. They document commands that a user may choose to run, but SKILL.md does not execute them."
-      },
-      {
-        "title": "Weak Cryptography Alerts Are False Positives",
-        "description": "The reported weak cryptography locations contain descriptive text, not hashing or encryption code. No evidence of cryptographic operations was found at these locations.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
+            "line_start": 65,
+            "line_end": 70
           },
           {
-            "file": "scripts/download_video.py",
-            "line_start": 104,
-            "line_end": 105
+            "file": "SKILL.md",
+            "line_start": 70,
+            "line_end": 72
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 72,
+            "line_end": 75
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 75,
+            "line_end": 77
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 77,
+            "line_end": 80
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 80,
+            "line_end": 82
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 82,
+            "line_end": 86
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 86,
+            "line_end": 95
           }
-        ],
-        "confidence": 0.97,
-        "confidence_reasoning": "SKILL.md:3 is frontmatter description text, and scripts/download_video.py:105 is an argparse description string. Neither location imports crypto libraries or calls a cryptographic algorithm."
+        ]
       },
       {
-        "title": "Hardcoded YouTube URLs Are Benign Examples",
-        "description": "The hardcoded URLs in SKILL.md are sample YouTube links used in documentation. No evidence found that they exfiltrate data or contact unrelated endpoints.",
-        "locations": [
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 15
+          },
           {
             "file": "SKILL.md",
             "line_start": 71,
@@ -245,55 +277,663 @@
             "line_start": 81,
             "line_end": 81
           }
-        ],
-        "confidence": 0.93,
-        "confidence_reasoning": "The URLs appear only inside complete examples for a YouTube downloader. They point to YouTube watch URLs and are not connected to credential handling or hidden network behavior."
+        ]
       }
     ],
-    "dangerous_patterns": [
+    "static_findings": [
       {
-        "title": "subprocess.run Used For External Tooling",
-        "description": "The script uses subprocess.run to execute yt-dlp and pip. The calls use argument arrays rather than shell strings, so shell injection risk is reduced but external command execution remains a risk factor.",
-        "locations": [
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 16,
-            "line_end": 19
-          },
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 24,
-            "line_end": 29
-          },
-          {
-            "file": "scripts/download_video.py",
-            "line_start": 92,
-            "line_end": 92
-          }
-        ],
-        "confidence": 0.91,
-        "confidence_reasoning": "The exact subprocess.run calls are present in the helper script. Their list-form arguments make the risk operational rather than a direct shell injection finding."
+        "id": "external_commands:scripts/download_video.py:16:python-subprocess-run",
+        "category": "external_commands",
+        "severity": "high",
+        "pattern": "Python subprocess.run",
+        "file": "scripts/download_video.py",
+        "line_start": 16,
+        "line_end": 16,
+        "snippet": "subprocess.run([\"yt-dlp\", \"--version\"], capture_output=True, check=True)"
       },
       {
-        "title": "Automatic Dependency Installation",
-        "description": "The script installs yt-dlp automatically if it is not present. Runtime installation can change the environment and relies on the package source available at execution time.",
+        "id": "external_commands:scripts/download_video.py:19:python-subprocess-run",
+        "category": "external_commands",
+        "severity": "high",
+        "pattern": "Python subprocess.run",
+        "file": "scripts/download_video.py",
+        "line_start": 19,
+        "line_end": 19,
+        "snippet": "subprocess.run([sys.executable, \"-m\", \"pip\", \"install\", \"--break-system-packages\", \"yt-dlp\"], check="
+      },
+      {
+        "id": "external_commands:scripts/download_video.py:24:python-subprocess-run",
+        "category": "external_commands",
+        "severity": "high",
+        "pattern": "Python subprocess.run",
+        "file": "scripts/download_video.py",
+        "line_start": 24,
+        "line_end": 24,
+        "snippet": "result = subprocess.run("
+      },
+      {
+        "id": "external_commands:scripts/download_video.py:92:python-subprocess-run",
+        "category": "external_commands",
+        "severity": "high",
+        "pattern": "Python subprocess.run",
+        "file": "scripts/download_video.py",
+        "line_start": 92,
+        "line_end": 92,
+        "snippet": "subprocess.run(cmd, check=True)"
+      },
+      {
+        "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 14,
+        "line_end": 16,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 16,
+        "line_end": 18,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 18,
+        "line_end": 24,
+        "snippet": "This downloads the video in best available quality as MP4 to `/mnt/user-data/outputs/`."
+      },
+      {
+        "id": "external_commands:SKILL.md:24:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 24,
+        "line_end": 24,
+        "snippet": "Use `-q` or `--quality` to specify video quality:"
+      },
+      {
+        "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 26,
+        "line_end": 27,
+        "snippet": "- `best` (default): Highest quality available"
+      },
+      {
+        "id": "external_commands:SKILL.md:27:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 27,
+        "line_end": 28,
+        "snippet": "- `1080p`: Full HD"
+      },
+      {
+        "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 28,
+        "line_end": 29,
+        "snippet": "- `720p`: HD"
+      },
+      {
+        "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 29,
+        "line_end": 30,
+        "snippet": "- `480p`: Standard definition"
+      },
+      {
+        "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 30,
+        "line_end": 31,
+        "snippet": "- `360p`: Lower quality"
+      },
+      {
+        "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 31,
+        "line_end": 34,
+        "snippet": "- `worst`: Lowest quality available"
+      },
+      {
+        "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 34,
+        "line_end": 36,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 36,
+        "line_end": 40,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 40,
+        "line_end": 40,
+        "snippet": "Use `-f` or `--format` to specify output format (video downloads only):"
+      },
+      {
+        "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 42,
+        "line_end": 43,
+        "snippet": "- `mp4` (default): Most compatible"
+      },
+      {
+        "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 43,
+        "line_end": 44,
+        "snippet": "- `webm`: Modern format"
+      },
+      {
+        "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 44,
+        "line_end": 47,
+        "snippet": "- `mkv`: Matroska container"
+      },
+      {
+        "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 47,
+        "line_end": 49,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 49,
+        "line_end": 53,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 53,
+        "line_end": 53,
+        "snippet": "Use `-a` or `--audio-only` to download only audio as MP3:"
+      },
+      {
+        "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 55,
+        "line_end": 57,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 57,
+        "line_end": 61,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 61,
+        "line_end": 61,
+        "snippet": "Use `-o` or `--output` to specify a different output directory:"
+      },
+      {
+        "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 63,
+        "line_end": 65,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 65,
+        "line_end": 70,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 70,
+        "line_end": 72,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 72,
+        "line_end": 75,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 75,
+        "line_end": 77,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 77,
+        "line_end": 80,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 80,
+        "line_end": 82,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:82:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 82,
+        "line_end": 86,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 86,
+        "line_end": 95,
+        "snippet": "The skill uses `yt-dlp`, a robust YouTube downloader that:"
+      },
+      {
+        "id": "network:SKILL.md:15:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 15,
+        "line_end": 15,
+        "snippet": "python scripts/download_video.py \"https://www.youtube.com/watch?v=VIDEO_ID\""
+      },
+      {
+        "id": "network:SKILL.md:71:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 71,
+        "line_end": 71,
+        "snippet": "python scripts/download_video.py \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\" -q 1080p"
+      },
+      {
+        "id": "network:SKILL.md:76:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 76,
+        "line_end": 76,
+        "snippet": "python scripts/download_video.py \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\" -a"
+      },
+      {
+        "id": "network:SKILL.md:81:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 81,
+        "line_end": 81,
+        "snippet": "python scripts/download_video.py \"https://www.youtube.com/watch?v=dQw4w9WgXcQ\" -q 720p -f webm -o /c"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "external_commands:scripts/download_video.py:16:python-subprocess-run",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "Line 16 only probes yt-dlp with a fixed --version argument. No user input is included, so this is a safe dependency check rather than command injection."
+      },
+      {
+        "id": "external_commands:scripts/download_video.py:19:python-subprocess-run",
+        "verdict": "confirmed",
+        "confidence": 0.96,
+        "severity": "high",
+        "reason": "Line 19 auto-installs yt-dlp with pip and --break-system-packages if the binary is missing. This pulls code from the package index and modifies the runtime environment without an explicit consent gate."
+      },
+      {
+        "id": "external_commands:scripts/download_video.py:24:python-subprocess-run",
+        "verdict": "confirmed",
+        "confidence": 0.8,
+        "severity": "high",
+        "reason": "Line 24 runs yt-dlp against a user-supplied URL to fetch metadata. Arguments are passed as a list, which reduces shell injection risk, but the external downloader still processes attacker-controlled network input."
+      },
+      {
+        "id": "external_commands:scripts/download_video.py:92:python-subprocess-run",
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "severity": "high",
+        "reason": "Line 92 executes the assembled yt-dlp command using user-controlled URL and output directory values. The list form avoids shell expansion, but the external process can still download remote content and write to the chosen destination."
+      },
+      {
+        "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:24:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:27:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:82:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The SKILL.md location is Markdown documentation or an inline code span, not Ruby backtick execution. It does not execute by itself; the real script execution is assessed separately."
+      },
+      {
+        "id": "network:SKILL.md:15:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "The URL appears only inside a documented YouTube example in SKILL.md. It is not an automatic callback or exfiltration endpoint, so this hardcoded URL finding is benign documentation."
+      },
+      {
+        "id": "network:SKILL.md:71:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "The URL appears only inside a documented YouTube example in SKILL.md. It is not an automatic callback or exfiltration endpoint, so this hardcoded URL finding is benign documentation."
+      },
+      {
+        "id": "network:SKILL.md:76:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "The URL appears only inside a documented YouTube example in SKILL.md. It is not an automatic callback or exfiltration endpoint, so this hardcoded URL finding is benign documentation."
+      },
+      {
+        "id": "network:SKILL.md:81:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "The URL appears only inside a documented YouTube example in SKILL.md. It is not an automatic callback or exfiltration endpoint, so this hardcoded URL finding is benign documentation."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Automatic Runtime Package Installation",
+        "description": "The script installs yt-dlp with pip and --break-system-packages when it is missing. This changes the runtime environment and pulls package code without explicit approval.",
+        "severity": "high",
         "locations": [
           {
             "file": "scripts/download_video.py",
             "line_start": 13,
-            "line_end": 20
+            "line_end": 19
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The installation path is explicit in check_yt_dlp. The package name is fixed, but the runtime installation behavior is confirmed."
+        "confidence": 0.94,
+        "confidence_reasoning": "The installation path is explicit in check_yt_dlp and uses pip with --break-system-packages. The behavior is unconditional after a missing binary check."
       },
       {
-        "title": "Unrestricted Output Path Option",
-        "description": "The output directory option is passed into the download output template without restriction to a safe workspace path.",
+        "title": "Unrestricted Output Directory Writes",
+        "description": "The script accepts a custom output directory and places it directly into the yt-dlp output template. A prompt can direct writes outside the intended output area if permissions allow.",
+        "severity": "medium",
         "locations": [
           {
             "file": "scripts/download_video.py",
-            "line_start": 72,
+            "line_start": 73,
             "line_end": 74
           },
           {
@@ -303,136 +943,228 @@
           }
         ],
         "confidence": 0.82,
-        "confidence_reasoning": "The output argument is documented and wired directly into the output template. There is no visible validation or path allowlist in the file."
+        "confidence_reasoning": "The output path is user-configurable and is interpolated into the downloader template. There is no visible path normalization or restriction to an approved root."
       }
     ],
+    "critical_findings": [],
+    "high_findings": [
+      {
+        "title": "Python subprocess.run",
+        "description": "subprocess.run([sys.executable, \"-m\", \"pip\", \"install\", \"--break-system-packages\", \"yt-dlp\"], check=",
+        "locations": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 19,
+            "line_end": 19
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.96,
+        "confidence_reasoning": "Line 19 auto-installs yt-dlp with pip and --break-system-packages if the binary is missing. This pulls code from the package index and modifies the runtime environment without an explicit consent gate."
+      },
+      {
+        "title": "Python subprocess.run",
+        "description": "result = subprocess.run(",
+        "locations": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 24,
+            "line_end": 24
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.8,
+        "confidence_reasoning": "Line 24 runs yt-dlp against a user-supplied URL to fetch metadata. Arguments are passed as a list, which reduces shell injection risk, but the external downloader still processes attacker-controlled network input."
+      },
+      {
+        "title": "Python subprocess.run",
+        "description": "subprocess.run(cmd, check=True)",
+        "locations": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 92,
+            "line_end": 92
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.86,
+        "confidence_reasoning": "Line 92 executes the assembled yt-dlp command using user-controlled URL and output directory values. The list form avoids shell expansion, but the external process can still download remote content and write to the chosen destination."
+      },
+      {
+        "title": "Automatic Runtime Package Installation",
+        "description": "The script installs yt-dlp with pip and --break-system-packages when it is missing. This changes the runtime environment and pulls package code without explicit approval.",
+        "locations": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 13,
+            "line_end": 19
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.94,
+        "confidence_reasoning": "The installation path is explicit in check_yt_dlp and uses pip with --break-system-packages. The behavior is unconditional after a missing binary check."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Unrestricted Output Directory Writes",
+        "description": "The script accepts a custom output directory and places it directly into the yt-dlp output template. A prompt can direct writes outside the intended output area if permissions allow.",
+        "locations": [
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 73,
+            "line_end": 74
+          },
+          {
+            "file": "scripts/download_video.py",
+            "line_start": 109,
+            "line_end": 111
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The output path is user-configurable and is interpolated into the downloader template. There is no visible path normalization or restriction to an approved root."
+      }
+    ],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 244,
     "audit_model": "codex",
-    "audited_at": "2026-06-29T01:34:27.836Z",
-    "risk_factors": [
-      "scripts",
-      "network",
-      "filesystem",
-      "external_commands"
-    ]
+    "audited_at": "2026-07-05T07:31:41.793Z",
+    "agent_auto_install_policy": "confirmation_required",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Download YouTube Videos and Audio",
-    "value_statement": "Saving a YouTube video or audio track often requires choosing quality, format, and destination manually. This skill wraps yt-dlp with clear options for single-video downloads and MP3 extraction.",
+    "user_title": "Download YouTube Videos and MP3 Audio",
+    "value_statement": "Saving permitted YouTube media for review or offline work can be slow and error-prone. This skill guides Claude, Codex, or Claude Code through quality, format, and audio-only downloads using yt-dlp.",
     "seo_keywords": [
-      "Claude YouTube downloader",
-      "Codex YouTube downloader",
-      "Claude Code media download",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "YouTube downloader",
       "yt-dlp skill",
-      "YouTube MP3 extraction",
       "video download automation",
-      "AI media tools",
-      "download YouTube video",
-      "YouTube audio workflow",
-      "single video downloader"
+      "MP3 audio extraction",
+      "offline video review",
+      "AI media workflow",
+      "YouTube MP4 download"
     ],
     "actual_capabilities": [
-      "Downloads a single YouTube video using a local Python helper script.",
-      "Selects quality from best, worst, 1080p, 720p, 480p, or 360p.",
-      "Saves video output as MP4, WebM, or MKV.",
-      "Extracts audio-only downloads as MP3.",
-      "Uses a custom output directory when requested.",
-      "Fetches video title, duration, and uploader before downloading."
+      "Downloads a single YouTube video using yt-dlp.",
+      "Selects best, worst, 1080p, 720p, 480p, or 360p quality.",
+      "Exports video as MP4, WebM, or MKV.",
+      "Extracts audio-only output as MP3.",
+      "Lets users choose an output directory.",
+      "Shows title, duration, and uploader before download."
     ],
     "limitations": [
-      "Only single videos are supported because playlists are disabled by default.",
-      "The script depends on yt-dlp and may install it at runtime.",
-      "Downloads can fail when YouTube changes access rules or blocks a video.",
-      "Users must ensure they have rights to download and store the media."
+      "Requires network access and a working yt-dlp installation or package install.",
+      "Downloads only single videos because playlists are disabled.",
+      "Does not verify copyright, license, or creator permission.",
+      "May fail if YouTube changes access rules or blocks the environment."
     ],
     "use_cases": [
       {
-        "title": "Save reference videos for review",
-        "description": "Download a single video in a predictable format for later offline review.",
-        "target_user": "Researchers"
+        "title": "Archive Approved Training Clips",
+        "description": "Save a permitted training video in a consistent format for internal review sessions.",
+        "target_user": "Learning and development specialist"
       },
       {
-        "title": "Extract audio for transcription",
-        "description": "Create an MP3 from a video so a separate transcription workflow can process it.",
-        "target_user": "Content teams"
+        "title": "Prepare Offline Research Media",
+        "description": "Download a single source video for lawful offline analysis when connectivity is limited.",
+        "target_user": "Research analyst"
       },
       {
-        "title": "Prepare media files for editing",
-        "description": "Choose a resolution and container format before importing a video into editing tools.",
-        "target_user": "Video editors"
+        "title": "Extract Reference Audio",
+        "description": "Create an MP3 from an approved video for transcription, accessibility review, or note-taking.",
+        "target_user": "Content operations team"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Download one video",
-        "scenario": "Beginner single-video download",
-        "prompt": "Download this YouTube video in the best available MP4 quality and save it to the default output folder: [URL]"
+        "title": "Download Default Video",
+        "scenario": "Beginner request using default settings.",
+        "prompt": "Download this permitted YouTube video at the default quality to the default output folder: [URL]. Confirm the title and saved location."
       },
       {
-        "title": "Choose video quality",
-        "scenario": "User needs a smaller video file",
-        "prompt": "Download this YouTube video as 720p MP4 and tell me the saved filename when it finishes: [URL]"
+        "title": "Extract MP3 Audio",
+        "scenario": "Audio-only request for review or transcription.",
+        "prompt": "Extract MP3 audio from this permitted YouTube video: [URL]. Use the default output folder and report the duration."
       },
       {
-        "title": "Extract MP3 audio",
-        "scenario": "User needs audio for a follow-up workflow",
-        "prompt": "Download only the audio from this YouTube video as MP3 and save it in the default output folder: [URL]"
+        "title": "Choose Quality and Format",
+        "scenario": "Intermediate request with explicit media settings.",
+        "prompt": "Download this permitted video as 720p WebM to [folder]: [URL]. Report the title, uploader, and final saved location."
       },
       {
-        "title": "Specify format and folder",
-        "scenario": "Advanced user needs a specific output format and location",
-        "prompt": "Download this YouTube video as 1080p WebM and save it to this folder: [OUTPUT_FOLDER]. URL: [URL]"
+        "title": "Process Review Set",
+        "scenario": "Advanced workflow using repeated single-video downloads.",
+        "prompt": "For these permitted single-video URLs, download each at the smallest acceptable review quality into [folder]. Summarize successes, failures, and storage impact."
       }
     ],
     "output_examples": [
       {
-        "input": "Download a YouTube video in 720p as MP4.",
-        "output": "The skill reports the video title, duration, uploader, selected quality, format, and output folder before saving the file."
+        "input": "Download a permitted video in 720p MP4.",
+        "output": "The video is downloaded with the requested quality and format. The response includes title, duration, uploader, and saved file location."
       },
       {
-        "input": "Extract audio only from a YouTube video.",
-        "output": "The skill saves an MP3 file and confirms that the audio-only download completed."
+        "input": "Extract MP3 audio from a permitted video.",
+        "output": [
+          "Audio-only mode is selected.",
+          "The result is saved as an MP3 in the chosen output directory.",
+          "Any download error is reported with the failing step."
+        ]
       },
       {
-        "input": "Download a WebM file to a custom folder.",
-        "output": "The skill uses the requested output directory and format, then reports whether the download succeeded or failed."
+        "input": "Download a permitted WebM copy to a project folder.",
+        "output": "The skill uses the chosen folder and format, then reports whether the download completed or failed."
       }
     ],
     "best_practices": [
-      "Use trusted YouTube URLs and verify that the download is permitted.",
-      "Keep output paths inside a workspace or user data directory.",
-      "Choose lower resolutions when file size or download time matters."
+      "Download only media you own, have permission to use, or may lawfully access.",
+      "Use the default output folder unless a project requires another approved location.",
+      "Choose lower quality for drafts and higher quality only when needed."
     ],
     "anti_patterns": [
-      "Do not use the skill to download copyrighted media without permission.",
-      "Do not point output paths at system or application directories.",
-      "Do not assume playlist downloads will work, because playlists are disabled by default."
+      "Do not use the skill to bypass platform rules, paywalls, or copyright restrictions.",
+      "Do not download playlists or large batches without storage and permission checks.",
+      "Do not direct output to system, credential, or application directories."
     ],
     "faq": [
       {
-        "question": "Does this skill download playlists?",
-        "answer": "No. The script passes a no-playlist option, so it is intended for single videos."
+        "question": "What does this skill download?",
+        "answer": "It downloads a single YouTube video or extracts MP3 audio from a single YouTube video."
       },
       {
-        "question": "Can it download audio only?",
-        "answer": "Yes. The audio-only option extracts audio and saves it as an MP3 file."
+        "question": "Which tools can use it?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "Which video formats are supported?",
-        "answer": "The script exposes MP4, WebM, and MKV as output format choices."
+        "question": "Does it download playlists?",
+        "answer": "No. The script passes a no-playlist option and is designed for one video at a time."
       },
       {
-        "question": "Where are files saved by default?",
-        "answer": "Files are saved to /mnt/user-data/outputs unless the user supplies another output directory."
+        "question": "Can I choose video quality?",
+        "answer": "Yes. Supported choices are best, worst, 1080p, 720p, 480p, and 360p."
       },
       {
-        "question": "Does it need internet access?",
-        "answer": "Yes. It uses yt-dlp to fetch video metadata and download media from YouTube."
+        "question": "Does this skill install anything?",
+        "answer": "The script can install yt-dlp with pip if it is missing. Review this behavior before use."
       },
       {
-        "question": "Is this skill safe to publish?",
-        "answer": "It has medium operational risk because it runs external commands, downloads network content, and may install yt-dlp at runtime."
+        "question": "Does it check usage rights?",
+        "answer": "No. Users must confirm they have permission or a lawful basis before downloading media."
       }
     ]
   },
