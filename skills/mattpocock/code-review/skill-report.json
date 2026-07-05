@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-03T12:08:40.524Z",
+    "generated_at": "2026-07-05T19:46:26.242Z",
     "slug": "mattpocock-code-review",
     "source_url": "https://github.com/mattpocock/skills/tree/main/skills/engineering/code-review/",
     "source_ref": "main",
@@ -9,12 +9,15 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "116faf5fb97699763ec99fcce3fee50472d8a792c80a474fade32fbccef63469",
-    "tree_hash": "9e1a51c056b9d5a3183ef43987a605d4293e5973e284246a3053e00d8fc307b7",
+    "tree_hash": "8f35eab260a2fb5f34268b54e5574c7a1bd5de5ce23e9797a2205a892d6a3659",
     "provenance": {
-      "model_effective": "codex",
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
       "fallback_chain": [
         {
           "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -23,19 +26,18 @@
   },
   "skill": {
     "name": "code-review",
-    "description": "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes — Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/PRD asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\".",
-    "summary": "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes — Standar...",
+    "description": "Reviews changes from a user-supplied Git fixed point along two axes: repository standards and the source spec or issue. It uses parallel subagents to keep the reviews separate, then reports the findings side by side.",
+    "summary": "Run separated standards and spec reviews for Git changes.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "mattpocock",
     "license": "MIT",
-    "category": "coding",
     "tags": [
       "code-review",
       "git-diff",
-      "standards",
       "spec-review",
-      "subagents"
+      "coding-standards",
+      "code-smells"
     ],
     "supported_tools": [
       "claude",
@@ -44,23 +46,24 @@
     ],
     "risk_factors": [
       "external_commands"
-    ]
+    ],
+    "category": "coding"
   },
   "security_audit": {
     "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most static findings are false positives caused by Markdown inline code spans, not executable Ruby or shell backticks. Two git command instructions are confirmed as medium-risk because they combine external commands with a user-supplied fixed point and should require argument-safe execution.",
+    "summary": "Most static findings are Markdown inline code false positives. The skill does instruct agents to run a setup slash command and Git commands with a user-supplied fixed point, which is a bounded but real external-command risk. No prompt injection or malicious exfiltration intent was found in SKILL.md.",
     "remediation": [
       {
-        "issue": "Git commands include a user-supplied fixed point.",
-        "suggestion": "Tell agents to validate the ref with git rev-parse and pass it as a separate argument, never through shell interpolation.",
+        "issue": "Unaudited setup slash command",
+        "suggestion": "Document what /setup-matt-pocock-skills does, or include the needed issue-tracker setup steps directly in the skill.",
         "severity": "medium"
       },
       {
-        "issue": "The skill does not warn against command separators in the fixed point.",
-        "suggestion": "Add guidance to reject refs containing whitespace, shell metacharacters, or option-like values before running git commands.",
+        "issue": "User-supplied Git fixed point in commands",
+        "suggestion": "Validate the fixed point before use, reject option-like or shell-control input, and execute Git with argument arrays or strict quoting.",
         "severity": "medium"
       }
     ],
@@ -268,87 +271,104 @@
         "id": "external_commands:SKILL.md:6:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "Line 6 uses Markdown backticks around HEAD for formatting. It does not instruct shell backtick execution or define executable code."
+        "reason": "Line 6 uses Markdown inline code for HEAD while describing a Git comparison. It is not Ruby or shell backtick execution and does not run a command on that line."
       },
       {
         "id": "external_commands:SKILL.md:13:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "Line 13 references a slash command and a documentation path inside Markdown. It is not shell backtick execution, although the slash command depends on the host agent environment."
+        "verdict": "confirmed",
+        "confidence": 0.62,
+        "severity": "medium",
+        "reason": "Line 13 instructs the agent to run a setup slash command if tracker documentation is missing. The command is conditionally scoped, but its behavior is not shown in the audited file."
       },
       {
         "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "Line 19 lists example git refs inside Markdown backticks. It is contextual text and does not itself instruct a command to execute."
+        "reason": "Line 19 defines what values can be used as a Git fixed point and says to ask when it is missing. It does not execute Ruby, shell, or another external command."
       },
       {
         "id": "external_commands:SKILL.md:21:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "Line 21 instructs agents to run git diff and git log using a user-supplied fixed point. This is legitimate review behavior, but it is an external command risk if the ref is interpolated into a shell command.",
-        "severity": "medium"
+        "confidence": 0.82,
+        "severity": "medium",
+        "reason": "Line 21 instructs the agent to run git diff and git log with a user-supplied fixed point. These are read-only commands, but the user-controlled argument should be validated and quoted."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "Line 23 instructs agents to run git rev-parse on the user-supplied fixed point. The command is reasonable, but the skill should require safe argument handling to avoid shell injection.",
-        "severity": "medium"
+        "confidence": 0.8,
+        "severity": "medium",
+        "reason": "Line 23 instructs the agent to run git rev-parse against the user-supplied fixed point. This is legitimate review setup, but it remains external command execution with user-controlled input."
       },
       {
         "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "Line 29 contains examples of issue references and a documentation path in Markdown. It does not show shell execution or unsafe command construction."
+        "confidence": 0.88,
+        "reason": "Line 29 uses Markdown inline code for examples of issue references and a documentation path. It describes where to find a spec source and does not contain shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "Line 31 lists repository directories in Markdown backticks. This is file path documentation, not command execution."
+        "confidence": 0.95,
+        "reason": "Line 31 uses Markdown inline code for repository directory names. It is a search instruction for documentation, not executable Ruby or shell code."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.95,
-        "reason": "Line 36 references documentation filenames in Markdown backticks. There is no executable shell or Ruby construct."
+        "reason": "Line 36 uses Markdown inline code for possible standards file names. It does not instruct command execution or invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "Line 50 uses inline code formatting for switch and if examples in a code smell description. It is not a command execution pattern."
+        "confidence": 0.97,
+        "reason": "Line 50 uses Markdown inline code around language keywords while explaining a code smell. It is prose, not executable code."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Line 54 formats an example message chain as inline code. It describes source code structure and contains no shell execution."
+        "confidence": 0.97,
+        "reason": "Line 54 uses Markdown inline code to show an example message chain. It is illustrative prose and does not execute anything."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "Line 60 references an Agent tool name in Markdown backticks. It is an AI workflow instruction, not Ruby or shell backtick execution."
+        "confidence": 0.86,
+        "reason": "Line 60 names the Agent tool and general-purpose subagent using Markdown inline code. It is not Ruby or shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "Line 78 formats report headings in Markdown backticks. It does not instruct any external command."
+        "reason": "Line 78 uses Markdown inline code for final report headings. It describes output formatting and does not execute a command."
       },
       {
         "id": "blocker:SKILL.md:19:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "Line 19 asks the user to provide a git comparison point. This is normal code review scope selection, not system reconnaissance."
+        "confidence": 0.9,
+        "reason": "Line 19 describes selecting a Git revision boundary for a code review. It is not system reconnaissance and does not ask for host, network, or environment discovery."
       }
     ],
     "semantic_findings": [],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "The issue tracker should have been provided to you — run `/setup-matt-pocock-skills` if `docs/agents",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 13,
+            "line_end": 13
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.62,
+        "confidence_reasoning": "Line 13 instructs the agent to run a setup slash command if tracker documentation is missing. The command is conditionally scoped, but its behavior is not shown in the audited file."
+      },
       {
         "title": "Ruby/shell backtick execution",
         "description": "Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so the comparison is agai",
@@ -362,8 +382,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "Line 21 instructs agents to run git diff and git log using a user-supplied fixed point. This is legitimate review behavior, but it is an external command risk if the ref is interpolated into a shell command."
+        "confidence": 0.82,
+        "confidence_reasoning": "Line 21 instructs the agent to run git diff and git log with a user-supplied fixed point. These are read-only commands, but the user-controlled argument should be validated and quoted."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -378,8 +398,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "Line 23 instructs agents to run git rev-parse on the user-supplied fixed point. The command is reasonable, but the skill should require safe argument handling to avoid shell injection."
+        "confidence": 0.8,
+        "confidence_reasoning": "Line 23 instructs the agent to run git rev-parse against the user-supplied fixed point. This is legitimate review setup, but it remains external command execution with user-controlled input."
       }
     ],
     "low_findings": [],
@@ -387,125 +407,137 @@
     "files_scanned": 1,
     "total_lines": 90,
     "audit_model": "codex",
-    "audited_at": "2026-07-03T12:08:40.524Z",
+    "audited_at": "2026-07-05T19:46:26.242Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Review Code Changes Against Standards and Specs",
-    "value_statement": "Code reviews can miss whether a change follows local standards or actually satisfies the request. This skill separates both checks and returns focused findings for each axis.",
+    "user_title": "Review Code Changes Against Specs and Standards",
+    "value_statement": "Code reviews often mix style issues with missed requirements. This skill separates standards review from spec review and returns both reports side by side.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "code review",
-      "git diff review",
+      "AI code review",
       "pull request review",
+      "spec review",
       "coding standards",
-      "spec validation",
-      "AI code reviewer",
-      "subagent workflow"
+      "git diff review",
+      "code smells",
+      "branch review"
     ],
     "actual_capabilities": [
-      "Reviews changes between HEAD and a user-provided git fixed point.",
-      "Separates standards compliance findings from spec compliance findings.",
-      "Uses repository documentation and a fixed code smell baseline.",
-      "Looks for related issues, PRD files, or spec files before spec review.",
-      "Aggregates parallel sub-agent reports without merging their priorities."
+      "Compares HEAD with a user-selected commit, branch, tag, or merge base.",
+      "Separates review into Standards and Spec axes.",
+      "Finds repository standards files such as CODING_STANDARDS.md and CONTRIBUTING.md.",
+      "Uses a fixed Fowler code smell baseline when no stronger repository rule exists.",
+      "Runs parallel subagent prompts and aggregates their reports under separate headings."
     ],
     "limitations": [
-      "Requires a valid git fixed point, such as a branch, tag, or commit.",
-      "Spec review is skipped when no issue, PRD, or spec source is available.",
-      "Findings are heuristic and should be checked against project context.",
-      "The workflow depends on the host agent supporting parallel sub-agents."
+      "It needs a valid fixed point or it must ask the user for one.",
+      "It cannot complete the Spec axis when no issue, PRD, or spec source is available.",
+      "It depends on repository documentation for project-specific standards.",
+      "It reports review findings but does not apply code changes."
     ],
     "use_cases": [
       {
-        "title": "Pre-Merge Pull Request Review",
-        "description": "Review a branch before merge and separate convention issues from missed product requirements.",
-        "target_user": "Software engineer"
+        "title": "Pre-PR Branch Review",
+        "description": "Review a feature branch before opening a pull request. Catch coding-standard misses and spec gaps separately.",
+        "target_user": "Feature developer"
       },
       {
-        "title": "Spec Compliance Check",
-        "description": "Compare implemented behavior against an issue, PRD, or feature specification before handoff.",
-        "target_user": "Product engineer"
+        "title": "Team Review Support",
+        "description": "Compare changes against team rules during review. Keep style concerns distinct from requirement concerns.",
+        "target_user": "Technical lead"
       },
       {
-        "title": "Repository Standards Audit",
-        "description": "Check whether a work-in-progress change follows local standards and common maintainability heuristics.",
-        "target_user": "Tech lead"
+        "title": "Contribution Assessment",
+        "description": "Assess community contributions from a chosen base ref. Identify scope creep and code smells before merge.",
+        "target_user": "Open-source maintainer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Review Current Branch",
-        "prompt": "Review my current branch since main.",
-        "scenario": "Beginner review against the default integration branch."
+        "title": "Review my current branch",
+        "scenario": "Basic branch review",
+        "prompt": "Use code-review to review my current branch since main. Separate repository standards findings from spec findings."
       },
       {
-        "title": "Review Since Commit",
-        "prompt": "Review the changes since commit abc123 against our standards and the linked issue.",
-        "scenario": "Target a specific fixed point for a focused review."
+        "title": "Review against a release branch",
+        "scenario": "Intermediate release review",
+        "prompt": "Use code-review on changes since release/2.4. Use the linked issue as the spec source and include the worst finding per axis."
       },
       {
-        "title": "Review With Spec Path",
-        "prompt": "Review since origin/main and use docs/specs/billing-redesign.md as the spec source.",
-        "scenario": "Provide an explicit specification document when issue discovery is not enough."
+        "title": "Review a feature with a PRD",
+        "scenario": "Advanced spec review",
+        "prompt": "Use code-review since origin/main. Treat docs/prds/import-flow.md as the source spec and include any scope creep."
       },
       {
-        "title": "Review Release Branch",
-        "prompt": "Review release/payment-v2 since v1.8.0 and keep standards findings separate from spec findings.",
-        "scenario": "Advanced review for a larger branch or release candidate."
+        "title": "Audit a long-running branch",
+        "scenario": "Advanced branch audit",
+        "prompt": "Use code-review since the merge base with origin/main. Check commit references for issues, apply repository standards, and keep both reports separate."
       }
     ],
     "output_examples": [
       {
-        "input": "Review since main for a feature branch with a linked issue.",
-        "output": "The report contains a Standards section with convention and smell findings, then a Spec section with missing or extra behavior."
+        "input": "Review my branch since main.",
+        "output": [
+          "Standards: Two findings, including one possible duplicated validation path.",
+          "Spec: One missing acceptance criterion from the linked issue.",
+          "Summary: Standards worst issue is duplicated logic; Spec worst issue is the missing error state."
+        ]
       },
       {
-        "input": "Review since origin/main with no available spec.",
-        "output": "The report includes standards findings and clearly states that the spec axis was skipped because no spec source was found."
+        "input": "Review this work against the PRD in docs/prds/search.md.",
+        "output": [
+          "Standards: No documented standard violations found.",
+          "Spec: The search filters match the PRD, but the empty-results behavior is missing.",
+          "Summary: Standards has zero findings; Spec has one missing behavior."
+        ]
       },
       {
-        "input": "Review since a release tag with a PRD file path.",
-        "output": "The report cites PRD requirements separately from code standard concerns and ends with per-axis counts."
+        "input": "Review since HEAD~5 with no available spec.",
+        "output": [
+          "Standards: Reports code smells and repository rule violations from the diff.",
+          "Spec: Skipped because no spec source was available.",
+          "Summary: Standards findings are reported separately; Spec has no findings to rank."
+        ]
       }
     ],
     "best_practices": [
-      "Provide an explicit fixed point, such as main, a tag, or a commit SHA.",
-      "Point the skill to the relevant issue, PRD, or spec when discovery may be ambiguous.",
-      "Review each axis separately before deciding what must block a merge."
+      "Provide the fixed point and spec source in the first request.",
+      "Keep repository standards files current before running the review.",
+      "Use the separated reports to assign owners for standards and product gaps."
     ],
     "anti_patterns": [
-      "Do not use the review as a replacement for tests, type checks, or security scanning.",
-      "Do not treat code smell findings as hard failures without project context.",
-      "Do not run git commands with untrusted refs through shell interpolation."
+      "Asking for a review without a valid Git reference.",
+      "Treating baseline code smells as hard failures when repository standards disagree.",
+      "Merging the Standards and Spec reports into one severity list."
     ],
     "faq": [
       {
         "question": "What does this skill review?",
-        "answer": "It reviews a git diff against repository standards and against the intended specification."
+        "answer": "It reviews Git changes against repository standards and the source spec or issue."
       },
       {
-        "question": "Does it need a fixed point?",
-        "answer": "Yes. Provide a branch, tag, commit, or merge-base reference for comparison."
+        "question": "Does it change code?",
+        "answer": "No. It reports findings and leaves code edits to the user or another workflow."
       },
       {
-        "question": "What happens if no spec exists?",
-        "answer": "The skill skips the Spec axis and reports that no spec source was available."
+        "question": "What fixed point should I provide?",
+        "answer": "Provide a commit, branch, tag, merge base, or another Git ref that marks the comparison point."
       },
       {
-        "question": "Can it find code smells?",
-        "answer": "Yes. It includes a fixed baseline of maintainability smells when project standards are incomplete."
+        "question": "What happens if there is no spec?",
+        "answer": "The Spec axis is skipped and the final report states that no spec source was available."
       },
       {
-        "question": "Does it merge all findings into one priority list?",
-        "answer": "No. It keeps Standards and Spec results separate so one axis does not hide the other."
+        "question": "Can it work with Claude, Codex, and Claude Code?",
+        "answer": "Yes. The report lists support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "Which tools can use this skill?",
-        "answer": "The report lists Claude, Codex, and Claude Code as supported tools."
+        "question": "Why are there two reports?",
+        "answer": "Separate reports prevent coding-style issues from masking missed requirements, and prevent requirements issues from masking standards violations."
       }
     ]
   },
