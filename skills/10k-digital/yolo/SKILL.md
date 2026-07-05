@@ -1,20 +1,20 @@
 ---
 name: yolo
 description: |
-  Browser automation skill for Lovable deployments. Activates when:
+  Automation skill for Lovable deployments. Activates when:
   - yolo_mode: on in CLAUDE.md
   - Running /deploy-edge or /apply-migration commands
   - After git push when auto_deploy: on (automatic detection)
-  - Any mention of "yolo mode", "automate Lovable", "browser automation"
+  - Any mention of "yolo mode", "automate Lovable", "browser automation", "Lovable MCP"
 
-  Automatically navigates to Lovable.dev and submits deployment prompts.
+  Uses Lovable MCP (preferred) or browser automation to submit deployment prompts.
   Runs verification tests based on configuration.
   Auto-deploys after git push when enabled.
 ---
 
 # Yolo Mode Automation Skill
 
-This skill automates Lovable deployment workflows using Claude's browser automation capabilities.
+This skill automates Lovable deployment workflows using either the Lovable MCP server (preferred) or Claude's browser automation as a fallback.
 
 ## When to Activate
 
@@ -32,6 +32,46 @@ This skill should be active when:
    - "automate the Lovable prompt"
    - "submit this to Lovable automatically"
    - "browser automation"
+
+## Deployment Method Priority
+
+When yolo mode triggers, always choose the deployment method in this order:
+
+### 1. Lovable MCP (Preferred)
+
+Check if Lovable MCP tools are available (look for `send_message` from a Lovable MCP connector):
+
+- **If available**: Use the MCP workflow (`references/mcp-workflows.md`)
+  - Extract project ID from `lovable_url` in CLAUDE.md
+  - Call `send_message(project_id, prompt)`
+  - Poll for response if async
+  - Run verification tests as configured
+
+- **Why preferred**: 3-5x faster, no Chrome extension needed, unaffected by UI changes
+
+### 2. Browser Automation (Fallback)
+
+If MCP is not available or `Deployment Method: browser` is set in CLAUDE.md:
+
+- Use Claude's browser automation (`references/automation-workflows.md`)
+- Navigate to Lovable, submit prompt via chat interface
+- Monitor for response
+
+### 3. Manual Prompt (Last Resort)
+
+If both MCP and browser automation fail:
+
+- Show the deployment prompt to the user for copy-paste into Lovable
+- Never block the user - always provide a manual fallback
+
+### Checking Deployment Method
+
+Read `Deployment Method` from the Yolo Mode Configuration section of CLAUDE.md:
+- `auto` (default): Try MCP first, fall back to browser
+- `mcp`: Use MCP only, fall back to manual prompt (skip browser)
+- `browser`: Use browser automation only (skip MCP check)
+
+---
 
 ## Performance Optimization
 
@@ -124,10 +164,19 @@ If auto-deploy fails for any reason:
 
 See `references/post-push-automation.md` for complete implementation.
 
-### 2. Browser Automation Workflow
+### 2. Deployment Execution
 
-When a deployment is needed:
+When a deployment is needed, execute based on the chosen method:
 
+**MCP Method:**
+1. Extract project ID from `lovable_url` in CLAUDE.md
+2. Call Lovable MCP `send_message` with the deployment prompt
+3. Poll for completion if the response is async
+4. Parse success/failure from response
+
+See `references/mcp-workflows.md` for full MCP workflow.
+
+**Browser Automation Method:**
 1. **Navigate to Lovable**
    - Read `lovable_url` from CLAUDE.md
    - Open browser and navigate to project
@@ -158,6 +207,9 @@ After successful deployment, run tests based on `yolo_testing` setting:
 **If `yolo_testing: off`**:
 - Skip all testing
 - Only confirm deployment success from Lovable response
+
+**Level 4 (optional): Preview test plans**
+If the project has preview testing enabled (CLAUDE.md → Preview Testing Configuration) and `Test After Deploy` is `smoke` or `all`, run the corresponding test plans against the Lovable Preview app after deployment verification. This is handled by the **testing skill** (`skills/testing/SKILL.md`) - equivalent to `/lovable:test-run --smoke` (or `--all`).
 
 See `references/testing-procedures.md` for complete testing workflows.
 
@@ -207,6 +259,7 @@ The skill reads these fields from CLAUDE.md:
 ## Yolo Mode Configuration (Beta)
 
 - **Status**: on
+- **Deployment Method**: auto
 - **Auto-Deploy**: on
 - **Deployment Testing**: on
 - **Auto-run Tests**: off
@@ -216,6 +269,7 @@ The skill reads these fields from CLAUDE.md:
 
 **Configuration options:**
 - **Status**: Enable/disable yolo mode entirely
+- **Deployment Method**: `auto` (MCP first, then browser), `mcp` (MCP only), or `browser` (browser only)
 - **Auto-Deploy**: Auto-deploy after git push (no manual command needed)
 - **Deployment Testing**: Run verification tests after deployments
 - **Auto-run Tests**: Run project test suite after git push
@@ -233,7 +287,17 @@ And from Project Overview:
 
 Show real-time progress during automation:
 
-**Standard Mode (debug off):**
+**MCP Mode (debug off):**
+```
+🤖 Yolo mode (MCP): Deploying send-email edge function
+
+⏳ Sending deployment prompt via Lovable MCP...
+✅ Deployment confirmed by Lovable (3.1s)
+⏳ Running verification tests...
+✅ All tests passed
+```
+
+**Browser Mode (debug off):**
 ```
 🤖 Yolo mode: Deploying send-email edge function
 
@@ -288,6 +352,25 @@ All automation failures fall back gracefully to manual prompts:
 
 ### Common Errors
 
+**MCP not connected (auto mode - will try browser next):**
+```
+⚠️ Lovable MCP not connected - trying browser automation...
+[continues with browser automation]
+```
+
+**MCP not connected (mcp-only mode):**
+```
+❌ Lovable MCP not available
+
+Deployment Method is set to "mcp" but Lovable MCP tools are not connected.
+
+To connect: /lovable:connect-mcp
+To use browser automation instead: /lovable:yolo on --browser
+
+Fallback - run this prompt manually in Lovable:
+📋 "Deploy the send-email edge function"
+```
+
 **Browser automation not available:**
 ```
 ❌ Browser automation unavailable
@@ -295,7 +378,9 @@ All automation failures fall back gracefully to manual prompts:
 Yolo mode requires the Claude in Chrome extension.
 
 Install: https://chrome.google.com/webstore/detail/claude/...
-Docs: https://docs.claude.com/claude/code-intelligence/browser-automation
+
+Tip: Use Lovable MCP instead (no extension needed):
+  /lovable:connect-mcp
 
 Fallback - run this prompt manually in Lovable:
 📋 "Deploy the send-email edge function"
@@ -407,15 +492,22 @@ The `/yolo` command controls this skill:
 Yolo mode is in **beta** - users should be aware:
 
 ✅ **What works well:**
-- Automated prompt submission
+- Automated prompt submission via MCP (preferred) or browser
 - Basic deployment verification
 - Error handling with manual fallback
 
-⚠️ **Known limitations:**
+⚠️ **Known limitations (MCP mode):**
+- Requires Lovable Pro plan
+- Requires initial OAuth setup (`/lovable:connect-mcp`)
+- Uses Lovable credits for send_message calls
+
+⚠️ **Known limitations (browser mode):**
 - Requires Claude in Chrome extension
 - Lovable UI changes may break automation
-- Testing adds 1-3 minutes per deployment
 - User must be logged into Lovable
+
+⚠️ **Shared limitations:**
+- Testing adds 1-3 minutes per deployment
 - Only works for edge functions and migrations (not tables, RLS, etc.)
 
 ### When to Recommend Yolo Mode
@@ -460,22 +552,27 @@ Not yet implemented, but could be added:
 
 This skill uses these reference documents:
 
-1. **`references/automation-workflows.md`**
+1. **`references/mcp-workflows.md`** (NEW - preferred)
+   - Lovable MCP send_message workflow
+   - Project ID extraction
+   - MCP error handling and fallbacks
+
+2. **`references/automation-workflows.md`**
    - Browser automation step-by-step
    - Lovable UI navigation
    - Element selectors and wait conditions
 
-2. **`references/detection-logic.md`**
+3. **`references/detection-logic.md`**
    - When to trigger automation
    - File change detection
    - Integration with commands
 
-3. **`references/post-push-automation.md`** (NEW)
+4. **`references/post-push-automation.md`**
    - Auto-deploy after git push
    - Graceful fallback handling
    - User notification templates
 
-4. **`references/testing-procedures.md`**
+5. **`references/testing-procedures.md`**
    - Level 1: Basic verification
    - Level 2: Console checking
    - Level 3: Functional testing
@@ -502,10 +599,16 @@ This skill uses these reference documents:
 
 ```
 1. Confirm yolo_mode is on
-2. Load automation-workflows.md
-3. Execute navigation → submit → monitor workflow
-4. Run tests if yolo_testing is on
-5. Report results
+2. Read Deployment Method from CLAUDE.md (auto / mcp / browser)
+3. If auto or mcp:
+   - Check if Lovable MCP tools are available
+   - If yes → Load mcp-workflows.md and execute MCP workflow
+   - If no and auto → fall through to browser
+4. If auto or browser:
+   - Load automation-workflows.md
+   - Execute navigation → submit → monitor workflow
+5. Run tests if yolo_testing is on
+6. Report results
 ```
 
 ### Auto-Deploy After Git Push

@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Coingecko - Contract
 
 **Pages:** 1

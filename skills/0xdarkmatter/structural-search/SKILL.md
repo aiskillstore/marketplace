@@ -1,8 +1,11 @@
 ---
 name: structural-search
 description: "Search code by AST structure using ast-grep. Find semantic patterns like function calls, imports, class definitions instead of text patterns. Triggers on: find all calls to X, search for pattern, refactor usages, find where function is used, structural search, ast-grep, sg."
+license: MIT
 compatibility: "Requires ast-grep (sg) CLI tool. Install: brew install ast-grep (macOS) or cargo install ast-grep (cross-platform)."
 allowed-tools: "Bash"
+metadata:
+  author: claude-mods
 ---
 
 # Structural Search
@@ -93,6 +96,6 @@ For complete patterns, load:
 - `./references/js-ts-patterns.md` - JavaScript/TypeScript patterns
 - `./references/python-patterns.md` - Python patterns
 - `./references/go-rust-patterns.md` - Go and Rust patterns
-- `./references/security-patterns.md` - Security vulnerability detection
+- `./references/security-ops.md` - Security vulnerability detection
 - `./references/advanced-usage.md` - YAML rules and tool integration
 - `./assets/rule-template.yaml` - Starter template for custom rules

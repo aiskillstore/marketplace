@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb - Hypertables
 
 **Pages:** 103

@@ -58,28 +58,11 @@ browser <action> '<json_params>'
 | Action | Description | Key Params |
 |--------|-------------|------------|
 | `click` | Click element | `selector`, `text`, or `x`/`y` coords |
-| `type` | Type into focused/selected input | `selector`, `text`, `submit`, `clear` |
-| `fillForm` | Fill form fields (inputs, textareas, selects) | `fields[]` array with selector/value |
+| `type` | Type into input | `selector`, `text`, `submit`, `clear` |
+| `fillForm` | Fill multiple fields | `fields[]` with selector/value pairs |
 | `waitFor` | Wait for element/text | `selector`, `text`, `timeout` |
-
-#### fillForm - The Right Way to Fill Forms
-
-**IMPORTANT:** There is no `fill` command. Use `fillForm` with a `fields` array:
-
-```bash
-# Fill a single field
-browser fillForm '{"fields": [{"selector": "#email", "value": "test@example.com"}]}'
-
-# Fill multiple fields at once (text inputs, textareas, AND select dropdowns)
-browser fillForm '{"fields": [
-  {"selector": "#name", "value": "John Doe"},
-  {"selector": "#email", "value": "john@example.com"},
-  {"selector": "#subject", "value": "support"},
-  {"selector": "#message", "value": "Hello world"}
-]}'
-```
-
-Works with: `<input>`, `<textarea>`, `<select>`, checkboxes, radio buttons.
+| `scroll` | Scroll the page | `y`/`x`, `selector`, `position` |
+| `evaluate` | Execute JavaScript and return result | `script` |
 
 ### Control Flow
 
@@ -91,17 +74,41 @@ Works with: `<input>`, `<textarea>`, `<select>`, checkboxes, radio buttons.
 | `tryUntil` | Try alternatives until one succeeds | `alternatives[]`, `timeout` |
 | `parallel` | Run commands on multiple URLs | `branches[]` with url + commands |
 
-### Authentication
+### Authentication & Vault
 
 | Action | Description | Key Params |
 |--------|-------------|------------|
+| `autoLogin` | Auto-fill credentials from Bitwarden vault and optionally submit | `domain`, `submit` (default false) |
+| `vaultStatus` | Check vault lock state and credential count | - |
+| `vaultSync` | Re-sync vault from Bitwarden server via API key | - |
 | `getAuthContext` | Detect login pages, available accounts | - |
 | `requestAuth` | Request user approval for auth | `reason` |
-| `configureAuth` | Set auth preferences | `authMode`, `setSiteRule`, `domain` |
 
 ---
 
-## Recommended Workflow
+## Rich Text Editors (ProseMirror, Lexical, Slate, etc.)
+
+The `type` and `fillForm` actions automatically handle rich text editors (ProseMirror, Lexical/Reddit, Draft.js, Tiptap, Slate, CKEditor, Quill). They use `document.execCommand("insertText")` in the page world, which works with any `contenteditable`-based editor.
+
+```bash
+# Works on any rich text editor — ProseMirror, Lexical, etc.
+browser type '{"selector": "div[contenteditable=true]", "text": "Hello world!"}'
+# Response includes richEditor: true when execCommand path was used
+
+# Clear existing content and replace
+browser type '{"selector": ".ProseMirror", "text": "New content", "clear": true}'
+
+# Fill multiple rich text fields in a form
+browser fillForm '{"fields": [
+  {"selector": "#title", "value": "My Title"},
+  {"selector": "#body .ProseMirror", "value": "Article body text"}
+]}'
+```
+
+No special handling needed — just use `type` or `fillForm` as normal. Falls back to `textContent` assignment if `execCommand` isn't available.
+
+---
+
 
 ### 1. Start by Inspecting Available Tabs
 
@@ -247,16 +254,136 @@ browser parallel '{
 
 ---
 
-## Authentication
+## Authentication (Autonomous Login)
 
-The bridge detects auth pages and leverages existing browser sessions:
+The bridge integrates with a Bitwarden vault (via bronzewarden) for fully autonomous credential fill. No human interaction needed.
+
+### Auto-Login Flow
 
 ```bash
-# Check if on login page
-browser getAuthContext '{}'
+# 1. Navigate to the site
+browser navigate '{"url": "https://github.com"}'
 
-# Returns available accounts, OAuth options, etc.
+# 2. Auto-fill credentials (looks up domain in vault, fills form)
+browser autoLogin '{"domain": "github.com", "submit": false}'
+# Returns: {"filled": true, "maskedUsername": "j***1", "matchedUri": "https://github.com/"}
+
+# 3. Or auto-fill AND submit in one step
+browser autoLogin '{"domain": "github.com", "submit": true}'
 ```
+
+### Vault Management
+
+```bash
+# Check vault status
+browser vaultStatus '{}'
+# Returns: {"locked": false, "entries": 322}
+
+# Re-sync vault from server (if credentials were updated)
+browser vaultSync '{}'
+# Returns: {"synced": true, "entries": 322}
+```
+
+### How It Works
+- Credentials are stored in Bitwarden and decrypted locally by the native host
+- The `autoLogin` action sends credentials directly to the extension via the native messaging channel (never over WebSocket)
+- Vault is auto-unlocked at host startup using a master password from the system keyring
+
+### Legacy Auth Detection
+
+```bash
+# Detect login pages and available accounts
+browser getAuthContext '{}'
+```
+
+---
+
+## Evaluate: Run JavaScript and Get Results
+
+Execute arbitrary JavaScript in the page context and get the result back:
+
+```bash
+# Get page title
+browser evaluate '{"script": "return document.title"}'
+# Returns: {"result": "My Page Title", "type": "string"}
+
+# Count elements
+browser evaluate '{"script": "return document.querySelectorAll(\"input\").length"}'
+# Returns: {"result": 5, "type": "number"}
+
+# Get form values
+browser evaluate '{"script": "return document.querySelector(\"#email\").value"}'
+# Returns: {"result": "user@example.com", "type": "string"}
+
+# Complex queries
+browser evaluate '{"script": "return Array.from(document.querySelectorAll(\"input:checked\")).map(el => el.value)"}'
+# Returns: {"result": ["option1", "option3"], "type": "object"}
+```
+
+### Page World Evaluation
+
+By default, `evaluate` runs in the content script's isolated world. To access page-level JavaScript variables (e.g., framework state, global objects set by the page), use `pageWorld: true`:
+
+```bash
+# Access page-level globals (React state, editor instances, app data)
+browser evaluate '{"script": "return window.__NEXT_DATA__", "pageWorld": true}'
+
+# Interact with ProseMirror/Lexical internals
+browser evaluate '{"script": "return Object.keys(window.__prosemirrorViews || {})", "pageWorld": true}'
+
+# Call page-level functions
+browser evaluate '{"script": "return window.myApp.getState()", "pageWorld": true}'
+```
+
+**Note:** Use `return` to get a value back. The script runs with full DOM access. Use `pageWorld: true` when you need to access variables set by the page's own JavaScript.
+
+---
+
+## Scroll: Navigate Long Pages
+
+Scroll the page by pixels, to elements, or to positions:
+
+```bash
+# Scroll down 500 pixels
+browser scroll '{"y": 500}'
+
+# Scroll up 300 pixels
+browser scroll '{"y": -300}'
+
+# Scroll element into view
+browser scroll '{"selector": "#section-5"}'
+
+# Scroll to top/bottom
+browser scroll '{"position": "top"}'
+browser scroll '{"position": "bottom"}'
+
+# Smooth scrolling
+browser scroll '{"y": 500, "behavior": "smooth"}'
+
+# Scroll to absolute position
+browser scroll '{"scrollTo": {"x": 0, "y": 1000}}'
+```
+
+---
+
+## Form State in Annotated Content
+
+The `getContent` annotated format now shows form element states:
+
+```bash
+browser getContent '{"format": "annotated"}'
+```
+
+Output includes checked/selected states:
+```
+[input:radio: "Option A" | checked: true | selector: #opt-a]
+[input:radio: "Option B" | checked: false | selector: #opt-b]
+[input:checkbox: "Remember me" | checked: true | selector: #remember]
+[select: "Country" | selected: "United States" | selector: #country]
+[input:text: "Email" | value: "user@example.com" | selector: #email]
+```
+
+This is useful for verifying form state without screenshots.
 
 ---
 

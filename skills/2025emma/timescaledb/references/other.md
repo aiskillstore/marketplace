@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb - Other
 
 **Pages:** 248

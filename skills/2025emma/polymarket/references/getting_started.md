@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Polymarket - Getting Started
 
 **Pages:** 8

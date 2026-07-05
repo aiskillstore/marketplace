@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Ccxt - Faq
 
 **Pages:** 1

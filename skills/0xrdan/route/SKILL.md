@@ -21,16 +21,26 @@ Where `<model>` is one of:
 
 ## Instructions
 
+**CRITICAL: The user's explicit model choice MUST be honored. Do NOT override, reclassify, or second-guess their selection. This is a MANUAL OVERRIDE command - the entire point is to bypass automatic classification.**
+
 Parse $ARGUMENTS to extract the model and query:
 
-1. **Extract model** - The first word should be the model name (haiku/fast, sonnet/standard, opus/deep)
+1. **Extract model** - The first word is the model name (case-insensitive: haiku/fast, sonnet/standard, opus/deep)
 2. **Extract query** - Everything after the model name is the query to execute
 3. **Validate** - If no valid model is specified, show usage help
-4. **Route** - Use the Task tool to spawn the appropriate subagent:
+4. **Route IMMEDIATELY** - Use the Task tool to spawn the appropriate subagent:
    - haiku/fast -> spawn "fast-executor" subagent with model: haiku
    - sonnet/standard -> spawn "standard-executor" subagent with model: sonnet
    - opus/deep -> spawn "deep-executor" subagent with model: opus
-5. **Return** - Prefix the response with the model override info
+5. **Return** - Prefix the response with the model used
+
+**DO NOT:**
+- Analyze query complexity
+- Suggest a "better" model
+- Classify the query
+- Override the user's choice for any reason
+
+The user said which model. Use that model. Period.
 
 ## Model Mapping
 

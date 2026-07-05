@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Multimodal Capabilities with Claude
 
 Source: anthropics/claude-cookbooks/multimodal

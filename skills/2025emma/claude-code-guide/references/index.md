@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Claude Code 高级开发指南文档索引
 
 ## 文档概览

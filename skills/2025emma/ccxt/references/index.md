@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Ccxt Documentation Index
 
 ## Categories

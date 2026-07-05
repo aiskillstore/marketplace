@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Cryptofeed Documentation Index
 
 ## Categories

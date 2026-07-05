@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Hummingbot - Trading
 
 **Pages:** 3

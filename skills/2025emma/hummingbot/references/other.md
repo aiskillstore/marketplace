@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Hummingbot - Other
 
 **Pages:** 75

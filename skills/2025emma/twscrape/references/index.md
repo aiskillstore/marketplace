@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # twscrape Reference Documentation
 
 ## Overview

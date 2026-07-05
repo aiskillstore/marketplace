@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Polymarket - Api
 
 **Pages:** 46

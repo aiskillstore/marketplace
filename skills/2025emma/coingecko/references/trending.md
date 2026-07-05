@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Coingecko - Trending
 
 **Pages:** 2

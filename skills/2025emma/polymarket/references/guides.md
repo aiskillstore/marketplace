@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Polymarket - Guides
 
 **Pages:** 3

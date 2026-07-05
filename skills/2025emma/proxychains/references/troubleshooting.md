@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Proxychains 故障排除指南
 
 ## 常见错误及解决方案

@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Cryptofeed - Other
 
 **Pages:** 1

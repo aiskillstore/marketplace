@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Hummingbot Documentation Index
 
 ## Categories

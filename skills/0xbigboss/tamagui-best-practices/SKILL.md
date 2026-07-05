@@ -1,393 +1,112 @@
 ---
 name: tamagui-best-practices
-description: Provides Tamagui patterns for config v4, compiler optimization, styled context, and cross-platform styling. Must use when working with Tamagui projects (tamagui.config.ts, @tamagui imports).
+description: Use when working with Tamagui projects (tamagui.config.ts, @tamagui imports).
 ---
 
-This skill provides patterns for Tamagui v1.x that go beyond fundamentals. It focuses on Config v4, compiler optimization, compound components, and common mistakes.
+# Tamagui Best Practices
 
-## Mandatory Context Loading
+Tamagui v1.x patterns beyond fundamentals: Config v4, compiler optimization, compound components, and gotchas.
 
-When working with these components, read the corresponding pattern file BEFORE writing code:
+## Reference Files — Read Before Writing Code
 
-| Component Type | Required Reading | Cross-Skills |
-|---------------|------------------|--------------|
-| Dialog, Sheet, modal overlays | @DIALOG_PATTERNS.md | |
-| Form, Input, Label, validation | @FORM_PATTERNS.md | `typescript-best-practices` (zod) |
-| Animations, transitions | @ANIMATION_PATTERNS.md | |
-| Popover, Tooltip, Select | @OVERLAY_PATTERNS.md | |
-| Compiler optimization | @COMPILER_PATTERNS.md | |
-| Design tokens, theming | @DESIGN_SYSTEM.md | |
+| Context | File | What it covers |
+|---------|------|----------------|
+| Dialog, Sheet, modal overlays | @DIALOG_PATTERNS.md | Adapt component, accessibility |
+| Form, Input, Label, validation | @FORM_PATTERNS.md | zod integration |
+| Animations, transitions | @ANIMATION_PATTERNS.md | drivers, enterStyle/exitStyle |
+| Popover, Tooltip, Select | @OVERLAY_PATTERNS.md | overlay primitives |
+| Compiler optimization | @COMPILER_PATTERNS.md | what the compiler can/cannot flatten |
+| Design tokens, theming | @DESIGN_SYSTEM.md | palette, token structure |
 
-## Config v4 Quick Start
+## Config v4
 
-Use `@tamagui/config/v4` for simplified setup:
+Minimal setup with `@tamagui/config/v4`. Add `styleCompat: 'react-native'` for new projects to align `flexBasis` with React Native behavior:
 
 ```tsx
-// tamagui.config.ts
 import { defaultConfig } from '@tamagui/config/v4'
 import { createTamagui } from 'tamagui'
 
-export const config = createTamagui(defaultConfig)
-
-type CustomConfig = typeof config
+export const config = createTamagui({
+  ...defaultConfig,
+  settings: { ...defaultConfig.settings, styleCompat: 'react-native' },
+})
 
 declare module 'tamagui' {
-  interface TamaguiCustomConfig extends CustomConfig {}
+  interface TamaguiCustomConfig extends typeof config {}
 }
 ```
 
-**Recommended setting** for new projects (aligns flexBasis to React Native):
-```tsx
-export const config = createTamagui({
-  ...defaultConfig,
-  settings: {
-    ...defaultConfig.settings,
-    styleCompat: 'react-native',
-  },
-})
-```
+For custom themes use `createThemes` with `palette`/`accent`/`childrenThemes` — see @DESIGN_SYSTEM.md.
 
-### createThemes Pattern
+## Compiler Optimization Rules
 
-For custom themes, use `createThemes` with palette/accent/childrenThemes:
+- Use `styled()` variants instead of inline conditionals — dynamic values break flattening.
+- Avoid `style={{ ... }}` with variables; use variant props instead.
+- The `context` pattern (createStyledContext) disables compiler flattening — use for higher-level components (Button, Card), not primitives.
 
 ```tsx
-import { createThemes, defaultComponentThemes } from '@tamagui/config/v4'
-
-const generatedThemes = createThemes({
-  componentThemes: defaultComponentThemes,
-  base: {
-    palette: {
-      dark: ['#050505', '#151515', /* ...12 colors */ '#fff'],
-      light: ['#fff', '#f8f8f8', /* ...12 colors */ '#000'],
-    },
-    extra: {
-      light: { ...Colors.blue, shadowColor: 'rgba(0,0,0,0.04)' },
-      dark: { ...Colors.blueDark, shadowColor: 'rgba(0,0,0,0.2)' },
-    },
-  },
-  accent: {
-    palette: { dark: lightPalette, light: darkPalette }, // inverted
-  },
-  childrenThemes: {
-    blue: { palette: { dark: Object.values(Colors.blueDark), light: Object.values(Colors.blue) } },
-    red: { /* ... */ },
-    green: { /* ... */ },
-  },
-})
-```
-
-## Token and Theme Syntax
-
-### $ Prefix Rules
-
-- **Props**: Use `$` prefix for token references: `<Text color="$color" fontSize="$4" />`
-- **Theme keys**: Access without `$` in theme definitions: `{ color: palette[11] }`
-- **Token access in variants**: Use `tokens.size[name]` pattern
-
-### Variant Spread Operators
-
-Special spread operators map token categories to variant values:
-
-```tsx
-const Button = styled(View, {
-  variants: {
-    size: {
-      // Maps size tokens: $1, $2, $true, etc.
-      '...size': (size, { tokens }) => ({
-        height: tokens.size[size] ?? size,
-        borderRadius: tokens.radius[size] ?? size,
-        gap: tokens.space[size]?.val * 0.2,
-      }),
-    },
-    textSize: {
-      // Maps fontSize tokens
-      '...fontSize': (name, { font }) => ({
-        fontSize: font?.size[name],
-      }),
-    },
-  } as const,
-})
-```
-
-**Important**: Use `as const` on variants object until TypeScript supports inferred const generics.
-
-## Compound Components with createStyledContext
-
-For compound APIs like `<Button><Button.Text>Click</Button.Text></Button>`:
-
-```tsx
-import {
-  SizeTokens,
-  View,
-  Text,
-  createStyledContext,
-  styled,
-  withStaticProperties,
-} from '@tamagui/core'
-
-// 1. Create context with shared variant types
-export const ButtonContext = createStyledContext<{ size: SizeTokens }>({
-  size: '$medium',
-})
-
-// 2. Create frame with context
-export const ButtonFrame = styled(View, {
-  name: 'Button',
-  context: ButtonContext,
-  variants: {
-    size: {
-      '...size': (name, { tokens }) => ({
-        height: tokens.size[name],
-        borderRadius: tokens.radius[name],
-        gap: tokens.space[name].val * 0.2,
-      }),
-    },
-  } as const,
-  defaultVariants: {
-    size: '$medium',
-  },
-})
-
-// 3. Create text with same context (variants auto-sync)
-export const ButtonText = styled(Text, {
-  name: 'ButtonText',
-  context: ButtonContext,
-  variants: {
-    size: {
-      '...fontSize': (name, { font }) => ({
-        fontSize: font?.size[name],
-      }),
-    },
-  } as const,
-})
-
-// 4. Compose with withStaticProperties
-export const Button = withStaticProperties(ButtonFrame, {
-  Props: ButtonContext.Provider,
-  Text: ButtonText,
-})
-```
-
-**Usage**:
-```tsx
-<Button size="$large">
-  <Button.Text>Click me</Button.Text>
-</Button>
-
-// Or override defaults from above:
-<Button.Props size="$small">
-  <Button><Button.Text>Small</Button.Text></Button>
-</Button.Props>
-```
-
-**Note**: `context` pattern does not work with compiler flattening. Use for higher-level components (Button, Card), not primitives (Stack, Text).
-
-## styleable() for Wrapper Components
-
-When wrapping a styled component in a functional component, use `.styleable()` to preserve variant inheritance:
-
-```tsx
-const StyledText = styled(Text)
-
-// WITHOUT styleable - BROKEN variant inheritance
-const BrokenWrapper = (props) => <StyledText {...props} />
-
-// WITH styleable - CORRECT
-const CorrectWrapper = StyledText.styleable((props, ref) => (
-  <StyledText ref={ref} {...props} />
-))
-
-// Now this works:
-const StyledCorrectWrapper = styled(CorrectWrapper, {
-  variants: {
-    bold: { true: { fontWeight: 'bold' } },
-  },
-})
-```
-
-### Adding Extra Props
-
-Pass generic type argument for additional props:
-
-```tsx
-type ExtraProps = { icon?: React.ReactNode }
-
-const IconText = StyledText.styleable<ExtraProps>((props, ref) => {
-  const { icon, ...rest } = props
-  return (
-    <XStack>
-      {icon}
-      <StyledText ref={ref} {...rest} />
-    </XStack>
-  )
-})
-```
-
-## accept Prop for Custom Components
-
-Enable token/theme resolution on non-standard props:
-
-```tsx
-// For SVG fill/stroke that should accept theme colors
-const StyledSVG = styled(SVG, {}, {
-  accept: { fill: 'color', stroke: 'color' } as const,
-})
-
-// Usage: <StyledSVG fill="$blue10" />
-
-// For style objects (like ScrollView's contentContainerStyle)
-const MyScrollView = styled(ScrollView, {}, {
-  accept: { contentContainerStyle: 'style' } as const,
-})
-
-// Usage: <MyScrollView contentContainerStyle={{ padding: '$4' }} />
-```
-
-**Important**: Use `as const` on the accept object.
-
-## Prop Order Matters
-
-In `styled()`, prop order determines override priority:
-
-```tsx
-// backgroundColor can be overridden by props
-const Overridable = (props) => (
-  <View backgroundColor="$red10" {...props} width={200} />
-)
-// width CANNOT be overridden (comes after spread)
-
-// Variant order matters too:
-<Component scale={3} huge />  // scale = 3 (scale comes first)
-<Component huge scale={3} />  // scale = 2 (huge overrides)
-```
-
-## Anti-Patterns
-
-### Dynamic Styles Break Optimization
-
-```tsx
-// BAD - breaks compiler optimization
-<View style={{ width: someVariable * 2 }} />
+// BAD — breaks compiler
 <View backgroundColor={isDark ? '$gray1' : '$gray12'} />
 
-// GOOD - use variants
+// GOOD — use variants
 const Box = styled(View, {
   variants: {
     dark: { true: { backgroundColor: '$gray1' }, false: { backgroundColor: '$gray12' } },
   },
 })
-<Box dark={isDark} />
 ```
 
-### Inline Functions
+## styled() vs Inline
 
+- `styled()`: reusable components, variant-driven behavior, compiler-optimizable primitives.
+- Inline props: one-off layout adjustments on already-styled components.
+- Always use `as const` on `variants` objects (TypeScript limitation until inferred const generics).
+
+## Key Gotchas
+
+**Prop order determines override priority** — props after a spread cannot be overridden by callers:
 ```tsx
-// BAD - new function every render
-<View onPress={() => handlePress(id)} />
-
-// GOOD - stable reference
-const handlePressCallback = useCallback(() => handlePress(id), [id])
-<View onPress={handlePressCallback} />
+// width is locked; backgroundColor can be overridden
+<View backgroundColor="$red10" {...props} width={200} />
 ```
 
-### Wrong Import Paths
-
+**Variant order matters** — later props win:
 ```tsx
-// These are different packages with different contents:
-import { View } from 'tamagui'           // Full UI kit
-import { View } from '@tamagui/core'     // Core only (smaller)
-import { Button } from '@tamagui/button' // Individual component
-
-// Pick one approach and be consistent
+<Component scale={3} huge />  // scale = 3 (scale listed first)
+<Component huge scale={3} />  // scale = 2 (huge overrides, comes first in variants)
 ```
 
-### Mixing RN StyleSheet with Tamagui
-
+**Use `.styleable()` when wrapping styled components** — preserves variant inheritance:
 ```tsx
-// BAD - StyleSheet values don't resolve tokens
-const styles = StyleSheet.create({ box: { padding: 20 } })
-<View style={styles.box} backgroundColor="$blue10" />
-
-// GOOD - all Tamagui
-<View padding="$4" backgroundColor="$blue10" />
+const CorrectWrapper = StyledText.styleable((props, ref) => (
+  <StyledText ref={ref} {...props} />
+))
 ```
 
-### Platform.OS Branching for Dialog/Sheet
-
+**`accept` prop for non-standard token resolution** (SVG fill/stroke, contentContainerStyle):
 ```tsx
-// BAD - manual platform branching
-if (Platform.OS === 'web') {
-  return <Dialog>...</Dialog>
-}
-return <Sheet>...</Sheet>
-
-// GOOD - use Adapt (see @DIALOG_PATTERNS.md)
-<Dialog>
-  <Dialog.Portal>...</Dialog.Portal>
-  <Adapt when="sm" platform="touch">
-    <Sheet><Adapt.Contents /></Sheet>
-  </Adapt>
-</Dialog>
+const StyledSVG = styled(SVG, {}, { accept: { fill: 'color', stroke: 'color' } as const })
 ```
 
-## Fetching Current Documentation
+**Import consistency** — `tamagui`, `@tamagui/core`, and `@tamagui/button` are different packages; pick one approach per project.
 
-For latest API details, fetch markdown docs directly:
+**Never mix RN StyleSheet with Tamagui** — StyleSheet values don't resolve tokens.
 
-```bash
-# Core docs
-curl -sL "https://tamagui.dev/docs/core/configuration.md"
-curl -sL "https://tamagui.dev/docs/core/styled.md"
-curl -sL "https://tamagui.dev/docs/core/variants.md"
-curl -sL "https://tamagui.dev/docs/core/animations.md"
-
-# Component docs
-curl -sL "https://tamagui.dev/ui/sheet.md"
-curl -sL "https://tamagui.dev/ui/dialog.md"
-curl -sL "https://tamagui.dev/ui/select.md"
-
-# Full docs index
-curl -sL "https://tamagui.dev/llms.txt"
-```
-
-For HTML pages, use the web-fetch skill with appropriate selectors.
+**Platform branching for Dialog/Sheet** — use `Adapt` instead of `Platform.OS` checks (see @DIALOG_PATTERNS.md).
 
 ## Quick Reference
 
-### Config v4 Shorthands (Tailwind-aligned)
+**Config v4 shorthands**: `bg` backgroundColor, `p` padding, `m` margin, `w` width, `h` height, `br` borderRadius
 
-| Shorthand | Property |
-|-----------|----------|
-| `bg` | backgroundColor |
-| `p` | padding |
-| `m` | margin |
-| `w` | width |
-| `h` | height |
-| `br` | borderRadius |
+**Media breakpoints**: `$xs` 660px, `$sm` 800px, `$md` 1020px, `$lg` 1280px, `$xl` 1420px
 
-### Media Query Breakpoints
+**Animation drivers**: `css` (web, default), `react-native-reanimated` (native, required)
 
-| Token | Default | Server Default |
-|-------|---------|----------------|
-| `$xs` | 660px | true |
-| `$sm` | 800px | false |
-| `$md` | 1020px | false |
-| `$lg` | 1280px | false |
-| `$xl` | 1420px | false |
+**Token `$` prefix**: use in props (`color="$color"`), omit in theme definitions (`{ color: palette[11] }`)
 
-### Animation Drivers
+## Fetching Current Docs
 
-| Driver | Platform | Use Case |
-|--------|----------|----------|
-| `css` | Web | Default, best performance |
-| `react-native-reanimated` | Native | Required for native animations |
-
-## Additional Pattern Files
-
-- @DIALOG_PATTERNS.md - Dialog, Sheet, Adapt, accessibility
-- @FORM_PATTERNS.md - Form, Input, Label, validation with zod
-- @ANIMATION_PATTERNS.md - Animation drivers, enterStyle/exitStyle
-- @OVERLAY_PATTERNS.md - Popover, Tooltip, Select
-- @COMPILER_PATTERNS.md - Compiler optimization details
-- @DESIGN_SYSTEM.md - Design tokens and theming
+```bash
+curl -sL "https://tamagui.dev/docs/core/configuration.md"
+curl -sL "https://tamagui.dev/llms.txt"  # full index
+```

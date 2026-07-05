@@ -16,7 +16,20 @@ Target: ~60 lines, optimized for token efficiency while remaining useful.
 
 ## Scanning Algorithm
 
+### Step 0: Detect Project Architecture
+
+Before scanning, identify which architecture the project uses:
+
+| Check | Result |
+|-------|--------|
+| `app.config.ts` exists at root | **TanStack Start** (new, SSR) |
+| `vite.config.ts` exists at root | **Vite SPA** (legacy, CSR) |
+
+Record the architecture type — it affects which directories to scan and what to document.
+
 ### Step 1: Scan Directory Structure
+
+#### Vite SPA Projects (`vite.config.ts`)
 
 Scan these directories in order:
 
@@ -36,12 +49,39 @@ Scan these directories in order:
    └── assets/             # Static assets
 
 2. supabase/               # Backend
-   ├── functions/          # Edge Functions
+   ├── functions/          # Supabase Edge Functions
    └── migrations/         # Database migrations
 
 3. public/                 # Static files
 
-4. Root config files       # vite.config, tailwind.config, etc.
+4. Root config files       # vite.config.ts, tailwind.config, etc.
+```
+
+#### TanStack Start Projects (`app.config.ts`)
+
+Scan these directories in order:
+
+```
+1. app/                    # Main source code (replaces src/)
+   ├── routes/             # File-based route pages
+   ├── components/         # UI components
+   ├── lib/                # Utilities and helpers
+   ├── utils/              # Alternative utilities location
+   ├── services/           # API services
+   ├── contexts/           # React contexts
+   ├── stores/             # State management
+   ├── types/              # TypeScript definitions
+   ├── integrations/       # External service integrations
+   │   └── supabase/       # Supabase client and types
+   └── *.server.ts         # TanStack server functions (auto-deploy)
+
+2. supabase/               # Backend
+   ├── functions/          # Supabase Edge Functions (need deployment)
+   └── migrations/         # Database migrations
+
+3. public/                 # Static files
+
+4. Root config files       # app.config.ts, tailwind.config, etc.
 ```
 
 ### Step 2: Detect Component Organization Pattern
@@ -79,7 +119,9 @@ components/
 
 ### Step 3: Identify Key Files
 
-Scan for these important files:
+Scan for these important files based on architecture:
+
+#### Vite SPA Key Files
 
 | Pattern | Purpose |
 |---------|---------|
@@ -96,17 +138,35 @@ Scan for these important files:
 | `tailwind.config.js` | Tailwind configuration |
 | `tsconfig.json` | TypeScript configuration |
 
+#### TanStack Start Key Files
+
+| Pattern | Purpose |
+|---------|---------|
+| `app/routes/__root.tsx` | Root layout (wraps all pages) |
+| `app/routes/index.tsx` | Home page (/) |
+| `app/routes/*.tsx` | Route pages (file = route) |
+| `app/lib/utils.ts` | Shared utilities (cn helper) |
+| `app/integrations/supabase/client.ts` | Supabase client |
+| `app/**/*.server.ts` | TanStack server functions (server-only) |
+| `app.config.ts` | TanStack Start configuration |
+| `tailwind.config.js` | Tailwind configuration |
+| `tsconfig.json` | TypeScript configuration |
+
 ### Step 4: Detect Routing Structure
 
-Check for routing patterns:
+Check for routing patterns based on architecture:
 
-**React Router** (check `src/App.tsx` or `src/routes/`):
+**Vite SPA — React Router** (check `src/App.tsx`):
 - Look for `<Routes>`, `<Route>`, `<BrowserRouter>`
 - Extract route paths and their components
 
-**File-based routing** (if using TanStack Router):
-- Check `src/routes/` directory
-- Extract page structure from file names
+**TanStack Start — File-based routing** (check `app/routes/`):
+- Each `.tsx` file in `app/routes/` is a route
+- `__root.tsx` = root layout
+- `index.tsx` = `/`
+- `about.tsx` = `/about`
+- `$id.tsx` = dynamic segment (e.g., `/post/$id`)
+- Nested folders = nested routes
 
 ### Step 5: Detect State Management
 
@@ -136,12 +196,14 @@ Check for:
 
 ## Map Template
 
-Generate this structure (~60 lines):
+Generate this structure (~60 lines). Use the appropriate template based on detected architecture.
+
+### Template: Vite SPA (legacy)
 
 ```markdown
 ## Project Structure Map
 
-> Quick navigation guide - run `/lovable:map --update` to refresh
+> Architecture: Vite SPA (CSR) — Quick navigation guide - run `/lovable:map --update` to refresh
 
 ### Directory Layout
 ```
@@ -156,7 +218,7 @@ src/
 └── [OTHER_DIRS]   # [PURPOSE]
 
 supabase/
-├── functions/     # Edge Functions ([FUNCTION_COUNT] functions)
+├── functions/     # Supabase Edge Functions ([FUNCTION_COUNT] functions) — needs deploy
 └── migrations/    # Database migrations ([MIGRATION_COUNT] migrations)
 ```
 
@@ -181,6 +243,63 @@ supabase/
 | API calls | `src/hooks/` or `src/integrations/` |
 | Types | `src/types/` or `src/integrations/supabase/types.ts` |
 | Edge functions | `supabase/functions/[name]/index.ts` |
+
+*Last updated: [TIMESTAMP]*
+```
+
+### Template: TanStack Start (new)
+
+```markdown
+## Project Structure Map
+
+> Architecture: TanStack Start (SSR) — Quick navigation guide - run `/lovable:map --update` to refresh
+
+### Directory Layout
+```
+app/
+├── routes/        # File-based routes ([ROUTE_COUNT] routes)
+│   ├── __root.tsx # Root layout
+│   └── *.tsx      # Page routes (filename = URL path)
+├── components/    # [COMPONENT_PATTERN] UI components
+│   └── ui/        # shadcn/ui primitives
+├── lib/           # Utilities and helpers
+├── integrations/  # External integrations
+│   └── supabase/  # Supabase client and generated types
+└── [OTHER_DIRS]   # [PURPOSE]
+
+supabase/
+├── functions/     # Supabase Edge Functions ([FUNCTION_COUNT] functions) — needs deploy
+└── migrations/    # Database migrations ([MIGRATION_COUNT] migrations)
+```
+
+### Key Files
+| File | Purpose |
+|------|---------|
+| `app/routes/__root.tsx` | Root layout (wraps all pages) |
+| `app/routes/index.tsx` | Home page (/) |
+| `app/lib/utils.ts` | Shared utilities (cn, formatters) |
+| `app/integrations/supabase/client.ts` | Supabase client configuration |
+| `app.config.ts` | TanStack Start configuration |
+| [OTHER_KEY_FILES] | [PURPOSE] |
+
+### Patterns
+- **Architecture**: SSR — pages render as HTML on the server before browser
+- **Routing**: File-based (app/routes/*.tsx files = URL routes)
+- **Server functions**: `*.server.ts` files auto-deploy via GitHub (no Lovable prompt needed)
+- **Components**: [COMPONENT_PATTERN_DESCRIPTION]
+- **State**: [STATE_MANAGEMENT_PATTERN]
+- **Data Flow**: Routes (loaders) → Supabase Client → Edge Functions
+
+### Quick Lookup
+| Looking for... | Check here |
+|----------------|------------|
+| UI components | `app/components/ui/` |
+| Page routes | `app/routes/` (file = route) |
+| Root layout | `app/routes/__root.tsx` |
+| Server functions | `app/**/*.server.ts` |
+| API calls | `app/lib/` or `app/integrations/` |
+| Types | `app/types/` or `app/integrations/supabase/types.ts` |
+| Supabase Edge functions | `supabase/functions/[name]/index.ts` |
 
 *Last updated: [TIMESTAMP]*
 ```

@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Coingecko - Exchanges
 
 **Pages:** 14

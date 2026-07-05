@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Installation
 
 ## Standard Installation

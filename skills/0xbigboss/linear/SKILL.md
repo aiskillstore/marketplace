@@ -56,6 +56,18 @@ linear issue create --team TEAM_KEY --title "Fix bug" --yes
 linear issue view ENG-123
 ```
 
+### Download attachments from issues
+```bash
+# Download a specific file (requires LINEAR_API_KEY)
+linear download "https://uploads.linear.app/..." --output screenshot.png
+
+# Auto-download attachments when viewing an issue
+linear issue view ENG-123 --attachment-dir /tmp
+
+# Disable auto-download
+linear issue view ENG-123 --attachment-dir ""
+```
+
 ### Get issue as JSON for processing
 ```bash
 linear issue view ENG-123 --json
@@ -130,6 +142,7 @@ linear project add-issue PROJECT_ID ISSUE_UUID --yes
 | `linear teams list` | List available teams |
 | `linear me` | Show current user |
 | `linear gql` | Run raw GraphQL |
+| `linear download` | Download uploads.linear.app attachments |
 | `linear help CMD` | Command-specific help |
 
 *`--parent` requires UUIDs, not identifiers. See [Finding IDs](#finding-ids).

@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Hummingbot - Development
 
 **Pages:** 13

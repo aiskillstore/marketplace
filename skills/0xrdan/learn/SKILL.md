@@ -8,6 +8,23 @@ user_invokable: true
 
 Extract insights from the current conversation and persist them to the project's knowledge base.
 
+## Usage
+
+```
+/learn          # Quick extraction from recent conversation
+/learn --deep   # Thorough analysis with forked context (uses Explore agent)
+```
+
+### --deep Mode
+
+When `--deep` is specified, the extraction runs in a forked context using the Explore agent:
+- More thorough codebase analysis to find related patterns
+- Cross-references with existing knowledge
+- Validates discoveries against actual code
+- Keeps analysis chatter out of your main conversation
+
+Use `--deep` when you've had a significant debugging session or made architectural decisions you want fully documented.
+
 ## What This Does
 
 Analyzes the conversation context to identify:

@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Coingecko - Other
 
 **Pages:** 16

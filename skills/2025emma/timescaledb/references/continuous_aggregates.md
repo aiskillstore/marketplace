@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb - Continuous Aggregates
 
 **Pages:** 21

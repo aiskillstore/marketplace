@@ -1,8 +1,11 @@
 ---
 name: task-runner
 description: "Run project commands with just. Check for justfile in project root, list available tasks, execute common operations like test, build, lint. Triggers on: run tests, build project, list tasks, check available commands, run script, project commands."
+license: MIT
 compatibility: "Requires just CLI tool. Install: brew install just (macOS) or cargo install just (cross-platform)."
 allowed-tools: "Bash Glob"
+metadata:
+  author: claude-mods
 ---
 
 # Task Runner

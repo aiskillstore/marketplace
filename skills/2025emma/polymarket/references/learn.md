@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Polymarket - Learn
 
 **Pages:** 34

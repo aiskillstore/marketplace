@@ -41,15 +41,25 @@ After the skill documentation has loaded, run these checks and confirm with me:
    - Version should match the current commit (e.g., `v0.1.0` or `v0.1.0-5-gabc1234`)
    - If the repo is dirty (`-dirty` suffix), confirm with me whether this is acceptable
    - If versions don't match, the binary may be stale - rebuild with `zig build`
-2. Run `linear auth test` - is a test API key configured?
-3. Run `linear teams list` - which team should I use for testing?
-4. Do I have permission to create/delete test issues and projects in this workspace?
+2. Do I have permission to create/delete test issues and projects in this workspace?
+
+**Do NOT run `linear config` commands or modify `~/.config/linear/config.json` during QA.** Config resolution and auth are covered by unit tests. Assume the config is already set up correctly.
 
 Stop and wait for my answers before proceeding to Step 3.
 
-## Step 3: Test Scope
+## Step 3: Discover Workspace
 
-After I confirm:
+Run these read-only commands to gather context for the test plan:
+
+1. `linear me` — confirm which user/workspace is active
+2. `linear teams list` — note the available team keys
+3. `linear issues list --team TEAM_KEY --limit 1` — grab a real issue identifier for view/update/link/comment tests
+
+Use the discovered values to substitute placeholders (`TEAM_KEY`, `ID`, `IDENTIFIER`, `ENG-123`, etc.) throughout the test phases below. Do not hard-code or guess values.
+
+## Step 4: Test Scope
+
+After discovery:
 1. Review the expanded skill documentation from Step 1
 2. Verify every documented command produces the expected output
 
@@ -88,6 +98,7 @@ Verify each command in the table works:
 - [ ] `linear project update ID|SLUG --state started --yes`
 - [ ] `linear project delete ID|SLUG --yes`
 - [ ] `linear project add-issue PROJECT_ID ISSUE_ID --yes` / `remove-issue` with --yes
+- [ ] `linear download URL --output FILE` - downloads uploads.linear.app files
 
 ### Phase 3: Common Flags
 - [ ] `--json` produces valid JSON
@@ -95,6 +106,7 @@ Verify each command in the table works:
 - [ ] `--human-time` shows relative times
 - [ ] `--fields LIST` filters output
 - [ ] `--help` shows usage
+- [ ] `--attachment-dir DIR` downloads uploads to DIR (issue view only; "" disables)
 
 ### Phase 3b: Search Command Coverage
 - [ ] `linear search "keyword" --team TEAM_KEY --limit 5` (table output)
@@ -184,6 +196,31 @@ Common failure modes to verify against:
 - Using wrong Content-Type header in PUT request
 - Not waiting for signed URL before uploading
 - Using uploadUrl instead of assetUrl in attachments
+
+### Phase 8c: Download Attachments
+Test the download command and issue view attachment handling:
+
+1. Download a file uploaded in Phase 8b:
+   - [ ] `linear download "ASSET_URL" --output /tmp/downloaded.txt` - downloads with auth
+   - [ ] `cat /tmp/downloaded.txt` - verify content matches uploaded file
+   - [ ] `linear download "ASSET_URL"` - derives filename from URL (saves to cwd)
+   - [ ] `linear download "ASSET_URL" --output -` - outputs to stdout
+
+2. Test invalid URLs:
+   - [ ] `linear download "https://example.com/file.txt"` → error "invalid upload URL"
+   - [ ] `linear download` (no URL) → error "missing URL"
+
+3. Test issue view attachment auto-download:
+   - [ ] Update test issue description to include an `uploads.linear.app` URL
+   - [ ] `linear issue view IDENTIFIER --attachment-dir /tmp` - downloads attachment, prints path to stderr
+   - [ ] Verify file exists at printed path with correct content
+   - [ ] `linear issue view IDENTIFIER --attachment-dir ""` - disables download (no files created)
+   - [ ] `linear issue view IDENTIFIER` - default downloads to /tmp
+
+4. Clean up:
+   ```bash
+   rm /tmp/downloaded.txt /tmp/*.txt 2>/dev/null
+   ```
 
 ### Phase 9: Troubleshooting Scenarios
 Verify error handling matches documentation:

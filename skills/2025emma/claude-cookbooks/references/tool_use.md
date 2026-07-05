@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Tool Use with Claude
 
 Source: anthropics/claude-cookbooks/tool_use

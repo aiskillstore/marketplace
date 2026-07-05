@@ -2,7 +2,26 @@
 
 Advanced patterns for managing Python dependencies with uv.
 
-## Lock File Workflow
+## Project Lockfile (uv.lock) — preferred
+
+For any project with a `pyproject.toml`, uv manages a `uv.lock` automatically.
+This is the reproducible, uv-native workflow — prefer it over a hand-managed
+`requirements.txt`.
+
+```bash
+uv add "flask>=2.0" sqlalchemy     # add runtime deps; uv.lock updated
+uv add --dev pytest ruff mypy      # dev-only dependency group
+uv remove flask                    # drop a dep
+uv sync                            # install exactly from uv.lock
+uv sync --frozen                   # CI: fail if uv.lock is stale, don't re-resolve
+uv lock --upgrade                  # bump everything within constraints
+uv lock --upgrade-package flask    # bump just one
+```
+
+## requirements.txt Workflow (uv pip compile)
+
+Use this only when you specifically need a `requirements.txt` — Docker layer
+caching, non-uv CI, or legacy tooling. Otherwise prefer `uv.lock` above.
 
 ### Basic Lock Pattern
 
@@ -136,42 +155,45 @@ dependencies = ["my-core", "fastapi>=0.100"]
 ### Workspace Commands
 
 ```bash
-# Install all workspace packages
-uv pip install -e packages/core -e packages/api -e packages/cli
-
-# Sync entire workspace
+# Install all workspace members into one env (native — no editable pip installs)
 uv sync
 
-# Run command in workspace context
+# Run a command in the workspace env
 uv run pytest
+
+# Operate on a specific member
+uv run --package my-api pytest
 ```
 
 ## Private Packages
 
-### Configure Index
+### Configure Index (pyproject.toml)
 
-```bash
-# Extra index for private packages
-uv pip install my-private-package --extra-index-url https://pypi.private.com/simple/
-
-# With authentication
-uv pip install my-private-package \
-  --extra-index-url https://user:token@pypi.private.com/simple/
+```toml
+[[tool.uv.index]]
+name = "private"
+url = "https://pypi.private.com/simple/"
 ```
 
-### In requirements.in
+```bash
+uv add my-private-package          # resolves against configured indexes
+```
+
+### Authentication via environment
+
+```bash
+# Per-index credentials: UV_INDEX_<NAME>_USERNAME / _PASSWORD
+export UV_INDEX_PRIVATE_USERNAME=user
+export UV_INDEX_PRIVATE_PASSWORD=token
+uv add my-private-package
+```
+
+### requirements.txt workflow
 
 ```
 --extra-index-url https://pypi.private.com/simple/
 my-public-package>=1.0
 my-private-package>=2.0
-```
-
-### Environment Variable
-
-```bash
-export UV_EXTRA_INDEX_URL=https://user:token@pypi.private.com/simple/
-uv pip install my-private-package
 ```
 
 ## Git Dependencies
@@ -253,14 +275,10 @@ uv pip install --no-cache package-name
 
 ```yaml
 - name: Install uv
-  uses: astral-sh/setup-uv@v1
-  with:
-    version: "latest"
+  uses: astral-sh/setup-uv@v5
 
 - name: Install dependencies
-  run: |
-    uv venv
-    uv pip sync requirements.txt
+  run: uv sync --frozen
 
 - name: Run tests
   run: uv run pytest
@@ -273,7 +291,7 @@ uv pip install --no-cache package-name
   uses: actions/cache@v3
   with:
     path: ~/.cache/uv
-    key: uv-${{ hashFiles('requirements.txt') }}
+    key: uv-${{ hashFiles('uv.lock') }}
     restore-keys: uv-
 ```
 
@@ -281,9 +299,7 @@ uv pip install --no-cache package-name
 
 ```yaml
 - name: Verify lock file is up to date
-  run: |
-    uv pip compile requirements.in -o requirements-check.txt
-    diff requirements.txt requirements-check.txt
+  run: uv lock --check
 ```
 
 ## Best Practices

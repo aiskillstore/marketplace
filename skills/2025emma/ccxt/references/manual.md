@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Ccxt - Manual
 
 **Pages:** 2
@@ -1429,11 +1430,6 @@ Example 4 (unknown):
     'XBT': 'BTC',
     'OPTIMISM': 'OP',
     // ... etc
-}
-```
-
----
- ... etc
 }
 ```
 

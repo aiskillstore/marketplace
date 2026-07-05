@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Coingecko - Reference
 
 **Pages:** 9

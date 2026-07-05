@@ -1,6 +1,6 @@
 ---
 name: core-development
-description: Work on the core package (types, validation, normalization, diff). Use when modifying DSL processing logic or data flow.
+description: Work on the core package (types, validation, normalization, diff). Use when modifying DSL processing logic, adding new node/edge properties, changing validation rules, or updating the diff algorithm.
 ---
 
 # Core Package Development

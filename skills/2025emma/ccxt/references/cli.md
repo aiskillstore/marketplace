@@ -1,3 +1,4 @@
+TRANSLATED CONTENT:
 # Ccxt - Cli
 
 **Pages:** 1

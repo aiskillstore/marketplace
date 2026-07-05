@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 ===== PAGE: https://docs.tigerdata.com/getting-started/try-key-features-timescale-products/ =====
 
 # Try the key features in Tiger Data products

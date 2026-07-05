@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Hummingbot - Advanced
 
 **Pages:** 7

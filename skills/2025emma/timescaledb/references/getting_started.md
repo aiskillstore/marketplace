@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb - Getting Started
 
 **Pages:** 3

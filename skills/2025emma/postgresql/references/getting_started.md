@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Postgresql - Getting Started
 
 **Pages:** 36

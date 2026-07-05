@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Timescaledb - Hyperfunctions
 
 **Pages:** 34

@@ -1,8 +1,11 @@
 ---
 name: data-processing
 description: "Process JSON with jq and YAML/TOML with yq. Filter, transform, query structured data efficiently. Triggers on: parse JSON, extract from YAML, query config, Docker Compose, K8s manifests, GitHub Actions workflows, package.json, filter data."
+license: MIT
 compatibility: "Requires jq and yq CLI tools. Install: brew install jq yq (macOS)."
 allowed-tools: "Bash Read"
+metadata:
+  author: claude-mods
 ---
 
 # Data Processing

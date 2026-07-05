@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Polymarket - Other
 
 **Pages:** 7

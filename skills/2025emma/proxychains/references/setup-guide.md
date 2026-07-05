@@ -1,4 +1,3 @@
-TRANSLATED CONTENT:
 # Proxychains 安装和配置指南
 
 ## 安装 Proxychains
