@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-02T09:13:15.900Z",
+    "generated_at": "2026-07-05T15:19:34.476Z",
     "slug": "halt-catch-fire-web-search",
     "source_url": "https://github.com/halt-catch-fire/skills/tree/main/tools/llm/web-search/",
     "source_ref": "main",
@@ -9,12 +9,15 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "1dae36ea3022702cf45740c5f6d708317304d6ef1491665e282272efa6c1d7f8",
-    "tree_hash": "d4632c99f554f8bd566fc6fd817ccb5339b511b4beab3a977748647236928542",
+    "tree_hash": "08fe17986d4801e3c688933eca4ff91a8a28ee89cc3da4c4c5dabbd0a05adf7c",
     "provenance": {
-      "model_effective": "codex",
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
       "fallback_chain": [
         {
           "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -23,18 +26,18 @@
   },
   "skill": {
     "name": "web-search",
-    "description": "Search the web, extract page content, and request direct answers using Tavily and Exa apps through the inference.sh belt CLI.",
-    "summary": "Use Tavily and Exa search and extraction tools from the belt CLI.",
+    "description": "Search the web and extract page content through Tavily and Exa apps exposed by the inference.sh belt CLI.",
+    "summary": "Run Tavily and Exa web search, answer, and extraction workflows from Claude, Codex, or Claude Code.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "halt-catch-fire",
     "license": "MIT",
     "tags": [
       "web-search",
-      "research",
       "content-extraction",
-      "tavily",
-      "exa"
+      "research",
+      "fact-checking",
+      "rag"
     ],
     "supported_tools": [
       "claude",
@@ -52,21 +55,26 @@
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most static external-command hits are false positives caused by markdown code spans and fenced examples. The skill still carries medium contextual risk because it grants Bash access to the belt CLI and sends search, extraction, and LLM requests to external services.",
+    "summary": "The skill is a legitimate web search and extraction wrapper, but it depends on external CLI execution and third-party services. Most static backtick findings are Markdown false positives, while the real concerns are belt command execution, wildcard belt permissions, remote installs, and disclosure of user queries or extracted content.",
     "remediation": [
       {
-        "issue": "Broad belt CLI access can send user queries, URLs, and extracted content to third-party services.",
-        "suggestion": "Document the data-sharing boundary clearly and warn users not to submit secrets, private URLs, or regulated data.",
+        "issue": "Wildcard belt command permission",
+        "suggestion": "Restrict allowed tools to the specific belt app commands used by this skill, or require confirmation for other belt subcommands.",
         "severity": "medium"
       },
       {
-        "issue": "Remote skill installation examples are not pinned to immutable versions.",
-        "suggestion": "Pin install commands to trusted versions or commits, and advise users to review remote skills before installation.",
-        "severity": "low"
+        "issue": "Third-party data disclosure",
+        "suggestion": "Document that queries, URLs, extracted content, and prompts may be sent to inference.sh, Tavily, Exa, and OpenRouter.",
+        "severity": "medium"
       },
       {
-        "issue": "The markdown includes a remotely hosted image and mutable external installation documentation.",
-        "suggestion": "Prefer marketplace-hosted assets and stable documentation links when possible.",
+        "issue": "Remote installation commands",
+        "suggestion": "Pin recommended skill or CLI install commands to trusted versions, and avoid encouraging unreviewed additional installs from the skill body.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Remote documentation image",
+        "suggestion": "Use a marketplace-hosted image asset or remove the external image to avoid third-party tracking during rendering.",
         "severity": "low"
       }
     ],
@@ -597,281 +605,481 @@
     "finding_verdicts": [
       {
         "id": "external_commands:SKILL.md:7:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are markdown inline formatting around installation or CLI text. This is not Ruby backtick execution and no command substitution occurs in the skill file."
+        "verdict": "confirmed",
+        "confidence": 0.76,
+        "reason": "The line tells users to run `npx skills add belt-sh/cli`, which installs code from an external package source. That is a real supply-chain exposure, even though it is documented setup.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are markdown inline formatting around installation or CLI text. This is not Ruby backtick execution and no command substitution occurs in the skill file."
+        "confidence": 0.9,
+        "reason": "This line only names the `belt` CLI in Markdown and links to install instructions; it does not execute a shell command. The backticks are documentation formatting, not Ruby or shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The fenced example runs `belt login` and `belt app run tavily/search-assistant`, invoking an external CLI that sends the query to a remote service. The command is intentional but still creates command execution and network exposure.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:24:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "confidence": 0.9,
+        "reason": "This location closes a Markdown code block and starts the app listing, with no executable command in the finding snippet. The backticks are fence syntax, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is markdown table content using inline code formatting for app identifiers. It is not Ruby backtick execution or command substitution."
+        "confidence": 0.9,
+        "reason": "The backticks wrap the `tavily/search-assistant` app identifier inside a Markdown table. This is documentation text, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is markdown table content using inline code formatting for app identifiers. It is not Ruby backtick execution or command substitution."
+        "confidence": 0.9,
+        "reason": "The backticks wrap the `tavily/extract` app identifier inside a Markdown table. This is documentation text, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is markdown table content using inline code formatting for app identifiers. It is not Ruby backtick execution or command substitution."
+        "confidence": 0.9,
+        "reason": "The backticks wrap the `exa/search` app identifier inside a Markdown table. This is documentation text, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is markdown table content using inline code formatting for app identifiers. It is not Ruby backtick execution or command substitution."
+        "confidence": 0.9,
+        "reason": "The backticks wrap the `exa/answer` app identifier inside a Markdown table. This is documentation text, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is markdown table content using inline code formatting for app identifiers. It is not Ruby backtick execution or command substitution."
+        "confidence": 0.9,
+        "reason": "The backticks wrap the `exa/extract` app identifier and nearby heading text. This is documentation text, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The example runs `belt app run tavily/search-assistant` with a user query. This is legitimate functionality, but it executes an external CLI and shares query data with a remote provider.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "confidence": 0.9,
+        "reason": "This finding points at a closing Markdown fence and prose around the next example. No shell command is present at this static finding location."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The example runs `belt app run tavily/extract` with URL input, causing external retrieval and content processing. User-provided URLs are sent through the CLI, so the external command risk is real.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "confidence": 0.9,
+        "reason": "This finding points at a closing Markdown fence and prose around the next example. No shell command is present at this static finding location."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The example invokes `belt app run exa/search`, which executes a local CLI and sends the query to Exa through the platform. This is intended behavior but still an external command path.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "confidence": 0.9,
+        "reason": "This finding points at a closing Markdown fence and prose around the next example. No shell command is present at this static finding location."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The example invokes `belt app run exa/answer` with a user question. It is a real external CLI call that can disclose submitted questions to a remote service.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:82:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "confidence": 0.9,
+        "reason": "This finding points at a closing Markdown fence and prose around the next example. No shell command is present at this static finding location."
       },
       {
         "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The example invokes `belt app run exa/extract` with a URL. It intentionally uses an external command and remote extraction service, which carries network and data-sharing risk.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:92:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "confidence": 0.9,
+        "reason": "This finding points at a closing Markdown fence and prose around the next workflow. No shell command is present at this static finding location."
       },
       {
         "id": "external_commands:SKILL.md:98:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "reason": "The workflow runs belt search and an OpenRouter Claude model, writes search_results.json, and sends retrieved context to another service. This is useful, but it expands command execution and data-sharing exposure.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "confidence": 0.9,
+        "reason": "This finding points at a closing Markdown fence and the next workflow heading. No shell command is present at this static finding location."
       },
       {
         "id": "external_commands:SKILL.md:112:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "reason": "The workflow runs Tavily extraction, writes content.json, and sends extracted content to an OpenRouter Claude model. This is a real external command chain with possible sensitive content disclosure.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:122:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "confidence": 0.9,
+        "reason": "This finding points at a closing Markdown fence and use-case prose. No shell command is present at this static finding location."
       },
       {
         "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "reason": "The code block recommends several `npx skills add` commands, which install additional skills from external sources. That creates a real supply-chain risk if copied or automated.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:143:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This marks a fenced bash example in documentation, not runtime Ruby backtick execution. The commands are examples for the user and are not executed by the skill file itself."
+        "verdict": "confirmed",
+        "confidence": 0.64,
+        "reason": "The location includes inline `belt app store`, which invokes the external CLI to browse remote apps. The risk is limited, but it is still a real external command path.",
+        "severity": "medium"
       },
       {
         "id": "network:SKILL.md:11:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a documentation link to the service provider website. It does not transmit user data or perform a network call by the skill itself."
+        "confidence": 0.88,
+        "reason": "The URL is a documentation link to the service homepage, not code that performs a network request or sends data. It is expected context for a web-search skill."
       },
       {
         "id": "network:SKILL.md:13:hardcoded-url",
         "verdict": "confirmed",
         "confidence": 0.72,
-        "reason": "The markdown image loads a remote cloud.inference.sh asset when rendered. This creates a small external request and content dependency, so the hardcoded URL is a real low-severity risk.",
+        "reason": "The Markdown image loads from cloud.inference.sh when rendered, creating a third-party network request and possible tracking surface. It is not malicious, but the hardcoded external media dependency is real.",
         "severity": "low"
       },
       {
         "id": "network:SKILL.md:17:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.62,
-        "reason": "The skill points users to raw GitHub install instructions for a required CLI. This is not automatic execution, but it is a low-severity supply-chain dependency on mutable remote documentation.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The URL links to install documentation on GitHub and is not fetched by the skill itself. No automatic data transfer is shown at this location."
       },
       {
         "id": "network:SKILL.md:60:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL is an example.com placeholder inside sample input. It documents expected parameters and is not a live exfiltration endpoint."
+        "confidence": 0.88,
+        "reason": "The URLs use example.com placeholder domains inside sample input. They are illustrative values, not hardcoded production endpoints used by the skill."
       },
       {
         "id": "network:SKILL.md:90:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL is an example.com placeholder inside sample input. It documents expected parameters and is not a live exfiltration endpoint."
+        "confidence": 0.88,
+        "reason": "The URL uses an example.com placeholder inside sample input. It is an illustrative value, not a hardcoded production endpoint used by the skill."
       },
       {
         "id": "network:SKILL.md:115:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The URL is an example.com placeholder inside sample input. It documents expected parameters and is not a live exfiltration endpoint."
+        "confidence": 0.88,
+        "reason": "The URL uses an example.com placeholder inside sample input. It is an illustrative value, not a hardcoded production endpoint used by the skill."
       },
       {
         "id": "network:SKILL.md:149:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a documentation link to inference.sh material. It does not execute code or send user data by itself."
+        "confidence": 0.88,
+        "reason": "The URL is a documentation link about adding tools to agents. It is not code that sends user data or triggers a network call during skill execution."
       },
       {
         "id": "network:SKILL.md:150:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a documentation link to inference.sh material. It does not execute code or send user data by itself."
+        "confidence": 0.88,
+        "reason": "The URL is a documentation link to a research-agent guide. It is not code that sends user data or triggers a network call during skill execution."
       },
       {
         "id": "network:SKILL.md:151:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a documentation link to inference.sh material. It does not execute code or send user data by itself."
+        "confidence": 0.88,
+        "reason": "The URL is a documentation link to an inference.sh blog article. It is not code that sends user data or triggers a network call during skill execution."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Broad CLI Tool Permission",
-        "description": "The skill allows Bash(belt *) and examples run remote search, extraction, and LLM apps. Queries, URLs, and extracted content can leave the local environment.",
+        "title": "Broad Belt CLI Permission",
+        "description": "The front matter allows `Bash(belt *)`, which permits any belt subcommand, not only the listed search and extraction apps. A prompt could request unintended belt operations within that wildcard scope.",
         "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 4,
             "line_end": 4
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 19,
-            "line_end": 23
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 98,
-            "line_end": 121
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The frontmatter grants Bash access to any belt command, and the documented workflows invoke remote provider apps. This is expected functionality but creates a real data-sharing boundary."
+        "confidence": 0.88,
+        "confidence_reasoning": "Line 4 explicitly grants wildcard Bash access to the belt CLI. The file later documents multiple belt subcommands, confirming the permission is operational context rather than incidental text."
       },
       {
-        "title": "Unpinned External Skill Installation Guidance",
-        "description": "The documentation suggests npx skills add commands for the belt CLI and related skills. Users who copy them may install remote code without pinned versions.",
-        "severity": "low",
+        "title": "Third-Party Query and Content Disclosure",
+        "description": "The documented workflows send search queries, URLs, extracted page content, and prompts to Tavily, Exa, inference.sh, and OpenRouter. This is expected functionality, but users could expose sensitive research data.",
+        "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 7,
-            "line_end": 7
+            "line_start": 49,
+            "line_end": 61
           },
           {
             "file": "SKILL.md",
-            "line_start": 134,
-            "line_end": 142
+            "line_start": 68,
+            "line_end": 91
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 99,
+            "line_end": 121
           }
         ],
-        "confidence": 0.78,
-        "confidence_reasoning": "The commands are visible in the markdown and reference remote skill packages. They require user action, so the risk is limited but real."
+        "confidence": 0.84,
+        "confidence_reasoning": "The examples show belt app calls for search, extraction, and OpenRouter Claude models with user-supplied queries, URLs, and prompts. That provides direct evidence of third-party data transfer."
       }
     ],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [
       {
-        "title": "Broad CLI Tool Permission",
-        "description": "The skill allows Bash(belt *) and examples run remote search, extraction, and LLM apps. Queries, URLs, and extracted content can leave the local environment.",
+        "title": "Ruby/shell backtick execution",
+        "description": "> **Install the belt CLI skill:** `npx skills add belt-sh/cli`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 7,
+            "line_end": 7
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.76,
+        "confidence_reasoning": "The line tells users to run `npx skills add belt-sh/cli`, which installs code from an external package source. That is a real supply-chain exposure, even though it is documented setup."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 19,
+            "line_end": 24
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The fenced example runs `belt login` and `belt app run tavily/search-assistant`, invoking an external CLI that sends the query to a remote service. The command is intentional but still creates command execution and network exposure."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 48,
+            "line_end": 52
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The example runs `belt app run tavily/search-assistant` with a user query. This is legitimate functionality, but it executes an external CLI and shares query data with a remote provider."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 58,
+            "line_end": 62
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The example runs `belt app run tavily/extract` with URL input, causing external retrieval and content processing. User-provided URLs are sent through the CLI, so the external command risk is real."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 68,
+            "line_end": 72
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The example invokes `belt app run exa/search`, which executes a local CLI and sends the query to Exa through the platform. This is intended behavior but still an external command path."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 78,
+            "line_end": 82
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The example invokes `belt app run exa/answer` with a user question. It is a real external CLI call that can disclose submitted questions to a remote service."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 88,
+            "line_end": 92
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The example invokes `belt app run exa/extract` with a URL. It intentionally uses an external command and remote extraction service, which carries network and data-sharing risk."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 98,
+            "line_end": 108
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The workflow runs belt search and an OpenRouter Claude model, writes search_results.json, and sends retrieved context to another service. This is useful, but it expands command execution and data-sharing exposure."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 112,
+            "line_end": 122
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The workflow runs Tavily extraction, writes content.json, and sends extracted content to an OpenRouter Claude model. This is a real external command chain with possible sensitive content disclosure."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 134,
+            "line_end": 143
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "The code block recommends several `npx skills add` commands, which install additional skills from external sources. That creates a real supply-chain risk if copied or automated."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 143,
+            "line_end": 145
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.64,
+        "confidence_reasoning": "The location includes inline `belt app store`, which invokes the external CLI to browse remote apps. The risk is limited, but it is still a real external command path."
+      },
+      {
+        "title": "Broad Belt CLI Permission",
+        "description": "The front matter allows `Bash(belt *)`, which permits any belt subcommand, not only the listed search and extraction apps. A prompt could request unintended belt operations within that wildcard scope.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 4,
             "line_end": 4
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.88,
+        "confidence_reasoning": "Line 4 explicitly grants wildcard Bash access to the belt CLI. The file later documents multiple belt subcommands, confirming the permission is operational context rather than incidental text."
+      },
+      {
+        "title": "Third-Party Query and Content Disclosure",
+        "description": "The documented workflows send search queries, URLs, extracted page content, and prompts to Tavily, Exa, inference.sh, and OpenRouter. This is expected functionality, but users could expose sensitive research data.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 61
           },
           {
             "file": "SKILL.md",
-            "line_start": 19,
-            "line_end": 23
+            "line_start": 68,
+            "line_end": 91
           },
           {
             "file": "SKILL.md",
-            "line_start": 98,
+            "line_start": 99,
             "line_end": 121
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The frontmatter grants Bash access to any belt command, and the documented workflows invoke remote provider apps. This is expected functionality but creates a real data-sharing boundary."
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.84,
+        "confidence_reasoning": "The examples show belt app calls for search, extraction, and OpenRouter Claude models with user-supplied queries, URLs, and prompts. That provides direct evidence of third-party data transfer."
       }
     ],
     "low_findings": [
@@ -885,52 +1093,24 @@
             "line_end": 13
           }
         ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
         "confidence": 0.72,
-        "confidence_reasoning": "The markdown image loads a remote cloud.inference.sh asset when rendered. This creates a small external request and content dependency, so the hardcoded URL is a real low-severity risk."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "> Requires inference.sh CLI (`belt`). [Install instructions](https://raw.githubusercontent.com/infer",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 17,
-            "line_end": 17
-          }
-        ],
-        "confidence": 0.62,
-        "confidence_reasoning": "The skill points users to raw GitHub install instructions for a required CLI. This is not automatic execution, but it is a low-severity supply-chain dependency on mutable remote documentation."
-      },
-      {
-        "title": "Unpinned External Skill Installation Guidance",
-        "description": "The documentation suggests npx skills add commands for the belt CLI and related skills. Users who copy them may install remote code without pinned versions.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 7,
-            "line_end": 7
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 134,
-            "line_end": 142
-          }
-        ],
-        "confidence": 0.78,
-        "confidence_reasoning": "The commands are visible in the markdown and reference remote skill packages. They require user action, so the risk is limited but real."
+        "confidence_reasoning": "The Markdown image loads from cloud.inference.sh when rendered, creating a third-party network request and possible tracking surface. It is not malicious, but the hardcoded external media dependency is real."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 1,
     "total_lines": 153,
     "audit_model": "codex",
-    "audited_at": "2026-07-02T09:13:15.900Z",
+    "audited_at": "2026-07-05T15:19:34.476Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Research Web Sources with Tavily and Exa",
-    "value_statement": "Current web research often needs several search and extraction tools. This skill provides Tavily and Exa commands through one belt CLI workflow.",
+    "user_title": "Search and Extract Web Research",
+    "value_statement": "Research assistants need current sources without manual browsing. This skill runs Tavily and Exa apps through belt for search, extraction, and answers.",
     "seo_keywords": [
       "Claude",
       "Codex",
@@ -939,110 +1119,110 @@
       "Tavily search",
       "Exa search",
       "content extraction",
-      "research automation",
       "RAG research",
-      "fact checking"
+      "AI research",
+      "inference.sh belt"
     ],
     "actual_capabilities": [
-      "Runs Tavily search assistant requests through the belt CLI.",
-      "Extracts readable content from one or more URLs with Tavily.",
-      "Runs Exa search queries for relevant web results.",
-      "Requests direct factual answers from Exa.",
-      "Combines search or extraction output with LLM summarization workflows."
+      "Runs Tavily Search Assistant queries through the belt CLI.",
+      "Extracts clean content and images from URLs with Tavily.",
+      "Uses Exa Search to return relevant links with context.",
+      "Uses Exa Answer for direct factual responses.",
+      "Shows workflows that combine search or extraction with OpenRouter Claude models."
     ],
     "limitations": [
       "Requires the inference.sh belt CLI and login before use.",
-      "Search and extraction results depend on Tavily, Exa, and source website availability.",
-      "External services may receive submitted queries, URLs, and extracted content.",
-      "The skill provides command examples, not a local search engine."
+      "Sends queries, URLs, and content to external services.",
+      "Quality depends on Tavily, Exa, OpenRouter, and source availability.",
+      "Does not verify extracted claims without additional review."
     ],
     "use_cases": [
       {
-        "title": "Gather Source Material",
-        "description": "Search recent web pages and collect relevant links before writing a report or brief.",
-        "target_user": "Researchers"
+        "title": "Prepare Research Briefs",
+        "target_user": "Research analyst",
+        "description": "Collect current web sources and extract article text for concise briefing notes."
       },
       {
-        "title": "Prepare RAG Inputs",
-        "description": "Extract readable page content from URLs for retrieval pipelines or summarization tasks.",
-        "target_user": "AI engineers"
+        "title": "Build RAG Context",
+        "target_user": "AI engineer",
+        "description": "Gather searchable content from URLs before adding it to retrieval pipelines."
       },
       {
-        "title": "Check Claims Quickly",
-        "description": "Ask direct factual questions and compare answers with source links from search results.",
-        "target_user": "Analysts"
+        "title": "Track Market Signals",
+        "target_user": "Product team",
+        "description": "Compare public sources and summarize trends using search plus LLM workflows."
       }
     ],
     "prompt_templates": [
       {
         "title": "Basic Web Search",
-        "scenario": "Find sources for a simple topic.",
-        "prompt": "Search the web for recent information about this topic: [topic]. Return the strongest sources and a short summary."
+        "scenario": "Beginner search request",
+        "prompt": "Search the web for {topic} with Tavily Search Assistant. Return key sources with short summaries."
       },
       {
         "title": "Extract Article Content",
-        "scenario": "Convert web pages into readable text.",
-        "prompt": "Extract the main content from these URLs: [URLs]. Remove navigation, ads, and unrelated page text."
+        "scenario": "URL extraction request",
+        "prompt": "Extract clean text from these URLs: {urls}. Summarize each source and list images when available."
       },
       {
         "title": "Compare Search Providers",
-        "scenario": "Use both Tavily and Exa for stronger coverage.",
-        "prompt": "Search for [topic] with Tavily and Exa. Compare the results, note disagreements, and list the most useful sources."
+        "scenario": "Source quality review",
+        "prompt": "Run Tavily Search Assistant and Exa Search for {query}. Compare overlap, unique sources, and source quality."
       },
       {
-        "title": "Research Then Summarize",
-        "scenario": "Build a research workflow with search, extraction, and LLM analysis.",
-        "prompt": "Search for [research question], extract the best sources, then summarize key findings, evidence quality, and open questions."
+        "title": "Build Research Workflow",
+        "scenario": "Advanced research workflow",
+        "prompt": "Search for {topic}, extract the strongest sources, then draft a briefing with citations and open questions."
       }
     ],
     "output_examples": [
       {
-        "input": "Search for best practices for building AI agents.",
-        "output": "A concise answer with source links, relevant context, and images when the provider returns them."
+        "input": "Search for privacy risks in browser extensions.",
+        "output": "A concise answer with source links, brief context for each source, and topics that need follow-up review."
       },
       {
-        "input": "Extract content from two article URLs.",
-        "output": "Clean article text, page metadata, and extracted images suitable for summarization or review."
+        "input": "Extract two policy pages and summarize the differences.",
+        "output": "Clean page text, a comparison summary, and a list of claims that require source verification."
       },
       {
-        "input": "Answer a factual question about a city population.",
-        "output": "A direct answer with supporting context from web sources, subject to provider coverage."
+        "input": "Find recent research on retrieval augmented generation evaluation.",
+        "output": "Relevant links, provider-specific search notes, and a short briefing organized by evaluation theme."
       }
     ],
     "best_practices": [
-      "Review source links before relying on generated answers.",
-      "Avoid sending secrets, private URLs, or regulated data to external search services.",
-      "Use extraction before summarization when exact source text matters."
+      "Confirm sensitive queries can be shared with Tavily, Exa, inference.sh, and OpenRouter before running commands.",
+      "Use specific questions and known domains when source quality matters.",
+      "Review returned sources before using answers in reports or agents."
     ],
     "anti_patterns": [
-      "Do not treat search results as verified facts without checking sources.",
-      "Do not submit internal documents or confidential URLs to remote providers.",
-      "Do not assume every website allows reliable extraction."
+      "Do not submit secrets, credentials, or private customer data.",
+      "Do not treat AI answers as verified facts without source review.",
+      "Do not run broad extraction jobs without checking target site permissions."
     ],
     "faq": [
       {
-        "question": "Does this skill search the live web?",
-        "answer": "Yes. It uses Tavily and Exa apps through the inference.sh belt CLI."
+        "question": "Does this skill browse the live web?",
+        "answer": "Yes. It calls Tavily and Exa through the belt CLI when those services are configured."
       },
       {
-        "question": "Do I need an external account?",
-        "answer": "Yes. The skill requires the belt CLI and an inference.sh login."
+        "question": "What setup is required?",
+        "answer": "You need the inference.sh belt CLI, an authenticated session, and access to the listed apps."
       },
       {
-        "question": "Can it extract full article text?",
-        "answer": "It can request page extraction, but results depend on the website and provider support."
+        "question": "Does it work with Claude, Codex, and Claude Code?",
+        "answer": "Yes. It declares support for Claude, Codex, and Claude Code when belt is available."
       },
       {
-        "question": "Is it compatible with Claude Code?",
-        "answer": "Yes. The report lists Claude, Codex, and Claude Code as supported tools."
+        "question": "Can it extract any website?",
+        "answer": "No. Site access, paywalls, provider limits, and site policies can restrict extraction."
       },
       {
-        "question": "Can it support RAG workflows?",
-        "answer": "Yes. It can collect search results and extracted text for retrieval or summarization workflows."
+        "question": "Which services receive my data?",
+        "answer": "Queries and URLs can be sent to inference.sh, Tavily, Exa, and OpenRouter in the documented workflows."
       },
       {
-        "question": "What data may leave my machine?",
-        "answer": "Queries, URLs, extracted content, and prompts may be sent to inference.sh provider apps."
+        "question": "Are search answers guaranteed accurate?",
+        "answer": "No. Review sources and verify important claims before using results in decisions."
       }
     ]
   },

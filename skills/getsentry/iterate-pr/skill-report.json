@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-30T02:18:06.850Z",
+    "generated_at": "2026-07-05T15:18:33.252Z",
     "slug": "getsentry-iterate-pr",
     "source_url": "https://github.com/getsentry/skills/tree/main/plugins/sentry-skills/skills/iterate-pr",
     "source_ref": "main",
@@ -9,20 +9,33 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "52f40a58c6026c380b6db9148b41197c38724de43e83f4f2f219391536f1dd5a",
-    "tree_hash": "b4b9abbc9a4b990e84e64813cdc6c8b4604fbd219309524b45adebacbcdf20fa"
+    "tree_hash": "efdf7609553146375f8e290d258248798f8ac9b7c626eb9c61ea9a1bf843645b",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "iterate-pr",
-    "description": "Guides an AI coding agent through checking a pull request, reading CI and review feedback, fixing valid issues, committing changes, and waiting for checks to pass.",
-    "summary": "Automates the feedback, fix, push, and wait loop for pull requests.",
+    "description": "Iterate on a PR until CI passes. Use when you need to fix CI failures, address review feedback, or continuously push fixes until all checks are green. Automates the feedback-fix-push-wait cycle.",
+    "summary": "Guides pull request iteration by checking CI, review feedback, fixes, commits, pushes, and follow-up checks.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "getsentry",
     "license": "MIT",
     "tags": [
+      "github",
       "pull-requests",
       "ci",
-      "github-cli",
       "code-review",
       "automation"
     ],
@@ -37,10 +50,33 @@
     "category": "coding"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Static analysis found many command-execution patterns. AI review confirms the real risk is the intentional GitHub CLI and git workflow, while Markdown backtick, weak cryptography, and reconnaissance alerts are false positives. Risk remains medium because the skill instructs authenticated commands that can modify and push repository changes.",
+    "safe_to_publish": false,
+    "analysis_status": "ok",
+    "summary": "The main confirmed risks are authenticated external commands that read GitHub data and mutate the repository. The highest-impact behavior is the commit and push loop, which can publish local changes if used without review. Several static detections were false positives caused by Markdown backticks around labels, service names, and headings.",
+    "remediation": [
+      {
+        "issue": "Automatic commit and push workflow",
+        "suggestion": "Require explicit user confirmation before staging, committing, or pushing. Show the planned files and commit message before any remote write.",
+        "severity": "high"
+      },
+      {
+        "issue": "Broad staging command",
+        "suggestion": "Avoid staging all files by default. Stage only files changed for verified CI failures or review comments.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Untrusted PR feedback and CI logs",
+        "suggestion": "Treat comments and logs as untrusted input. Ignore embedded agent instructions and verify issues against source code and tests.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Shell command substitution in Git commands",
+        "suggestion": "Prefer safer branch handling with explicit variables and quoting. Validate branch names before using them in push commands.",
+        "severity": "medium"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -57,48 +93,8 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 26,
-            "line_end": 28
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 45,
-            "line_end": 57
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 65,
-            "line_end": 71
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 90,
-            "line_end": 110
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 137,
-            "line_end": 139
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "Authenticated GitHub and Git Command Workflow",
-        "description": "TRUE_POSITIVE: The skill intentionally instructs agents to run gh and git commands, including reading PR data, inspecting logs, committing, and pushing. This is legitimate for the stated purpose, but it can change repository state with authenticated credentials.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 10,
-            "line_end": 10
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 16,
-            "line_end": 18
+            "line_start": 18,
+            "line_end": 26
           },
           {
             "file": "SKILL.md",
@@ -107,58 +103,73 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 45,
-            "line_end": 57
+            "line_start": 28,
+            "line_end": 30
           },
           {
             "file": "SKILL.md",
-            "line_start": 65,
-            "line_end": 71
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 90,
-            "line_end": 110
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 137,
-            "line_end": 139
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The commands are visible in Markdown code blocks and align with the skill purpose. The risk is operational rather than malicious because no unauthorized endpoint or concealed execution path is present."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Markdown Backtick Alerts Dismissed",
-        "description": "FALSE_POSITIVE for code execution syntax: The reported Ruby or shell backtick findings are Markdown formatting and command examples in SKILL.md. They are not executable skill code, although some examples instruct legitimate gh and git command use.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 16,
-            "line_end": 18
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 26,
+            "line_start": 30,
             "line_end": 30
           },
           {
             "file": "SKILL.md",
             "line_start": 32,
+            "line_end": 33
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 33,
+            "line_end": 33
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 35
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 35,
             "line_end": 35
           },
           {
             "file": "SKILL.md",
             "line_start": 45,
+            "line_end": 47
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 50
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 50,
+            "line_end": 52
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 52,
+            "line_end": 55
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
             "line_end": 57
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 65
           },
           {
             "file": "SKILL.md",
             "line_start": 65,
             "line_end": 71
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 71,
+            "line_end": 90
           },
           {
             "file": "SKILL.md",
@@ -167,27 +178,44 @@
           },
           {
             "file": "SKILL.md",
+            "line_start": 94,
+            "line_end": 100
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 100,
+            "line_end": 102
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 102,
+            "line_end": 108
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 108,
             "line_end": 110
           },
           {
             "file": "SKILL.md",
-            "line_start": 123,
+            "line_start": 110,
             "line_end": 123
           },
           {
             "file": "SKILL.md",
+            "line_start": 123,
+            "line_end": 137
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 137,
+            "line_end": 138
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 138,
             "line_end": 139
-          }
-        ],
-        "confidence": 0.91,
-        "confidence_reasoning": "The reviewed file is Markdown, and these locations are fenced command examples or inline code spans. No Ruby file, shell script, or hidden execution wrapper was present."
-      },
-      {
-        "title": "Unquoted Branch Command Substitution",
-        "description": "TRUE_POSITIVE with limited impact: The commands use shell substitution to insert the current branch name. This does not show malicious intent, but unusual branch names could cause argument splitting or confusing command behavior.",
-        "locations": [
+          },
           {
             "file": "SKILL.md",
             "line_start": 67,
@@ -197,49 +225,612 @@
             "file": "SKILL.md",
             "line_start": 93,
             "line_end": 93
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 65,
+            "line_end": 71
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 90,
+            "line_end": 94
           }
-        ],
-        "confidence": 0.72,
-        "confidence_reasoning": "The command substitution is explicit and branch-derived. It is a real shell robustness concern, but the surrounding workflow is normal PR automation."
+        ]
+      }
+    ],
+    "static_findings": [
+      {
+        "id": "external_commands:SKILL.md:10:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 10,
+        "line_end": 10,
+        "snippet": "**Requires**: GitHub CLI (`gh`) authenticated and available."
       },
       {
-        "title": "Static Crypto and Reconnaissance Alerts Dismissed",
-        "description": "FALSE_POSITIVE: The weak cryptography and system reconnaissance alerts match ordinary Markdown words and workflow text. No cryptographic operation, host discovery, or data collection behavior appears in the reviewed skill file.",
+        "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 16,
+        "line_end": 18,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 18,
+        "line_end": 26,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 26,
+        "line_end": 28,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 28,
+        "line_end": 30,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 30,
+        "line_end": 30,
+        "snippet": "The `bucket` field categorizes state into: `pass`, `fail`, `pending`, `skipping`, or `cancel`."
+      },
+      {
+        "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 32,
+        "line_end": 33,
+        "snippet": "**Important:** If any of these checks are still `pending`, wait before proceeding:"
+      },
+      {
+        "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 33,
+        "line_end": 33,
+        "snippet": "- `sentry` / `sentry-io`"
+      },
+      {
+        "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 34,
+        "line_end": 35,
+        "snippet": "- `codecov`"
+      },
+      {
+        "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 35,
+        "line_end": 35,
+        "snippet": "- `cursor` / `bugbot` / `seer`"
+      },
+      {
+        "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 45,
+        "line_end": 47,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 47,
+        "line_end": 50,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 50,
+        "line_end": 52,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 52,
+        "line_end": 55,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 55,
+        "line_end": 57,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 57,
+        "line_end": 65,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 65,
+        "line_end": 71,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 71,
+        "line_end": 90,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:90:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 90,
+        "line_end": 94,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 94,
+        "line_end": 100,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 100,
+        "line_end": 102,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:102:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 102,
+        "line_end": 108,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 108,
+        "line_end": 110,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:110:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 110,
+        "line_end": 123,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:123:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 123,
+        "line_end": 137,
+        "snippet": "- All CI checks are green (`bucket: pass`)"
+      },
+      {
+        "id": "external_commands:SKILL.md:137:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 137,
+        "line_end": 138,
+        "snippet": "- Use `gh pr checks --required` to focus only on required checks"
+      },
+      {
+        "id": "external_commands:SKILL.md:138:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 138,
+        "line_end": 139,
+        "snippet": "- Use `gh run view <run-id> --verbose` to see all job steps, not just failures"
+      },
+      {
+        "id": "external_commands:SKILL.md:67:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "SKILL.md",
+        "line_start": 67,
+        "line_end": 67,
+        "snippet": "gh run list --branch $(git branch --show-current) --limit 5 --json databaseId,name,status,conclusion"
+      },
+      {
+        "id": "external_commands:SKILL.md:93:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "SKILL.md",
+        "line_start": 93,
+        "line_end": 93,
+        "snippet": "git push origin $(git branch --show-current)"
+      },
+      {
+        "id": "external_commands:SKILL.md:65:template-literal-with-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Template literal with command substitution",
+        "file": "SKILL.md",
+        "line_start": 65,
+        "line_end": 71,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:90:template-literal-with-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Template literal with command substitution",
+        "file": "SKILL.md",
+        "line_start": 90,
+        "line_end": 94,
+        "snippet": "```bash"
+      },
+      {
+        "id": "blocker:SKILL.md:82:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "SKILL.md",
+        "line_start": 82,
+        "line_end": 82,
+        "snippet": "4. **Skip invalid feedback** - If the concern is not legitimate, move on"
+      },
+      {
+        "id": "blocker:SKILL.md:84:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "SKILL.md",
+        "line_start": 84,
+        "line_end": 84,
+        "snippet": "### Step 6: Address Valid Issues"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "external_commands:SKILL.md:10:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "This line uses Markdown inline backticks around the tool name gh. It states a prerequisite and does not execute or directly request a command."
+      },
+      {
+        "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "reason": "The Markdown instruction asks the agent to run gh pr view against the current repository. This is legitimate PR tooling, but it executes an authenticated external command.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This range is Markdown fence closure and prose between steps. It does not contain an executable command instruction in the cited lines."
+      },
+      {
+        "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "reason": "The block instructs the agent to run gh pr checks to inspect CI status. It is expected for this skill, but it still invokes an authenticated external command.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.92,
+        "reason": "This range is a Markdown fence closure and explanatory text. The backticks mark formatting, not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This line uses inline backticks for status labels such as pass and fail. It does not ask the agent to execute a command."
+      },
+      {
+        "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This range uses inline backticks for the pending status label. It is explanatory text with no command execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line uses inline backticks for service names. It does not contain a command or executable code."
+      },
+      {
+        "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This range lists bot or service names in Markdown code formatting. It does not instruct command execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line uses inline backticks around bot names. It is not shell or Ruby execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
+        "verdict": "confirmed",
+        "confidence": 0.84,
+        "reason": "The skill directs the agent to run gh pr view for reviews and comments. This reads pull request data through an authenticated GitHub CLI command.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.89,
+        "reason": "This range closes a command block and introduces the next section. It contains formatting, not an executable command."
+      },
+      {
+        "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
+        "verdict": "confirmed",
+        "confidence": 0.84,
+        "reason": "The instruction uses gh api to read inline pull request comments. This is a real external command and accesses remote GitHub data.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.89,
+        "reason": "This range closes a command block and introduces PR conversation comments. It does not include the external command itself."
+      },
+      {
+        "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
+        "verdict": "confirmed",
+        "confidence": 0.84,
+        "reason": "The instruction uses gh api to read issue conversation comments. This is a real external command and can ingest untrusted remote feedback.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.89,
+        "reason": "This range closes a command block and contains prose about bot comments. The cited text does not execute commands."
+      },
+      {
+        "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
+        "verdict": "confirmed",
+        "confidence": 0.88,
+        "reason": "The command block runs gh run list and gh run view to inspect workflow logs. These are real external commands that access remote CI data.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This range closes a command block and describes validation steps. It has no shell command in the cited lines."
+      },
+      {
+        "id": "external_commands:SKILL.md:90:ruby-shell-backtick-execution",
+        "verdict": "confirmed",
+        "confidence": 0.94,
+        "reason": "The block instructs git add, git commit, and git push. This mutates the workspace and publishes commits to a remote branch, so it is a higher-impact command sequence.",
+        "severity": "high"
+      },
+      {
+        "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This range closes the git command block and describes waiting behavior. It does not contain an executable command instruction."
+      },
+      {
+        "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "reason": "The block instructs gh pr checks --watch to wait on CI. This is a real external command using authenticated GitHub context.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:102:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.89,
+        "reason": "This range closes a command block and explains exit codes. The backticks are Markdown formatting, not code execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "reason": "The block instructs gh pr checks piped into jq for manual polling. This executes external commands and processes live pull request status.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:110:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This range closes a command block and describes loop conditions. It does not include a command in the cited lines."
+      },
+      {
+        "id": "external_commands:SKILL.md:123:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This line uses inline backticks for the bucket pass status. It is a status label, not an executable command."
+      },
+      {
+        "id": "external_commands:SKILL.md:137:ruby-shell-backtick-execution",
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The tip instructs use of gh pr checks --required. It is a legitimate helper command, but still directs execution of an external tool.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:138:ruby-shell-backtick-execution",
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The tip instructs use of gh run view with verbose output. This executes an external command and reads detailed CI job information.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:67:shell-command-substitution",
+        "verdict": "confirmed",
+        "confidence": 0.9,
+        "reason": "The command embeds git branch --show-current inside a gh command. Command substitution is real shell execution, even though the source command is local and narrow.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:93:shell-command-substitution",
+        "verdict": "confirmed",
+        "confidence": 0.94,
+        "reason": "The command embeds git branch --show-current in a git push operation. This combines shell substitution with a remote write operation.",
+        "severity": "high"
+      },
+      {
+        "id": "external_commands:SKILL.md:65:template-literal-with-command-substitution",
+        "verdict": "confirmed",
+        "confidence": 0.88,
+        "reason": "The flagged block contains command substitution inside an external gh workflow command. The usage is visible and operational, not just prose.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:90:template-literal-with-command-substitution",
+        "verdict": "confirmed",
+        "confidence": 0.93,
+        "reason": "The flagged block contains a git push command with command substitution. It can publish changes to a remote branch, which raises impact.",
+        "severity": "high"
+      },
+      {
+        "id": "blocker:SKILL.md:82:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The line tells the agent to skip invalid review feedback. It is not system reconnaissance and does not gather host or environment information."
+      },
+      {
+        "id": "blocker:SKILL.md:84:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The line is a section heading for addressing valid issues. It is not system reconnaissance or a blocker pattern."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Autonomous Remote Repository Mutation",
+        "description": "The workflow tells the agent to stage changes, commit, push, and repeat until checks pass. Without explicit confirmation, it can publish unintended edits or local work.",
+        "severity": "high",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
+            "line_start": 88,
+            "line_end": 94
           },
           {
             "file": "SKILL.md",
-            "line_start": 54,
-            "line_end": 54
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 82,
-            "line_end": 84
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 92,
-            "line_end": 92
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 139,
-            "line_end": 139
+            "line_start": 112,
+            "line_end": 118
           }
         ],
-        "confidence": 0.94,
-        "confidence_reasoning": "Manual review found only descriptive prose at these locations. There is no hash, cipher, network probe, or system enumeration code in SKILL.md."
+        "confidence": 0.91,
+        "confidence_reasoning": "The cited lines directly instruct commit, push, and repeated iteration. The risk is contextual because it concerns autonomous workflow impact rather than a single command pattern."
+      },
+      {
+        "title": "Untrusted PR Feedback and CI Logs Influence Edits",
+        "description": "The skill instructs the agent to read review comments, bot comments, and CI logs before changing code. It does not warn the agent to ignore embedded instructions from those untrusted sources.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 57
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 61,
+            "line_end": 73
+          }
+        ],
+        "confidence": 0.72,
+        "confidence_reasoning": "The skill clearly ingests remote comments and logs, and those sources can contain adversarial text. The validation steps reduce but do not eliminate this risk."
       }
     ],
-    "dangerous_patterns": [
+    "critical_findings": [],
+    "high_findings": [
       {
-        "title": "Repository-Modifying Shell Commands",
-        "description": "The skill includes git add, git commit, and git push instructions. These commands are expected, but marketplace users should understand that the workflow can publish code changes.",
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
         "locations": [
           {
             "file": "SKILL.md",
@@ -247,157 +838,417 @@
             "line_end": 94
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The repository-modifying commands are directly present in the skill. Their purpose is legitimate, but they create meaningful publication risk if used without review."
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.94,
+        "confidence_reasoning": "The block instructs git add, git commit, and git push. This mutates the workspace and publishes commits to a remote branch, so it is a higher-impact command sequence."
       },
       {
-        "title": "Authenticated GitHub CLI Access",
-        "description": "The skill requires an authenticated gh installation and uses it to read PRs, checks, comments, and action logs. This grants access according to the user account permissions.",
+        "title": "Shell command substitution",
+        "description": "git push origin $(git branch --show-current)",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 10,
-            "line_end": 10
+            "line_start": 93,
+            "line_end": 93
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.94,
+        "confidence_reasoning": "The command embeds git branch --show-current in a git push operation. This combines shell substitution with a remote write operation."
+      },
+      {
+        "title": "Template literal with command substitution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 90,
+            "line_end": 94
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.93,
+        "confidence_reasoning": "The flagged block contains a git push command with command substitution. It can publish changes to a remote branch, which raises impact."
+      },
+      {
+        "title": "Autonomous Remote Repository Mutation",
+        "description": "The workflow tells the agent to stage changes, commit, push, and repeat until checks pass. Without explicit confirmation, it can publish unintended edits or local work.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 88,
+            "line_end": 94
           },
           {
             "file": "SKILL.md",
+            "line_start": 112,
+            "line_end": 118
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.91,
+        "confidence_reasoning": "The cited lines directly instruct commit, push, and repeated iteration. The risk is contextual because it concerns autonomous workflow impact rather than a single command pattern."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
             "line_start": 16,
+            "line_end": 18
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The Markdown instruction asks the agent to run gh pr view against the current repository. This is legitimate PR tooling, but it executes an authenticated external command."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 26,
+            "line_end": 28
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The block instructs the agent to run gh pr checks to inspect CI status. It is expected for this skill, but it still invokes an authenticated external command."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 45,
+            "line_end": 47
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.84,
+        "confidence_reasoning": "The skill directs the agent to run gh pr view for reviews and comments. This reads pull request data through an authenticated GitHub CLI command."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 50,
+            "line_end": 52
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.84,
+        "confidence_reasoning": "The instruction uses gh api to read inline pull request comments. This is a real external command and accesses remote GitHub data."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 57
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.84,
+        "confidence_reasoning": "The instruction uses gh api to read issue conversation comments. This is a real external command and can ingest untrusted remote feedback."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 65,
+            "line_end": 71
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.88,
+        "confidence_reasoning": "The command block runs gh run list and gh run view to inspect workflow logs. These are real external commands that access remote CI data."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 100,
+            "line_end": 102
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The block instructs gh pr checks --watch to wait on CI. This is a real external command using authenticated GitHub context."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 108,
+            "line_end": 110
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The block instructs gh pr checks piped into jq for manual polling. This executes external commands and processes live pull request status."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "- Use `gh pr checks --required` to focus only on required checks",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 137,
+            "line_end": 138
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The tip instructs use of gh pr checks --required. It is a legitimate helper command, but still directs execution of an external tool."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "- Use `gh run view <run-id> --verbose` to see all job steps, not just failures",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 138,
+            "line_end": 139
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The tip instructs use of gh run view with verbose output. This executes an external command and reads detailed CI job information."
+      },
+      {
+        "title": "Shell command substitution",
+        "description": "gh run list --branch $(git branch --show-current) --limit 5 --json databaseId,name,status,conclusion",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 67
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.9,
+        "confidence_reasoning": "The command embeds git branch --show-current inside a gh command. Command substitution is real shell execution, even though the source command is local and narrow."
+      },
+      {
+        "title": "Template literal with command substitution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 65,
+            "line_end": 71
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.88,
+        "confidence_reasoning": "The flagged block contains command substitution inside an external gh workflow command. The usage is visible and operational, not just prose."
+      },
+      {
+        "title": "Untrusted PR Feedback and CI Logs Influence Edits",
+        "description": "The skill instructs the agent to read review comments, bot comments, and CI logs before changing code. It does not warn the agent to ignore embedded instructions from those untrusted sources.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
             "line_end": 57
           },
           {
             "file": "SKILL.md",
-            "line_start": 100,
-            "line_end": 110
+            "line_start": 61,
+            "line_end": 73
           }
         ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The GitHub CLI dependency and commands are explicit. No abusive API use is shown, but authenticated repository access is a real capability."
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.72,
+        "confidence_reasoning": "The skill clearly ingests remote comments and logs, and those sources can contain adversarial text. The validation steps reduce but do not eliminate this risk."
       }
     ],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 1,
     "total_lines": 140,
     "audit_model": "codex",
-    "audited_at": "2026-06-30T02:18:06.850Z",
-    "risk_factors": [
-      "external_commands"
-    ]
+    "audited_at": "2026-07-05T15:18:33.252Z",
+    "agent_auto_install_policy": "confirmation_required",
+    "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Iterate Pull Requests Until CI Passes",
-    "value_statement": "Pull request fixes can stall when CI failures and review comments arrive in several places. This skill guides Claude, Codex, or Claude Code through a repeatable fix and verification loop.",
+    "value_statement": "Pull request fixes often require repeated CI checks, review updates, and careful commits. This skill guides Claude, Codex, or Claude Code through a controlled feedback, fix, push, and wait cycle.",
     "seo_keywords": [
-      "Claude pull request automation",
-      "Codex PR iteration",
-      "Claude Code CI fixes",
-      "GitHub CLI workflow",
-      "pull request checks",
-      "CI failure repair",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "pull request automation",
+      "GitHub CLI",
+      "CI failure fixing",
       "code review feedback",
-      "PR automation skill",
-      "GitHub Actions logs",
-      "AI coding assistant"
+      "GitHub Actions",
+      "PR iteration",
+      "developer workflow"
     ],
     "actual_capabilities": [
-      "Identifies the current pull request with GitHub CLI.",
-      "Checks CI status before reviewing comments.",
-      "Collects review, inline, issue, and bot feedback.",
-      "Reads failed GitHub Actions logs before making changes.",
-      "Guides targeted fixes, commits, pushes, and CI waiting.",
-      "Defines stop conditions for repeated failures or unclear feedback."
+      "Identifies the pull request for the current branch.",
+      "Checks CI and GitHub Actions status before reviewing feedback.",
+      "Collects review, inline, and bot comments from the pull request.",
+      "Reads failed workflow logs to diagnose failing checks.",
+      "Guides targeted fixes, commits, pushes, and follow-up CI checks."
     ],
     "limitations": [
-      "Requires authenticated GitHub CLI access in the repository.",
-      "Does not replace human judgment for unclear review requests.",
-      "Can push code changes if the agent is allowed to run commands.",
-      "Focused on GitHub pull requests and GitHub Actions workflows."
+      "Requires an authenticated GitHub CLI and a local Git repository.",
+      "Requires an existing pull request for the current branch.",
+      "Can change code and push commits, so users should review changes.",
+      "Does not replace human judgment for unclear review feedback."
     ],
     "use_cases": [
       {
-        "title": "Repair CI Failures",
-        "description": "A developer can ask the agent to inspect failed checks, read logs, fix valid issues, and wait for new results.",
-        "target_user": "Software developer"
+        "title": "Fix a Developer Pull Request",
+        "description": "A developer can diagnose failing checks, address valid review comments, and prepare a focused follow-up commit.",
+        "target_user": "Application developer"
       },
       {
-        "title": "Resolve Review Feedback",
-        "description": "A maintainer can gather human and bot comments, filter invalid feedback, and apply focused changes.",
+        "title": "Triage CI Failures",
+        "description": "A maintainer can inspect check status and failed logs before deciding which failures need code changes.",
         "target_user": "Repository maintainer"
       },
       {
-        "title": "Manage Release PR Readiness",
-        "description": "A release engineer can repeat checks until required statuses pass or a clear blocker needs escalation.",
-        "target_user": "Release engineer"
+        "title": "Prepare Review Updates",
+        "description": "A team member can gather human and bot feedback, verify it, and organize the next PR update.",
+        "target_user": "Code reviewer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Check This Pull Request",
-        "scenario": "Beginner request for a simple status review.",
-        "prompt": "Use the iterate-pr skill to inspect the current pull request. Report CI status, review feedback, and any next action before changing files."
+        "title": "Check My Pull Request",
+        "scenario": "Beginner diagnostic run",
+        "prompt": "Use iterate-pr on the current branch. Identify the pull request, check CI, and report the first actionable failure before editing."
       },
       {
-        "title": "Fix Failed Checks",
-        "scenario": "Intermediate request for CI repair.",
-        "prompt": "Use iterate-pr to read failed check logs, identify real failures, make minimal fixes, and wait for CI after pushing."
+        "title": "Fix Review Feedback",
+        "scenario": "Review cleanup",
+        "prompt": "Use iterate-pr to gather review comments and bot comments. Verify each item, then fix only valid feedback."
       },
       {
-        "title": "Address Reviews and Bots",
-        "scenario": "Intermediate request covering comments and automated feedback.",
-        "prompt": "Use iterate-pr to gather human reviews, inline comments, and bot comments. Fix valid issues and explain any feedback you skip."
+        "title": "Resolve CI Failures Safely",
+        "scenario": "CI repair",
+        "prompt": "Use iterate-pr to inspect failed CI logs. Make minimal fixes and ask before committing or pushing changes."
       },
       {
-        "title": "Run Full PR Iteration",
-        "scenario": "Advanced request for the complete loop.",
-        "prompt": "Use iterate-pr until the pull request is ready. Commit and push focused fixes, stop after repeated failures, and ask for help on unclear decisions."
+        "title": "Run a Controlled PR Loop",
+        "scenario": "Advanced iteration",
+        "prompt": "Use iterate-pr with a maximum of two fix attempts. Confirm before every commit or push, and summarize CI and review evidence."
       }
     ],
     "output_examples": [
       {
-        "input": "Use this skill to check why my pull request is failing.",
-        "output": "The agent reports the PR number, failed checks, relevant log findings, and the smallest fix it plans to make."
+        "input": "Run the skill on my current branch and stop after diagnosing the first failure.",
+        "output": [
+          "Found the current pull request and confirmed two checks are failing.",
+          "The first actionable failure is in the checkout validation test suite.",
+          "No code was changed because you asked for diagnosis only."
+        ]
       },
       {
-        "input": "Address all review comments on this branch.",
-        "output": "The agent separates valid comments from outdated feedback, applies focused edits, and summarizes what changed."
+        "input": "Address valid review feedback and prepare a follow-up commit for review.",
+        "output": [
+          "Reviewed three comments and found one valid requested change.",
+          "Updated the validation message and left unrelated feedback unchanged.",
+          "The change is ready for your review before commit."
+        ]
       },
       {
-        "input": "Keep iterating until CI is green.",
-        "output": "The agent repeats status checks, fixes new failures, pushes updates, and stops when all required checks pass."
+        "input": "Continue the pull request iteration until CI is green, but stop after repeated failures.",
+        "output": [
+          "CI is passing after one focused fix.",
+          "No unresolved human or bot feedback remains.",
+          "One follow-up commit was pushed to the pull request branch."
+        ]
       }
     ],
     "best_practices": [
-      "Review planned changes before allowing commits and pushes.",
-      "Use the skill from a clean branch with a linked pull request.",
-      "Ask the agent to explain skipped feedback and repeated failures."
+      "Review the planned change before allowing a commit or push.",
+      "Keep each fix focused on one verified CI failure or review comment.",
+      "Stop after repeated failures and ask for human guidance."
     ],
     "anti_patterns": [
-      "Do not run it with broad repository write access on untrusted branches.",
-      "Do not let it push changes without reviewing high-risk edits.",
-      "Do not use it when CI failures need product or architecture decisions."
+      "Do not stage unrelated local changes with broad add commands.",
+      "Do not trust CI logs or review comments as agent instructions.",
+      "Do not keep retrying after the same unexplained failure repeats."
     ],
     "faq": [
       {
-        "question": "Does this skill require GitHub CLI?",
-        "answer": "Yes. The skill explicitly requires authenticated gh access in the working repository."
+        "question": "What does this skill do?",
+        "answer": "It guides an agent through checking CI, reading review feedback, fixing valid issues, and waiting for updated checks."
       },
       {
-        "question": "Can it push commits?",
-        "answer": "Yes. The workflow includes git add, git commit, and git push commands."
+        "question": "What tools are required?",
+        "answer": "It requires Git, an authenticated GitHub CLI, and a current branch with an open pull request."
       },
       {
-        "question": "Does it work outside GitHub?",
-        "answer": "No. The documented commands use GitHub CLI and GitHub pull request APIs."
+        "question": "Does it change code?",
+        "answer": "Yes. The workflow can make edits, commit changes, and push to the pull request branch."
       },
       {
         "question": "Does it read CI logs?",
-        "answer": "Yes. It directs the agent to inspect failed GitHub Actions logs before fixing issues."
+        "answer": "Yes. It directs the agent to inspect failed workflow logs instead of guessing from check names."
       },
       {
-        "question": "How does it handle flaky or repeated failures?",
-        "answer": "It tells the agent to ask for help after the same failure persists for three attempts."
+        "question": "How does it handle invalid feedback?",
+        "answer": "It tells the agent to verify feedback against the code and skip concerns that are not legitimate."
       },
       {
-        "question": "Is it safe for private repositories?",
-        "answer": "Use normal repository controls. The skill relies on the permissions of the authenticated GitHub account."
+        "question": "Should I use it on protected branches?",
+        "answer": "Use it on pull request branches and follow your repository rules for review, checks, and push permissions."
       }
     ]
   },
