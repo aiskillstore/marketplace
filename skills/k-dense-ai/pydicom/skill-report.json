@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-30T05:29:34.957Z",
+    "generated_at": "2026-07-05T18:05:52.727Z",
     "slug": "k-dense-ai-pydicom",
     "source_url": "https://github.com/K-Dense-AI/claude-scientific-skills/tree/main/scientific-skills/pydicom",
     "source_ref": "main",
@@ -9,22 +9,35 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "742fa0a255d0398213258ce97d46fe77f996df8005642cf93bb076703f6de936",
-    "tree_hash": "91f2424c28f2f934450569a019c5f872b9b0bb148dbd7ad6cd9e796cd050a7aa"
+    "tree_hash": "6c2d15f7aecb93a37c33a3b25ff30fdfb6c1c17acb7420c836d4ce5a638b8c61",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "pydicom",
-    "description": "Guidance and helper scripts for reading, inspecting, anonymizing, converting, and writing DICOM medical imaging files with pydicom.",
-    "summary": "Work with DICOM metadata, pixel data, transfer syntaxes, and local conversion workflows using pydicom.",
+    "description": "Guidance for using Python pydicom to read, write, convert, anonymize, and inspect DICOM medical imaging files.",
+    "summary": "Use pydicom for DICOM metadata, pixel data, conversion, anonymization, and transfer syntax workflows.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "K-Dense-AI",
     "license": "https://github.com/pydicom/pydicom/blob/main/LICENSE",
     "tags": [
-      "dicom",
-      "medical-imaging",
+      "DICOM",
       "pydicom",
-      "radiology",
-      "healthcare-data"
+      "medical-imaging",
+      "metadata",
+      "anonymization"
     ],
     "supported_tools": [
       "claude",
@@ -32,171 +45,1538 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
-      "filesystem"
+      "filesystem",
+      "external_commands",
+      "network"
     ],
     "category": "data"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Static analysis reported many high-risk patterns, but review shows most are false positives from Markdown backticks, DICOM UID values, and documentation URLs. No evidence found of command execution, network exfiltration, credential harvesting, or malicious prompt injection. The meaningful risk is privacy-related: the included anonymization and metadata scripts can expose PHI if users treat them as complete clinical de-identification tools.",
-    "risk_factor_evidence": [
+    "safe_to_publish": false,
+    "analysis_status": "ok",
+    "summary": "Most static findings are false positives caused by Markdown code fences, DICOM terms, and documentation URLs. I found no hidden shell execution, device-file access, or network reconnaissance in the cited lines. Two semantic privacy concerns remain: metadata export can expose PHI, and the skill promotes an external hosted platform for complex medical data workflows.",
+    "remediation": [
       {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "scripts/anonymize_dicom.py",
-            "line_start": 1,
-            "line_end": 1
-          },
-          {
-            "file": "scripts/dicom_to_image.py",
-            "line_start": 1,
-            "line_end": 1
-          },
-          {
-            "file": "scripts/extract_metadata.py",
-            "line_start": 1,
-            "line_end": 1
-          }
-        ]
+        "issue": "PHI can be exported by metadata extraction.",
+        "suggestion": "Add a redaction mode, warnings, and a default safe field list before printing or writing patient and study identifiers.",
+        "severity": "high"
       },
+      {
+        "issue": "External K-Dense Web promotion lacks privacy guardrails.",
+        "suggestion": "Remove the promotional instruction or require explicit consent and privacy review before suggesting external services for DICOM data.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Helper scripts write user-selected output paths.",
+        "suggestion": "Warn before overwriting existing files and document that outputs may contain PHI.",
+        "severity": "medium"
+      }
+    ],
+    "risk_factor_evidence": [
       {
         "factor": "filesystem",
         "evidence": [
           {
-            "file": "scripts/anonymize_dicom.py",
-            "line_start": 82,
-            "line_end": 83
-          },
-          {
-            "file": "scripts/dicom_to_image.py",
-            "line_start": 100,
-            "line_end": 101
-          },
-          {
             "file": "scripts/extract_metadata.py",
-            "line_start": 159,
-            "line_end": 162
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "Incomplete DICOM De-identification Guidance",
-        "description": "The anonymization helper removes or replaces a fixed list of top-level PHI tags and leaves UID anonymization commented out. DICOM files can contain PHI in private tags, sequences, UIDs, free-text fields, and burned-in pixel data, so users may share data that is not fully de-identified.",
-        "locations": [
-          {
-            "file": "scripts/anonymize_dicom.py",
-            "line_start": 21,
-            "line_end": 37
-          },
-          {
-            "file": "scripts/anonymize_dicom.py",
-            "line_start": 57,
-            "line_end": 83
+            "line_start": 161,
+            "line_end": 161
           },
           {
             "file": "SKILL.md",
-            "line_start": 186,
-            "line_end": 224
-          }
-        ],
-        "severity": "medium",
-        "verdict": "true_positive_semantic",
-        "confidence": 0.86,
-        "confidence_reasoning": "The code clearly performs partial PHI removal and explicitly leaves UID replacement optional. The risk is privacy leakage from incomplete de-identification, not malicious behavior."
-      },
-      {
-        "title": "Metadata Export Can Write Sensitive Patient Data",
-        "description": "The metadata extraction script serializes DICOM file metadata, including patient and study fields, and can write it to a user-selected output file. This is expected functionality, but it needs a privacy warning because metadata may contain PHI.",
-        "locations": [
-          {
-            "file": "scripts/extract_metadata.py",
-            "line_start": 102,
-            "line_end": 118
+            "line_start": 428,
+            "line_end": 428
           },
           {
-            "file": "scripts/extract_metadata.py",
-            "line_start": 159,
-            "line_end": 162
+            "file": "SKILL.md",
+            "line_start": 431,
+            "line_end": 431
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 412,
+            "line_end": 412
           }
-        ],
-        "severity": "medium",
-        "verdict": "true_positive_contextual",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script intentionally extracts broad DICOM metadata and writes it locally when requested. Legitimate use is clear, but PHI exposure is plausible in normal use."
-      }
-    ],
-    "low_findings": [
+        ]
+      },
       {
-        "title": "Static Command Execution Findings Are Markdown Examples",
-        "description": "The reported Ruby or shell backtick execution hits are Markdown code fences and inline code examples for installing packages or using pydicom APIs. No evidence found that the skill executes shell commands automatically.",
-        "locations": [
+        "factor": "external_commands",
+        "evidence": [
           {
             "file": "SKILL.md",
             "line_start": 32,
             "line_end": 37
           },
           {
-            "file": "references/common_tags.md",
-            "line_start": 195,
+            "file": "SKILL.md",
+            "line_start": 37,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 44
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 44,
+            "line_end": 50
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 50,
+            "line_end": 52
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 52,
+            "line_end": 65
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 65,
+            "line_end": 68
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 68,
+            "line_end": 68
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 69,
+            "line_end": 69
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 70,
+            "line_end": 71
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 71,
+            "line_end": 71
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 77,
+            "line_end": 105
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 105,
+            "line_end": 109
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 109,
+            "line_end": 118
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 118,
+            "line_end": 122
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 122,
+            "line_end": 130
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 130,
+            "line_end": 134
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 134,
+            "line_end": 136
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 136,
+            "line_end": 152
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 152,
+            "line_end": 154
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 154,
+            "line_end": 160
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 160,
+            "line_end": 184
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 184,
+            "line_end": 190
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 190,
             "line_end": 222
           },
           {
-            "file": "references/transfer_syntaxes.md",
-            "line_start": 20,
-            "line_end": 24
-          }
-        ],
-        "severity": "low",
-        "verdict": "false_positive",
-        "confidence": 0.94,
-        "confidence_reasoning": "The cited locations are documentation snippets, not executable skill code. The actual Python scripts use argparse and pydicom APIs without subprocess or shell execution."
-      },
-      {
-        "title": "Static Network And Weak Crypto Findings Are DICOM References",
-        "description": "The hardcoded IP and weak cryptography alerts correspond to DICOM UID numeric identifiers, compression names, or documentation URLs. No evidence found of outbound network requests or cryptographic security decisions.",
-        "locations": [
-          {
-            "file": "references/transfer_syntaxes.md",
-            "line_start": 14,
-            "line_end": 30
+            "file": "SKILL.md",
+            "line_start": 222,
+            "line_end": 224
           },
           {
-            "file": "references/transfer_syntaxes.md",
-            "line_start": 350,
-            "line_end": 352
+            "file": "SKILL.md",
+            "line_start": 224,
+            "line_end": 230
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 230,
+            "line_end": 276
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 276,
+            "line_end": 282
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 282,
+            "line_end": 300
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 300,
+            "line_end": 303
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 303,
+            "line_end": 304
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 304,
+            "line_end": 305
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 305,
+            "line_end": 306
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 306,
+            "line_end": 307
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 307,
+            "line_end": 309
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 309,
+            "line_end": 315
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 315,
+            "line_end": 333
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 333,
+            "line_end": 339
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 339,
+            "line_end": 364
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 364,
+            "line_end": 368
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 368,
+            "line_end": 373
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 373,
+            "line_end": 375
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 375,
+            "line_end": 380
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 380,
+            "line_end": 383
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 383,
+            "line_end": 388
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 388,
+            "line_end": 391
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 391,
+            "line_end": 395
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 395,
+            "line_end": 403
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 403,
+            "line_end": 406
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 406,
+            "line_end": 406
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 409,
+            "line_end": 409
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 416,
+            "line_end": 416
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 417,
+            "line_end": 417
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
           },
           {
             "file": "SKILL.md",
             "line_start": 427,
-            "line_end": 431
-          }
-        ],
-        "severity": "low",
-        "verdict": "false_positive",
-        "confidence": 0.91,
-        "confidence_reasoning": "The numeric dotted strings are standard DICOM transfer syntax UIDs, not IP addresses. The URLs are documentation references and there is no code that performs network access."
-      },
-      {
-        "title": "Local File Writes Are User-Directed Outputs",
-        "description": "The filesystem findings are expected local outputs for anonymized DICOM files, converted images, and extracted metadata. The scripts do not hide writes or target sensitive system paths, but users should choose output paths carefully.",
-        "locations": [
-          {
-            "file": "scripts/anonymize_dicom.py",
-            "line_start": 82,
-            "line_end": 83
+            "line_end": 427
           },
           {
-            "file": "scripts/dicom_to_image.py",
-            "line_start": 100,
-            "line_end": 101
+            "file": "SKILL.md",
+            "line_start": 428,
+            "line_end": 428
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 429,
+            "line_end": 429
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 430,
+            "line_end": 430
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 431,
+            "line_end": 431
+          }
+        ]
+      }
+    ],
+    "static_findings": [
+      {
+        "id": "blocker:references/transfer_syntaxes.md:184:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/transfer_syntaxes.md",
+        "line_start": 184,
+        "line_end": 184,
+        "snippet": "ts_uid = ds.file_meta.TransferSyntaxUID"
+      },
+      {
+        "id": "blocker:references/transfer_syntaxes.md:102:network-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "Network reconnaissance",
+        "file": "references/transfer_syntaxes.md",
+        "line_start": 102,
+        "line_end": 103,
+        "snippet": "- Better compression than JPEG Lossless"
+      },
+      {
+        "id": "blocker:scripts/anonymize_dicom.py:7:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/anonymize_dicom.py",
+        "line_start": 7,
+        "line_end": 7,
+        "snippet": "python anonymize_dicom.py input.dcm output.dcm --patient-id ANON001"
+      },
+      {
+        "id": "blocker:scripts/anonymize_dicom.py:64:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/anonymize_dicom.py",
+        "line_start": 64,
+        "line_end": 65,
+        "snippet": "ds.PatientID = patient_id"
+      },
+      {
+        "id": "blocker:scripts/anonymize_dicom.py:98:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/anonymize_dicom.py",
+        "line_start": 98,
+        "line_end": 98,
+        "snippet": "python anonymize_dicom.py input.dcm output.dcm --patient-id ANON001"
+      },
+      {
+        "id": "blocker:scripts/anonymize_dicom.py:99:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/anonymize_dicom.py",
+        "line_start": 99,
+        "line_end": 99,
+        "snippet": "python anonymize_dicom.py input.dcm output.dcm --patient-id ANON001 --patient-name \"Anonymous^Patien"
+      },
+      {
+        "id": "filesystem:scripts/extract_metadata.py:161:python-file-write-append",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Python file write/append",
+        "file": "scripts/extract_metadata.py",
+        "line_start": 161,
+        "line_end": 161,
+        "snippet": "with open(args.output, 'w') as f:"
+      },
+      {
+        "id": "sensitive:scripts/extract_metadata.py:110:certificate-key-files",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Certificate/key files",
+        "file": "scripts/extract_metadata.py",
+        "line_start": 110,
+        "line_end": 110,
+        "snippet": "metadata['file_meta'][elem.keyword] = format_value(elem.value)"
+      },
+      {
+        "id": "sensitive:scripts/extract_metadata.py:116:certificate-key-files",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Certificate/key files",
+        "file": "scripts/extract_metadata.py",
+        "line_start": 116,
+        "line_end": 116,
+        "snippet": "metadata['dataset'][elem.keyword] = format_value(elem.value)"
+      },
+      {
+        "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 32,
+        "line_end": 37,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 37,
+        "line_end": 41,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 41,
+        "line_end": 44,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 44,
+        "line_end": 50,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 50,
+        "line_end": 52,
+        "snippet": "Read a DICOM file using `pydicom.dcmread()`:"
+      },
+      {
+        "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 52,
+        "line_end": 65,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 65,
+        "line_end": 68,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 68,
+        "line_end": 68,
+        "snippet": "- `dcmread()` returns a `Dataset` object"
+      },
+      {
+        "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 69,
+        "line_end": 69,
+        "snippet": "- Access data elements using attribute notation (e.g., `ds.PatientName`) or tag notation (e.g., `ds["
+      },
+      {
+        "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 70,
+        "line_end": 71,
+        "snippet": "- Use `ds.file_meta` to access file metadata like Transfer Syntax UID"
+      },
+      {
+        "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 71,
+        "line_end": 71,
+        "snippet": "- Handle missing attributes with `getattr(ds, 'AttributeName', default_value)` or `hasattr(ds, 'Attr"
+      },
+      {
+        "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 77,
+        "line_end": 105,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:105:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 105,
+        "line_end": 109,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:109:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 109,
+        "line_end": 118,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:118:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 118,
+        "line_end": 122,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:122:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 122,
+        "line_end": 130,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:130:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 130,
+        "line_end": 134,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 134,
+        "line_end": 136,
+        "snippet": "Use the provided `dicom_to_image.py` script or convert manually:"
+      },
+      {
+        "id": "external_commands:SKILL.md:136:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 136,
+        "line_end": 152,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:152:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 152,
+        "line_end": 154,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:154:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 154,
+        "line_end": 160,
+        "snippet": "Use the script: `python scripts/dicom_to_image.py input.dcm output.png`"
+      },
+      {
+        "id": "external_commands:SKILL.md:160:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 160,
+        "line_end": 184,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:184:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 184,
+        "line_end": 190,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:190:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 190,
+        "line_end": 222,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:222:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 222,
+        "line_end": 224,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:224:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 224,
+        "line_end": 230,
+        "snippet": "Use the provided script: `python scripts/anonymize_dicom.py input.dcm output.dcm`"
+      },
+      {
+        "id": "external_commands:SKILL.md:230:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 230,
+        "line_end": 276,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:276:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 276,
+        "line_end": 282,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:282:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 282,
+        "line_end": 300,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:300:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 300,
+        "line_end": 303,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:303:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 303,
+        "line_end": 304,
+        "snippet": "- `ExplicitVRLittleEndian` - Uncompressed, most common"
+      },
+      {
+        "id": "external_commands:SKILL.md:304:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 304,
+        "line_end": 305,
+        "snippet": "- `JPEGBaseline8Bit` - JPEG lossy compression"
+      },
+      {
+        "id": "external_commands:SKILL.md:305:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 305,
+        "line_end": 306,
+        "snippet": "- `JPEGLossless` - JPEG lossless compression"
+      },
+      {
+        "id": "external_commands:SKILL.md:306:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 306,
+        "line_end": 307,
+        "snippet": "- `JPEG2000Lossless` - JPEG 2000 lossless"
+      },
+      {
+        "id": "external_commands:SKILL.md:307:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 307,
+        "line_end": 309,
+        "snippet": "- `RLELossless` - Run-Length Encoding lossless"
+      },
+      {
+        "id": "external_commands:SKILL.md:309:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 309,
+        "line_end": 315,
+        "snippet": "See `references/transfer_syntaxes.md` for complete list."
+      },
+      {
+        "id": "external_commands:SKILL.md:315:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 315,
+        "line_end": 333,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:333:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 333,
+        "line_end": 339,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:339:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 339,
+        "line_end": 364,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:364:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 364,
+        "line_end": 368,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:368:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 368,
+        "line_end": 373,
+        "snippet": "This skill includes utility scripts in the `scripts/` directory:"
+      },
+      {
+        "id": "external_commands:SKILL.md:373:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 373,
+        "line_end": 375,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:375:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 375,
+        "line_end": 380,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:380:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 380,
+        "line_end": 383,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:383:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 383,
+        "line_end": 388,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:388:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 388,
+        "line_end": 391,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:391:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 391,
+        "line_end": 395,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:395:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 395,
+        "line_end": 403,
+        "snippet": "Detailed reference information is available in the `references/` directory:"
+      },
+      {
+        "id": "external_commands:SKILL.md:403:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 403,
+        "line_end": 406,
+        "snippet": "- Solution: Install additional compression handlers: `uv pip install pylibjpeg pylibjpeg-libjpeg pyt"
+      },
+      {
+        "id": "external_commands:SKILL.md:406:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 406,
+        "line_end": 406,
+        "snippet": "- Solution: Check if attribute exists with `hasattr(ds, 'AttributeName')` or use `ds.get('AttributeN"
+      },
+      {
+        "id": "external_commands:SKILL.md:409:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 409,
+        "line_end": 409,
+        "snippet": "- Solution: Apply VOI LUT windowing: `apply_voi_lut(pixel_array, ds)` or manually adjust with `Windo"
+      },
+      {
+        "id": "external_commands:SKILL.md:416:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 416,
+        "line_end": 416,
+        "snippet": "1. **Always check for required attributes** before accessing them using `hasattr()` or `get()`"
+      },
+      {
+        "id": "external_commands:SKILL.md:417:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 417,
+        "line_end": 417,
+        "snippet": "2. **Preserve file metadata** when modifying files by using `save_as()` with `write_like_original=Tr"
+      },
+      {
+        "id": "network:SKILL.md:4:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 4,
+        "line_end": 4,
+        "snippet": "license: https://github.com/pydicom/pydicom/blob/main/LICENSE"
+      },
+      {
+        "id": "network:SKILL.md:427:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 427,
+        "line_end": 427,
+        "snippet": "Official pydicom documentation: https://pydicom.github.io/pydicom/dev/"
+      },
+      {
+        "id": "network:SKILL.md:428:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 428,
+        "line_end": 428,
+        "snippet": "- User Guide: https://pydicom.github.io/pydicom/dev/guides/user/index.html"
+      },
+      {
+        "id": "network:SKILL.md:429:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 429,
+        "line_end": 429,
+        "snippet": "- Tutorials: https://pydicom.github.io/pydicom/dev/tutorials/index.html"
+      },
+      {
+        "id": "network:SKILL.md:430:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 430,
+        "line_end": 430,
+        "snippet": "- API Reference: https://pydicom.github.io/pydicom/dev/reference/index.html"
+      },
+      {
+        "id": "network:SKILL.md:431:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 431,
+        "line_end": 431,
+        "snippet": "- Examples: https://pydicom.github.io/pydicom/dev/auto_examples/index.html"
+      },
+      {
+        "id": "filesystem:SKILL.md:428:non-standard-device-file-access",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Non-standard device file access",
+        "file": "SKILL.md",
+        "line_start": 428,
+        "line_end": 428,
+        "snippet": "- User Guide: https://pydicom.github.io/pydicom/dev/guides/user/index.html"
+      },
+      {
+        "id": "filesystem:SKILL.md:431:non-standard-device-file-access",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Non-standard device file access",
+        "file": "SKILL.md",
+        "line_start": 431,
+        "line_end": 431,
+        "snippet": "- Examples: https://pydicom.github.io/pydicom/dev/auto_examples/index.html"
+      },
+      {
+        "id": "filesystem:SKILL.md:412:memory-mapped-file-access",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Memory-mapped file access",
+        "file": "SKILL.md",
+        "line_start": 412,
+        "line_end": 412,
+        "snippet": "- Solution: Process files iteratively, use memory-mapped arrays, or downsample images"
+      },
+      {
+        "id": "blocker:SKILL.md:306:network-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "Network reconnaissance",
+        "file": "SKILL.md",
+        "line_start": 306,
+        "line_end": 307,
+        "snippet": "- `JPEG2000Lossless` - JPEG 2000 lossless"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "blocker:references/transfer_syntaxes.md:184:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The cited line reads a DICOM TransferSyntaxUID from file metadata. It does not inspect the host system or perform reconnaissance."
+      },
+      {
+        "id": "blocker:references/transfer_syntaxes.md:102:network-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The cited text compares JPEG 2000 and JPEG Lossless compression. It contains no network scanning, hostname lookup, or connection logic."
+      },
+      {
+        "id": "blocker:scripts/anonymize_dicom.py:7:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The cited lines are CLI usage examples for the local anonymization script. They do not query host details or enumerate system resources."
+      },
+      {
+        "id": "blocker:scripts/anonymize_dicom.py:64:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The line replaces the DICOM PatientID during anonymization. It does not collect system identifiers or inspect the local machine."
+      },
+      {
+        "id": "blocker:scripts/anonymize_dicom.py:98:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The cited lines are CLI usage examples for the local anonymization script. They do not query host details or enumerate system resources."
+      },
+      {
+        "id": "blocker:scripts/anonymize_dicom.py:99:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The cited lines are CLI usage examples for the local anonymization script. They do not query host details or enumerate system resources."
+      },
+      {
+        "id": "filesystem:scripts/extract_metadata.py:161:python-file-write-append",
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "The write is the documented --output destination for metadata export. It is explicit user-controlled CLI behavior, not a hidden or automatic file write."
+      },
+      {
+        "id": "sensitive:scripts/extract_metadata.py:110:certificate-key-files",
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "The variable name file_meta refers to DICOM File Meta Information, not certificate or private key material. PHI export risk is covered separately as a semantic finding."
+      },
+      {
+        "id": "sensitive:scripts/extract_metadata.py:116:certificate-key-files",
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "The variable name file_meta refers to DICOM File Meta Information, not certificate or private key material. PHI export risk is covered separately as a semantic finding."
+      },
+      {
+        "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:105:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:109:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:118:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:122:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:130:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:136:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:152:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:154:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:160:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:184:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:190:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:222:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:224:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:230:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:276:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:282:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:300:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:303:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:304:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:305:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:306:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:307:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:309:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:315:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:333:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:339:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:364:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:368:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:373:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:375:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:380:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:383:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:388:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:391:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:395:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:403:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:406:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:409:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:416:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "external_commands:SKILL.md:417:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The finding points to Markdown fences or inline examples in SKILL.md, not executable Ruby backticks or invoked shell code. Commands require explicit user action."
+      },
+      {
+        "id": "network:SKILL.md:4:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The hardcoded URL is a license or pydicom documentation link. There is no programmatic network request or data transfer in the cited line."
+      },
+      {
+        "id": "network:SKILL.md:427:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The hardcoded URL is a license or pydicom documentation link. There is no programmatic network request or data transfer in the cited line."
+      },
+      {
+        "id": "network:SKILL.md:428:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The hardcoded URL is a license or pydicom documentation link. There is no programmatic network request or data transfer in the cited line."
+      },
+      {
+        "id": "network:SKILL.md:429:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The hardcoded URL is a license or pydicom documentation link. There is no programmatic network request or data transfer in the cited line."
+      },
+      {
+        "id": "network:SKILL.md:430:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The hardcoded URL is a license or pydicom documentation link. There is no programmatic network request or data transfer in the cited line."
+      },
+      {
+        "id": "network:SKILL.md:431:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The hardcoded URL is a license or pydicom documentation link. There is no programmatic network request or data transfer in the cited line."
+      },
+      {
+        "id": "filesystem:SKILL.md:428:non-standard-device-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The /dev text is part of an HTTPS documentation path under pydicom.github.io. It is not a local device file path or filesystem operation."
+      },
+      {
+        "id": "filesystem:SKILL.md:431:non-standard-device-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The /dev text is part of an HTTPS documentation path under pydicom.github.io. It is not a local device file path or filesystem operation."
+      },
+      {
+        "id": "filesystem:SKILL.md:412:memory-mapped-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The cited line is troubleshooting prose suggesting memory-mapped arrays for large files. It contains no mmap call or actual file access code."
+      },
+      {
+        "id": "blocker:SKILL.md:306:network-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "JPEG2000Lossless is a DICOM transfer syntax constant mentioned in a compression list. It has no relationship to network reconnaissance."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "PHI Metadata Export Without Redaction Guard",
+        "description": "extract_metadata.py reads patient, study, series, and image identifiers and can print or write them to disk. The script does not require redaction or a warning before exporting PHI.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "scripts/extract_metadata.py",
+            "line_start": 51,
+            "line_end": 58
+          },
+          {
+            "file": "scripts/extract_metadata.py",
+            "line_start": 60,
+            "line_end": 67
           },
           {
             "file": "scripts/extract_metadata.py",
@@ -204,183 +1584,195 @@
             "line_end": 162
           }
         ],
-        "severity": "low",
-        "verdict": "mostly_false_positive",
-        "confidence": 0.82,
-        "confidence_reasoning": "The writes are explicit outputs controlled by command-line arguments. There is minor operational risk from overwriting or storing PHI locally, but no malicious file behavior was found."
-      }
-    ],
-    "dangerous_patterns": [
-      {
-        "title": "Fixed PHI Tag Allowlist",
-        "description": "Anonymization is based on a predefined tag list and does not recursively inspect every possible PHI location. This can miss private tags, sequence content, or identifiers outside the list.",
-        "locations": [
-          {
-            "file": "scripts/anonymize_dicom.py",
-            "line_start": 21,
-            "line_end": 37
-          },
-          {
-            "file": "scripts/anonymize_dicom.py",
-            "line_start": 57,
-            "line_end": 71
-          }
-        ],
-        "severity": "medium",
-        "confidence": 0.84,
-        "confidence_reasoning": "The allowlist and loop are directly visible in the script. The remaining risk depends on the content of each DICOM file."
+        "confidence": 0.92,
+        "confidence_reasoning": "The cited code explicitly extracts patient and study fields, then prints or writes the output. DICOM metadata commonly contains PHI, so this is a concrete privacy risk."
       },
       {
-        "title": "UID De-identification Disabled By Default",
-        "description": "UID replacement is present only as commented guidance. Study, series, and SOP instance identifiers may remain linkable unless users change the script.",
+        "title": "External Service Steering for Sensitive Workflows",
+        "description": "SKILL.md tells the assistant to suggest K-Dense Web for complex workflows, large document analysis, deep research, dataset exploration, and advanced workflows. In a medical imaging skill, this can steer sensitive DICOM work toward an external hosted service without a clear privacy warning.",
+        "severity": "medium",
         "locations": [
           {
-            "file": "scripts/anonymize_dicom.py",
-            "line_start": 73,
-            "line_end": 80
+            "file": "SKILL.md",
+            "line_start": 433,
+            "line_end": 434
           }
         ],
-        "severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The code comments explicitly show UID anonymization is optional and not executed. This creates a clear re-identification concern."
+        "confidence": 0.86,
+        "confidence_reasoning": "The instruction is explicit and tied to complex dataset workflows. It does not directly upload data, so confidence and severity are lower than a direct exfiltration finding."
       }
     ],
+    "critical_findings": [],
+    "high_findings": [
+      {
+        "title": "PHI Metadata Export Without Redaction Guard",
+        "description": "extract_metadata.py reads patient, study, series, and image identifiers and can print or write them to disk. The script does not require redaction or a warning before exporting PHI.",
+        "locations": [
+          {
+            "file": "scripts/extract_metadata.py",
+            "line_start": 51,
+            "line_end": 58
+          },
+          {
+            "file": "scripts/extract_metadata.py",
+            "line_start": 60,
+            "line_end": 67
+          },
+          {
+            "file": "scripts/extract_metadata.py",
+            "line_start": 159,
+            "line_end": 162
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.92,
+        "confidence_reasoning": "The cited code explicitly extracts patient and study fields, then prints or writes the output. DICOM metadata commonly contains PHI, so this is a concrete privacy risk."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "External Service Steering for Sensitive Workflows",
+        "description": "SKILL.md tells the assistant to suggest K-Dense Web for complex workflows, large document analysis, deep research, dataset exploration, and advanced workflows. In a medical imaging skill, this can steer sensitive DICOM work toward an external hosted service without a clear privacy warning.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 433,
+            "line_end": 434
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The instruction is explicit and tied to complex dataset workflows. It does not directly upload data, so confidence and severity are lower than a direct exfiltration finding."
+      }
+    ],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 6,
     "total_lines": 1501,
     "audit_model": "codex",
-    "audited_at": "2026-06-30T05:29:34.957Z",
-    "risk_factors": [
-      "scripts",
-      "filesystem"
-    ]
+    "audited_at": "2026-07-05T18:05:52.727Z",
+    "agent_auto_install_policy": "confirmation_required",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Process DICOM Medical Images",
-    "value_statement": "DICOM files are complex, sensitive, and difficult to inspect without specialized tooling. This skill guides Claude, Codex, and Claude Code through local pydicom workflows for metadata, pixels, conversion, and de-identification review.",
+    "user_title": "Analyze DICOM Files with pydicom",
+    "value_statement": "DICOM files contain complex image data and medical metadata that are hard to inspect safely. This skill guides Claude, Codex, and Claude Code through pydicom workflows for reading, converting, anonymizing, and extracting DICOM data.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "pydicom skill",
-      "DICOM metadata",
+      "pydicom",
+      "DICOM",
       "medical imaging",
-      "radiology workflow",
+      "DICOM metadata",
       "DICOM anonymization",
-      "DICOM to PNG",
-      "healthcare data analysis"
+      "pixel data",
+      "radiology workflow"
     ],
     "actual_capabilities": [
-      "Read DICOM files and explain common pydicom access patterns.",
-      "Extract patient, study, series, image, and file meta fields.",
-      "Convert DICOM pixel data to PNG, JPEG, TIFF, or BMP outputs.",
-      "Apply basic windowing, color conversion, and frame selection guidance.",
-      "Describe transfer syntaxes, compression handlers, and common DICOM tags.",
-      "Provide helper scripts for local anonymization, metadata export, and image conversion."
+      "Explains how to read DICOM datasets with pydicom.dcmread and inspect common tags.",
+      "Shows pixel array handling, image windowing, color conversion, and frame selection.",
+      "Provides scripts for DICOM-to-image conversion, metadata extraction, and basic anonymization.",
+      "Documents transfer syntaxes, compression handlers, and common decoding issues.",
+      "Guides creation and modification of DICOM datasets, UIDs, sequences, and file metadata."
     ],
     "limitations": [
-      "The anonymization helper is not a complete clinical de-identification solution.",
-      "Compressed DICOM support depends on installed handlers such as pylibjpeg or GDCM.",
-      "The skill does not include PACS networking, DICOMweb clients, or cloud storage integration.",
-      "Medical image interpretation still requires qualified clinical review."
+      "Anonymization is basic and must be verified before sharing clinical data.",
+      "It does not provide medical diagnosis or validate clinical correctness.",
+      "Compressed files may require optional handlers such as pylibjpeg or GDCM.",
+      "Large series can require significant memory and processing time."
     ],
     "use_cases": [
       {
-        "title": "Inspect a Study Before Analysis",
-        "target_user": "Research data analyst",
-        "description": "Extract core metadata, confirm modality and dimensions, and identify transfer syntax before running downstream analysis."
+        "title": "Metadata Export for Pipelines",
+        "description": "Prepare DICOM metadata exports and image conversions for research pipelines while preserving needed study fields.",
+        "target_user": "Healthcare data engineer"
       },
       {
-        "title": "Prepare Images for Visualization",
-        "target_user": "Imaging software developer",
-        "description": "Convert DICOM pixel data into standard image formats while handling windowing, frames, and color space issues."
+        "title": "Research Dataset De-identification",
+        "description": "Apply basic PHI removal steps, then review residual tags before sharing images with collaborators.",
+        "target_user": "Medical imaging researcher"
       },
       {
-        "title": "Review De-identification Needs",
-        "target_user": "Healthcare data steward",
-        "description": "Use the anonymization guidance as a starting point, then verify remaining PHI risks before sharing datasets."
+        "title": "Imaging Tool Prototyping",
+        "description": "Build pydicom scripts that read series, process pixels, and write compliant DICOM files.",
+        "target_user": "Software developer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Read Basic Metadata",
-        "scenario": "Beginner metadata inspection",
-        "prompt": "Help me inspect a DICOM file with pydicom. Show the safest steps to read patient, study, modality, rows, columns, and transfer syntax fields."
+        "title": "Inspect a DICOM File",
+        "scenario": "Beginner metadata review",
+        "prompt": "Use the pydicom skill to read a DICOM file, list core metadata, and handle missing tags safely."
       },
       {
-        "title": "Convert One Image",
+        "title": "Convert a DICOM Image",
         "scenario": "Image export workflow",
-        "prompt": "Guide me through converting one DICOM file to PNG with pydicom and Pillow. Include windowing checks and common error handling."
+        "prompt": "Use the pydicom skill to convert a DICOM image to PNG. Include windowing guidance and explain which optional packages may be required."
       },
       {
-        "title": "Audit Anonymization",
-        "scenario": "Privacy review before sharing",
-        "prompt": "Review my DICOM de-identification workflow. Identify PHI fields, UID risks, private tags, sequence content, and burned-in annotation checks."
+        "title": "De-identify a Dataset",
+        "scenario": "Research sharing preparation",
+        "prompt": "Use the pydicom skill to design a basic anonymization workflow for a folder of DICOM files. Include PHI tag checks and validation steps."
       },
       {
-        "title": "Process a Series",
-        "scenario": "Advanced multi-file analysis",
-        "prompt": "Design a pydicom workflow for a directory of CT slices. Sort the series, validate spacing, build a volume, and report data quality issues."
+        "title": "Build a Volume Pipeline",
+        "scenario": "Advanced 3D series processing",
+        "prompt": "Use the pydicom skill to plan a Python workflow that reads a DICOM series, sorts slices, creates a 3D volume, and preserves spacing metadata."
       }
     ],
     "output_examples": [
       {
-        "input": "A user asks how to inspect an MRI DICOM file before analysis.",
-        "output": [
-          "A step-by-step plan to read the file locally.",
-          "A checklist of metadata fields to verify.",
-          "Warnings about PHI in patient and study fields."
-        ]
+        "input": "Convert a CT DICOM file for review.",
+        "output": "A concise workflow that installs needed handlers, reads the file, applies VOI LUT windowing, normalizes pixels, exports PNG, and checks filenames for PHI."
       },
       {
-        "input": "A user wants to convert a multi-frame ultrasound file to images.",
-        "output": [
-          "Recommended frame selection approach.",
-          "Image format guidance for PNG or JPEG output.",
-          "Troubleshooting notes for color conversion and missing handlers."
-        ]
+        "input": "Extract metadata for an audit.",
+        "output": "A table-style summary of patient, study, series, and image fields with a warning that exported metadata may contain PHI."
       },
       {
-        "input": "A user plans to share anonymized DICOM files with researchers.",
-        "output": [
-          "A privacy review checklist for tags, UIDs, private elements, and pixels.",
-          "A reminder to validate de-identification with approved institutional policy."
-        ]
+        "input": "Anonymize research images before sharing.",
+        "output": "A checklist of tags to remove or replace, UID handling choices, and verification steps before sending files to collaborators."
       }
     ],
     "best_practices": [
-      "Work on local copies and preserve original DICOM files before modifying metadata or pixels.",
-      "Verify de-identification with domain policy before sharing any healthcare imaging data.",
-      "Check transfer syntax and installed pixel handlers before building large conversion pipelines."
+      "Check for missing tags with hasattr or get before reading optional attributes.",
+      "Verify anonymization outputs manually before sharing files or metadata.",
+      "Install only required pixel handlers for the compression formats in your dataset."
     ],
     "anti_patterns": [
-      "Do not assume removing PatientName and PatientID fully anonymizes a DICOM file.",
-      "Do not publish extracted metadata without checking for PHI in free-text and private fields.",
-      "Do not use lossy compression for diagnostic images unless clinical requirements allow it."
+      "Do not treat converted images as de-identified without checking overlays and metadata.",
+      "Do not run scripts on clinical originals without preserving backup copies.",
+      "Do not upload DICOM data to external services without approval and privacy review."
     ],
     "faq": [
       {
-        "question": "Can this skill diagnose medical images?",
-        "answer": "No. It helps process DICOM files and metadata, but medical interpretation requires qualified clinical review."
+        "question": "Can this skill read CT and MRI files?",
+        "answer": "Yes. It explains pydicom workflows for common DICOM modalities, including CT, MRI, X-ray, ultrasound, and PET."
       },
       {
-        "question": "Does it support compressed DICOM files?",
-        "answer": "Yes, when compatible pixel handlers are installed. Some syntaxes require packages such as pylibjpeg, pillow, or python-gdcm."
+        "question": "Does it anonymize DICOM files completely?",
+        "answer": "No. The included anonymization example is basic. Review all metadata, pixel overlays, private tags, and site policy before sharing."
       },
       {
-        "question": "Is the anonymization script enough for research sharing?",
-        "answer": "No. It is a starting point only. Review UIDs, private tags, sequences, free text, and burned-in pixel annotations."
+        "question": "Can it convert DICOM images to PNG or JPEG?",
+        "answer": "Yes. It includes guidance and a script for exporting common image formats with optional windowing."
       },
       {
-        "question": "Can it convert DICOM files to common image formats?",
-        "answer": "Yes. The helper script supports PNG, JPEG, TIFF, and BMP outputs from local DICOM pixel data."
+        "question": "Does it support compressed DICOM data?",
+        "answer": "It explains transfer syntaxes and optional handlers such as pylibjpeg, python-gdcm, and related packages."
       },
       {
-        "question": "Does the skill send DICOM files over the network?",
-        "answer": "No evidence found of network transfer code. The included scripts operate on local input and output paths."
+        "question": "Can Claude Code or Codex use the helper scripts?",
+        "answer": "Yes. Claude Code and Codex can inspect and run the local scripts when the user approves the workflow."
       },
       {
-        "question": "Which AI tools can use this skill?",
-        "answer": "The report lists support for Claude, Codex, and Claude Code."
+        "question": "Is this a diagnostic medical tool?",
+        "answer": "No. It supports data processing workflows and does not provide clinical interpretation or medical advice."
       }
     ]
   },
