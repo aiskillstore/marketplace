@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-29T18:20:10.166Z",
+    "generated_at": "2026-07-05T13:14:11.217Z",
     "slug": "diversioteam-code-review-digest-writer",
     "source_url": "https://github.com/DiversioTeam/agent-skills-marketplace/tree/main/plugins/code-review-digest-writer/skills/code-review-digest-writer",
     "source_ref": "main",
@@ -9,12 +9,25 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "3dd3b42a208afb5b8c84fad98f098e9c2723648156c297bc67ff6db498c49afe",
-    "tree_hash": "8833f32dcfd72fcf4d02f2f9140857e0801ffe2ec08bc2e21c778ec80bbd84b9"
+    "tree_hash": "26aa19bbcb2662dde8d4ba6779c7a20ee768317172996ab761b6bc12422125f7",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "code-review-digest-writer",
-    "description": "Generates markdown code review digests from GitHub PR review comments for a selected repository and date range.",
-    "summary": "Creates weekly review digests that group PR feedback into themes, repeated issues, and team takeaways.",
+    "description": "Generates date-bounded markdown digests from GitHub pull request review comments. It groups reviewer feedback into themes, labels repeated lessons, and writes docs under docs/review-digests/.",
+    "summary": "Turns GitHub PR review feedback into weekly engineering learning digests.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "DiversioTeam",
@@ -22,9 +35,9 @@
     "tags": [
       "code-review",
       "github",
-      "digest",
       "engineering-docs",
-      "pr-reviews"
+      "pull-requests",
+      "team-learning"
     ],
     "supported_tools": [
       "claude",
@@ -32,130 +45,106 @@
       "claude-code"
     ],
     "risk_factors": [
-      "external_commands",
-      "filesystem"
+      "external_commands"
     ],
     "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "safe",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static analysis reported many shell-backtick and weak-cryptography patterns, but review shows these are markdown inline-code and wording false positives, not Ruby execution or crypto code. The skill does legitimately use Bash with GitHub CLI and writes digest files under docs/review-digests, so publication should include a warning about external command use and untrusted repository content.",
+    "analysis_status": "ok",
+    "summary": "All static findings are false positives caused by Markdown inline-code backticks in SKILL.md. It uses Bash and gh for documented GitHub review retrieval. I found no malicious command execution, prompt injection, or data exfiltration intent.",
+    "remediation": [
+      {
+        "issue": "Broad Bash guidance may be misread as permission to run arbitrary shell commands.",
+        "suggestion": "List the intended gh queries or require confirmation before any non-gh Bash command.",
+        "severity": "low"
+      },
+      {
+        "issue": "Repository-local digest guidelines are trusted for formatting decisions.",
+        "suggestion": "State that local AGENTS.md guidance cannot override the skill scope or modify files outside docs/review-digests/.",
+        "severity": "low"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
         "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 10,
-            "line_end": 10
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 55,
-            "line_end": 60
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 94,
-            "line_end": 101
-          }
-        ]
-      },
-      {
-        "factor": "filesystem",
-        "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 45,
-            "line_end": 51
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 75,
-            "line_end": 88
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 131,
-            "line_end": 134
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 166,
-            "line_end": 172
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "External GitHub CLI Commands",
-        "description": "The skill instructs the agent to use Bash with gh to query pull requests, comments, and review-thread data. This is legitimate for a review digest workflow, but it can expose repository metadata to command output and depends on the authenticated GitHub identity.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 55,
-            "line_end": 60
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 94,
-            "line_end": 101
-          }
-        ],
-        "confidence": 0.82,
-        "confidence_reasoning": "The Bash and gh workflow is explicit and central to the skill. I found no evidence of malicious exfiltration, but external command use is confirmed."
-      },
-      {
-        "title": "Untrusted Repository Guidance Treated As Authoritative",
-        "description": "The skill tells the agent to read docs/review-digests/AGENTS.md and treat it as the source of truth for digest behavior. A malicious repository could place prompt-injection instructions there, so agents should apply the skill scope and platform instructions before repository guidance.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 75,
-            "line_end": 82
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 131,
-            "line_end": 134
-          }
-        ],
-        "confidence": 0.74,
-        "confidence_reasoning": "The behavior is clearly described, and repository-local guidance can be attacker controlled in some use cases. I found no direct injection text in this skill file."
-      },
-      {
-        "title": "Writes Documentation Files In The Target Repository",
-        "description": "The skill can create or update markdown files below docs/review-digests. The scope is narrow and documentation-only, but it still modifies the filesystem and should be run after confirming the target date and repository.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 45,
-            "line_end": 51
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 166,
-            "line_end": 172
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The file write behavior and target directory are explicit. The limited docs-only scope reduces severity."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Static Backtick Execution Alerts Are Markdown False Positives",
-        "description": "The analyzer flagged many inline backtick spans as Ruby or shell execution. The reviewed lines contain markdown examples, file paths, labels, and command names, not executable Ruby code.",
-        "locations": [
-          {
-            "file": "SKILL.md",
             "line_start": 29,
             "line_end": 29
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 35,
+            "line_end": 35
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 42
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 46,
+            "line_end": 46
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 49
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 50,
+            "line_end": 50
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 55
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 57
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 59,
+            "line_end": 59
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 60,
+            "line_end": 60
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 62,
+            "line_end": 62
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 72,
+            "line_end": 72
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 76
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 83,
+            "line_end": 83
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 86,
+            "line_end": 86
           },
           {
             "file": "SKILL.md",
@@ -164,210 +153,1000 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 206,
-            "line_end": 208
-          }
-        ],
-        "confidence": 0.93,
-        "confidence_reasoning": "The file is markdown instructions and the flagged backticks delimit text examples. There is no Ruby source or command substitution syntax being executed."
-      },
-      {
-        "title": "Weak Cryptography Alerts Are Keyword False Positives",
-        "description": "The analyzer flagged weak cryptography, but the reviewed content uses the word digest for review summaries and contains no hash implementation, cipher selection, or cryptographic API usage.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 8
+            "line_start": 95,
+            "line_end": 95
           },
           {
             "file": "SKILL.md",
-            "line_start": 174,
-            "line_end": 183
+            "line_start": 96,
+            "line_end": 96
           },
           {
             "file": "SKILL.md",
-            "line_start": 201,
-            "line_end": 203
-          }
-        ],
-        "confidence": 0.91,
-        "confidence_reasoning": "The suspicious term is semantically about newsletter digests, not cryptographic digests. I found no evidence of crypto code."
-      }
-    ],
-    "dangerous_patterns": [
-      {
-        "title": "Bash Tool And gh Command Workflow",
-        "description": "The skill requires Bash access and assumes gh is authenticated. This enables repository data retrieval through local credentials and should be disclosed to users.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 9,
-            "line_end": 14
+            "line_start": 97,
+            "line_end": 97
           },
           {
             "file": "SKILL.md",
-            "line_start": 55,
-            "line_end": 60
+            "line_start": 103,
+            "line_end": 103
           },
           {
             "file": "SKILL.md",
-            "line_start": 94,
-            "line_end": 101
-          }
-        ],
-        "confidence": 0.84,
-        "confidence_reasoning": "The allowed tools and gh dependency are explicit. The pattern is risky by capability, not by confirmed malicious intent."
-      },
-      {
-        "title": "Repository Content Can Influence Output",
-        "description": "The skill reads local digest guidance, previous digests, PR comments, and diff context. These inputs may contain untrusted text that should be summarized without obeying instructions embedded in them.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 75,
-            "line_end": 91
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 99,
+            "line_start": 107,
             "line_end": 107
           },
           {
             "file": "SKILL.md",
-            "line_start": 109,
-            "line_end": 119
+            "line_start": 125,
+            "line_end": 125
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 128,
+            "line_end": 128
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 129,
+            "line_end": 129
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 132,
+            "line_end": 132
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 133,
+            "line_end": 133
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 134,
+            "line_end": 134
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 143,
+            "line_end": 143
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 148,
+            "line_end": 148
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 149,
+            "line_end": 149
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 151,
+            "line_end": 151
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 152,
+            "line_end": 152
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 153,
+            "line_end": 153
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 167,
+            "line_end": 167
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 171,
+            "line_end": 171
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 179,
+            "line_end": 179
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 183,
+            "line_end": 183
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 193,
+            "line_end": 193
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 194,
+            "line_end": 194
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 195,
+            "line_end": 195
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 206,
+            "line_end": 207
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 208,
+            "line_end": 208
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 211,
+            "line_end": 211
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 212,
+            "line_end": 212
           }
-        ],
-        "confidence": 0.78,
-        "confidence_reasoning": "The skill explicitly consumes repository and PR text. I found no prompt injection in the skill itself, but this data path is a real review concern."
+        ]
       }
     ],
+    "static_findings": [
+      {
+        "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 29,
+        "line_end": 29,
+        "snippet": "`YYYY-MM-DD` → `YYYY-MM-DD` before proceeding."
+      },
+      {
+        "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 35,
+        "line_end": 35,
+        "snippet": "- “From 2025-04-01 to 2025-04-30, summarize what reviewers focused on in `owner/service-repo` and hi"
+      },
+      {
+        "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 42,
+        "line_end": 42,
+        "snippet": "- Ideally the repo contains `docs/review-digests/AGENTS.md` with"
+      },
+      {
+        "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 46,
+        "line_end": 46,
+        "snippet": "- `docs/review-digests/YYYY-MM-DD.md`"
+      },
+      {
+        "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 49,
+        "line_end": 49,
+        "snippet": "this Skill is active. All changes should be within `docs/review-digests/`."
+      },
+      {
+        "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 50,
+        "line_end": 50,
+        "snippet": "- If `docs/review-digests/` does not exist yet, create the directory before"
+      },
+      {
+        "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 55,
+        "line_end": 55,
+        "snippet": "When using `Bash`, assume:"
+      },
+      {
+        "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 57,
+        "line_end": 57,
+        "snippet": "- `gh` (GitHub CLI) is installed and authenticated for the target repository"
+      },
+      {
+        "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 59,
+        "line_end": 59,
+        "snippet": "- Current working directory is the target repo root (or pass `--repo owner/name`"
+      },
+      {
+        "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 60,
+        "line_end": 60,
+        "snippet": "explicitly to `gh` commands, if needed)."
+      },
+      {
+        "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 62,
+        "line_end": 62,
+        "snippet": "If `gh` is not available, gracefully fall back to:"
+      },
+      {
+        "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 72,
+        "line_end": 72,
+        "snippet": "- Ensure you have `start_date` and `end_date` (inclusive)."
+      },
+      {
+        "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 76,
+        "line_end": 76,
+        "snippet": "- If it exists, open `docs/review-digests/AGENTS.md` and read it carefully."
+      },
+      {
+        "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 83,
+        "line_end": 83,
+        "snippet": "use any existing digest files in `docs/review-digests/` as a reference."
+      },
+      {
+        "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 86,
+        "line_end": 86,
+        "snippet": "- Ensure the `docs/review-digests/` directory exists:"
+      },
+      {
+        "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 88,
+        "line_end": 88,
+        "snippet": "- Use `Glob` or `Bash` to list `docs/review-digests/*.md`."
+      },
+      {
+        "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 95,
+        "line_end": 95,
+        "snippet": "- Use `Bash` with `gh` to query PRs whose:"
+      },
+      {
+        "id": "external_commands:SKILL.md:96:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 96,
+        "line_end": 96,
+        "snippet": "- `createdAt` is between `[start_date, end_date]`, OR"
+      },
+      {
+        "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 97,
+        "line_end": 97,
+        "snippet": "- `closedAt` is between `[start_date, end_date]`."
+      },
+      {
+        "id": "external_commands:SKILL.md:103:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 103,
+        "line_end": 103,
+        "snippet": "- Human reviewers (`__typename == \"User\"`)."
+      },
+      {
+        "id": "external_commands:SKILL.md:107:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 107,
+        "line_end": 107,
+        "snippet": "(e.g., `github-actions`, log-only bots, CI status updates)."
+      },
+      {
+        "id": "external_commands:SKILL.md:125:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 125,
+        "line_end": 125,
+        "snippet": "`dict[str, Any]` in payloads”, “avoid Django Ninja `Query()` constants”,"
+      },
+      {
+        "id": "external_commands:SKILL.md:128:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 128,
+        "line_end": 128,
+        "snippet": "- `[NEW]` for themes that appear for the first time."
+      },
+      {
+        "id": "external_commands:SKILL.md:129:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 129,
+        "line_end": 129,
+        "snippet": "- `[REPEAT]` for themes that have appeared in previous digests."
+      },
+      {
+        "id": "external_commands:SKILL.md:132:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 132,
+        "line_end": 132,
+        "snippet": "- Target path: `docs/review-digests/END_DATE.md`"
+      },
+      {
+        "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 133,
+        "line_end": 133,
+        "snippet": "- Example: period `2025-11-13` → `2025-11-27` → `docs/review-digests/2025-11-27.md`."
+      },
+      {
+        "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 134,
+        "line_end": 134,
+        "snippet": "- Follow the **layout described in `docs/review-digests/AGENTS.md`** and the"
+      },
+      {
+        "id": "external_commands:SKILL.md:143:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 143,
+        "line_end": 143,
+        "snippet": "- Call out whether this is `[NEW]` or `[REPEAT]`."
+      },
+      {
+        "id": "external_commands:SKILL.md:148:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 148,
+        "line_end": 148,
+        "snippet": "- `[#2519 – Fix Teams Start Survey race condition][pr-2519]`"
+      },
+      {
+        "id": "external_commands:SKILL.md:149:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 149,
+        "line_end": 149,
+        "snippet": "- `Key comment: [Fixture reuse recommendation][c-2519-3]`"
+      },
+      {
+        "id": "external_commands:SKILL.md:151:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 151,
+        "line_end": 151,
+        "snippet": "- `pr-<number>` for PRs."
+      },
+      {
+        "id": "external_commands:SKILL.md:152:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 152,
+        "line_end": 152,
+        "snippet": "- `c-<number>-<n>` for specific review comments."
+      },
+      {
+        "id": "external_commands:SKILL.md:153:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 153,
+        "line_end": 153,
+        "snippet": "- `ic-<number>-<n>` for issue comments, if needed."
+      },
+      {
+        "id": "external_commands:SKILL.md:167:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 167,
+        "line_end": 167,
+        "snippet": "- Use `Edit` to create or update the digest file for `END_DATE`."
+      },
+      {
+        "id": "external_commands:SKILL.md:171:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 171,
+        "line_end": 171,
+        "snippet": "- `[NEW]` / `[REPEAT]` tags are applied consistently."
+      },
+      {
+        "id": "external_commands:SKILL.md:179:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 179,
+        "line_end": 179,
+        "snippet": "- A **single markdown file** under `docs/review-digests/YYYY-MM-DD.md`."
+      },
+      {
+        "id": "external_commands:SKILL.md:183:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 183,
+        "line_end": 183,
+        "snippet": "- How many themes were `[REPEAT]` vs `[NEW]`."
+      },
+      {
+        "id": "external_commands:SKILL.md:193:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 193,
+        "line_end": 193,
+        "snippet": "- `[NEW]` – First time this theme appears in digests."
+      },
+      {
+        "id": "external_commands:SKILL.md:194:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 194,
+        "line_end": 194,
+        "snippet": "- `[REPEAT]` – Theme appeared in at least one prior digest."
+      },
+      {
+        "id": "external_commands:SKILL.md:195:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 195,
+        "line_end": 195,
+        "snippet": "- `[HIGH-IMPACT]` – Optional extra tag for themes with clear business impact"
+      },
+      {
+        "id": "external_commands:SKILL.md:206:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 206,
+        "line_end": 207,
+        "snippet": "- Install via skill-installer with `--repo DiversioTeam/agent-skills-marketplace"
+      },
+      {
+        "id": "external_commands:SKILL.md:208:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 208,
+        "line_end": 208,
+        "snippet": "- Use `$skill code-review-digest-writer` to invoke."
+      },
+      {
+        "id": "external_commands:SKILL.md:211:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 211,
+        "line_end": 211,
+        "snippet": "- Install via `/plugin install code-review-digest-writer@diversiotech`."
+      },
+      {
+        "id": "external_commands:SKILL.md:212:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 212,
+        "line_end": 212,
+        "snippet": "- Use `/code-review-digest-writer:review-digest` to invoke."
+      },
+      {
+        "id": "blocker:SKILL.md:125:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "SKILL.md",
+        "line_start": 125,
+        "line_end": 125,
+        "snippet": "`dict[str, Any]` in payloads”, “avoid Django Ninja `Query()` constants”,"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line shows a date format example inside Markdown inline code. It is documentation text, not Ruby or shell execution syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line shows an example repository placeholder inside Markdown inline code. It does not execute a command or interpolate user input."
+      },
+      {
+        "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line references a documentation path inside Markdown inline code. It is a file path example, not shell backtick execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line documents the only allowed output path. The backticks are Markdown formatting around a path, not executable syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line scopes writes to a documentation directory. The backticks are Markdown formatting and do not invoke a shell."
+      },
+      {
+        "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line names a documentation directory in Markdown inline code. It does not contain command execution behavior."
+      },
+      {
+        "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line names the Bash tool in Markdown inline code. It describes an allowed tool, but no shell command is executed here."
+      },
+      {
+        "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line names the GitHub CLI in Markdown inline code as an expected local tool. The backticks are formatting, not execution syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line shows a repo argument placeholder in Markdown inline code. It is documentation text, not an executable command."
+      },
+      {
+        "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line references gh commands as workflow guidance. It does not provide shell backtick execution or unsafe command construction."
+      },
+      {
+        "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line names gh in Markdown inline code while describing a fallback. It does not execute a command."
+      },
+      {
+        "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line names start and end date variables in Markdown inline code. It is explanatory text, not shell syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line references a local guidelines file in Markdown inline code. It is a read instruction, not command execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line references an existing digest directory in Markdown inline code. The backticks are formatting around a path."
+      },
+      {
+        "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line references the target digest directory in Markdown inline code. It does not execute a command."
+      },
+      {
+        "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line mentions Glob or Bash as tools and a Markdown-formatted file pattern. It is workflow documentation, not executable code."
+      },
+      {
+        "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line instructs use of Bash with gh for legitimate GitHub review retrieval. It is not Ruby or shell backtick execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:96:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line names a GitHub field and date variables in Markdown inline code. It is query criteria documentation, not command syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line names a GitHub field and date variables in Markdown inline code. It is query criteria documentation, not command syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:103:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line names a GraphQL type in Markdown inline code. It does not execute code or construct a command."
+      },
+      {
+        "id": "external_commands:SKILL.md:107:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line names an example bot account in Markdown inline code. It is filtering guidance, not executable syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:125:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line contains code-like examples inside prose about review themes. The backticks are Markdown formatting, not shell execution or reconnaissance."
+      },
+      {
+        "id": "external_commands:SKILL.md:128:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line defines a digest label in Markdown inline code. It is content formatting guidance, not executable syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:129:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line defines a digest label in Markdown inline code. It is content formatting guidance, not executable syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:132:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line shows the target digest path in Markdown inline code. It is a constrained documentation path, not command execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line gives an example reporting period and output path. The backticks are Markdown formatting around dates and a path."
+      },
+      {
+        "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line references the local digest guidelines path. It is Markdown-formatted documentation, not executable shell syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:143:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line references digest labels in Markdown inline code. It is output formatting guidance, not executable syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:148:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line provides a reference-style Markdown link example. It does not invoke Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:149:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line provides a reference-style Markdown link example. It is static documentation text, not executable code."
+      },
+      {
+        "id": "external_commands:SKILL.md:151:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line documents a link identifier pattern in Markdown inline code. It is not a command or interpreter syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:152:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line documents a link identifier pattern in Markdown inline code. It is not a command or interpreter syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:153:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line documents a link identifier pattern in Markdown inline code. It is not a command or interpreter syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:167:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line names the Edit tool and end date placeholder in Markdown inline code. It describes a bounded file edit, not shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:171:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line references digest labels in Markdown inline code. It is checklist text, not executable syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:179:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line names the expected markdown output path. The backticks are Markdown formatting and do not run a command."
+      },
+      {
+        "id": "external_commands:SKILL.md:183:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line references digest labels in Markdown inline code. It is summary guidance, not executable syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:193:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line defines a digest emphasis label. It is Markdown-formatted prose, not executable code."
+      },
+      {
+        "id": "external_commands:SKILL.md:194:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line defines a digest emphasis label. It is Markdown-formatted prose, not executable code."
+      },
+      {
+        "id": "external_commands:SKILL.md:195:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line defines a digest emphasis label. It is Markdown-formatted prose, not executable code."
+      },
+      {
+        "id": "external_commands:SKILL.md:206:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line shows installation flags inside Markdown inline code. It is user-facing install documentation, not code run by the skill."
+      },
+      {
+        "id": "external_commands:SKILL.md:208:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line shows an invocation command as documentation for users. It is not executed automatically by the skill."
+      },
+      {
+        "id": "external_commands:SKILL.md:211:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line shows a Claude Code plugin install command as documentation. It is not executed automatically by the skill."
+      },
+      {
+        "id": "external_commands:SKILL.md:212:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line shows a Claude Code invocation command as documentation. It is not executed automatically by the skill."
+      },
+      {
+        "id": "blocker:SKILL.md:125:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line only gives examples of review themes such as payload typing and Query usage. It does not perform or request system reconnaissance."
+      }
+    ],
+    "semantic_findings": [],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 1,
     "total_lines": 213,
     "audit_model": "codex",
-    "audited_at": "2026-06-29T18:20:10.166Z",
-    "risk_factors": [
-      "external_commands",
-      "filesystem"
-    ]
+    "audited_at": "2026-07-05T13:14:11.217Z",
+    "agent_auto_install_policy": "allowed",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Generate Code Review Digests",
-    "value_statement": "Teams lose useful lessons when pull request feedback stays scattered across reviews. This skill turns date-bounded GitHub review comments into a structured markdown digest with themes, repeated issues, and takeaways.",
+    "user_title": "Create Code Review Learning Digests",
+    "value_statement": "Teams lose useful review lessons when comments stay scattered across pull requests. This skill converts GitHub review feedback into a structured markdown digest with themes and repeated issues.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "code review digest",
-      "GitHub PR summary",
-      "pull request reviews",
-      "engineering documentation",
-      "review newsletter",
-      "team learning",
-      "developer productivity"
+      "PR review summary",
+      "GitHub review comments",
+      "engineering newsletter",
+      "review feedback themes",
+      "developer documentation",
+      "pull request insights"
     ],
     "actual_capabilities": [
-      "Creates a markdown digest for a requested start date and end date.",
-      "Uses GitHub CLI to collect pull request comments and review-thread context.",
-      "Groups review feedback into themes across multiple pull requests.",
-      "Labels themes as new or repeated by comparing prior digest files.",
+      "Creates a date-bounded markdown digest from pull request review comments.",
+      "Reads local digest guidelines from docs/review-digests/AGENTS.md when available.",
+      "Compares current feedback with recent digests to mark new and repeated themes.",
+      "Uses GitHub CLI data when available and notes partial data when it is unavailable.",
       "Writes the digest under docs/review-digests using the end date as the filename.",
-      "Adds reference-style links for pull requests and review comments."
+      "Builds reference-style links for pull requests and review comments."
     ],
     "limitations": [
-      "Requires GitHub CLI access for complete pull request data.",
-      "Quality depends on the clarity and availability of review comments.",
-      "It should only edit documentation under docs/review-digests.",
-      "Repository guidance and PR comments may contain untrusted text."
+      "Requires GitHub CLI access for complete pull request and review data.",
+      "Does not modify application code, tests, or configuration files.",
+      "Digest quality depends on available review comments and prior digest history.",
+      "It summarizes feedback and does not verify whether reviewed code was fixed."
     ],
     "use_cases": [
       {
-        "title": "Weekly Engineering Learning Digest",
-        "description": "Summarize the main review lessons from the past week for an engineering team.",
+        "title": "Share Weekly Review Lessons",
+        "description": "Turn a week of pull request feedback into a concise learning digest for an engineering team.",
         "target_user": "Engineering manager"
       },
       {
-        "title": "Recurring Review Pattern Tracking",
-        "description": "Find review themes that continue across multiple digest periods and need team attention.",
+        "title": "Track Repeated Review Themes",
+        "description": "Identify review topics that keep returning across releases, such as testing patterns or security checks.",
         "target_user": "Tech lead"
       },
       {
-        "title": "Onboarding Review Knowledge Base",
-        "description": "Turn historical pull request feedback into documentation that helps new developers learn team standards.",
-        "target_user": "Developer enablement lead"
+        "title": "Preserve Review Knowledge",
+        "description": "Create documentation that helps new contributors learn project standards from real review feedback.",
+        "target_user": "Developer advocate"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create A Basic Digest",
-        "scenario": "Beginner request for one repository and one date range.",
+        "title": "Generate a Basic Weekly Digest",
+        "scenario": "Beginner request with a clear date range.",
         "prompt": "Generate a code review digest for this repository for 2026-06-01 to 2026-06-07."
       },
       {
-        "title": "Use Prior Digests",
-        "scenario": "Compare current review feedback with existing digest history.",
-        "prompt": "Create a review digest for 2026-06-08 to 2026-06-14. Use existing docs/review-digests files to mark repeated themes."
+        "title": "Use Existing Digest History",
+        "scenario": "Intermediate request that asks for repeated theme detection.",
+        "prompt": "Create a review digest for 2026-06-08 to 2026-06-14. Use existing digests to mark new and repeated themes."
       },
       {
-        "title": "Focus On Risk Areas",
-        "scenario": "Emphasize security, privacy, and correctness review feedback.",
-        "prompt": "Write a digest for 2026-06-01 to 2026-06-30. Highlight security, PII, access control, and data correctness themes."
+        "title": "Summarize a Specific Repository",
+        "scenario": "Intermediate request for a named GitHub repository.",
+        "prompt": "Write a digest for owner/service-repo for 2026-06-01 to 2026-06-30. Highlight repeated review issues and key PR links."
       },
       {
-        "title": "Cross-Repository Digest",
-        "scenario": "Advanced request when GitHub CLI should target a specific repository.",
-        "prompt": "Generate a digest for owner/service-repo for 2026-06-01 to 2026-06-15. Use GitHub CLI with the explicit repo target and write the final markdown digest."
+        "title": "Create a High-Signal Team Newsletter",
+        "scenario": "Advanced request with editorial and evidence requirements.",
+        "prompt": "Generate a newsletter-style review digest for 2026-06-15 to 2026-06-28. Cluster comments into themes, include reference links, and call out high-impact lessons."
       }
     ],
     "output_examples": [
       {
-        "input": "Generate a digest for 2026-06-01 to 2026-06-07.",
-        "output": "A markdown review digest with an overview, themed sections, new and repeated tags, and reference links for cited pull requests."
+        "input": "A user asks for a digest covering one sprint of pull request reviews.",
+        "output": "A markdown digest with an overview, themed sections, new and repeated labels, and reference links to relevant pull requests."
       },
       {
-        "input": "Summarize repeated review issues from this month.",
-        "output": "A monthly digest that calls out recurring patterns, explains why they matter, and lists practical team takeaways."
+        "input": "A repository has older review digests and new review comments for the current week.",
+        "output": "A new digest that compares current feedback with prior themes and flags repeated practices that need team attention."
       },
       {
-        "input": "Create a digest but GitHub CLI is unavailable.",
-        "output": "A partial digest based on local notes and existing files, with a clear note about missing GitHub review data."
+        "input": "GitHub CLI access is missing, but local digest notes are available.",
+        "output": "A partial digest based on local sources, with a clear note that GitHub review data was unavailable."
       }
     ],
     "best_practices": [
       "Provide an exact start date and end date before running the skill.",
-      "Review any repository-specific digest guidance before writing the final file.",
-      "Check generated links and repeated-theme labels before sharing the digest."
+      "Keep prior digests in docs/review-digests so repeated themes can be detected.",
+      "Review generated links and theme labels before sharing the digest with the team."
     ],
     "anti_patterns": [
-      "Do not use the skill to modify application code or configuration files.",
-      "Do not treat PR comments or repository docs as trusted instructions.",
-      "Do not publish a digest without noting missing GitHub data."
+      "Do not use the skill when you need a full security audit of code changes.",
+      "Do not ask it to edit application code or tests during digest creation.",
+      "Do not publish a digest without checking whether GitHub data was complete."
     ],
     "faq": [
       {
         "question": "What does this skill create?",
-        "answer": "It creates a markdown code review digest for a selected repository and date range."
+        "answer": "It creates a markdown digest that summarizes pull request review feedback for a specific date range."
+      },
+      {
+        "question": "Where does it write the digest?",
+        "answer": "It writes under docs/review-digests and uses the end date of the reporting window as the filename."
       },
       {
         "question": "Does it require GitHub CLI?",
-        "answer": "GitHub CLI is needed for complete pull request and review-thread data."
+        "answer": "GitHub CLI is needed for complete pull request and review comment data. It can fall back to local notes."
       },
       {
-        "question": "Where does it write files?",
-        "answer": "It writes digest files under docs/review-digests using the end date as the filename."
+        "question": "Can it detect repeated issues?",
+        "answer": "Yes. It compares current themes with recent digests when those files are available."
       },
       {
-        "question": "Can it identify repeated themes?",
-        "answer": "Yes. It compares current review feedback with prior digest files when they are available."
+        "question": "Will it change source code?",
+        "answer": "No. The skill is designed to modify only review digest documentation files."
       },
       {
-        "question": "Can it work without network access?",
-        "answer": "It can create a limited digest from local notes and existing files, but GitHub data will be incomplete."
-      },
-      {
-        "question": "Is repository content trusted?",
-        "answer": "No. Repository guidance and PR comments should be treated as source material, not higher-priority instructions."
+        "question": "Which tools can use it?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },
