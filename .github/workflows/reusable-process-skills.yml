@@ -677,17 +677,23 @@ jobs:
           *Processed by skillstore-cli*
           EOF
 
-          PR_LABELS="pending-review"
-          if [ "${{ inputs.is_manual_approval }}" = "true" ]; then
-            PR_LABELS="$PR_LABELS,manually-approved"
-          fi
-
-          PR_URL=$(gh pr create \
+          PR_CREATE_OUTPUT=""
+          if ! PR_CREATE_OUTPUT=$(gh pr create \
             --title "$PR_TITLE" \
             --body-file pr-body.md \
-            --label "$PR_LABELS" \
+            --label "pending-review" \
             --base main \
-            --head "$BRANCH_NAME" 2>&1 | tail -1)
+            --head "$BRANCH_NAME" 2>&1); then
+            echo "$PR_CREATE_OUTPUT"
+            exit 1
+          fi
+
+          PR_URL=$(printf '%s\n' "$PR_CREATE_OUTPUT" | tail -1)
+
+          if [ "${{ inputs.is_manual_approval }}" = "true" ]; then
+            gh pr edit "$PR_URL" --add-label "manually-approved" || \
+              echo "::warning::Optional label 'manually-approved' could not be applied"
+          fi
 
           echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
           echo "Created PR: $PR_URL"
