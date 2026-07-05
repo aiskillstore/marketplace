@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-28T06:14:04.430Z",
+    "generated_at": "2026-07-05T02:20:03.672Z",
     "slug": "akabanakk-create-git-worktree",
     "source_url": "https://github.com/AKABANAKK/claude-code-marketplace/tree/main/akb7/skills/create-git-worktree",
     "source_ref": "main",
@@ -9,12 +9,25 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "6174cf0b5d687c9af35f0987990bf9ccd24c87189cd0463e81777649de34cc0a",
-    "tree_hash": "75a3ba274c768e219ff86576ae991dc7eb400389f520b2f81c3f835f9cc8caeb"
+    "tree_hash": "ee10c18e8721173d8b3252a96dc7dc03216aed3b96609710549b37d8903a1de1",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "create-git-worktree",
-    "description": "Create an isolated Git worktree from a branch, update the base branch, and copy local environment settings for setup.",
-    "summary": "Automates Git worktree creation for isolated branch work.",
+    "description": "Creates or reuses a Git worktree for a named branch in a sibling worktrees directory. It can use the current branch or a chosen base branch, then copies the local .env file when present.",
+    "summary": "Create an isolated Git worktree for branch-based development.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "AKABANAKK",
@@ -23,9 +36,8 @@
     "tags": [
       "git",
       "worktree",
-      "branching",
-      "developer-workflow",
-      "environment-setup"
+      "branch-management",
+      "local-development"
     ],
     "supported_tools": [
       "claude",
@@ -33,28 +45,39 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
       "external_commands",
-      "filesystem",
-      "env_access"
+      "filesystem"
     ]
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Static findings for shell execution and parent-directory filesystem writes are mostly expected for a Git worktree helper. The confirmed concern is copying .env into a new worktree, which can duplicate local secrets and should be disclosed before publication.",
-    "risk_factor_evidence": [
+    "safe_to_publish": false,
+    "analysis_status": "ok",
+    "summary": "Most shell and SKILL.md entropy detections are benign for a Git worktree helper. The script still has real risk because it creates sibling directories, changes and pulls the base branch, and copies .env into the new worktree. No prompt injection or malicious exfiltration intent was found.",
+    "remediation": [
       {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "scripts/create-worktree.sh",
-            "line_start": 1,
-            "line_end": 1
-          }
-        ]
+        "issue": "Automatic .env copying",
+        "suggestion": "Ask before copying .env, copy .env.example instead, or require an explicit flag for secret-bearing files.",
+        "severity": "high"
       },
+      {
+        "issue": "Worktree path outside repository",
+        "suggestion": "Resolve the target path and ensure it remains under an approved worktree directory before creating it.",
+        "severity": "high"
+      },
+      {
+        "issue": "Repository state changes without confirmation",
+        "suggestion": "Avoid automatic checkout and pull, or require confirmation after checking for uncommitted local changes.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Unvalidated branch arguments",
+        "suggestion": "Validate branch names with git check-ref-format and pass -- before branch arguments in git commands.",
+        "severity": "medium"
+      }
+    ],
+    "risk_factor_evidence": [
       {
         "factor": "external_commands",
         "evidence": [
@@ -77,16 +100,6 @@
             "file": "scripts/create-worktree.sh",
             "line_start": 36,
             "line_end": 36
-          },
-          {
-            "file": "scripts/create-worktree.sh",
-            "line_start": 45,
-            "line_end": 46
-          },
-          {
-            "file": "scripts/create-worktree.sh",
-            "line_start": 61,
-            "line_end": 64
           },
           {
             "file": "scripts/create-worktree.sh",
@@ -119,273 +132,521 @@
             "line_end": 68
           }
         ]
-      },
-      {
-        "factor": "env_access",
-        "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
-          },
-          {
-            "file": "scripts/create-worktree.sh",
-            "line_start": 67,
-            "line_end": 69
-          }
-        ]
       }
     ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
+    "static_findings": [
       {
-        "title": "Environment File Copied Into Worktree",
-        "description": "The script checks for .env and copies it into the new worktree. This is local behavior, but it can duplicate secrets into another directory.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
-          },
-          {
-            "file": "scripts/create-worktree.sh",
-            "line_start": 67,
-            "line_end": 69
-          }
-        ],
-        "confidence": 0.93,
-        "confidence_reasoning": "The code directly copies .env into the worktree, and the skill description states that .env setup is automatic. I found no network exfiltration, so the risk is secret duplication rather than theft."
+        "id": "external_commands:scripts/create-worktree.sh:30:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/create-worktree.sh",
+        "line_start": 30,
+        "line_end": 30,
+        "snippet": "WORKTREE_NAME=$(echo \"$BRANCH_NAME\" | tr '/' '-')"
       },
       {
-        "title": "External Git Commands Modify Local Repository State",
-        "description": "The script runs git checkout, git pull, and git worktree commands. This is expected, but it can change the current checkout and contact the configured Git remote.",
+        "id": "external_commands:scripts/create-worktree.sh:31:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/create-worktree.sh",
+        "line_start": 31,
+        "line_end": 31,
+        "snippet": "REPO_ROOT=$(git rev-parse --show-toplevel)"
+      },
+      {
+        "id": "external_commands:scripts/create-worktree.sh:32:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/create-worktree.sh",
+        "line_start": 32,
+        "line_end": 32,
+        "snippet": "REPO_NAME=$(basename \"$REPO_ROOT\")"
+      },
+      {
+        "id": "external_commands:scripts/create-worktree.sh:36:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/create-worktree.sh",
+        "line_start": 36,
+        "line_end": 36,
+        "snippet": "BASE_BRANCH=$(git branch --show-current)"
+      },
+      {
+        "id": "external_commands:scripts/create-worktree.sh:1:unix-shell-invocation",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Unix shell invocation",
+        "file": "scripts/create-worktree.sh",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "#!/bin/bash"
+      },
+      {
+        "id": "filesystem:scripts/create-worktree.sh:33:path-traversal-sequence",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Path traversal sequence",
+        "file": "scripts/create-worktree.sh",
+        "line_start": 33,
+        "line_end": 33,
+        "snippet": "WORKTREE_PATH=\"$REPO_ROOT/../${REPO_NAME}-worktrees/$WORKTREE_NAME\""
+      },
+      {
+        "id": "filesystem:scripts/create-worktree.sh:48:path-traversal-sequence",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Path traversal sequence",
+        "file": "scripts/create-worktree.sh",
+        "line_start": 48,
+        "line_end": 48,
+        "snippet": "mkdir -p \"$REPO_ROOT/../${REPO_NAME}-worktrees\""
+      },
+      {
+        "id": "filesystem:scripts/create-worktree.sh:68:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "scripts/create-worktree.sh",
+        "line_start": 68,
+        "line_end": 68,
+        "snippet": "cp .env \"$WORKTREE_PATH/.env\""
+      },
+      {
+        "id": "sensitive:scripts/create-worktree.sh:67:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "scripts/create-worktree.sh",
+        "line_start": 67,
+        "line_end": 67,
+        "snippet": "if [ -f .env ]; then"
+      },
+      {
+        "id": "sensitive:scripts/create-worktree.sh:68:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "scripts/create-worktree.sh",
+        "line_start": 68,
+        "line_end": 68,
+        "snippet": "cp .env \"$WORKTREE_PATH/.env\""
+      },
+      {
+        "id": "sensitive:scripts/create-worktree.sh:69:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "scripts/create-worktree.sh",
+        "line_start": 69,
+        "line_end": 69,
+        "snippet": "echo \"Copied .env file to worktree\""
+      },
+      {
+        "id": "external_commands:SKILL.md:13:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 13,
+        "line_end": 15,
+        "snippet": "```"
+      },
+      {
+        "id": "sensitive:SKILL.md:3:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "SKILL.md",
+        "line_start": 3,
+        "line_end": 3,
+        "snippet": "description: git worktree を利用した分離作業環境を自動構築します。デフォルトブランチから最新コードを取得し、.git-worktrees/ ディレクトリに新規worktree"
+      },
+      {
+        "id": "obfuscation:SKILL.md:1:heuristic-high-file-entropy-6-03-bits-possible-b",
+        "category": "obfuscation",
+        "severity": "high",
+        "pattern": "[HEURISTIC] High file entropy (6.03 bits) - possible binary/encrypted content",
+        "file": "SKILL.md",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "File: SKILL.md"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "external_commands:scripts/create-worktree.sh:30:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.84,
+        "reason": "The command substitution only pipes the quoted branch name through tr to replace slashes. It does not evaluate the branch name as shell code."
+      },
+      {
+        "id": "external_commands:scripts/create-worktree.sh:31:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "git rev-parse --show-toplevel is a fixed Git query used to locate the repository root. No user-controlled command text is executed."
+      },
+      {
+        "id": "external_commands:scripts/create-worktree.sh:32:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.87,
+        "reason": "basename is called with a quoted repository path to derive a display directory name. This is not command injection or secret access."
+      },
+      {
+        "id": "external_commands:scripts/create-worktree.sh:36:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "git branch --show-current is a fixed Git query used as a default base branch. It does not execute user-supplied shell syntax."
+      },
+      {
+        "id": "external_commands:scripts/create-worktree.sh:1:unix-shell-invocation",
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "The file is a Bash script that performs local Git, mkdir, cd, and cp operations when invoked. That shell execution capability is material for marketplace risk review.",
+        "severity": "medium"
+      },
+      {
+        "id": "filesystem:scripts/create-worktree.sh:33:path-traversal-sequence",
+        "verdict": "confirmed",
+        "confidence": 0.8,
+        "reason": "The worktree path intentionally uses REPO_ROOT/.. and writes to a sibling directory outside the repository. This expands filesystem scope beyond the current project.",
+        "severity": "high"
+      },
+      {
+        "id": "filesystem:scripts/create-worktree.sh:48:path-traversal-sequence",
+        "verdict": "confirmed",
+        "confidence": 0.8,
+        "reason": "mkdir -p creates the sibling worktrees directory through REPO_ROOT/.. without resolving or constraining the final path. This is a real filesystem boundary risk.",
+        "severity": "high"
+      },
+      {
+        "id": "filesystem:scripts/create-worktree.sh:68:hidden-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.94,
+        "reason": "The script copies .env into the new worktree. Hidden environment files often contain secrets and should not be duplicated automatically.",
+        "severity": "high"
+      },
+      {
+        "id": "sensitive:scripts/create-worktree.sh:67:environment-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.87,
+        "reason": "The script checks for .env specifically before copying it on the next line. This confirms intentional handling of a sensitive environment file.",
+        "severity": "high"
+      },
+      {
+        "id": "sensitive:scripts/create-worktree.sh:68:environment-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.96,
+        "reason": "The script directly copies .env to the worktree. This can duplicate credentials or local secrets into another working directory.",
+        "severity": "high"
+      },
+      {
+        "id": "sensitive:scripts/create-worktree.sh:69:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.85,
+        "reason": "This line only prints a status message after the copy. The actual sensitive file access is already captured on lines 67 and 68."
+      },
+      {
+        "id": "external_commands:SKILL.md:13:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "Line 13 starts a Markdown fenced code block that documents how to run the script. It is not Ruby backtick execution."
+      },
+      {
+        "id": "sensitive:SKILL.md:3:environment-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.9,
+        "reason": "The skill description explicitly advertises automatic .env setup, and the script implements .env copying. This is real sensitive-file behavior.",
+        "severity": "high"
+      },
+      {
+        "id": "obfuscation:SKILL.md:1:heuristic-high-file-entropy-6-03-bits-possible-b",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "SKILL.md is readable Markdown with Japanese text and normal frontmatter. No binary, encrypted, or obfuscated payload is present."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Repository State Mutation Without Confirmation",
+        "description": "The script switches to the base branch and runs git pull before creating a worktree. This can modify local repository state without a prompt.",
+        "severity": "medium",
         "locations": [
           {
             "file": "scripts/create-worktree.sh",
             "line_start": 45,
             "line_end": 46
-          },
-          {
-            "file": "scripts/create-worktree.sh",
-            "line_start": 61,
-            "line_end": 64
           }
         ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The commands are visible and central to the skill purpose. Arguments are quoted, so I did not find shell command injection evidence."
+        "confidence": 0.88,
+        "confidence_reasoning": "The checkout and pull commands are direct and unconditional after argument parsing. This is clear repository mutation, although it matches the skill purpose."
       }
     ],
-    "low_findings": [
+    "critical_findings": [],
+    "high_findings": [
       {
-        "title": "Parent Directory Worktree Path Is Intentional",
-        "description": "The script creates worktrees in a sibling directory using a parent path. This writes outside the repository, but it matches the worktree setup goal.",
+        "title": "Path traversal sequence",
+        "description": "WORKTREE_PATH=\"$REPO_ROOT/../${REPO_NAME}-worktrees/$WORKTREE_NAME\"",
         "locations": [
           {
             "file": "scripts/create-worktree.sh",
             "line_start": 33,
             "line_end": 33
-          },
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.8,
+        "confidence_reasoning": "The worktree path intentionally uses REPO_ROOT/.. and writes to a sibling directory outside the repository. This expands filesystem scope beyond the current project."
+      },
+      {
+        "title": "Path traversal sequence",
+        "description": "mkdir -p \"$REPO_ROOT/../${REPO_NAME}-worktrees\"",
+        "locations": [
           {
             "file": "scripts/create-worktree.sh",
             "line_start": 48,
             "line_end": 48
           }
         ],
-        "confidence": 0.84,
-        "confidence_reasoning": "The parent path is hardcoded from the repository root and quoted. The branch slash replacement reduces traversal risk, though the script still writes outside the repo."
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.8,
+        "confidence_reasoning": "mkdir -p creates the sibling worktrees directory through REPO_ROOT/.. without resolving or constraining the final path. This is a real filesystem boundary risk."
       },
       {
-        "title": "Static Prompt And Entropy Findings Are False Positives",
-        "description": "The markdown code fence only shows how to run the script. I found no prompt injection text, weak cryptographic operation, or obfuscated payload.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 1,
-            "line_end": 3
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 13,
-            "line_end": 15
-          }
-        ],
-        "confidence": 0.95,
-        "confidence_reasoning": "The reviewed lines contain front matter and a normal shell command example. No suspicious instruction override or hidden content is present."
-      },
-      {
-        "title": "Command Substitution Findings Are Benign",
-        "description": "The command substitutions derive names and Git metadata. They do not execute user-controlled shell text.",
+        "title": "Hidden file access",
+        "description": "cp .env \"$WORKTREE_PATH/.env\"",
         "locations": [
           {
             "file": "scripts/create-worktree.sh",
-            "line_start": 30,
-            "line_end": 32
-          },
-          {
-            "file": "scripts/create-worktree.sh",
-            "line_start": 36,
-            "line_end": 36
+            "line_start": 68,
+            "line_end": 68
           }
         ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The branch name is quoted before transformation, and the other substitutions call fixed Git or basename commands. I found no eval, backticks, or unquoted shell expansion."
-      }
-    ],
-    "dangerous_patterns": [
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.94,
+        "confidence_reasoning": "The script copies .env into the new worktree. Hidden environment files often contain secrets and should not be duplicated automatically."
+      },
       {
-        "title": "Copies Local Secret File",
-        "description": "The script copies .env into the worktree when the file exists. Users should confirm that duplicated secrets are acceptable.",
+        "title": "Environment file access",
+        "description": "if [ -f .env ]; then",
         "locations": [
           {
             "file": "scripts/create-worktree.sh",
             "line_start": 67,
-            "line_end": 69
+            "line_end": 67
           }
         ],
-        "confidence": 0.93,
-        "confidence_reasoning": "The copy operation is explicit and uses a common secret file name. The risk is local exposure, not confirmed malicious behavior."
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "high",
+        "confidence": 0.87,
+        "confidence_reasoning": "The script checks for .env specifically before copying it on the next line. This confirms intentional handling of a sensitive environment file."
       },
       {
-        "title": "Runs Repository-Changing Git Commands",
-        "description": "The script checks out the base branch, pulls updates, and creates a worktree. These commands can change working state.",
+        "title": "Environment file access",
+        "description": "cp .env \"$WORKTREE_PATH/.env\"",
+        "locations": [
+          {
+            "file": "scripts/create-worktree.sh",
+            "line_start": 68,
+            "line_end": 68
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "high",
+        "confidence": 0.96,
+        "confidence_reasoning": "The script directly copies .env to the worktree. This can duplicate credentials or local secrets into another working directory."
+      },
+      {
+        "title": "Environment file access",
+        "description": "description: git worktree を利用した分離作業環境を自動構築します。デフォルトブランチから最新コードを取得し、.git-worktrees/ ディレクトリに新規worktree",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 3,
+            "line_end": 3
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "high",
+        "confidence": 0.9,
+        "confidence_reasoning": "The skill description explicitly advertises automatic .env setup, and the script implements .env copying. This is real sensitive-file behavior."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Unix shell invocation",
+        "description": "#!/bin/bash",
+        "locations": [
+          {
+            "file": "scripts/create-worktree.sh",
+            "line_start": 1,
+            "line_end": 1
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "The file is a Bash script that performs local Git, mkdir, cd, and cp operations when invoked. That shell execution capability is material for marketplace risk review."
+      },
+      {
+        "title": "Repository State Mutation Without Confirmation",
+        "description": "The script switches to the base branch and runs git pull before creating a worktree. This can modify local repository state without a prompt.",
         "locations": [
           {
             "file": "scripts/create-worktree.sh",
             "line_start": 45,
             "line_end": 46
-          },
-          {
-            "file": "scripts/create-worktree.sh",
-            "line_start": 61,
-            "line_end": 64
           }
         ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The Git commands are directly present and intentional for this skill. No malicious remote or hidden command chain was found."
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.88,
+        "confidence_reasoning": "The checkout and pull commands are direct and unconditional after argument parsing. This is clear repository mutation, although it matches the skill purpose."
       }
     ],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 97,
     "audit_model": "codex",
-    "audited_at": "2026-06-28T06:14:04.430Z"
+    "audited_at": "2026-07-05T02:20:03.672Z",
+    "agent_auto_install_policy": "confirmation_required",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Create Isolated Git Worktrees",
-    "value_statement": "Branch setup can waste time when each task needs a clean workspace. This skill creates a Git worktree and prepares local environment files.",
+    "user_title": "Create Git Worktrees for Isolated Tasks",
+    "value_statement": "Developers need isolated branches without copying repositories manually. This skill creates or reuses a Git worktree and prepares a basic local environment.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "Git worktree",
-      "branch workflow",
-      "developer automation",
-      "environment setup",
-      "repository management",
-      "feature branch",
-      "DevOps skill"
+      "Claude Git worktree",
+      "Codex Git automation",
+      "Claude Code worktree skill",
+      "Git branch workspace",
+      "Git worktree setup",
+      "local development workflow",
+      "repository workspace automation",
+      "developer productivity",
+      "AI coding assistant",
+      "branch isolation"
     ],
     "actual_capabilities": [
-      "Creates a Git worktree for a specified branch.",
-      "Uses the current branch as the default base branch.",
-      "Accepts a custom base branch with the --from option.",
-      "Stores worktrees in a sibling worktrees directory.",
-      "Reuses an existing worktree when the path already exists.",
-      "Copies a local .env file into the new worktree."
+      "Runs a Bash script to create a Git worktree for a named branch.",
+      "Uses the current branch as the base unless --from is provided.",
+      "Normalizes slashes in branch names for the worktree directory name.",
+      "Creates a sibling worktrees directory when it does not exist.",
+      "Reuses an existing worktree path instead of creating a duplicate.",
+      "Copies the repository .env file into the new worktree when present."
     ],
     "limitations": [
-      "Requires Git and a valid repository checkout.",
-      "Runs a shell script on the local machine.",
-      "Can change the current branch before creating the worktree.",
-      "Does not install npm dependencies despite the description mentioning setup."
+      "Requires Bash and Git in a repository working tree.",
+      "Runs git checkout and git pull before creating the worktree.",
+      "Copies .env by default, which can duplicate local secrets.",
+      "The script does not install npm dependencies despite the skill description."
     ],
     "use_cases": [
       {
         "title": "Start Feature Work",
-        "description": "Create a separate worktree for a new feature branch without disturbing the main checkout.",
+        "description": "Create a separate workspace for a feature branch while keeping the main checkout available.",
         "target_user": "Application developer"
       },
       {
-        "title": "Review Pull Requests",
-        "description": "Open an existing branch in its own directory for testing and review.",
+        "title": "Review Branches in Parallel",
+        "description": "Open another branch for testing or review without stashing current work.",
         "target_user": "Code reviewer"
       },
       {
-        "title": "Prepare Parallel Tasks",
-        "description": "Set up separate branch directories for several active tasks in one repository.",
-        "target_user": "Engineering lead"
+        "title": "Prepare a Hotfix Workspace",
+        "description": "Start a hotfix worktree from a selected release or main branch.",
+        "target_user": "Release engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a Worktree",
-        "prompt": "Create a Git worktree for branch feature/login-flow.",
-        "scenario": "Beginner setup for one feature branch."
+        "title": "Create a Basic Worktree",
+        "prompt": "Create a worktree for branch feature/profile-page.",
+        "scenario": "Beginner branch workspace"
       },
       {
-        "title": "Use a Base Branch",
-        "prompt": "Create a Git worktree for branch feature/payment-retry from main.",
-        "scenario": "Create a new branch from a specific base."
+        "title": "Choose a Base Branch",
+        "prompt": "Create a worktree for bugfix/login-timeout from main using this skill.",
+        "scenario": "Specific base branch"
       },
       {
-        "title": "Reuse If Present",
-        "prompt": "Create or reuse a worktree for bugfix/session-timeout and show the next directory to open.",
-        "scenario": "Continue work when the worktree may already exist."
+        "title": "Reuse Existing Worktree",
+        "prompt": "Create or reuse a worktree for feature/search-filter and tell me which path is used.",
+        "scenario": "Avoid duplicate workspaces"
       },
       {
-        "title": "Prepare Review Workspace",
-        "prompt": "Create a worktree for review/pr-128 from develop, then summarize any repository state changes.",
-        "scenario": "Advanced review workflow with awareness of local changes."
+        "title": "Check Risk Before Running",
+        "prompt": "Before creating release/2.4-hotfix from release/2.4, tell me the target path and whether .env will be copied.",
+        "scenario": "Advanced cautious setup"
       }
     ],
     "output_examples": [
       {
-        "input": "Create a worktree for feature/search-ui.",
-        "output": "The assistant creates a sibling worktree directory, checks out the branch, and reports the path to open next."
+        "input": "Create a worktree for feature/profile-page.",
+        "output": [
+          "Reports the selected base branch.",
+          "Creates or reuses a sibling worktree directory.",
+          "Shows the next directory to open."
+        ]
       },
       {
-        "input": "Create a worktree for hotfix/token-refresh from main.",
-        "output": "The assistant updates the base branch, creates the hotfix worktree, and copies the local environment file when present."
+        "input": "Create bugfix/login-timeout from main.",
+        "output": "Confirms main as the base branch, updates the checkout, creates the worktree, and notes whether .env was copied."
       },
       {
-        "input": "Open the existing worktree for feature/reporting.",
-        "output": "The assistant detects the existing worktree and returns the directory path without recreating it."
+        "input": "Run it for a branch that already has a worktree.",
+        "output": "Reports that the worktree already exists and gives the existing path."
       }
     ],
     "best_practices": [
-      "Check for uncommitted work before running branch-changing commands.",
-      "Review .env contents before copying secrets into another directory.",
-      "Use clear branch names that match team naming rules."
+      "Review the target path before running the script.",
+      "Use --from when the base branch matters.",
+      "Remove copied secrets from worktrees that do not need them."
     ],
     "anti_patterns": [
-      "Do not run this outside a Git repository.",
-      "Do not use it when .env must stay in one protected location.",
-      "Do not assume it installs dependencies without verifying the script."
+      "Run the skill in a repository with uncommitted changes without checking status.",
+      "Use it when .env contains secrets that should not be duplicated.",
+      "Assume npm dependencies are installed by this script."
     ],
     "faq": [
       {
-        "question": "What does this skill create?",
-        "answer": "It creates a Git worktree for a branch in a sibling worktrees directory."
+        "question": "Does this skill create a new repository copy?",
+        "answer": "No. It uses git worktree to create another working tree for the same repository."
+      },
+      {
+        "question": "Where does it place worktrees?",
+        "answer": "It places them in a sibling directory named after the repository with -worktrees appended."
       },
       {
         "question": "Can I choose the base branch?",
-        "answer": "Yes. Use the --from option to set the base branch."
+        "answer": "Yes. Provide --from with the base branch, or it uses the current branch."
       },
       {
         "question": "Does it copy environment variables?",
-        "answer": "Yes. It copies .env when that file exists in the repository root."
+        "answer": "It copies the local .env file when one exists, which may duplicate secrets."
       },
       {
         "question": "Does it install dependencies?",
-        "answer": "No evidence found in the script that it installs npm or other dependencies."
+        "answer": "No. The included script does not run npm install or another package manager."
       },
       {
-        "question": "Will it overwrite an existing worktree?",
-        "answer": "No. It detects an existing worktree path and reuses it."
-      },
-      {
-        "question": "Is it safe for private repositories?",
-        "answer": "Use caution. It can copy local secrets and run git pull against the configured remote."
+        "question": "Is it safe to run automatically?",
+        "answer": "Use caution. It changes branches, pulls updates, creates directories, and may copy .env."
       }
     ]
   },

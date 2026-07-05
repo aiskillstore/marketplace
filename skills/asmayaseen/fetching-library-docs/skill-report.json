@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-28T11:57:46.215Z",
+    "generated_at": "2026-07-05T01:28:13.022Z",
     "slug": "asmayaseen-fetching-library-docs",
     "source_url": "https://github.com/Asmayaseen/hackathon-2/tree/main/.claude/skills/fetching-library-docs",
     "source_ref": "main",
@@ -9,12 +9,25 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "10faf7deb12e07515d593f65700dff6e6e86843e6a2520020ded3e5c7f3d1eeb",
-    "tree_hash": "0bd947384a58b93804370a5e79f3db8aa6d4fa142aaf3dc4f8709e559473ca84"
+    "tree_hash": "d117246fa3c06d33eb2e8c2e46db76748832c763f3b29f4294538574af9e7143",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "fetching-library-docs",
-    "description": "Fetches focused library documentation through Context7 MCP and filters the result into concise examples, API signatures, and notes. It is intended for published package documentation such as React, Next.js, Prisma, Express, and similar libraries.",
-    "summary": "Fetch focused Context7 library docs with concise examples, signatures, and notes.",
+    "description": "Fetches library API documentation through Context7 MCP and filters results into focused examples, API signatures, and notes.",
+    "summary": "Fetch focused library documentation with Context7 MCP and shell-based filtering.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "Asmayaseen",
@@ -24,7 +37,7 @@
       "context7",
       "api-reference",
       "code-examples",
-      "developer-tools"
+      "mcp"
     ],
     "supported_tools": [
       "claude",
@@ -32,97 +45,79 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
       "network",
-      "filesystem",
-      "external_commands"
+      "external_commands",
+      "filesystem"
     ],
     "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Static analysis correctly identified scripts, network access, filesystem access, and external command execution, but many Markdown backtick and weak-crypto alerts are false positives from documentation examples. The main confirmed risk is operational: the skill runs Context7 through npx and includes a generic MCP stdio client that executes command strings with shell=True.",
+    "safe_to_publish": false,
+    "analysis_status": "ok",
+    "summary": "Most static hits are false positives from Markdown examples, code fences, and fixed text filters. Confirmed risks remain: shell-based MCP execution, shell=True stdio process spawning, unpinned npx package execution, network-capable MCP requests, and predictable /tmp PID files.",
+    "remediation": [
+      {
+        "issue": "The MCP stdio client uses shell=True for a user-provided command string.",
+        "suggestion": "Replace shell=True with argv-list execution, or restrict stdio commands to a small allowlist.",
+        "severity": "high"
+      },
+      {
+        "issue": "The scripts execute @upstash/context7-mcp through unpinned npx commands.",
+        "suggestion": "Pin the package version, verify the source, and require explicit approval before first execution.",
+        "severity": "high"
+      },
+      {
+        "issue": "JSON parameters are assembled with direct shell string interpolation.",
+        "suggestion": "Build MCP parameters with a JSON encoder and validate library, topic, mode, and page values.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Server helpers trust predictable PID files in /tmp for process control.",
+        "suggestion": "Use a private runtime directory, validate numeric PIDs, check process ownership, and avoid broad pkill patterns.",
+        "severity": "medium"
+      }
+    ],
     "risk_factor_evidence": [
-      {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "scripts/fetch-docs.sh",
-            "line_start": 1,
-            "line_end": 1
-          },
-          {
-            "file": "scripts/fetch-raw.sh",
-            "line_start": 1,
-            "line_end": 1
-          },
-          {
-            "file": "scripts/mcp-client.py",
-            "line_start": 1,
-            "line_end": 1
-          },
-          {
-            "file": "scripts/start-server.sh",
-            "line_start": 1,
-            "line_end": 1
-          },
-          {
-            "file": "scripts/stop-server.sh",
-            "line_start": 1,
-            "line_end": 1
-          }
-        ]
-      },
-      {
-        "factor": "external_commands",
-        "evidence": [
-          {
-            "file": "scripts/mcp-client.py",
-            "line_start": 204,
-            "line_end": 212
-          },
-          {
-            "file": "scripts/mcp-client.py",
-            "line_start": 423,
-            "line_end": 423
-          },
-          {
-            "file": "scripts/mcp-client.py",
-            "line_start": 440,
-            "line_end": 440
-          },
-          {
-            "file": "scripts/fetch-docs.sh",
-            "line_start": 93,
-            "line_end": 96
-          },
-          {
-            "file": "scripts/fetch-raw.sh",
-            "line_start": 35,
-            "line_end": 38
-          },
-          {
-            "file": "scripts/start-server.sh",
-            "line_start": 163,
-            "line_end": 164
-          },
-          {
-            "file": "scripts/stop-server.sh",
-            "line_start": 186,
-            "line_end": 190
-          },
-          {
-            "file": "scripts/stop-server.sh",
-            "line_start": 199,
-            "line_end": 199
-          }
-        ]
-      },
       {
         "factor": "network",
         "evidence": [
+          {
+            "file": "references/context7-tools.md",
+            "line_start": 169,
+            "line_end": 169
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 146,
+            "line_end": 146
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 271,
+            "line_end": 271
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 314,
+            "line_end": 314
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 323,
+            "line_end": 323
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 328,
+            "line_end": 328
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 333,
+            "line_end": 333
+          },
           {
             "file": "scripts/mcp-client.py",
             "line_start": 33,
@@ -130,23 +125,23 @@
           },
           {
             "file": "scripts/mcp-client.py",
-            "line_start": 83,
-            "line_end": 90
+            "line_start": 10,
+            "line_end": 10
           },
           {
             "file": "scripts/mcp-client.py",
-            "line_start": 167,
-            "line_end": 176
+            "line_start": 16,
+            "line_end": 16
           },
           {
-            "file": "scripts/fetch-docs.sh",
-            "line_start": 93,
-            "line_end": 96
+            "file": "scripts/mcp-client.py",
+            "line_start": 20,
+            "line_end": 20
           },
           {
-            "file": "scripts/fetch-raw.sh",
-            "line_start": 35,
-            "line_end": 38
+            "file": "scripts/mcp-client.py",
+            "line_start": 23,
+            "line_end": 23
           },
           {
             "file": "SKILL.md",
@@ -156,22 +151,62 @@
         ]
       },
       {
-        "factor": "filesystem",
+        "factor": "external_commands",
         "evidence": [
           {
-            "file": "scripts/start-server.sh",
-            "line_start": 154,
-            "line_end": 164
+            "file": "scripts/extract-code-blocks.sh",
+            "line_start": 9,
+            "line_end": 18
           },
           {
-            "file": "scripts/stop-server.sh",
-            "line_start": 179,
-            "line_end": 196
+            "file": "scripts/extract-code-blocks.sh",
+            "line_start": 18,
+            "line_end": 25
           },
           {
-            "file": "scripts/verify.py",
-            "line_start": 207,
-            "line_end": 214
+            "file": "scripts/extract-code-blocks.sh",
+            "line_start": 25,
+            "line_end": 27
+          },
+          {
+            "file": "scripts/extract-code-blocks.sh",
+            "line_start": 27,
+            "line_end": 30
+          },
+          {
+            "file": "scripts/extract-code-blocks.sh",
+            "line_start": 30,
+            "line_end": 38
+          },
+          {
+            "file": "scripts/extract-code-blocks.sh",
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
+            "file": "scripts/extract-notes.sh",
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
+            "file": "scripts/extract-signatures.sh",
+            "line_start": 16,
+            "line_end": 16
+          },
+          {
+            "file": "scripts/extract-signatures.sh",
+            "line_start": 30,
+            "line_end": 30
+          },
+          {
+            "file": "scripts/extract-signatures.sh",
+            "line_start": 38,
+            "line_end": 38
+          },
+          {
+            "file": "scripts/extract-signatures.sh",
+            "line_start": 1,
+            "line_end": 1
           },
           {
             "file": "scripts/fetch-docs.sh",
@@ -179,142 +214,2801 @@
             "line_end": 11
           },
           {
-            "file": "scripts/fetch-raw.sh",
-            "line_start": 35,
-            "line_end": 35
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "Generic MCP stdio command execution",
-        "description": "The MCP client accepts a --stdio command string and launches it with subprocess.Popen using shell=True. This is legitimate for MCP server startup, but it can execute arbitrary shell commands if a user or wrapper passes untrusted input.",
-        "locations": [
-          {
-            "file": "scripts/mcp-client.py",
-            "line_start": 204,
-            "line_end": 212
-          },
-          {
-            "file": "scripts/mcp-client.py",
-            "line_start": 423,
-            "line_end": 423
-          },
-          {
-            "file": "scripts/mcp-client.py",
-            "line_start": 440,
-            "line_end": 440
-          }
-        ],
-        "confidence": 0.82,
-        "confidence_reasoning": "The subprocess call directly uses shell=True with a command string supplied by the CLI. The skill normally passes a hardcoded Context7 command, so this is a confirmed risky capability rather than confirmed malicious intent."
-      },
-      {
-        "title": "Automatic execution of remote npm package",
-        "description": "The main fetch path starts Context7 through npx -y @upstash/context7-mcp. This performs network-dependent package execution and should be treated as an external code execution dependency.",
-        "locations": [
-          {
             "file": "scripts/fetch-docs.sh",
             "line_start": 93,
             "line_end": 96
           },
           {
-            "file": "scripts/fetch-raw.sh",
-            "line_start": 35,
-            "line_end": 38
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 100,
+            "line_end": 100
           },
           {
-            "file": "scripts/start-server.sh",
-            "line_start": 163,
-            "line_end": 164
-          }
-        ],
-        "confidence": 0.78,
-        "confidence_reasoning": "The npx command is explicit and is required by the skill workflow. The package name is fixed, which reduces command injection risk, but the dependency still executes downloaded external code."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Unescaped JSON parameter construction",
-        "description": "Shell scripts interpolate library, topic, mode, and page values into JSON strings without JSON escaping. Malformed input can break requests or alter tool parameters, but no shell injection path was confirmed from this construction.",
-        "locations": [
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 102,
+            "line_end": 102
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 106,
+            "line_end": 106
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 120,
+            "line_end": 120
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 124,
+            "line_end": 124
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 126,
+            "line_end": 126
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 136,
+            "line_end": 136
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 137,
+            "line_end": 137
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 150,
+            "line_end": 150
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 157,
+            "line_end": 157
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 167,
+            "line_end": 167
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 174,
+            "line_end": 175
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 183,
+            "line_end": 183
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 191,
+            "line_end": 191
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 200,
+            "line_end": 200
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 201,
+            "line_end": 201
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 202,
+            "line_end": 202
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 1,
+            "line_end": 1
+          },
           {
             "file": "scripts/fetch-raw.sh",
             "line_start": 13,
+            "line_end": 19
+          },
+          {
+            "file": "scripts/fetch-raw.sh",
+            "line_start": 23,
             "line_end": 31
           },
           {
-            "file": "scripts/fetch-docs.sh",
-            "line_start": 93,
-            "line_end": 96
-          }
-        ],
-        "confidence": 0.67,
-        "confidence_reasoning": "The interpolation is visible and user-controlled values can affect JSON syntax. The resulting string is passed as a Python argument, so evidence supports robustness risk but not direct code execution."
-      },
-      {
-        "title": "Predictable temporary PID files and process killing",
-        "description": "Server helper scripts write predictable PID files under /tmp and stop processes by PID or process-name pattern. This is common local tooling, but it can affect unintended local processes if misused.",
-        "locations": [
+            "file": "scripts/fetch-raw.sh",
+            "line_start": 35,
+            "line_end": 35
+          },
+          {
+            "file": "scripts/fetch-raw.sh",
+            "line_start": 1,
+            "line_end": 1
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 191,
+            "line_end": 191
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 204,
+            "line_end": 204
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 348,
+            "line_end": 348
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 371,
+            "line_end": 371
+          },
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 377,
+            "line_end": 379
+          },
           {
             "file": "scripts/start-server.sh",
-            "line_start": 154,
-            "line_end": 164
+            "line_start": 9,
+            "line_end": 9
+          },
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 21,
+            "line_end": 21
+          },
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 1,
+            "line_end": 1
           },
           {
             "file": "scripts/stop-server.sh",
-            "line_start": 179,
-            "line_end": 199
-          }
-        ],
-        "confidence": 0.61,
-        "confidence_reasoning": "The PID-file and kill behavior is explicit in the helper scripts. The scope appears local and user-initiated, so the security impact is limited."
-      },
-      {
-        "title": "Static documentation pattern false positives",
-        "description": "Most Ruby backtick and weak-cryptography alerts in SKILL.md and references/context7-tools.md are Markdown examples, headings, or schema text. No evidence found that those Markdown lines execute code or implement cryptography.",
-        "locations": [
+            "line_start": 9,
+            "line_end": 9
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 1,
+            "line_end": 1
+          },
           {
             "file": "SKILL.md",
             "line_start": 20,
             "line_end": 28
           },
           {
-            "file": "references/context7-tools.md",
-            "line_start": 23,
-            "line_end": 37
+            "file": "SKILL.md",
+            "line_start": 28,
+            "line_end": 44
           },
           {
-            "file": "references/context7-tools.md",
-            "line_start": 122,
-            "line_end": 132
-          }
-        ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The cited files are documentation and the flagged backticks are Markdown code formatting. I found no execution mechanism tied to those Markdown locations."
-      }
-    ],
-    "dangerous_patterns": [
-      {
-        "title": "subprocess.Popen with shell=True",
-        "description": "The stdio MCP transport starts the supplied command string through the shell, which is dangerous with untrusted command input.",
-        "locations": [
+            "file": "SKILL.md",
+            "line_start": 44,
+            "line_end": 46
+          },
           {
-            "file": "scripts/mcp-client.py",
-            "line_start": 204,
+            "file": "SKILL.md",
+            "line_start": 46,
+            "line_end": 48
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 48,
+            "line_end": 61
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 61,
+            "line_end": 63
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 63,
+            "line_end": 66
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 66,
+            "line_end": 67
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 70
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 70,
+            "line_end": 71
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 71,
+            "line_end": 72
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 72,
+            "line_end": 73
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 73,
+            "line_end": 78
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 78,
+            "line_end": 80
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 80,
+            "line_end": 83
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 83,
+            "line_end": 85
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 85,
+            "line_end": 89
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 89,
+            "line_end": 91
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 91,
+            "line_end": 101
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 101,
+            "line_end": 109
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 109,
+            "line_end": 111
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 111,
+            "line_end": 119
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 119,
+            "line_end": 125
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 125,
+            "line_end": 131
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 131,
+            "line_end": 133
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 133,
+            "line_end": 135
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 135,
+            "line_end": 141
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 141,
+            "line_end": 147
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 147,
+            "line_end": 153
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 153,
+            "line_end": 153
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 163,
+            "line_end": 169
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 169,
+            "line_end": 178
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 178,
+            "line_end": 182
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 182,
+            "line_end": 184
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 184,
+            "line_end": 188
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 188,
+            "line_end": 190
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 190,
+            "line_end": 198
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 198,
+            "line_end": 199
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 199,
+            "line_end": 200
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 200,
+            "line_end": 201
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 201,
+            "line_end": 211
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 211,
             "line_end": 212
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 212,
+            "line_end": 213
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 213,
+            "line_end": 214
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 214,
+            "line_end": 215
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 215,
+            "line_end": 216
           }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The code uses subprocess.Popen with shell=True and a command string. This is a known command injection hazard when the command source is not tightly controlled."
+        ]
       },
       {
-        "title": "Network package execution through npx",
-        "description": "The skill workflow runs @upstash/context7-mcp through npx, creating a supply-chain and network execution dependency.",
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 96,
+            "line_end": 96
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 99,
+            "line_end": 99
+          },
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 123,
+            "line_end": 123
+          },
+          {
+            "file": "scripts/fetch-raw.sh",
+            "line_start": 38,
+            "line_end": 38
+          },
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 9,
+            "line_end": 9
+          },
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 6,
+            "line_end": 6
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 10,
+            "line_end": 10
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 12,
+            "line_end": 12
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 16,
+            "line_end": 16
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 25,
+            "line_end": 25
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 6,
+            "line_end": 6
+          }
+        ]
+      }
+    ],
+    "static_findings": [
+      {
+        "id": "network:references/context7-tools.md:169:fetch-api-call",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Fetch API call",
+        "file": "references/context7-tools.md",
+        "line_start": 169,
+        "line_end": 169,
+        "snippet": "# Direct fetch (skip resolve step)"
+      },
+      {
+        "id": "blocker:references/context7-tools.md:9:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/context7-tools.md",
+        "line_start": 9,
+        "line_end": 9,
+        "snippet": "You MUST call this function before 'get-library-docs' to obtain a valid Context7-compatible library "
+      },
+      {
+        "id": "blocker:references/context7-tools.md:40:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/context7-tools.md",
+        "line_start": 40,
+        "line_end": 40,
+        "snippet": "-t resolve-library-id \\"
+      },
+      {
+        "id": "blocker:references/context7-tools.md:45:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/context7-tools.md",
+        "line_start": 45,
+        "line_end": 45,
+        "snippet": "-t resolve-library-id \\"
+      },
+      {
+        "id": "blocker:references/context7-tools.md:50:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/context7-tools.md",
+        "line_start": 50,
+        "line_end": 50,
+        "snippet": "-t resolve-library-id \\"
+      },
+      {
+        "id": "blocker:references/context7-tools.md:156:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/context7-tools.md",
+        "line_start": 156,
+        "line_end": 156,
+        "snippet": "-t resolve-library-id -p '{\"libraryName\": \"express\"}'"
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:9:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-code-blocks.sh",
+        "line_start": 9,
+        "line_end": 18,
+        "snippet": "# Use awk to extract code blocks between ``` markers"
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:18:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-code-blocks.sh",
+        "line_start": 18,
+        "line_end": 25,
+        "snippet": "/^```/ {"
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:25:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-code-blocks.sh",
+        "line_start": 25,
+        "line_end": 27,
+        "snippet": "print \"```\" lang"
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:27:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-code-blocks.sh",
+        "line_start": 27,
+        "line_end": 30,
+        "snippet": "print \"```\""
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:30:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-code-blocks.sh",
+        "line_start": 30,
+        "line_end": 38,
+        "snippet": "print \"```\\n\""
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:1:unix-shell-invocation",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Unix shell invocation",
+        "file": "scripts/extract-code-blocks.sh",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "#!/bin/bash"
+      },
+      {
+        "id": "external_commands:scripts/extract-notes.sh:1:unix-shell-invocation",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Unix shell invocation",
+        "file": "scripts/extract-notes.sh",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "#!/bin/bash"
+      },
+      {
+        "id": "external_commands:scripts/extract-signatures.sh:16:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-signatures.sh",
+        "line_start": 16,
+        "line_end": 16,
+        "snippet": "print \"- `\" $0 \"`\""
+      },
+      {
+        "id": "external_commands:scripts/extract-signatures.sh:30:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-signatures.sh",
+        "line_start": 30,
+        "line_end": 30,
+        "snippet": "print \"- `\" sig \"`\""
+      },
+      {
+        "id": "external_commands:scripts/extract-signatures.sh:38:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-signatures.sh",
+        "line_start": 38,
+        "line_end": 38,
+        "snippet": "print \"- `\" $0 \"`\""
+      },
+      {
+        "id": "external_commands:scripts/extract-signatures.sh:1:unix-shell-invocation",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Unix shell invocation",
+        "file": "scripts/extract-signatures.sh",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "#!/bin/bash"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:11:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 11,
+        "line_end": 11,
+        "snippet": "SCRIPT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\""
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:93:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 93,
+        "line_end": 96,
+        "snippet": "RESOLVE_JSON=$(python3 \"$SCRIPT_DIR/mcp-client.py\" call \\"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:100:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 100,
+        "line_end": 100,
+        "snippet": "RESOLVE_TEXT=$(echo \"$RESOLVE_JSON\" | jq -r '.content[0].text')"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:102:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 102,
+        "line_end": 102,
+        "snippet": "RESOLVE_TEXT=$(echo \"$RESOLVE_JSON\" | python3 -c 'import sys, json; data=json.load(sys.stdin); print"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:106:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 106,
+        "line_end": 106,
+        "snippet": "LIBRARY_ID=$(echo \"$RESOLVE_TEXT\" | sed -n 's/.*Context7-compatible library ID:[[:space:]]*\\([/a-zA-"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:120:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 120,
+        "line_end": 120,
+        "snippet": "RAW_JSON=$(\"$SCRIPT_DIR/fetch-raw.sh\" \"$LIBRARY_ID\" \"$TOPIC\" \"$MODE\" \"$PAGE\")"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:124:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 124,
+        "line_end": 124,
+        "snippet": "RAW_TEXT=$(echo \"$RAW_JSON\" | jq -r '.content[0].text // empty')"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:126:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 126,
+        "line_end": 126,
+        "snippet": "RAW_TEXT=$(echo \"$RAW_JSON\" | python3 -c 'import sys, json; data=json.load(sys.stdin); print(data.ge"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:136:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 136,
+        "line_end": 136,
+        "snippet": "RAW_WORDS=$(echo \"$RAW_TEXT\" | wc -w)"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:137:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 137,
+        "line_end": 137,
+        "snippet": "RAW_TOKENS=$(echo \"$RAW_WORDS * 1.3\" | bc | cut -d. -f1)"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:150:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 150,
+        "line_end": 150,
+        "snippet": "CODE_BLOCKS=$(echo \"$RAW_TEXT\" | \"$SCRIPT_DIR/extract-code-blocks.sh\" 5)"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:157:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 157,
+        "line_end": 157,
+        "snippet": "SIGNATURES=$(echo \"$RAW_TEXT\" | \"$SCRIPT_DIR/extract-signatures.sh\" 3)"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:167:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 167,
+        "line_end": 167,
+        "snippet": "CODE_BLOCKS=$(echo \"$RAW_TEXT\" | \"$SCRIPT_DIR/extract-code-blocks.sh\" 2)"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:174:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 174,
+        "line_end": 175,
+        "snippet": "OVERVIEW=$(echo \"$RAW_TEXT\" | \\"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:183:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 183,
+        "line_end": 183,
+        "snippet": "NOTES=$(echo \"$RAW_TEXT\" | \"$SCRIPT_DIR/extract-notes.sh\" 3)"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:191:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 191,
+        "line_end": 191,
+        "snippet": "OUTPUT=$(echo \"$RAW_TEXT\" | head -c 500)"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:200:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 200,
+        "line_end": 200,
+        "snippet": "FILTERED_WORDS=$(echo -e \"$OUTPUT\" | wc -w)"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:201:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 201,
+        "line_end": 201,
+        "snippet": "FILTERED_TOKENS=$(echo \"$FILTERED_WORDS * 1.3\" | bc | cut -d. -f1)"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:202:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 202,
+        "line_end": 202,
+        "snippet": "SAVINGS=$(echo \"scale=1; (($RAW_TOKENS - $FILTERED_TOKENS) / $RAW_TOKENS) * 100\" | bc)"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:1:unix-shell-invocation",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Unix shell invocation",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "#!/bin/bash"
+      },
+      {
+        "id": "filesystem:scripts/fetch-docs.sh:96:standard-device-file-access",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Standard device file access",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 96,
+        "line_end": 96,
+        "snippet": "-p \"{\\\"libraryName\\\": \\\"$LIBRARY_NAME\\\"}\" 2>/dev/null)"
+      },
+      {
+        "id": "filesystem:scripts/fetch-docs.sh:99:standard-device-file-access",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Standard device file access",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 99,
+        "line_end": 99,
+        "snippet": "if command -v jq &> /dev/null; then"
+      },
+      {
+        "id": "filesystem:scripts/fetch-docs.sh:123:standard-device-file-access",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Standard device file access",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 123,
+        "line_end": 123,
+        "snippet": "if command -v jq &> /dev/null; then"
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:27:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 27,
+        "line_end": 27,
+        "snippet": "--library-id ID    Context7 library ID (e.g., /reactjs/react.dev)"
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:37:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 37,
+        "line_end": 37,
+        "snippet": "$0 --library-id /reactjs/react.dev --topic useState"
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:43:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 43,
+        "line_end": 43,
+        "snippet": "$0 --library-id /prisma/docs --topic \"getting started\" --mode info"
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:92:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 92,
+        "line_end": 93,
+        "snippet": "# Call resolve-library-id"
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:95:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 95,
+        "line_end": 95,
+        "snippet": "-t resolve-library-id \\"
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:113:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/fetch-docs.sh",
+        "line_start": 113,
+        "line_end": 113,
+        "snippet": "echo \"Error: Must specify --library-id or --library\" >&2"
+      },
+      {
+        "id": "external_commands:scripts/fetch-raw.sh:13:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-raw.sh",
+        "line_start": 13,
+        "line_end": 19,
+        "snippet": "PARAMS=$(cat <<JSON"
+      },
+      {
+        "id": "external_commands:scripts/fetch-raw.sh:23:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-raw.sh",
+        "line_start": 23,
+        "line_end": 31,
+        "snippet": "PARAMS=$(cat <<JSON"
+      },
+      {
+        "id": "external_commands:scripts/fetch-raw.sh:35:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/fetch-raw.sh",
+        "line_start": 35,
+        "line_end": 35,
+        "snippet": "python3 \"$(dirname \"$0\")/mcp-client.py\" call \\"
+      },
+      {
+        "id": "external_commands:scripts/fetch-raw.sh:1:unix-shell-invocation",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Unix shell invocation",
+        "file": "scripts/fetch-raw.sh",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "#!/bin/bash"
+      },
+      {
+        "id": "filesystem:scripts/fetch-raw.sh:38:standard-device-file-access",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Standard device file access",
+        "file": "scripts/fetch-raw.sh",
+        "line_start": 38,
+        "line_end": 38,
+        "snippet": "-p \"$PARAMS\" 2>/dev/null"
+      },
+      {
+        "id": "external_commands:scripts/mcp-client.py:191:python-subprocess-popen",
+        "category": "external_commands",
+        "severity": "high",
+        "pattern": "Python subprocess.Popen",
+        "file": "scripts/mcp-client.py",
+        "line_start": 191,
+        "line_end": 191,
+        "snippet": "self._process: Optional[subprocess.Popen] = None"
+      },
+      {
+        "id": "external_commands:scripts/mcp-client.py:204:python-subprocess-popen",
+        "category": "external_commands",
+        "severity": "high",
+        "pattern": "Python subprocess.Popen",
+        "file": "scripts/mcp-client.py",
+        "line_start": 204,
+        "line_end": 204,
+        "snippet": "self._process = subprocess.Popen("
+      },
+      {
+        "id": "external_commands:scripts/mcp-client.py:348:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/mcp-client.py",
+        "line_start": 348,
+        "line_end": 348,
+        "snippet": "lines.append(f\"## `{name}`\\n\")"
+      },
+      {
+        "id": "external_commands:scripts/mcp-client.py:371:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/mcp-client.py",
+        "line_start": 371,
+        "line_end": 371,
+        "snippet": "lines.append(f\"- **`{prop_name}`** (`{prop_type}`){req_marker}: {prop_desc}\")"
+      },
+      {
+        "id": "external_commands:scripts/mcp-client.py:377:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/mcp-client.py",
+        "line_start": 377,
+        "line_end": 379,
+        "snippet": "lines.append(\"```json\")"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:146:http-client-library",
+        "category": "network",
+        "severity": "low",
+        "pattern": "HTTP client library",
+        "file": "scripts/mcp-client.py",
+        "line_start": 146,
+        "line_end": 146,
+        "snippet": "def request(self, method: str, params: Optional[dict] = None) -> dict:"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:271:http-client-library",
+        "category": "network",
+        "severity": "low",
+        "pattern": "HTTP client library",
+        "file": "scripts/mcp-client.py",
+        "line_start": 271,
+        "line_end": 271,
+        "snippet": "def request(self, method: str, params: Optional[dict] = None) -> dict:"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:314:http-client-library",
+        "category": "network",
+        "severity": "low",
+        "pattern": "HTTP client library",
+        "file": "scripts/mcp-client.py",
+        "line_start": 314,
+        "line_end": 314,
+        "snippet": "result = self.transport.request(\"tools/list\")"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:323:http-client-library",
+        "category": "network",
+        "severity": "low",
+        "pattern": "HTTP client library",
+        "file": "scripts/mcp-client.py",
+        "line_start": 323,
+        "line_end": 323,
+        "snippet": "result = self.transport.request(\"tools/call\", params)"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:328:http-client-library",
+        "category": "network",
+        "severity": "low",
+        "pattern": "HTTP client library",
+        "file": "scripts/mcp-client.py",
+        "line_start": 328,
+        "line_end": 328,
+        "snippet": "result = self.transport.request(\"resources/list\")"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:333:http-client-library",
+        "category": "network",
+        "severity": "low",
+        "pattern": "HTTP client library",
+        "file": "scripts/mcp-client.py",
+        "line_start": 333,
+        "line_end": 333,
+        "snippet": "result = self.transport.request(\"prompts/list\")"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:33:python-http-libraries",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Python HTTP libraries",
+        "file": "scripts/mcp-client.py",
+        "line_start": 33,
+        "line_end": 33,
+        "snippet": "from urllib.request import Request, urlopen"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:10:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "scripts/mcp-client.py",
+        "line_start": 10,
+        "line_end": 10,
+        "snippet": "python mcp-client.py list --url http://localhost:8080"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:16:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "scripts/mcp-client.py",
+        "line_start": 16,
+        "line_end": 16,
+        "snippet": "python mcp-client.py call --url http://localhost:8080 --tool create_issue \\"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:20:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "scripts/mcp-client.py",
+        "line_start": 20,
+        "line_end": 20,
+        "snippet": "python mcp-client.py emit --url http://localhost:8080"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:23:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "scripts/mcp-client.py",
+        "line_start": 23,
+        "line_end": 23,
+        "snippet": "python mcp-client.py emit --url http://localhost:8080 --format json"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:52:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 52,
+        "line_end": 52,
+        "snippet": "self._request_id = 0"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:57:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 57,
+        "line_end": 57,
+        "snippet": "self._request_id += 1"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:58:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 58,
+        "line_end": 60,
+        "snippet": "return self._request_id"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:88:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 88,
+        "line_end": 88,
+        "snippet": "self._session_id = resp.headers.get('Mcp-Session-Id')"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:137:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 137,
+        "line_end": 139,
+        "snippet": "headers[\"Mcp-Session-Id\"] = self._session_id"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:165:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 165,
+        "line_end": 167,
+        "snippet": "headers[\"Mcp-Session-Id\"] = self._session_id"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:190:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 190,
+        "line_end": 190,
+        "snippet": "self._request_id = 0"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:196:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 196,
+        "line_end": 196,
+        "snippet": "self._request_id += 1"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:197:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 197,
+        "line_end": 199,
+        "snippet": "return self._request_id"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:275:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 275,
+        "line_end": 275,
+        "snippet": "req_id = self._next_id()"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:286:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 286,
+        "line_end": 287,
+        "snippet": "# Wait for response with matching id"
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:480:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/mcp-client.py",
+        "line_start": 480,
+        "line_end": 480,
+        "snippet": "print(f\"Invalid JSON: {e}\", file=sys.stderr)"
+      },
+      {
+        "id": "external_commands:scripts/start-server.sh:9:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/start-server.sh",
+        "line_start": 9,
+        "line_end": 9,
+        "snippet": "if [ -f \"$PID_FILE\" ] && kill -0 $(cat \"$PID_FILE\") 2>/dev/null; then"
+      },
+      {
+        "id": "external_commands:scripts/start-server.sh:10:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/start-server.sh",
+        "line_start": 10,
+        "line_end": 10,
+        "snippet": "echo \"Context7 MCP already running on port $PORT (PID: $(cat $PID_FILE))\""
+      },
+      {
+        "id": "external_commands:scripts/start-server.sh:20:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/start-server.sh",
+        "line_start": 20,
+        "line_end": 20,
+        "snippet": "if kill -0 $(cat \"$PID_FILE\") 2>/dev/null; then"
+      },
+      {
+        "id": "external_commands:scripts/start-server.sh:21:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/start-server.sh",
+        "line_start": 21,
+        "line_end": 21,
+        "snippet": "echo \"Context7 MCP started on port $PORT (PID: $(cat $PID_FILE))\""
+      },
+      {
+        "id": "external_commands:scripts/start-server.sh:1:unix-shell-invocation",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Unix shell invocation",
+        "file": "scripts/start-server.sh",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "#!/bin/bash"
+      },
+      {
+        "id": "filesystem:scripts/start-server.sh:9:standard-device-file-access",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Standard device file access",
+        "file": "scripts/start-server.sh",
+        "line_start": 9,
+        "line_end": 9,
+        "snippet": "if [ -f \"$PID_FILE\" ] && kill -0 $(cat \"$PID_FILE\") 2>/dev/null; then"
+      },
+      {
+        "id": "filesystem:scripts/start-server.sh:20:standard-device-file-access",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Standard device file access",
+        "file": "scripts/start-server.sh",
+        "line_start": 20,
+        "line_end": 20,
+        "snippet": "if kill -0 $(cat \"$PID_FILE\") 2>/dev/null; then"
+      },
+      {
+        "id": "filesystem:scripts/start-server.sh:6:temp-directory-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Temp directory access",
+        "file": "scripts/start-server.sh",
+        "line_start": 6,
+        "line_end": 6,
+        "snippet": "PID_FILE=\"/tmp/context7-mcp-${PORT}.pid\""
+      },
+      {
+        "id": "external_commands:scripts/stop-server.sh:9:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "scripts/stop-server.sh",
+        "line_start": 9,
+        "line_end": 9,
+        "snippet": "PID=$(cat \"$PID_FILE\")"
+      },
+      {
+        "id": "external_commands:scripts/stop-server.sh:1:unix-shell-invocation",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Unix shell invocation",
+        "file": "scripts/stop-server.sh",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "#!/bin/bash"
+      },
+      {
+        "id": "filesystem:scripts/stop-server.sh:10:standard-device-file-access",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Standard device file access",
+        "file": "scripts/stop-server.sh",
+        "line_start": 10,
+        "line_end": 10,
+        "snippet": "if kill -0 \"$PID\" 2>/dev/null; then"
+      },
+      {
+        "id": "filesystem:scripts/stop-server.sh:12:standard-device-file-access",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Standard device file access",
+        "file": "scripts/stop-server.sh",
+        "line_start": 12,
+        "line_end": 12,
+        "snippet": "kill \"$PID\" 2>/dev/null"
+      },
+      {
+        "id": "filesystem:scripts/stop-server.sh:16:standard-device-file-access",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Standard device file access",
+        "file": "scripts/stop-server.sh",
+        "line_start": 16,
+        "line_end": 16,
+        "snippet": "kill -9 \"$PID\" 2>/dev/null || true"
+      },
+      {
+        "id": "filesystem:scripts/stop-server.sh:25:standard-device-file-access",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Standard device file access",
+        "file": "scripts/stop-server.sh",
+        "line_start": 25,
+        "line_end": 25,
+        "snippet": "pkill -f \"context7-mcp.*--port.*${PORT}\" 2>/dev/null && echo \"Context7 MCP stopped\" || echo \"Context"
+      },
+      {
+        "id": "filesystem:scripts/stop-server.sh:6:temp-directory-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Temp directory access",
+        "file": "scripts/stop-server.sh",
+        "line_start": 6,
+        "line_end": 6,
+        "snippet": "PID_FILE=\"/tmp/context7-mcp-${PORT}.pid\""
+      },
+      {
+        "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 20,
+        "line_end": 28,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 28,
+        "line_end": 44,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 44,
+        "line_end": 46,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 46,
+        "line_end": 48,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 48,
+        "line_end": 61,
+        "snippet": "The `--verbose` flag shows token savings statistics."
+      },
+      {
+        "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 61,
+        "line_end": 63,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 63,
+        "line_end": 66,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 66,
+        "line_end": 67,
+        "snippet": "- `--library <name>` - Library name (e.g., \"react\", \"nextjs\")"
+      },
+      {
+        "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 67,
+        "line_end": 70,
+        "snippet": "- `--library-id <id>` - Direct Context7 ID (faster, skips resolution)"
+      },
+      {
+        "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 70,
+        "line_end": 71,
+        "snippet": "- `--topic <topic>` - Specific feature to focus on"
+      },
+      {
+        "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 71,
+        "line_end": 72,
+        "snippet": "- `--mode <code|info>` - code for examples (default), info for concepts"
+      },
+      {
+        "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 72,
+        "line_end": 73,
+        "snippet": "- `--page <1-10>` - Pagination for more results"
+      },
+      {
+        "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 73,
+        "line_end": 78,
+        "snippet": "- `--verbose` - Show token savings statistics"
+      },
+      {
+        "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 78,
+        "line_end": 80,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 80,
+        "line_end": 83,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 83,
+        "line_end": 85,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 85,
+        "line_end": 89,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:89:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 89,
+        "line_end": 91,
+        "snippet": "Use `--library-id` for faster lookup (skips resolution):"
+      },
+      {
+        "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 91,
+        "line_end": 101,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 101,
+        "line_end": 109,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:109:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 109,
+        "line_end": 111,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:111:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 111,
+        "line_end": 119,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:119:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 119,
+        "line_end": 125,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:125:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 125,
+        "line_end": 131,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:131:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 131,
+        "line_end": 133,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 133,
+        "line_end": 135,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:135:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 135,
+        "line_end": 141,
+        "snippet": "Using `--library-id` is faster when you know the exact ID."
+      },
+      {
+        "id": "external_commands:SKILL.md:141:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 141,
+        "line_end": 147,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:147:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 147,
+        "line_end": 153,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:153:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 153,
+        "line_end": 153,
+        "snippet": "1. `fetch-docs.sh` calls `fetch-raw.sh` (which uses `mcp-client.py`)"
+      },
+      {
+        "id": "external_commands:SKILL.md:163:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 163,
+        "line_end": 169,
+        "snippet": "**Do NOT use `mcp-client.py` directly** - it bypasses filtering and wastes tokens."
+      },
+      {
+        "id": "external_commands:SKILL.md:169:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 169,
+        "line_end": 178,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:178:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 178,
+        "line_end": 182,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:182:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 182,
+        "line_end": 184,
+        "snippet": "Run: `python3 scripts/verify.py`"
+      },
+      {
+        "id": "external_commands:SKILL.md:184:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 184,
+        "line_end": 188,
+        "snippet": "Expected: `✓ fetch-docs.sh ready`"
+      },
+      {
+        "id": "external_commands:SKILL.md:188:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 188,
+        "line_end": 190,
+        "snippet": "1. Run diagnostic: `ls -la scripts/fetch-docs.sh`"
+      },
+      {
+        "id": "external_commands:SKILL.md:190:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 190,
+        "line_end": 198,
+        "snippet": "3. Fix: `chmod +x scripts/fetch-docs.sh`"
+      },
+      {
+        "id": "external_commands:SKILL.md:198:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 198,
+        "line_end": 199,
+        "snippet": "| No results | Use `--mode info` or broader topic |"
+      },
+      {
+        "id": "external_commands:SKILL.md:199:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 199,
+        "line_end": 200,
+        "snippet": "| Need more examples | Increase page: `--page 2` |"
+      },
+      {
+        "id": "external_commands:SKILL.md:200:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 200,
+        "line_end": 201,
+        "snippet": "| Want full context | Use `--mode info` for explanations |"
+      },
+      {
+        "id": "external_commands:SKILL.md:201:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 201,
+        "line_end": 211,
+        "snippet": "| Permission denied | Run: `chmod +x scripts/*.sh` |"
+      },
+      {
+        "id": "external_commands:SKILL.md:211:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 211,
+        "line_end": 212,
+        "snippet": "- `mcp-client.py` - Universal MCP client (foundation)"
+      },
+      {
+        "id": "external_commands:SKILL.md:212:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 212,
+        "line_end": 213,
+        "snippet": "- `fetch-raw.sh` - MCP wrapper"
+      },
+      {
+        "id": "external_commands:SKILL.md:213:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 213,
+        "line_end": 214,
+        "snippet": "- `extract-code-blocks.sh` - Code example filter (awk)"
+      },
+      {
+        "id": "external_commands:SKILL.md:214:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 214,
+        "line_end": 215,
+        "snippet": "- `extract-signatures.sh` - API signature filter (awk)"
+      },
+      {
+        "id": "external_commands:SKILL.md:215:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 215,
+        "line_end": 216,
+        "snippet": "- `extract-notes.sh` - Important notes filter (grep)"
+      },
+      {
+        "id": "network:SKILL.md:221:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 221,
+        "line_end": 221,
+        "snippet": "Based on [Anthropic's \"Code Execution with MCP\" blog post](https://www.anthropic.com/engineering/cod"
+      },
+      {
+        "id": "blocker:SKILL.md:67:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "SKILL.md",
+        "line_start": 67,
+        "line_end": 67,
+        "snippet": "- `--library-id <id>` - Direct Context7 ID (faster, skips resolution)"
+      },
+      {
+        "id": "blocker:SKILL.md:132:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "SKILL.md",
+        "line_start": 132,
+        "line_end": 132,
+        "snippet": "bash scripts/fetch-docs.sh --library-id /vercel/next.js --topic routing"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "network:references/context7-tools.md:169:fetch-api-call",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The word fetch appears in a documentation heading about retrieving library docs. It is not a JavaScript fetch call or active network code."
+      },
+      {
+        "id": "blocker:references/context7-tools.md:9:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This is Context7 tool reference text and example usage. The content describes library resolution, not system reconnaissance."
+      },
+      {
+        "id": "blocker:references/context7-tools.md:40:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This is Context7 tool reference text and example usage. The content describes library resolution, not system reconnaissance."
+      },
+      {
+        "id": "blocker:references/context7-tools.md:45:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This is Context7 tool reference text and example usage. The content describes library resolution, not system reconnaissance."
+      },
+      {
+        "id": "blocker:references/context7-tools.md:50:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This is Context7 tool reference text and example usage. The content describes library resolution, not system reconnaissance."
+      },
+      {
+        "id": "blocker:references/context7-tools.md:156:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This is Context7 tool reference text and example usage. The content describes library resolution, not system reconnaissance."
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:9:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged backticks are Markdown delimiters printed by awk output. They are not Ruby shell backticks or executable code paths."
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:18:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged backticks are Markdown delimiters printed by awk output. They are not Ruby shell backticks or executable code paths."
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:25:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged backticks are Markdown delimiters printed by awk output. They are not Ruby shell backticks or executable code paths."
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:27:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged backticks are Markdown delimiters printed by awk output. They are not Ruby shell backticks or executable code paths."
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:30:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged backticks are Markdown delimiters printed by awk output. They are not Ruby shell backticks or executable code paths."
+      },
+      {
+        "id": "external_commands:scripts/extract-code-blocks.sh:1:unix-shell-invocation",
+        "verdict": "false_positive",
+        "confidence": 0.89,
+        "reason": "The shebang only declares the Bash interpreter for a helper script. This line alone is not a command-injection or malware indicator."
+      },
+      {
+        "id": "external_commands:scripts/extract-notes.sh:1:unix-shell-invocation",
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "The shebang only declares the Bash interpreter for a grep-based filter. No untrusted command execution is introduced by this line."
+      },
+      {
+        "id": "external_commands:scripts/extract-signatures.sh:16:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged backticks are Markdown delimiters printed by awk output. They are not Ruby shell backticks or executable code paths."
+      },
+      {
+        "id": "external_commands:scripts/extract-signatures.sh:30:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged backticks are Markdown delimiters printed by awk output. They are not Ruby shell backticks or executable code paths."
+      },
+      {
+        "id": "external_commands:scripts/extract-signatures.sh:38:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged backticks are Markdown delimiters printed by awk output. They are not Ruby shell backticks or executable code paths."
+      },
+      {
+        "id": "external_commands:scripts/extract-signatures.sh:1:unix-shell-invocation",
+        "verdict": "false_positive",
+        "confidence": 0.89,
+        "reason": "The shebang only declares the Bash interpreter for a helper script. This line alone is not a command-injection or malware indicator."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:11:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:93:shell-command-substitution",
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "reason": "This command invokes the Python MCP client with a stdio command that runs npx for the Context7 MCP server. The arguments are mostly fixed, but it still executes external tooling during normal skill use.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:100:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:102:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:106:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:120:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:124:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:126:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:136:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:137:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:150:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:157:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:167:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:174:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:183:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:191:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:200:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:201:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:202:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This command substitution uses fixed local utilities or bundled helper scripts with quoted arguments to parse documentation. No shell evaluation of untrusted input is evident at this line."
+      },
+      {
+        "id": "external_commands:scripts/fetch-docs.sh:1:unix-shell-invocation",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The shebang marks the file as a Bash script. The risk comes from specific commands, not the interpreter declaration itself."
+      },
+      {
+        "id": "filesystem:scripts/fetch-docs.sh:96:standard-device-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The finding is stderr redirection or a command-existence check against /dev/null. It does not read or write sensitive user files."
+      },
+      {
+        "id": "filesystem:scripts/fetch-docs.sh:99:standard-device-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The finding is stderr redirection or a command-existence check against /dev/null. It does not read or write sensitive user files."
+      },
+      {
+        "id": "filesystem:scripts/fetch-docs.sh:123:standard-device-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The finding is stderr redirection or a command-existence check against /dev/null. It does not read or write sensitive user files."
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:27:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The line is help text or validation for Context7 library identifiers. It is not local system reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:37:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The line is help text or validation for Context7 library identifiers. It is not local system reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:43:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The line is help text or validation for Context7 library identifiers. It is not local system reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:92:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The line is help text or validation for Context7 library identifiers. It is not local system reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:95:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The line is help text or validation for Context7 library identifiers. It is not local system reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/fetch-docs.sh:113:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The line is help text or validation for Context7 library identifiers. It is not local system reconnaissance."
+      },
+      {
+        "id": "external_commands:scripts/fetch-raw.sh:13:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.78,
+        "reason": "The here-doc builds JSON text and does not execute user input as shell commands. Unescaped JSON construction is covered separately as a semantic issue."
+      },
+      {
+        "id": "external_commands:scripts/fetch-raw.sh:23:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.78,
+        "reason": "The here-doc builds JSON text and does not execute user input as shell commands. Unescaped JSON construction is covered separately as a semantic issue."
+      },
+      {
+        "id": "external_commands:scripts/fetch-raw.sh:35:shell-command-substitution",
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "reason": "This helper calls the MCP client with an npx-based stdio server command. That causes runtime execution of an external npm package, which is a supply-chain and command-execution risk.",
+        "severity": "high"
+      },
+      {
+        "id": "external_commands:scripts/fetch-raw.sh:1:unix-shell-invocation",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The shebang only declares the script interpreter. The executable behavior is assessed on the specific command lines."
+      },
+      {
+        "id": "filesystem:scripts/fetch-raw.sh:38:standard-device-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The flagged text is stderr redirection to /dev/null. That is ordinary error suppression, not sensitive filesystem access."
+      },
+      {
+        "id": "external_commands:scripts/mcp-client.py:191:python-subprocess-popen",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This line is only a type annotation for a process field. The actual process creation occurs later and is adjudicated separately."
+      },
+      {
+        "id": "external_commands:scripts/mcp-client.py:204:python-subprocess-popen",
+        "verdict": "confirmed",
+        "confidence": 0.93,
+        "reason": "subprocess.Popen runs the --stdio command with shell=True. If an untrusted command reaches this option, the shell can execute arbitrary commands.",
+        "severity": "high"
+      },
+      {
+        "id": "external_commands:scripts/mcp-client.py:348:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged backticks are Markdown formatting generated for tool documentation. They are not shell backtick execution."
+      },
+      {
+        "id": "external_commands:scripts/mcp-client.py:371:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged backticks are Markdown formatting generated for tool documentation. They are not shell backtick execution."
+      },
+      {
+        "id": "external_commands:scripts/mcp-client.py:377:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged backticks are Markdown formatting generated for tool documentation. They are not shell backtick execution."
+      },
+      {
+        "id": "network:scripts/mcp-client.py:146:http-client-library",
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services.",
+        "severity": "low"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:271:http-client-library",
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "This request method belongs to the stdio transport, not the HTTP transport. It sends JSON-RPC messages over a child process pipe."
+      },
+      {
+        "id": "network:scripts/mcp-client.py:314:http-client-library",
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services.",
+        "severity": "low"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:323:http-client-library",
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services.",
+        "severity": "low"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:328:http-client-library",
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services.",
+        "severity": "low"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:333:http-client-library",
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services.",
+        "severity": "low"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:33:python-http-libraries",
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services.",
+        "severity": "low"
+      },
+      {
+        "id": "network:scripts/mcp-client.py:10:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The localhost URLs are examples inside the module docstring. They are not active outbound requests or hidden endpoints."
+      },
+      {
+        "id": "network:scripts/mcp-client.py:16:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The localhost URLs are examples inside the module docstring. They are not active outbound requests or hidden endpoints."
+      },
+      {
+        "id": "network:scripts/mcp-client.py:20:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The localhost URLs are examples inside the module docstring. They are not active outbound requests or hidden endpoints."
+      },
+      {
+        "id": "network:scripts/mcp-client.py:23:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The localhost URLs are examples inside the module docstring. They are not active outbound requests or hidden endpoints."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:52:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:57:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:58:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:88:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:137:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:165:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:190:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:196:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:197:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:275:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:286:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "blocker:scripts/mcp-client.py:480:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The line manages JSON-RPC request IDs, session headers, or error text. It does not enumerate host information or perform reconnaissance."
+      },
+      {
+        "id": "external_commands:scripts/start-server.sh:9:shell-command-substitution",
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "The script reads a predictable /tmp PID file and passes its contents to kill checks. A tampered PID file could make the helper inspect or act on the wrong process.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:scripts/start-server.sh:10:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "This command substitution only prints the PID value in a status message. The process-control risk is handled on the kill-check and PID-file findings."
+      },
+      {
+        "id": "external_commands:scripts/start-server.sh:20:shell-command-substitution",
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "The script reads a predictable /tmp PID file and passes its contents to kill checks. A tampered PID file could make the helper inspect or act on the wrong process.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:scripts/start-server.sh:21:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "This command substitution only prints the PID value in a status message. The process-control risk is handled on the kill-check and PID-file findings."
+      },
+      {
+        "id": "external_commands:scripts/start-server.sh:1:unix-shell-invocation",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The shebang only declares Bash for the helper script. It is not a dangerous command by itself."
+      },
+      {
+        "id": "filesystem:scripts/start-server.sh:9:standard-device-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.64,
+        "reason": "This is not sensitive device-file access, but it does read the predictable PID file before process checks. The risk is low and tied to local PID-file tampering.",
+        "severity": "low"
+      },
+      {
+        "id": "filesystem:scripts/start-server.sh:20:standard-device-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.64,
+        "reason": "This is not sensitive device-file access, but it does read the predictable PID file before process checks. The risk is low and tied to local PID-file tampering.",
+        "severity": "low"
+      },
+      {
+        "id": "filesystem:scripts/start-server.sh:6:temp-directory-access",
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "reason": "The helper stores process state in a predictable /tmp path. Shared temporary directories create race and tampering risks for PID-file based process control.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:scripts/stop-server.sh:9:shell-command-substitution",
+        "verdict": "confirmed",
+        "confidence": 0.75,
+        "reason": "The stop helper reads a PID from a predictable /tmp file and later uses it for process termination. Tampering with that file can redirect which process is targeted.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:scripts/stop-server.sh:1:unix-shell-invocation",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The shebang only declares Bash for the helper script. Specific process-control lines carry the actual risk."
+      },
+      {
+        "id": "filesystem:scripts/stop-server.sh:10:standard-device-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "These lines use a PID read from a predictable temporary file to check or terminate a process. A modified PID file can cause unintended process control.",
+        "severity": "medium"
+      },
+      {
+        "id": "filesystem:scripts/stop-server.sh:12:standard-device-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "These lines use a PID read from a predictable temporary file to check or terminate a process. A modified PID file can cause unintended process control.",
+        "severity": "medium"
+      },
+      {
+        "id": "filesystem:scripts/stop-server.sh:16:standard-device-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "These lines use a PID read from a predictable temporary file to check or terminate a process. A modified PID file can cause unintended process control.",
+        "severity": "medium"
+      },
+      {
+        "id": "filesystem:scripts/stop-server.sh:25:standard-device-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.7,
+        "reason": "The fallback pkill pattern includes the user-supplied port value. A broad or malformed pattern could terminate unintended matching processes.",
+        "severity": "medium"
+      },
+      {
+        "id": "filesystem:scripts/stop-server.sh:6:temp-directory-access",
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "reason": "The helper stores process state in a predictable /tmp path. Shared temporary directories create race and tampering risks for PID-file based process control.",
+        "severity": "medium"
+      },
+      {
+        "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:89:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:109:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:111:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:119:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:125:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:131:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:135:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:141:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:147:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:153:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:163:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:169:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:178:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:182:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:184:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:188:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:190:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:198:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:199:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:200:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:201:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:211:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:212:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:213:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:214:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "external_commands:SKILL.md:215:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "The hit is inside skill documentation or Markdown code examples. Backticks and command examples here do not execute by themselves."
+      },
+      {
+        "id": "network:SKILL.md:221:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This is a reference link in documentation, not code that sends data over the network. No active request or exfiltration behavior is present."
+      },
+      {
+        "id": "blocker:SKILL.md:67:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "This text describes a Context7 library ID parameter or example. It is not probing the local system or collecting host information."
+      },
+      {
+        "id": "blocker:SKILL.md:132:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "This text describes a Context7 library ID parameter or example. It is not probing the local system or collecting host information."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Unpinned Runtime Package Execution",
+        "description": "The helper scripts run the Context7 MCP server through npx without a pinned version. A compromised or changed npm package could execute arbitrary local code during normal skill use.",
+        "severity": "high",
         "locations": [
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 93,
+            "line_end": 96
+          },
           {
             "file": "scripts/fetch-raw.sh",
             "line_start": 35,
@@ -322,141 +3016,600 @@
           },
           {
             "file": "scripts/start-server.sh",
-            "line_start": 163,
-            "line_end": 164
+            "line_start": 15,
+            "line_end": 15
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The scripts explicitly invoke npx with @upstash/context7-mcp and no version pin. Runtime package execution is a clear supply-chain risk, even if the package is intended."
+      },
+      {
+        "title": "Unsafe PID File Process Control",
+        "description": "The server helpers store and trust a predictable PID file under /tmp and then use its contents for kill operations. The stop helper also uses a broad pkill pattern based on the port value.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 6,
+            "line_end": 9
+          },
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 20,
+            "line_end": 21
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 6,
+            "line_end": 12
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 16,
+            "line_end": 16
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 25,
+            "line_end": 25
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The scripts show a fixed /tmp PID path and process termination based on that file. The risk is local tampering and unintended process termination, not remote code execution."
+      },
+      {
+        "title": "Unescaped JSON Parameter Construction",
+        "description": "Library and topic arguments are inserted directly into JSON strings before calling the MCP tool. Quotation characters in user-provided values can break or alter the JSON request.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 93,
+            "line_end": 96
+          },
+          {
+            "file": "scripts/fetch-raw.sh",
+            "line_start": 13,
+            "line_end": 31
           }
         ],
         "confidence": 0.8,
-        "confidence_reasoning": "The npx execution path is direct and repeated in the bundled scripts. The command target is fixed, so the risk is dependency execution rather than confirmed malicious behavior."
+        "confidence_reasoning": "The code builds JSON with shell string interpolation rather than a JSON encoder. The impact is limited to MCP parameters, but malformed input can change request structure or fail unexpectedly."
       }
     ],
+    "critical_findings": [],
+    "high_findings": [
+      {
+        "title": "Shell command substitution",
+        "description": "python3 \"$(dirname \"$0\")/mcp-client.py\" call \\",
+        "locations": [
+          {
+            "file": "scripts/fetch-raw.sh",
+            "line_start": 35,
+            "line_end": 35
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "This helper calls the MCP client with an npx-based stdio server command. That causes runtime execution of an external npm package, which is a supply-chain and command-execution risk."
+      },
+      {
+        "title": "Python subprocess.Popen",
+        "description": "self._process = subprocess.Popen(",
+        "locations": [
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 204,
+            "line_end": 204
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.93,
+        "confidence_reasoning": "subprocess.Popen runs the --stdio command with shell=True. If an untrusted command reaches this option, the shell can execute arbitrary commands."
+      },
+      {
+        "title": "Unpinned Runtime Package Execution",
+        "description": "The helper scripts run the Context7 MCP server through npx without a pinned version. A compromised or changed npm package could execute arbitrary local code during normal skill use.",
+        "locations": [
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 93,
+            "line_end": 96
+          },
+          {
+            "file": "scripts/fetch-raw.sh",
+            "line_start": 35,
+            "line_end": 38
+          },
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 15,
+            "line_end": 15
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.9,
+        "confidence_reasoning": "The scripts explicitly invoke npx with @upstash/context7-mcp and no version pin. Runtime package execution is a clear supply-chain risk, even if the package is intended."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Shell command substitution",
+        "description": "RESOLVE_JSON=$(python3 \"$SCRIPT_DIR/mcp-client.py\" call \\",
+        "locations": [
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 93,
+            "line_end": 96
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "This command invokes the Python MCP client with a stdio command that runs npx for the Context7 MCP server. The arguments are mostly fixed, but it still executes external tooling during normal skill use."
+      },
+      {
+        "title": "Shell command substitution",
+        "description": "if [ -f \"$PID_FILE\" ] && kill -0 $(cat \"$PID_FILE\") 2>/dev/null; then",
+        "locations": [
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 9,
+            "line_end": 9
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.72,
+        "confidence_reasoning": "The script reads a predictable /tmp PID file and passes its contents to kill checks. A tampered PID file could make the helper inspect or act on the wrong process."
+      },
+      {
+        "title": "Shell command substitution",
+        "description": "if kill -0 $(cat \"$PID_FILE\") 2>/dev/null; then",
+        "locations": [
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 20,
+            "line_end": 20
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.72,
+        "confidence_reasoning": "The script reads a predictable /tmp PID file and passes its contents to kill checks. A tampered PID file could make the helper inspect or act on the wrong process."
+      },
+      {
+        "title": "Temp directory access",
+        "description": "PID_FILE=\"/tmp/context7-mcp-${PORT}.pid\"",
+        "locations": [
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 6,
+            "line_end": 6
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "The helper stores process state in a predictable /tmp path. Shared temporary directories create race and tampering risks for PID-file based process control."
+      },
+      {
+        "title": "Shell command substitution",
+        "description": "PID=$(cat \"$PID_FILE\")",
+        "locations": [
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 9,
+            "line_end": 9
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.75,
+        "confidence_reasoning": "The stop helper reads a PID from a predictable /tmp file and later uses it for process termination. Tampering with that file can redirect which process is targeted."
+      },
+      {
+        "title": "Standard device file access",
+        "description": "if kill -0 \"$PID\" 2>/dev/null; then",
+        "locations": [
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 10,
+            "line_end": 10
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.72,
+        "confidence_reasoning": "These lines use a PID read from a predictable temporary file to check or terminate a process. A modified PID file can cause unintended process control."
+      },
+      {
+        "title": "Standard device file access",
+        "description": "kill \"$PID\" 2>/dev/null",
+        "locations": [
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 12,
+            "line_end": 12
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.72,
+        "confidence_reasoning": "These lines use a PID read from a predictable temporary file to check or terminate a process. A modified PID file can cause unintended process control."
+      },
+      {
+        "title": "Standard device file access",
+        "description": "kill -9 \"$PID\" 2>/dev/null || true",
+        "locations": [
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 16,
+            "line_end": 16
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.72,
+        "confidence_reasoning": "These lines use a PID read from a predictable temporary file to check or terminate a process. A modified PID file can cause unintended process control."
+      },
+      {
+        "title": "Standard device file access",
+        "description": "pkill -f \"context7-mcp.*--port.*${PORT}\" 2>/dev/null && echo \"Context7 MCP stopped\" || echo \"Context",
+        "locations": [
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 25,
+            "line_end": 25
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.7,
+        "confidence_reasoning": "The fallback pkill pattern includes the user-supplied port value. A broad or malformed pattern could terminate unintended matching processes."
+      },
+      {
+        "title": "Temp directory access",
+        "description": "PID_FILE=\"/tmp/context7-mcp-${PORT}.pid\"",
+        "locations": [
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 6,
+            "line_end": 6
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "The helper stores process state in a predictable /tmp path. Shared temporary directories create race and tampering risks for PID-file based process control."
+      },
+      {
+        "title": "Unsafe PID File Process Control",
+        "description": "The server helpers store and trust a predictable PID file under /tmp and then use its contents for kill operations. The stop helper also uses a broad pkill pattern based on the port value.",
+        "locations": [
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 6,
+            "line_end": 9
+          },
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 20,
+            "line_end": 21
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 6,
+            "line_end": 12
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 16,
+            "line_end": 16
+          },
+          {
+            "file": "scripts/stop-server.sh",
+            "line_start": 25,
+            "line_end": 25
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The scripts show a fixed /tmp PID path and process termination based on that file. The risk is local tampering and unintended process termination, not remote code execution."
+      },
+      {
+        "title": "Unescaped JSON Parameter Construction",
+        "description": "Library and topic arguments are inserted directly into JSON strings before calling the MCP tool. Quotation characters in user-provided values can break or alter the JSON request.",
+        "locations": [
+          {
+            "file": "scripts/fetch-docs.sh",
+            "line_start": 93,
+            "line_end": 96
+          },
+          {
+            "file": "scripts/fetch-raw.sh",
+            "line_start": 13,
+            "line_end": 31
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.8,
+        "confidence_reasoning": "The code builds JSON with shell string interpolation rather than a JSON encoder. The impact is limited to MCP parameters, but malformed input can change request structure or fail unexpectedly."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "HTTP client library",
+        "description": "def request(self, method: str, params: Optional[dict] = None) -> dict:",
+        "locations": [
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 146,
+            "line_end": 146
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services."
+      },
+      {
+        "title": "HTTP client library",
+        "description": "result = self.transport.request(\"tools/list\")",
+        "locations": [
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 314,
+            "line_end": 314
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services."
+      },
+      {
+        "title": "HTTP client library",
+        "description": "result = self.transport.request(\"tools/call\", params)",
+        "locations": [
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 323,
+            "line_end": 323
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services."
+      },
+      {
+        "title": "HTTP client library",
+        "description": "result = self.transport.request(\"resources/list\")",
+        "locations": [
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 328,
+            "line_end": 328
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services."
+      },
+      {
+        "title": "HTTP client library",
+        "description": "result = self.transport.request(\"prompts/list\")",
+        "locations": [
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 333,
+            "line_end": 333
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "from urllib.request import Request, urlopen",
+        "locations": [
+          {
+            "file": "scripts/mcp-client.py",
+            "line_start": 33,
+            "line_end": 33
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The MCP client can make JSON-RPC requests over a user-supplied HTTP transport. This is intended functionality, but it is real network capability that can contact external services."
+      },
+      {
+        "title": "Standard device file access",
+        "description": "if [ -f \"$PID_FILE\" ] && kill -0 $(cat \"$PID_FILE\") 2>/dev/null; then",
+        "locations": [
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 9,
+            "line_end": 9
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.64,
+        "confidence_reasoning": "This is not sensitive device-file access, but it does read the predictable PID file before process checks. The risk is low and tied to local PID-file tampering."
+      },
+      {
+        "title": "Standard device file access",
+        "description": "if kill -0 $(cat \"$PID_FILE\") 2>/dev/null; then",
+        "locations": [
+          {
+            "file": "scripts/start-server.sh",
+            "line_start": 20,
+            "line_end": 20
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.64,
+        "confidence_reasoning": "This is not sensitive device-file access, but it does read the predictable PID file before process checks. The risk is low and tied to local PID-file tampering."
+      }
+    ],
+    "dangerous_patterns": [],
     "files_scanned": 11,
     "total_lines": 1364,
     "audit_model": "codex",
-    "audited_at": "2026-06-28T11:57:46.215Z",
-    "risk_factors": [
-      "scripts",
-      "network",
-      "filesystem",
-      "external_commands"
-    ]
+    "audited_at": "2026-07-05T01:28:13.022Z",
+    "agent_auto_install_policy": "confirmation_required",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Fetch Focused Library Documentation",
-    "value_statement": "Developers often need current API examples without loading full documentation pages. This skill uses Context7 and local filters to return focused examples, signatures, and notes.",
+    "user_title": "Fetch Library Documentation Efficiently",
+    "value_statement": "Library API answers often require large documentation payloads. This skill fetches Context7 documentation and filters it into focused examples, signatures, and notes.",
     "seo_keywords": [
-      "Claude library documentation",
-      "Codex library docs",
-      "Claude Code documentation skill",
+      "Claude",
+      "Codex",
+      "Claude Code",
       "Context7 MCP",
-      "API reference fetcher",
+      "library documentation",
+      "API reference",
       "code examples",
-      "React documentation",
-      "Next.js API docs",
-      "Prisma examples",
-      "token efficient docs"
+      "framework docs",
+      "developer productivity",
+      "documentation fetcher"
     ],
     "actual_capabilities": [
-      "Resolves common library names to Context7-compatible library IDs.",
-      "Fetches documentation for a selected library, topic, mode, and page.",
-      "Filters raw documentation into code examples, API signatures, and important notes.",
-      "Supports code-focused and concept-focused documentation modes.",
-      "Provides helper scripts for starting, stopping, and verifying Context7 access.",
-      "Includes a reference file describing Context7 MCP tool parameters and usage patterns."
+      "Resolves common library names to Context7 library IDs.",
+      "Fetches documentation through the Context7 MCP server.",
+      "Filters large responses into examples, signatures, and notes.",
+      "Supports topic, mode, and page arguments.",
+      "Includes helper scripts for raw fetches and extraction."
     ],
     "limitations": [
-      "Requires Python, Bash, npx, and network access to Context7 dependencies.",
-      "Only covers libraries available through Context7 documentation sources.",
-      "Shell filters can omit useful context from long or unusual documentation pages.",
-      "It is not designed for local repository analysis or private source code exploration."
+      "Requires Python, Bash, npx, and the Context7 MCP package.",
+      "Runs network requests and external commands during use.",
+      "Depends on Context7 coverage and library ID quality.",
+      "Does not inspect local repositories or private source code."
     ],
     "use_cases": [
       {
-        "title": "Find API syntax during implementation",
-        "description": "Fetch concise examples and signatures for a framework feature while editing code.",
+        "title": "Answer Framework API Questions",
+        "description": "Fetch focused examples for React hooks, Next.js routing, Prisma queries, and similar library topics.",
         "target_user": "Application developer"
       },
       {
-        "title": "Compare library usage patterns",
-        "description": "Retrieve focused documentation pages for several libraries before choosing an approach.",
+        "title": "Compare Usage Patterns",
+        "description": "Review examples and signatures across multiple documentation pages before choosing an implementation approach.",
         "target_user": "Technical lead"
       },
       {
-        "title": "Prepare learning notes from official docs",
-        "description": "Collect short examples and key notes for a new package or framework topic.",
-        "target_user": "Student or documentation writer"
+        "title": "Create Concise Learning Notes",
+        "description": "Collect introductory documentation and important notes for a new package without loading full pages into context.",
+        "target_user": "Developer educator"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Fetch one example",
-        "scenario": "Beginner lookup for a single topic.",
-        "prompt": "Use this skill to fetch React documentation for useState. Return the clearest example and the key API note."
+        "title": "Fetch Basic Examples",
+        "prompt": "Use this skill to fetch React useState documentation in code mode and summarize the main usage pattern.",
+        "scenario": "Beginner lookup for a familiar framework feature."
       },
       {
-        "title": "Explain a feature",
-        "scenario": "Conceptual explanation with limited examples.",
-        "prompt": "Fetch Next.js routing documentation in info mode. Summarize the routing model and include one practical example."
+        "title": "Resolve A Library First",
+        "prompt": "Find the Context7 library ID for Prisma, then fetch query documentation with examples and important notes.",
+        "scenario": "Intermediate lookup when the exact library ID is unknown."
       },
       {
-        "title": "Use a known library ID",
-        "scenario": "Faster lookup when the Context7 ID is known.",
-        "prompt": "Use /prisma/docs to fetch code-mode documentation for queries. Include signatures, examples, and important notes."
+        "title": "Research A Concept",
+        "prompt": "Fetch Next.js routing documentation in info mode and explain the main routing model in concise bullets.",
+        "scenario": "Conceptual research for a framework decision."
       },
       {
-        "title": "Research multiple pages",
-        "scenario": "Advanced lookup when the first page is incomplete.",
-        "prompt": "Fetch React hooks documentation pages 1 and 2. Compare the examples and identify the most relevant patterns for a production component."
+        "title": "Explore Multiple Pages",
+        "prompt": "Fetch pages one and two for React hooks documentation, compare the examples, and identify advanced patterns.",
+        "scenario": "Advanced research that needs broader documentation coverage."
       }
     ],
     "output_examples": [
       {
-        "input": "Show me React useState examples.",
-        "output": "A concise response with selected useState examples, related signature notes, and warnings about state updates."
-      },
-      {
-        "input": "How does Next.js routing work?",
-        "output": "A short explanation of routing concepts, one or two examples, and important notes from the fetched documentation."
+        "input": "Fetch React hook documentation for useEffect.",
+        "output": "A concise answer with selected examples, common signatures, and notes about dependency behavior."
       },
       {
         "input": "Find Prisma query syntax for filtering records.",
-        "output": "Focused Prisma query examples, likely method signatures, and notes about filtering behavior."
+        "output": "A focused summary of relevant query patterns, important options, and cautions from the documentation."
+      },
+      {
+        "input": "Explain Next.js routing using current docs.",
+        "output": "A short conceptual overview with routing terms, selected examples, and follow-up topics to inspect."
       }
     ],
     "best_practices": [
-      "Provide a specific library and topic to reduce irrelevant results.",
-      "Use a known Context7 library ID when accuracy matters.",
-      "Review the filtered output against official docs before making high-risk changes."
+      "Use specific topics to reduce irrelevant documentation.",
+      "Use known Context7 library IDs when available.",
+      "Review security warnings before allowing external commands."
     ],
     "anti_patterns": [
-      "Do not use it to inspect private repositories or local project files.",
-      "Do not pass untrusted command strings to the generic MCP stdio client.",
-      "Do not assume filtered snippets include every required setup step."
+      "Do not use it for private repository analysis.",
+      "Do not run helper scripts from untrusted modified copies.",
+      "Do not treat fetched examples as reviewed production code."
     ],
     "faq": [
       {
         "question": "What does this skill fetch?",
-        "answer": "It fetches published library documentation through Context7 and returns focused examples, signatures, and notes."
+        "answer": "It fetches public library documentation available through Context7 MCP."
       },
       {
-        "question": "Does it read my local repository?",
-        "answer": "No. It is designed for published package documentation, not local source code analysis."
+        "question": "Does it work without network access?",
+        "answer": "No. It needs network access to the Context7 MCP package and documentation service."
       },
       {
-        "question": "Which tools does it support?",
-        "answer": "The report lists support for Claude, Codex, and Claude Code."
+        "question": "Can it read my local codebase?",
+        "answer": "No. It is designed for public library documentation, not local source inspection."
       },
       {
-        "question": "Why does it use scripts?",
-        "answer": "The scripts fetch raw documentation and filter it locally before the assistant receives the shorter result."
+        "question": "Which tools can use it?",
+        "answer": "The report declares support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "Does it require network access?",
-        "answer": "Yes. It uses Context7 MCP through npx and may call HTTP MCP servers if configured."
+        "question": "Why does it filter documentation?",
+        "answer": "Filtering reduces context usage by returning selected examples, signatures, and important notes."
       },
       {
-        "question": "Is it safe to publish?",
-        "answer": "It has medium operational risk from external command and network execution, but no confirmed malicious intent was found."
+        "question": "Is it safe to run automatically?",
+        "answer": "Automatic use needs caution because the skill runs external commands and network requests."
       }
     ]
   },

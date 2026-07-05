@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-28T10:08:13.523Z",
+    "generated_at": "2026-07-05T02:56:21.527Z",
     "slug": "ariegoldkin-observability-monitoring",
     "source_url": "https://github.com/ArieGoldkin/ai-agent-hub/tree/main/skills/observability-monitoring",
     "source_ref": "main",
@@ -9,12 +9,25 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "cd4106eca8f7935e84a16554124b9bb538ca74537b206a9c431bbc93ba4fcfa0",
-    "tree_hash": "bc2e310fc1700a997d66d84689760f5f7a1508c0ac53a25d88add23a618ca062"
+    "tree_hash": "5bc21737eaddc6cb7e9ba15c6c918da1b0985c2557bc1d1fb751555c3610d3d6",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "observability-monitoring",
-    "description": "Implement structured logging, Prometheus metrics, OpenTelemetry tracing, health checks, and alerting for Node.js services.",
-    "summary": "Add production observability patterns for logs, metrics, traces, alerts, and service health checks.",
+    "description": "Implement logging, metrics, tracing, health checks, and Prometheus alerting for service reliability.",
+    "summary": "Build practical observability patterns for production services.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "ArieGoldkin",
@@ -23,7 +36,7 @@
     "tags": [
       "observability",
       "monitoring",
-      "logging",
+      "structured-logging",
       "metrics",
       "opentelemetry"
     ],
@@ -33,16 +46,29 @@
       "claude-code"
     ],
     "risk_factors": [
-      "network",
+      "external_commands",
       "env_access",
-      "external_commands"
+      "network"
     ]
   },
   "security_audit": {
     "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "The static critical finding is dismissed: the apparent command execution and weak cryptography hits are Markdown fences, comments, alert durations, imports, and normal configuration reads. The skill is not malicious, but it includes reusable logging and tracing templates that can collect request metadata, error details, and trace attributes, so publication should include a privacy warning.",
+    "analysis_status": "ok",
+    "summary": "External command findings are false positives from Markdown backticks, inline code, and a commented logging example. Environment findings are benign configuration reads, and the tracing URL defaults to localhost. One semantic privacy issue remains because templates log identifiers, amounts, stack traces, and trace attributes without redaction guidance.",
+    "remediation": [
+      {
+        "issue": "Sensitive identifiers and error details may enter logs and traces.",
+        "suggestion": "Add redaction guidance and examples that avoid raw user IDs, order IDs, payment metadata, amounts, and stack traces in shared telemetry.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Telemetry export destination depends on deployment configuration.",
+        "suggestion": "Document that OTLP endpoints must be trusted, access controlled, and paired with retention and data minimization policies.",
+        "severity": "low"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -54,137 +80,28 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 48,
-            "line_end": 59
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 95,
-            "line_end": 103
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 139,
-            "line_end": 149
-          },
-          {
-            "file": "templates/structured-logging.ts",
-            "line_start": 117,
-            "line_end": 120
-          }
-        ]
-      },
-      {
-        "factor": "env_access",
-        "evidence": [
-          {
-            "file": "templates/structured-logging.ts",
-            "line_start": 14,
-            "line_end": 35
-          },
-          {
-            "file": "templates/opentelemetry-tracing.ts",
-            "line_start": 18,
-            "line_end": 23
-          },
-          {
-            "file": "templates/health-checks.ts",
-            "line_start": 48,
+            "line_start": 33,
             "line_end": 48
-          }
-        ]
-      },
-      {
-        "factor": "network",
-        "evidence": [
-          {
-            "file": "templates/opentelemetry-tracing.ts",
-            "line_start": 22,
-            "line_end": 23
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "Unredacted Request Metadata Logging",
-        "description": "The request logger records query parameters, user agent, and IP address. This is useful for observability, but adopters could accidentally log tokens, personal data, or internal identifiers without redaction.",
-        "locations": [
-          {
-            "file": "templates/structured-logging.ts",
-            "line_start": 72,
-            "line_end": 78
-          }
-        ],
-        "verdict": "TRUE_POSITIVE",
-        "confidence": 0.78,
-        "confidence_reasoning": "The code directly logs request metadata that commonly contains sensitive values. The behavior is legitimate for monitoring, but it creates a real privacy risk if copied without filtering."
-      },
-      {
-        "title": "Telemetry Export May Send Sensitive Trace Attributes",
-        "description": "The OpenTelemetry template exports traces to an endpoint selected by environment configuration and records order and payment attributes. This is expected observability behavior, but it can transmit sensitive operational data to a collector.",
-        "locations": [
-          {
-            "file": "templates/opentelemetry-tracing.ts",
-            "line_start": 22,
-            "line_end": 30
-          },
-          {
-            "file": "templates/opentelemetry-tracing.ts",
-            "line_start": 64,
-            "line_end": 69
-          }
-        ],
-        "verdict": "TRUE_POSITIVE",
-        "confidence": 0.64,
-        "confidence_reasoning": "The exporter and attributes are visible in the template, but the endpoint defaults to localhost and real impact depends on deployment configuration. This warrants a warning rather than a block."
-      },
-      {
-        "title": "Health Check Responses Expose Operational Details",
-        "description": "The readiness endpoint returns application version, uptime, dependency names, latency, and raw error messages. These details can help operators, but they can also reveal internal system state if exposed publicly.",
-        "locations": [
-          {
-            "file": "templates/health-checks.ts",
-            "line_start": 44,
-            "line_end": 49
-          },
-          {
-            "file": "templates/health-checks.ts",
-            "line_start": 61,
-            "line_end": 64
-          },
-          {
-            "file": "templates/health-checks.ts",
-            "line_start": 77,
-            "line_end": 80
-          },
-          {
-            "file": "templates/health-checks.ts",
-            "line_start": 87,
-            "line_end": 90
-          }
-        ],
-        "verdict": "TRUE_POSITIVE",
-        "confidence": 0.72,
-        "confidence_reasoning": "The response fields and raw error message paths are explicit. The finding is medium because health data is normal for internal probes but should not be exposed without access control."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "External Command Findings Are Markdown and Comments",
-        "description": "The static shell execution matches are Markdown code fences, TypeScript template string examples, template references, or a commented bad logging example. No executable Ruby backtick or shell command path was found in these locations.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 25,
-            "line_end": 33
           },
           {
             "file": "SKILL.md",
             "line_start": 48,
+            "line_end": 58
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 58,
             "line_end": 59
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 59,
+            "line_end": 61
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 61,
+            "line_end": 74
           },
           {
             "file": "SKILL.md",
@@ -193,294 +110,1363 @@
           },
           {
             "file": "SKILL.md",
+            "line_start": 80,
+            "line_end": 82
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 82,
+            "line_end": 95
+          },
+          {
+            "file": "SKILL.md",
             "line_start": 95,
+            "line_end": 101
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 101,
             "line_end": 103
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 103,
+            "line_end": 120
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 120,
+            "line_end": 125
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 125,
+            "line_end": 133
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 133,
+            "line_end": 134
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 134,
+            "line_end": 135
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 135,
+            "line_end": 139
           },
           {
             "file": "SKILL.md",
             "line_start": 139,
+            "line_end": 149
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 149,
             "line_end": 151
           },
           {
-            "file": "templates/structured-logging.ts",
-            "line_start": 117,
-            "line_end": 120
-          }
-        ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.96,
-        "confidence_reasoning": "Line review shows documentation fences and commented example text, not runtime command execution. There is no user input reaching a shell in the reviewed files."
-      },
-      {
-        "title": "Weak Cryptography Findings Are Keyword Collisions",
-        "description": "The weak cryptography hits are not cryptographic code. They appear in descriptive text, Prometheus alert expressions, humanized descriptions, imports, and normal control flow comments.",
-        "locations": [
+            "file": "SKILL.md",
+            "line_start": 151,
+            "line_end": 186
+          },
           {
             "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
+            "line_start": 186,
+            "line_end": 187
           },
           {
-            "file": "templates/alerting-rules.yml",
-            "line_start": 19,
-            "line_end": 19
+            "file": "SKILL.md",
+            "line_start": 187,
+            "line_end": 188
           },
           {
-            "file": "templates/alerting-rules.yml",
-            "line_start": 33,
-            "line_end": 33
+            "file": "SKILL.md",
+            "line_start": 188,
+            "line_end": 189
           },
           {
-            "file": "templates/alerting-rules.yml",
-            "line_start": 44,
-            "line_end": 44
+            "file": "SKILL.md",
+            "line_start": 189,
+            "line_end": 190
           },
-          {
-            "file": "templates/alerting-rules.yml",
-            "line_start": 60,
-            "line_end": 60
-          },
-          {
-            "file": "templates/alerting-rules.yml",
-            "line_start": 71,
-            "line_end": 71
-          },
-          {
-            "file": "templates/alerting-rules.yml",
-            "line_start": 89,
-            "line_end": 89
-          },
-          {
-            "file": "templates/alerting-rules.yml",
-            "line_start": 103,
-            "line_end": 103
-          },
-          {
-            "file": "templates/health-checks.ts",
-            "line_start": 81,
-            "line_end": 81
-          },
-          {
-            "file": "templates/opentelemetry-tracing.ts",
-            "line_start": 5,
-            "line_end": 5
-          },
-          {
-            "file": "templates/opentelemetry-tracing.ts",
-            "line_start": 16,
-            "line_end": 16
-          }
-        ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.94,
-        "confidence_reasoning": "The cited lines contain monitoring text or OpenTelemetry setup, not hashing, encryption, or signature verification. No weak crypto API use was found."
-      },
-      {
-        "title": "Environment Access Is Configuration Only",
-        "description": "The environment variable reads configure log level, service metadata, deployment environment, trace exporter endpoint, and application version. No code reads environment files or sends all environment variables elsewhere.",
-        "locations": [
           {
             "file": "templates/structured-logging.ts",
-            "line_start": 14,
-            "line_end": 35
-          },
+            "line_start": 120,
+            "line_end": 120
+          }
+        ]
+      },
+      {
+        "factor": "env_access",
+        "evidence": [
           {
-            "file": "templates/opentelemetry-tracing.ts",
-            "line_start": 18,
-            "line_end": 23
+            "file": "templates/health-checks.ts",
+            "line_start": 48,
+            "line_end": 48
           },
           {
             "file": "templates/health-checks.ts",
             "line_start": 48,
             "line_end": 48
-          }
-        ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.9,
-        "confidence_reasoning": "Each environment read is a named configuration value. There is no evidence of .env file access, credential harvesting, or bulk environment exfiltration."
-      },
-      {
-        "title": "Hardcoded Network URL Defaults To Local Collector",
-        "description": "The only hardcoded URL is the OpenTelemetry trace exporter default for localhost. It is a standard local collector endpoint, not an external exfiltration destination.",
-        "locations": [
+          },
           {
             "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 18,
+            "line_end": 18
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 19,
+            "line_end": 19
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 23,
+            "line_end": 23
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 18,
+            "line_end": 18
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 19,
+            "line_end": 19
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 20,
+            "line_end": 20
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 23,
+            "line_end": 23
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 14,
+            "line_end": 14
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 21,
+            "line_end": 21
+          },
+          {
+            "file": "templates/structured-logging.ts",
             "line_start": 22,
+            "line_end": 22
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 23,
+            "line_end": 23
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 27,
+            "line_end": 27
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 35,
+            "line_end": 35
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 14,
+            "line_end": 14
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 21,
+            "line_end": 21
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 22,
+            "line_end": 22
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 23,
+            "line_end": 23
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 27,
+            "line_end": 27
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 35,
+            "line_end": 35
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 23,
             "line_end": 23
           }
-        ],
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.88,
-        "confidence_reasoning": "The URL is localhost and appears in a normal OTLP exporter configuration. Network risk remains possible only when users set an external endpoint through deployment configuration."
+        ]
       }
     ],
-    "dangerous_patterns": [
+    "static_findings": [
       {
-        "title": "Log Request Data Only After Redaction",
-        "description": "The template logs query parameters and client metadata. Users should redact secrets and avoid logging authentication tokens, session identifiers, or unnecessary personal data.",
+        "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 25,
+        "line_end": 33,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 33,
+        "line_end": 48,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 48,
+        "line_end": 58,
+        "snippet": "```typescript"
+      },
+      {
+        "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 58,
+        "line_end": 59,
+        "snippet": "logger.info(`User ${user.id} completed purchase`);"
+      },
+      {
+        "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 59,
+        "line_end": 61,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 61,
+        "line_end": 74,
+        "snippet": "> See `templates/structured-logging.ts` for Winston setup and request middleware"
+      },
+      {
+        "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 74,
+        "line_end": 80,
+        "snippet": "```typescript"
+      },
+      {
+        "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 80,
+        "line_end": 82,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:82:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 82,
+        "line_end": 95,
+        "snippet": "> See `templates/prometheus-metrics.ts` for full metrics configuration"
+      },
+      {
+        "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 95,
+        "line_end": 101,
+        "snippet": "```typescript"
+      },
+      {
+        "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 101,
+        "line_end": 103,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:103:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 103,
+        "line_end": 120,
+        "snippet": "> See `templates/opentelemetry-tracing.ts` for full setup"
+      },
+      {
+        "id": "external_commands:SKILL.md:120:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 120,
+        "line_end": 125,
+        "snippet": "| ServiceDown | `up == 0` for 1m | Critical |"
+      },
+      {
+        "id": "external_commands:SKILL.md:125:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 125,
+        "line_end": 133,
+        "snippet": "> See `templates/alerting-rules.yml` for Prometheus alerting rules"
+      },
+      {
+        "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 133,
+        "line_end": 134,
+        "snippet": "| **Liveness** | Is app running? | `/health` |"
+      },
+      {
+        "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 134,
+        "line_end": 135,
+        "snippet": "| **Readiness** | Ready for traffic? | `/ready` |"
+      },
+      {
+        "id": "external_commands:SKILL.md:135:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 135,
+        "line_end": 139,
+        "snippet": "| **Startup** | Finished starting? | `/startup` |"
+      },
+      {
+        "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 139,
+        "line_end": 149,
+        "snippet": "```json"
+      },
+      {
+        "id": "external_commands:SKILL.md:149:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 149,
+        "line_end": 151,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:151:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 151,
+        "line_end": 186,
+        "snippet": "> See `templates/health-checks.ts` for implementation"
+      },
+      {
+        "id": "external_commands:SKILL.md:186:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 186,
+        "line_end": 187,
+        "snippet": "| `structured-logging.ts` | Winston logger with request middleware |"
+      },
+      {
+        "id": "external_commands:SKILL.md:187:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 187,
+        "line_end": 188,
+        "snippet": "| `prometheus-metrics.ts` | HTTP, DB, cache metrics with middleware |"
+      },
+      {
+        "id": "external_commands:SKILL.md:188:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 188,
+        "line_end": 189,
+        "snippet": "| `opentelemetry-tracing.ts` | Distributed tracing setup |"
+      },
+      {
+        "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 189,
+        "line_end": 190,
+        "snippet": "| `alerting-rules.yml` | Prometheus alerting rules |"
+      },
+      {
+        "id": "env_access:templates/health-checks.ts:48:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "templates/health-checks.ts",
+        "line_start": 48,
+        "line_end": 48,
+        "snippet": "version: process.env.APP_VERSION || '1.0.0',"
+      },
+      {
+        "id": "env_access:templates/health-checks.ts:48:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "templates/health-checks.ts",
+        "line_start": 48,
+        "line_end": 48,
+        "snippet": "version: process.env.APP_VERSION || '1.0.0',"
+      },
+      {
+        "id": "sensitive:templates/health-checks.ts:48:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "templates/health-checks.ts",
+        "line_start": 48,
+        "line_end": 48,
+        "snippet": "version: process.env.APP_VERSION || '1.0.0',"
+      },
+      {
+        "id": "network:templates/opentelemetry-tracing.ts:23:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 23,
+        "line_end": 23,
+        "snippet": "url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318/v1/traces',"
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:18:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 18,
+        "line_end": 18,
+        "snippet": "[SemanticResourceAttributes.SERVICE_NAME]: process.env.SERVICE_NAME || 'app',"
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:19:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 19,
+        "line_end": 19,
+        "snippet": "[SemanticResourceAttributes.SERVICE_VERSION]: process.env.APP_VERSION || '1.0.0',"
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:20:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 20,
+        "line_end": 20,
+        "snippet": "[SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',"
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:23:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 23,
+        "line_end": 23,
+        "snippet": "url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318/v1/traces',"
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:18:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 18,
+        "line_end": 18,
+        "snippet": "[SemanticResourceAttributes.SERVICE_NAME]: process.env.SERVICE_NAME || 'app',"
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:19:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 19,
+        "line_end": 19,
+        "snippet": "[SemanticResourceAttributes.SERVICE_VERSION]: process.env.APP_VERSION || '1.0.0',"
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:20:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 20,
+        "line_end": 20,
+        "snippet": "[SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',"
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:23:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 23,
+        "line_end": 23,
+        "snippet": "url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318/v1/traces',"
+      },
+      {
+        "id": "sensitive:templates/opentelemetry-tracing.ts:18:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 18,
+        "line_end": 18,
+        "snippet": "[SemanticResourceAttributes.SERVICE_NAME]: process.env.SERVICE_NAME || 'app',"
+      },
+      {
+        "id": "sensitive:templates/opentelemetry-tracing.ts:19:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 19,
+        "line_end": 19,
+        "snippet": "[SemanticResourceAttributes.SERVICE_VERSION]: process.env.APP_VERSION || '1.0.0',"
+      },
+      {
+        "id": "sensitive:templates/opentelemetry-tracing.ts:20:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 20,
+        "line_end": 20,
+        "snippet": "[SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: process.env.NODE_ENV || 'development',"
+      },
+      {
+        "id": "sensitive:templates/opentelemetry-tracing.ts:23:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "templates/opentelemetry-tracing.ts",
+        "line_start": 23,
+        "line_end": 23,
+        "snippet": "url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318/v1/traces',"
+      },
+      {
+        "id": "external_commands:templates/structured-logging.ts:120:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "templates/structured-logging.ts",
+        "line_start": 120,
+        "line_end": 120,
+        "snippet": "// logger.info(`User user-123 completed purchase of $99.99`);"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:14:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "templates/structured-logging.ts",
+        "line_start": 14,
+        "line_end": 14,
+        "snippet": "level: process.env.LOG_LEVEL || 'info',"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:21:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "templates/structured-logging.ts",
+        "line_start": 21,
+        "line_end": 21,
+        "snippet": "service: process.env.SERVICE_NAME || 'app',"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:22:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "templates/structured-logging.ts",
+        "line_start": 22,
+        "line_end": 22,
+        "snippet": "environment: process.env.NODE_ENV,"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:23:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "templates/structured-logging.ts",
+        "line_start": 23,
+        "line_end": 23,
+        "snippet": "version: process.env.APP_VERSION,"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:27:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "templates/structured-logging.ts",
+        "line_start": 27,
+        "line_end": 27,
+        "snippet": "format: process.env.NODE_ENV === 'development'"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:35:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "templates/structured-logging.ts",
+        "line_start": 35,
+        "line_end": 35,
+        "snippet": "...(process.env.NODE_ENV === 'production'"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:14:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "templates/structured-logging.ts",
+        "line_start": 14,
+        "line_end": 14,
+        "snippet": "level: process.env.LOG_LEVEL || 'info',"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:21:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "templates/structured-logging.ts",
+        "line_start": 21,
+        "line_end": 21,
+        "snippet": "service: process.env.SERVICE_NAME || 'app',"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:22:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "templates/structured-logging.ts",
+        "line_start": 22,
+        "line_end": 22,
+        "snippet": "environment: process.env.NODE_ENV,"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:23:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "templates/structured-logging.ts",
+        "line_start": 23,
+        "line_end": 23,
+        "snippet": "version: process.env.APP_VERSION,"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:27:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "templates/structured-logging.ts",
+        "line_start": 27,
+        "line_end": 27,
+        "snippet": "format: process.env.NODE_ENV === 'development'"
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:35:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "templates/structured-logging.ts",
+        "line_start": 35,
+        "line_end": 35,
+        "snippet": "...(process.env.NODE_ENV === 'production'"
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:14:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "templates/structured-logging.ts",
+        "line_start": 14,
+        "line_end": 14,
+        "snippet": "level: process.env.LOG_LEVEL || 'info',"
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:21:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "templates/structured-logging.ts",
+        "line_start": 21,
+        "line_end": 21,
+        "snippet": "service: process.env.SERVICE_NAME || 'app',"
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:22:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "templates/structured-logging.ts",
+        "line_start": 22,
+        "line_end": 22,
+        "snippet": "environment: process.env.NODE_ENV,"
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:23:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "templates/structured-logging.ts",
+        "line_start": 23,
+        "line_end": 23,
+        "snippet": "version: process.env.APP_VERSION,"
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:27:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "templates/structured-logging.ts",
+        "line_start": 27,
+        "line_end": 27,
+        "snippet": "format: process.env.NODE_ENV === 'development'"
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:35:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "templates/structured-logging.ts",
+        "line_start": 35,
+        "line_end": 35,
+        "snippet": "...(process.env.NODE_ENV === 'production'"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:82:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:103:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:120:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:125:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:135:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:149:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:151:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:186:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:187:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:188:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The snippet is Markdown, inline code, or TypeScript example text in documentation. It is not Ruby or shell execution."
+      },
+      {
+        "id": "env_access:templates/health-checks.ts:48:environment-variable-access-dot-notation",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/health-checks.ts:48:environment-variable-object",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "sensitive:templates/health-checks.ts:48:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The code uses process.env for named configuration values and does not open an environment file. No credential file read is present."
+      },
+      {
+        "id": "network:templates/opentelemetry-tracing.ts:23:hardcoded-url",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The URL is the default localhost OTLP tracing endpoint for the advertised observability setup. It is not an unauthorized external destination."
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:18:environment-variable-access-dot-notation",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:19:environment-variable-access-dot-notation",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:20:environment-variable-access-dot-notation",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:23:environment-variable-access-dot-notation",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads a fixed telemetry endpoint setting used by the intended tracing exporter. It does not enumerate secrets or exfiltrate environment values."
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:18:environment-variable-object",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:19:environment-variable-object",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:20:environment-variable-object",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/opentelemetry-tracing.ts:23:environment-variable-object",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads a fixed telemetry endpoint setting used by the intended tracing exporter. It does not enumerate secrets or exfiltrate environment values."
+      },
+      {
+        "id": "sensitive:templates/opentelemetry-tracing.ts:18:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The code uses process.env for named configuration values and does not open an environment file. No credential file read is present."
+      },
+      {
+        "id": "sensitive:templates/opentelemetry-tracing.ts:19:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The code uses process.env for named configuration values and does not open an environment file. No credential file read is present."
+      },
+      {
+        "id": "sensitive:templates/opentelemetry-tracing.ts:20:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The code uses process.env for named configuration values and does not open an environment file. No credential file read is present."
+      },
+      {
+        "id": "sensitive:templates/opentelemetry-tracing.ts:23:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The code uses process.env for named configuration values and does not open an environment file. No credential file read is present."
+      },
+      {
+        "id": "external_commands:templates/structured-logging.ts:120:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The backticks appear inside a commented-out logging anti-pattern. It is not executable code and does not invoke a shell."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:14:environment-variable-access-dot-notation",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:21:environment-variable-access-dot-notation",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:22:environment-variable-access-dot-notation",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:23:environment-variable-access-dot-notation",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:27:environment-variable-access-dot-notation",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:35:environment-variable-access-dot-notation",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:14:environment-variable-object",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:21:environment-variable-object",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:22:environment-variable-object",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:23:environment-variable-object",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:27:environment-variable-object",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "env_access:templates/structured-logging.ts:35:environment-variable-object",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This reads fixed non-secret configuration keys for service metadata or runtime mode. It does not enumerate environment secrets or send them elsewhere."
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:14:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The code uses process.env for named configuration values and does not open an environment file. No credential file read is present."
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:21:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The code uses process.env for named configuration values and does not open an environment file. No credential file read is present."
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:22:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The code uses process.env for named configuration values and does not open an environment file. No credential file read is present."
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:23:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The code uses process.env for named configuration values and does not open an environment file. No credential file read is present."
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:27:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The code uses process.env for named configuration values and does not open an environment file. No credential file read is present."
+      },
+      {
+        "id": "sensitive:templates/structured-logging.ts:35:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The code uses process.env for named configuration values and does not open an environment file. No credential file read is present."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Potential Sensitive Telemetry Exposure",
+        "description": "Logging examples include userId, orderId, order amount, stack traces, and payment.method without redaction or retention guidance. Adopted directly, this can expose personal or commercial data in log stores and trace exporters.",
+        "severity": "medium",
         "locations": [
           {
             "file": "templates/structured-logging.ts",
-            "line_start": 72,
-            "line_end": 78
-          }
-        ],
-        "verdict": "NEEDS_REVIEW",
-        "confidence": 0.78,
-        "confidence_reasoning": "The data capture is direct and visible, but whether it contains sensitive data depends on the application routes and requests."
-      },
-      {
-        "title": "Protect Telemetry Export Destinations",
-        "description": "The trace exporter sends spans to an OTLP HTTP endpoint. Users should restrict exporter destinations and review span attributes before enabling production tracing.",
-        "locations": [
+            "line_start": 108,
+            "line_end": 113
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 125,
+            "line_end": 130
+          },
           {
             "file": "templates/opentelemetry-tracing.ts",
-            "line_start": 22,
-            "line_end": 30
+            "line_start": 64,
+            "line_end": 68
           }
         ],
-        "verdict": "NEEDS_REVIEW",
-        "confidence": 0.64,
-        "confidence_reasoning": "The exporter is legitimate observability code with a localhost default. The risk depends on production endpoint configuration and the attributes recorded by the application."
+        "confidence": 0.78,
+        "confidence_reasoning": "The cited templates explicitly record identifiers, amounts, stack traces, and payment metadata. The risk depends on deployment data policy, so confidence is high but not absolute."
       }
     ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Potential Sensitive Telemetry Exposure",
+        "description": "Logging examples include userId, orderId, order amount, stack traces, and payment.method without redaction or retention guidance. Adopted directly, this can expose personal or commercial data in log stores and trace exporters.",
+        "locations": [
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 108,
+            "line_end": 113
+          },
+          {
+            "file": "templates/structured-logging.ts",
+            "line_start": 125,
+            "line_end": 130
+          },
+          {
+            "file": "templates/opentelemetry-tracing.ts",
+            "line_start": 64,
+            "line_end": 68
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "The cited templates explicitly record identifiers, amounts, stack traces, and payment metadata. The risk depends on deployment data policy, so confidence is high but not absolute."
+      }
+    ],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 6,
     "total_lines": 796,
     "audit_model": "codex",
-    "audited_at": "2026-06-28T10:08:13.523Z",
-    "risk_factors": [
-      "network",
-      "env_access",
-      "external_commands"
-    ]
+    "audited_at": "2026-07-05T02:56:21.527Z",
+    "agent_auto_install_policy": "allowed",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Implement Observability for Node.js Services",
-    "value_statement": "Production services need consistent logs, metrics, traces, alerts, and health probes. This skill provides practical TypeScript and Prometheus templates for adding that visibility.",
+    "user_title": "Build Reliable Observability for Services",
+    "value_statement": "Production services fail silently when logs, metrics, traces, and alerts are incomplete. This skill provides practical templates for service visibility and incident response.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "observability monitoring",
-      "structured logging",
-      "Prometheus metrics",
+      "Claude observability monitoring",
+      "Codex monitoring templates",
+      "Claude Code observability skill",
       "OpenTelemetry tracing",
-      "Node.js health checks",
+      "Prometheus metrics",
+      "structured logging",
+      "health check endpoints",
       "alerting rules",
-      "production reliability"
+      "service reliability",
+      "incident response"
     ],
     "actual_capabilities": [
-      "Provides Winston structured logging patterns with request correlation IDs.",
-      "Defines Prometheus HTTP, database, cache, and business metric examples.",
-      "Shows OpenTelemetry setup with Node.js auto-instrumentation and manual spans.",
-      "Includes Express health, readiness, and startup probe templates.",
-      "Supplies Prometheus alerting rules for service, error rate, latency, memory, database, and cache signals."
+      "Guides Winston structured logging with request IDs and response logging.",
+      "Provides Prometheus examples for HTTP, business, database, and cache metrics.",
+      "Shows OpenTelemetry setup with auto-instrumentation and manual spans.",
+      "Includes liveness, readiness, and startup health check endpoint patterns.",
+      "Provides Prometheus alerting rules for outages, errors, latency, memory, and cache health.",
+      "Offers an observability checklist for logs, metrics, traces, alerts, and dashboards."
     ],
     "limitations": [
-      "Templates are examples and must be adapted to each application architecture.",
-      "The skill does not deploy monitoring infrastructure or dashboards automatically.",
-      "Security controls such as log redaction and endpoint authentication are not fully implemented.",
-      "Examples focus on Node.js, Express, Prometheus, Winston, and OpenTelemetry."
+      "Templates require adaptation to your framework, dependencies, and production data policy.",
+      "It does not deploy monitoring infrastructure or configure hosted vendor accounts.",
+      "Examples focus on TypeScript, Prometheus, Winston, and OpenTelemetry patterns.",
+      "Alert thresholds must be tuned against real traffic and service objectives."
     ],
     "use_cases": [
       {
-        "title": "Add baseline service observability",
-        "description": "Introduce structured request logs, RED metrics, and health probes to a new Node.js service.",
+        "title": "Add Service Visibility",
+        "description": "Add request logging, correlation IDs, health endpoints, and baseline metrics to a backend service.",
         "target_user": "Backend engineer"
       },
       {
-        "title": "Prepare production alerting",
-        "description": "Create Prometheus alerts for outages, error spikes, latency, memory pressure, database pool exhaustion, and cache degradation.",
+        "title": "Improve Incident Response",
+        "description": "Create alerts and dashboards that reveal outages, error spikes, latency, and dependency failures.",
         "target_user": "Site reliability engineer"
       },
       {
-        "title": "Improve incident diagnosis",
-        "description": "Connect logs, metrics, and traces so teams can investigate request failures across service boundaries.",
-        "target_user": "Platform team lead"
+        "title": "Standardize Platform Telemetry",
+        "description": "Define common logging, metrics, and tracing patterns for multiple services and teams.",
+        "target_user": "Platform engineering lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Add basic request logging",
-        "scenario": "Beginner setup for an Express service",
-        "prompt": "Use this skill to add structured request logging to my Express service. Include correlation IDs, useful fields, and safe redaction recommendations."
+        "title": "Add Basic Service Logging",
+        "scenario": "Beginner setup for request logs.",
+        "prompt": "Use this skill to design structured request logging for my Express service. Include request IDs, log levels, and fields to avoid."
       },
       {
-        "title": "Create service metrics",
-        "scenario": "Intermediate Prometheus instrumentation",
-        "prompt": "Use this skill to design Prometheus metrics for HTTP requests, database latency, cache hits, and key business events in my Node.js app."
+        "title": "Plan Metrics and Health Checks",
+        "scenario": "Intermediate service readiness work.",
+        "prompt": "Use this skill to propose Prometheus metrics and health checks for my API. Cover rate, errors, duration, dependencies, and readiness."
       },
       {
-        "title": "Set up distributed tracing",
-        "scenario": "Advanced OpenTelemetry implementation",
-        "prompt": "Use this skill to add OpenTelemetry tracing to my service. Include auto-instrumentation, manual spans, exporter configuration, and privacy safeguards."
+        "title": "Implement Distributed Tracing",
+        "scenario": "Advanced tracing across services.",
+        "prompt": "Use this skill to plan OpenTelemetry tracing for request flow across my services. Include span names, attributes, and privacy safeguards."
       },
       {
-        "title": "Design an incident-ready monitoring package",
-        "scenario": "Advanced production readiness review",
-        "prompt": "Use this skill to review my service for production observability. Propose logs, metrics, traces, alerts, health checks, dashboards, and rollout steps."
+        "title": "Audit Production Observability",
+        "scenario": "Advanced review for reliability gaps.",
+        "prompt": "Use this skill to review my production observability plan. Identify gaps in logs, metrics, traces, alerts, dashboards, and incident response."
       }
     ],
     "output_examples": [
       {
-        "input": "Add request observability to an Express API.",
+        "input": "Add health checks for a service that depends on PostgreSQL and Redis.",
         "output": [
-          "A structured logging plan with request IDs, route metadata, response status, and latency fields.",
-          "Guidance to redact query values, tokens, session identifiers, and unnecessary personal data.",
-          "A middleware placement recommendation for consistent request and response logging."
+          "Liveness confirms the process is running.",
+          "Readiness checks PostgreSQL and Redis latency before receiving traffic.",
+          "Startup returns unavailable until initialization is complete."
         ]
       },
       {
-        "input": "Define production alerts for a web service.",
+        "input": "Design alerts for a public API with latency and error problems.",
         "output": [
-          "A prioritized alert set covering service availability, error rate, latency, memory usage, database pool pressure, and cache hit rate.",
-          "Suggested severities and evaluation windows for each alert.",
-          "Notes on reducing alert noise with clear ownership and thresholds."
+          "Critical alerts cover service outages and sustained server error rates.",
+          "High alerts cover slow p95 request latency.",
+          "Medium alerts cover cache degradation and early error-rate increases."
         ]
       },
       {
-        "input": "Prepare tracing for order processing.",
+        "input": "Review a logging plan before production launch.",
         "output": [
-          "A tracing design with parent spans for order processing and child spans for payment and inventory work.",
-          "Recommended span attributes that avoid storing raw payment details or customer secrets.",
-          "Exporter configuration guidance for local development and controlled production collectors."
+          "Use structured events with request IDs and service metadata.",
+          "Redact personal data, secrets, payment data, and long request bodies.",
+          "Separate debug detail from production logs to control cost and exposure."
         ]
       }
     ],
     "best_practices": [
-      "Define redaction rules before enabling production request logging or tracing.",
-      "Start with a small alert set tied to user impact, then tune thresholds from real traffic.",
-      "Use consistent service names, versions, environments, and correlation IDs across all telemetry."
+      "Redact secrets, personal data, payment data, and full request bodies before logs or traces leave the service.",
+      "Keep metric labels low-cardinality so dashboards and storage remain stable.",
+      "Tie alerts to user impact, service objectives, and documented response actions."
     ],
     "anti_patterns": [
-      "Do not log full request bodies, tokens, passwords, session IDs, or unfiltered query strings.",
-      "Do not expose health, readiness, metrics, or tracing endpoints publicly without access controls.",
-      "Do not create alerts for every metric before defining ownership, severity, and response actions."
+      "Logging tokens, passwords, payment details, full request bodies, or unbounded error payloads.",
+      "Using user IDs, order IDs, or raw paths as high-cardinality metric labels.",
+      "Creating noisy alerts for every warning without an impact threshold or owner."
     ],
     "faq": [
       {
-        "question": "Does this skill install a monitoring stack?",
-        "answer": "No. It provides templates and implementation guidance for application observability components."
+        "question": "What does this skill help me build?",
+        "answer": "It helps design logging, metrics, tracing, health checks, and alerts for backend services."
       },
       {
-        "question": "Which runtime does the skill focus on?",
-        "answer": "The templates focus on Node.js and Express with TypeScript examples."
+        "question": "Does it support OpenTelemetry?",
+        "answer": "Yes. It includes a TypeScript OpenTelemetry setup with auto-instrumentation and manual span examples."
       },
       {
-        "question": "Can it be used with Prometheus?",
-        "answer": "Yes. It includes Prometheus metrics and alerting rule examples."
+        "question": "Does it include Prometheus examples?",
+        "answer": "Yes. It includes Prometheus metrics and alerting rule examples for common service reliability signals."
       },
       {
-        "question": "Can it be used with OpenTelemetry?",
-        "answer": "Yes. It includes OpenTelemetry tracing setup, auto-instrumentation, and manual span examples."
+        "question": "Can it deploy my monitoring stack?",
+        "answer": "No. It provides implementation guidance and templates, but deployment remains your responsibility."
       },
       {
-        "question": "What security review is needed before production use?",
-        "answer": "Review log fields, trace attributes, telemetry endpoints, health responses, and metrics exposure for sensitive data."
+        "question": "How should I handle sensitive data?",
+        "answer": "Review all log and trace fields, then redact secrets, personal data, and payment data before export."
       },
       {
-        "question": "Does it replace incident response planning?",
-        "answer": "No. It helps create signals and alerts, but teams still need ownership, runbooks, and escalation paths."
+        "question": "Which users benefit most from this skill?",
+        "answer": "Backend engineers, site reliability engineers, and platform teams can use it to improve service visibility."
       }
     ]
   },
