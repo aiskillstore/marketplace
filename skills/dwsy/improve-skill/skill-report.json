@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-29T21:52:53.122Z",
+    "generated_at": "2026-07-05T12:12:41.351Z",
     "slug": "dwsy-improve-skill",
     "source_url": "https://github.com/Dwsy/agent/tree/main/skills/improve-skill",
     "source_ref": "main",
@@ -9,22 +9,35 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "cc8d077c616767cb830de2e0e62ae15562e8cc2db0350714d85a302be1d9da68",
-    "tree_hash": "a673619877fa376f3382b84d0377131c5dfdd0cc3232a98c6e2bd587467d276c"
+    "tree_hash": "2b69fe210a4792ef0d6c3682be9b5073b9dc49fc38cfeb8ac5acc4a911a483cc",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "improve-skill",
-    "description": "Analyze local Claude Code, Codex, or Pi session transcripts to identify improvements for existing skills or draft new skill instructions.",
-    "summary": "Extract session transcripts and turn agent usage patterns into focused skill improvement prompts.",
+    "description": "Analyze Claude Code, Codex, and Pi session transcripts to improve existing skills or extract new reusable skills.",
+    "summary": "Extract agent session evidence and turn it into skill improvement or creation workflows.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "Dwsy",
     "license": "MIT",
     "tags": [
-      "skill-improvement",
       "session-analysis",
-      "agent-workflows",
-      "transcripts",
-      "codex"
+      "skill-development",
+      "transcript-extraction",
+      "codex",
+      "claude-code"
     ],
     "supported_tools": [
       "claude",
@@ -32,174 +45,43 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
-      "filesystem",
-      "external_commands"
+      "external_commands",
+      "filesystem"
     ],
-    "category": "productivity"
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "Static findings for command execution and weak cryptography are mostly false positives caused by shell examples, template literals, and words such as Claude. The confirmed risk is that the bundled script intentionally searches hidden agent directories, reads local session JSONL files, and prints transcript content that may include secrets or private project data.",
+    "safe_to_publish": false,
+    "analysis_status": "ok",
+    "summary": "The shell-execution findings are false positives caused by JavaScript template literals and Markdown backticks. The remaining risk is legitimate filesystem access to hidden agent session and skill directories. Raw transcript reuse also lacks redaction and prompt-injection controls.",
+    "remediation": [
+      {
+        "issue": "Raw transcripts can carry prompt injection into a fresh agent session.",
+        "suggestion": "Treat transcript text as untrusted data, add explicit ignore-instructions guidance, and summarize risky sections before reuse.",
+        "severity": "high"
+      },
+      {
+        "issue": "Session transcripts may contain secrets, private code, and tool outputs.",
+        "suggestion": "Add a redaction step and warn users before saving transcripts to /tmp or copying them into another agent.",
+        "severity": "high"
+      },
+      {
+        "issue": "The workflow accesses hidden agent session and skill directories.",
+        "suggestion": "Require explicit user confirmation before reading hidden session stores or writing to skill directories.",
+        "severity": "high"
+      },
+      {
+        "issue": "Codex session discovery scans recent session files to find a working directory match.",
+        "suggestion": "Offer a dry-run listing or require a specific session path when users want a narrower read scope.",
+        "severity": "medium"
+      }
+    ],
     "risk_factor_evidence": [
-      {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 1,
-            "line_end": 1
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 14,
-            "line_end": 17
-          }
-        ]
-      },
-      {
-        "factor": "filesystem",
-        "evidence": [
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 69,
-            "line_end": 96
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 114,
-            "line_end": 124
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 267,
-            "line_end": 267
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 322,
-            "line_end": 322
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 40,
-            "line_end": 42
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 54,
-            "line_end": 56
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 118,
-            "line_end": 118
-          }
-        ]
-      },
       {
         "factor": "external_commands",
         "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 14,
-            "line_end": 17
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 23,
-            "line_end": 37
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 49,
-            "line_end": 50
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 95,
-            "line_end": 96
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "Local Session Transcript Exposure",
-        "description": "The script searches hidden Claude, Pi, and Codex session directories, reads matching JSONL session files, and prints transcript content. This is expected functionality, but transcripts can contain credentials, private code, project paths, and user instructions, so users need a clear warning before publishing or sharing output.",
-        "locations": [
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 69,
-            "line_end": 96
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 114,
-            "line_end": 124
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 322,
-            "line_end": 343
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 40,
-            "line_end": 42
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 49,
-            "line_end": 50
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 95,
-            "line_end": 96
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The filesystem locations and read operations are explicit, and transcript output is the main purpose of the script. No network exfiltration is present, so the risk is local disclosure through user-directed output."
-      },
-      {
-        "title": "Arbitrary Local Session File Input",
-        "description": "The command accepts a user-supplied session file path and reads it if it exists. This is legitimate for a transcript extraction tool, but it can expose any readable local file passed by mistake or by a copied command.",
-        "locations": [
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 23,
-            "line_end": 30
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 265,
-            "line_end": 280
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 322,
-            "line_end": 322
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 35,
-            "line_end": 36
-          }
-        ],
-        "confidence": 0.78,
-        "confidence_reasoning": "The file path is provided by the user and read directly after an existence check. The behavior is not malicious, but it creates a clear local data exposure risk when misused."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Static Command Execution Matches Are Mostly Documentation or Template Literals",
-        "description": "The JavaScript file does not import child_process or execute shell commands at the flagged locations. Most matches are template literals, console output, or Markdown command examples that tell the user how to run the included script.",
-        "locations": [
           {
             "file": "scripts/extract-session.js",
             "line_start": 40,
@@ -208,272 +90,2088 @@
           {
             "file": "scripts/extract-session.js",
             "line_start": 223,
+            "line_end": 223
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 232,
+            "line_end": 232
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 234,
             "line_end": 234
           },
           {
             "file": "scripts/extract-session.js",
             "line_start": 250,
+            "line_end": 250
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 255,
             "line_end": 255
           },
           {
             "file": "scripts/extract-session.js",
+            "line_start": 268,
+            "line_end": 268
+          },
+          {
+            "file": "scripts/extract-session.js",
             "line_start": 288,
+            "line_end": 288
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 296,
+            "line_end": 296
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 303,
+            "line_end": 303
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 308,
+            "line_end": 308
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 315,
             "line_end": 315
           },
           {
             "file": "scripts/extract-session.js",
             "line_start": 338,
+            "line_end": 338
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 339,
+            "line_end": 339
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 340,
+            "line_end": 340
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 341,
             "line_end": 341
           },
           {
             "file": "SKILL.md",
             "line_start": 14,
+            "line_end": 17
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 17,
+            "line_end": 21
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 21,
+            "line_end": 23
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 23,
             "line_end": 37
-          }
-        ],
-        "confidence": 0.94,
-        "confidence_reasoning": "Line review shows string interpolation and Markdown examples, not runtime shell execution from JavaScript. The remaining external command risk is limited to user-invoked script execution documented by the skill."
-      },
-      {
-        "title": "Weak Cryptography Matches Are False Positives",
-        "description": "The flagged weak cryptography lines refer to parser names, agent path checks, or frontmatter text. No hashing, encryption, signing, or credential protection code appears in the reviewed files.",
-        "locations": [
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 133,
-            "line_end": 133
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 272,
-            "line_end": 276
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 327,
-            "line_end": 327
           },
           {
             "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 123,
-            "line_end": 123
-          }
-        ],
-        "confidence": 0.96,
-        "confidence_reasoning": "The cited lines contain ordinary text such as Claude or description fields rather than cryptographic APIs. There is no evidence of weak cryptographic use."
-      },
-      {
-        "title": "System Reconnaissance Matches Are Benign Parsing Logic",
-        "description": "The cited lines are comments, JSON parsing catch blocks, or guidance about analyzing troubleshooting patterns. They do not collect host inventory, environment variables, network details, or credentials.",
-        "locations": [
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 102,
-            "line_end": 102
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 149,
-            "line_end": 149
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 174,
-            "line_end": 174
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 200,
-            "line_end": 200
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 115,
-            "line_end": 115
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 149,
-            "line_end": 151
-          }
-        ],
-        "confidence": 0.89,
-        "confidence_reasoning": "The reviewed context shows local parser error handling and workflow guidance. No evidence found of host reconnaissance beyond locating known agent session folders."
-      }
-    ],
-    "dangerous_patterns": [
-      {
-        "title": "Hidden Agent Directory Reads",
-        "description": "The script reads from hidden home-directory agent session paths for Claude, Pi, and Codex. This is functional but sensitive because those files can contain private transcripts.",
-        "locations": [
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 69,
-            "line_end": 70
-          },
-          {
-            "file": "scripts/extract-session.js",
-            "line_start": 114,
-            "line_end": 124
+            "line_start": 37,
+            "line_end": 40
           },
           {
             "file": "SKILL.md",
             "line_start": 40,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
             "line_end": 42
-          }
-        ],
-        "confidence": 0.91,
-        "confidence_reasoning": "The hidden directory paths are explicitly constructed or documented. The risk depends on user handling of the extracted transcript."
-      },
-      {
-        "title": "Transcript Redirection to Temporary File",
-        "description": "The documentation recommends redirecting extracted transcripts to a temporary file. This can leave sensitive session content on disk outside the original agent storage.",
-        "locations": [
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 49
+          },
           {
             "file": "SKILL.md",
             "line_start": 49,
-            "line_end": 50
+            "line_end": 51
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 51,
+            "line_end": 54
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 55
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 56
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 60
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 60,
+            "line_end": 88
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 88,
+            "line_end": 95
           },
           {
             "file": "SKILL.md",
             "line_start": 95,
+            "line_end": 97
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 97,
+            "line_end": 101
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 101,
+            "line_end": 135
+          }
+        ]
+      },
+      {
+        "factor": "filesystem",
+        "evidence": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 53,
+            "line_end": 53
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 77,
+            "line_end": 77
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 96,
+            "line_end": 96
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 322,
+            "line_end": 322
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 51,
+            "line_end": 51
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 58,
+            "line_end": 58
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 70,
+            "line_end": 70
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 76,
+            "line_end": 76
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 84,
+            "line_end": 84
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 267,
+            "line_end": 267
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 96,
+            "line_end": 96
+          },
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 322,
+            "line_end": 322
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 40
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 42
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 54
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 55
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 56
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 118,
+            "line_end": 118
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 40
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 41
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 42
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 54
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 55
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 56
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 118,
+            "line_end": 118
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 50,
+            "line_end": 50
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 96,
+            "line_end": 96
+          }
+        ]
+      }
+    ],
+    "static_findings": [
+      {
+        "id": "external_commands:scripts/extract-session.js:40:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 40,
+        "line_end": 40,
+        "snippet": "const safePath = `--${cwd.replace(/^[/\\\\]/, '').replace(/[/\\\\:]/g, '-')}--`;"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:223:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 223,
+        "line_end": 223,
+        "snippet": "parts.push(`[Tool: ${item.name}]\\n${JSON.stringify(item.input, null, 2)}`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:232:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 232,
+        "line_end": 232,
+        "snippet": "parts.push(`[Tool Result]\\n${truncated}`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:234:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 234,
+        "line_end": 234,
+        "snippet": "parts.push(`[${item.type}]`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:250:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 250,
+        "line_end": 250,
+        "snippet": "lines.push(`\\n### ${role}:\\n`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:255:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 255,
+        "line_end": 255,
+        "snippet": "lines.unshift(`\\n[... ${messages.length - maxMessages} earlier messages omitted ...]\\n`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:268:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 268,
+        "line_end": 268,
+        "snippet": "console.error(`Session file not found: ${sessionPath}`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:288:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 288,
+        "line_end": 288,
+        "snippet": "console.error(`No Claude Code session found for: ${cwd}`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:296:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 296,
+        "line_end": 296,
+        "snippet": "console.error(`No Pi session found for: ${cwd}`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:303:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 303,
+        "line_end": 303,
+        "snippet": "console.error(`No Codex session found for: ${cwd}`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:308:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 308,
+        "line_end": 308,
+        "snippet": "console.error(`Unknown agent: ${agent}`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:315:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 315,
+        "line_end": 315,
+        "snippet": "console.error(`No session found for: ${cwd}`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:338:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 338,
+        "line_end": 338,
+        "snippet": "console.log(`# Session Transcript`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:339:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 339,
+        "line_end": 339,
+        "snippet": "console.log(`Agent: ${result.agent}`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:340:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 340,
+        "line_end": 340,
+        "snippet": "console.log(`File: ${result.path}`);"
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:341:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "scripts/extract-session.js",
+        "line_start": 341,
+        "line_end": 341,
+        "snippet": "console.log(`Messages: ${messages.length}`);"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:53:node-js-fs-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Node.js fs operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 53,
+        "line_end": 53,
+        "snippet": "const files = fs.readdirSync(dir)"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:77:node-js-fs-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Node.js fs operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 77,
+        "line_end": 77,
+        "snippet": "for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:96:node-js-fs-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Node.js fs operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 96,
+        "line_end": 96,
+        "snippet": "const firstLine = fs.readFileSync(session.path, 'utf8').split('\\n')[0];"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:322:node-js-fs-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Node.js fs operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 322,
+        "line_end": 322,
+        "snippet": "const content = fs.readFileSync(result.path, 'utf8');"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:51:node-js-fs-stat-operations",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Node.js fs stat operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 51,
+        "line_end": 51,
+        "snippet": "if (!fs.existsSync(dir)) return null;"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:58:node-js-fs-stat-operations",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Node.js fs stat operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 58,
+        "line_end": 58,
+        "snippet": "mtime: fs.statSync(path.join(dir, f)).mtime"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:70:node-js-fs-stat-operations",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Node.js fs stat operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 70,
+        "line_end": 70,
+        "snippet": "if (!fs.existsSync(baseDir)) return null;"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:76:node-js-fs-stat-operations",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Node.js fs stat operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 76,
+        "line_end": 76,
+        "snippet": "if (!fs.existsSync(dir)) return;"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:84:node-js-fs-stat-operations",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Node.js fs stat operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 84,
+        "line_end": 84,
+        "snippet": "mtime: fs.statSync(fullPath).mtime"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:267:node-js-fs-stat-operations",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Node.js fs stat operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 267,
+        "line_end": 267,
+        "snippet": "if (!fs.existsSync(sessionPath)) {"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:96:synchronous-file-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Synchronous file operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 96,
+        "line_end": 96,
+        "snippet": "const firstLine = fs.readFileSync(session.path, 'utf8').split('\\n')[0];"
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:322:synchronous-file-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Synchronous file operations",
+        "file": "scripts/extract-session.js",
+        "line_start": 322,
+        "line_end": 322,
+        "snippet": "const content = fs.readFileSync(result.path, 'utf8');"
+      },
+      {
+        "id": "blocker:scripts/extract-session.js:102:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/extract-session.js",
+        "line_start": 102,
+        "line_end": 102,
+        "snippet": "// Skip invalid files"
+      },
+      {
+        "id": "blocker:scripts/extract-session.js:149:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/extract-session.js",
+        "line_start": 149,
+        "line_end": 149,
+        "snippet": "// Skip invalid lines"
+      },
+      {
+        "id": "blocker:scripts/extract-session.js:174:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/extract-session.js",
+        "line_start": 174,
+        "line_end": 174,
+        "snippet": "// Skip invalid lines"
+      },
+      {
+        "id": "blocker:scripts/extract-session.js:200:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/extract-session.js",
+        "line_start": 200,
+        "line_end": 200,
+        "snippet": "// Skip invalid lines"
+      },
+      {
+        "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 14,
+        "line_end": 17,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 17,
+        "line_end": 21,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:21:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 21,
+        "line_end": 23,
+        "snippet": "The `extract-session.js` script finds and parses session files from any of the three agents:"
+      },
+      {
+        "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 23,
+        "line_end": 37,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 37,
+        "line_end": 40,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 40,
+        "line_end": 41,
+        "snippet": "- **Claude Code**: `~/.claude/projects/<encoded-cwd>/*.jsonl`"
+      },
+      {
+        "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 41,
+        "line_end": 42,
+        "snippet": "- **Pi**: `~/.pi/agent/sessions/<encoded-cwd>/*.jsonl`"
+      },
+      {
+        "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 42,
+        "line_end": 49,
+        "snippet": "- **Codex**: `~/.codex/sessions/YYYY/MM/DD/*.jsonl`"
+      },
+      {
+        "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 49,
+        "line_end": 51,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 51,
+        "line_end": 54,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 54,
+        "line_end": 55,
+        "snippet": "- `~/.codex/skills/<skill-name>/SKILL.md`"
+      },
+      {
+        "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 55,
+        "line_end": 56,
+        "snippet": "- `~/.claude/skills/<skill-name>/SKILL.md`"
+      },
+      {
+        "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 56,
+        "line_end": 60,
+        "snippet": "- `~/.pi/agent/skills/<skill-name>/SKILL.md`"
+      },
+      {
+        "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 60,
+        "line_end": 88,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 88,
+        "line_end": 95,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 95,
+        "line_end": 97,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 97,
+        "line_end": 101,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 101,
+        "line_end": 135,
+        "snippet": "```"
+      },
+      {
+        "id": "filesystem:SKILL.md:40:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "SKILL.md",
+        "line_start": 40,
+        "line_end": 40,
+        "snippet": "- **Claude Code**: `~/.claude/projects/<encoded-cwd>/*.jsonl`"
+      },
+      {
+        "id": "filesystem:SKILL.md:41:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "SKILL.md",
+        "line_start": 41,
+        "line_end": 41,
+        "snippet": "- **Pi**: `~/.pi/agent/sessions/<encoded-cwd>/*.jsonl`"
+      },
+      {
+        "id": "filesystem:SKILL.md:42:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "SKILL.md",
+        "line_start": 42,
+        "line_end": 42,
+        "snippet": "- **Codex**: `~/.codex/sessions/YYYY/MM/DD/*.jsonl`"
+      },
+      {
+        "id": "filesystem:SKILL.md:54:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "SKILL.md",
+        "line_start": 54,
+        "line_end": 54,
+        "snippet": "- `~/.codex/skills/<skill-name>/SKILL.md`"
+      },
+      {
+        "id": "filesystem:SKILL.md:55:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "SKILL.md",
+        "line_start": 55,
+        "line_end": 55,
+        "snippet": "- `~/.claude/skills/<skill-name>/SKILL.md`"
+      },
+      {
+        "id": "filesystem:SKILL.md:56:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "SKILL.md",
+        "line_start": 56,
+        "line_end": 56,
+        "snippet": "- `~/.pi/agent/skills/<skill-name>/SKILL.md`"
+      },
+      {
+        "id": "filesystem:SKILL.md:118:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "SKILL.md",
+        "line_start": 118,
+        "line_end": 118,
+        "snippet": "Write the skill to: ~/.codex/skills/<skill-name>/SKILL.md"
+      },
+      {
+        "id": "filesystem:SKILL.md:40:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "SKILL.md",
+        "line_start": 40,
+        "line_end": 40,
+        "snippet": "- **Claude Code**: `~/.claude/projects/<encoded-cwd>/*.jsonl`"
+      },
+      {
+        "id": "filesystem:SKILL.md:41:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "SKILL.md",
+        "line_start": 41,
+        "line_end": 41,
+        "snippet": "- **Pi**: `~/.pi/agent/sessions/<encoded-cwd>/*.jsonl`"
+      },
+      {
+        "id": "filesystem:SKILL.md:42:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "SKILL.md",
+        "line_start": 42,
+        "line_end": 42,
+        "snippet": "- **Codex**: `~/.codex/sessions/YYYY/MM/DD/*.jsonl`"
+      },
+      {
+        "id": "filesystem:SKILL.md:54:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "SKILL.md",
+        "line_start": 54,
+        "line_end": 54,
+        "snippet": "- `~/.codex/skills/<skill-name>/SKILL.md`"
+      },
+      {
+        "id": "filesystem:SKILL.md:55:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "SKILL.md",
+        "line_start": 55,
+        "line_end": 55,
+        "snippet": "- `~/.claude/skills/<skill-name>/SKILL.md`"
+      },
+      {
+        "id": "filesystem:SKILL.md:56:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "SKILL.md",
+        "line_start": 56,
+        "line_end": 56,
+        "snippet": "- `~/.pi/agent/skills/<skill-name>/SKILL.md`"
+      },
+      {
+        "id": "filesystem:SKILL.md:118:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "SKILL.md",
+        "line_start": 118,
+        "line_end": 118,
+        "snippet": "Write the skill to: ~/.codex/skills/<skill-name>/SKILL.md"
+      },
+      {
+        "id": "filesystem:SKILL.md:50:temp-directory-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Temp directory access",
+        "file": "SKILL.md",
+        "line_start": 50,
+        "line_end": 50,
+        "snippet": "./scripts/extract-session.js > /tmp/session-transcript.txt"
+      },
+      {
+        "id": "filesystem:SKILL.md:96:temp-directory-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Temp directory access",
+        "file": "SKILL.md",
+        "line_start": 96,
+        "line_end": 96,
+        "snippet": "./scripts/extract-session.js > /tmp/session-transcript.txt"
+      },
+      {
+        "id": "blocker:SKILL.md:115:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "SKILL.md",
+        "line_start": 115,
+        "line_end": 115,
+        "snippet": "3. Common pitfalls and how to avoid them"
+      },
+      {
+        "id": "blocker:SKILL.md:149:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "SKILL.md",
+        "line_start": 149,
+        "line_end": 149,
+        "snippet": "- **Confusion patterns** - Where did the agent retry or change approach?"
+      },
+      {
+        "id": "blocker:SKILL.md:151:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "SKILL.md",
+        "line_start": 151,
+        "line_end": 151,
+        "snippet": "- **Workarounds** - What did the agent have to figure out that wasn't documented?"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "external_commands:scripts/extract-session.js:40:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:223:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:232:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:234:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:250:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:255:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:268:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:288:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:296:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:303:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:308:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:315:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:338:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:339:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:340:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "external_commands:scripts/extract-session.js:341:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "This is a JavaScript template literal used for string formatting or console output. The script does not invoke a shell at this location."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:53:node-js-fs-operations",
+        "verdict": "confirmed",
+        "confidence": 0.8,
+        "severity": "medium",
+        "reason": "The script enumerates local agent session directories to find transcripts. The behavior is documented, but it accesses sensitive local history."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:77:node-js-fs-operations",
+        "verdict": "confirmed",
+        "confidence": 0.8,
+        "severity": "medium",
+        "reason": "The script enumerates local agent session directories to find transcripts. The behavior is documented, but it accesses sensitive local history."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:96:node-js-fs-operations",
+        "verdict": "confirmed",
+        "confidence": 0.84,
+        "severity": "medium",
+        "reason": "The script reads Codex session files while searching for the matching working directory. This is local and intended, but it touches sensitive agent history."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:322:node-js-fs-operations",
+        "verdict": "confirmed",
+        "confidence": 0.9,
+        "severity": "high",
+        "reason": "The script reads the selected agent session file and later prints its transcript. Session files can contain sensitive prompts, code, and tool results."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:51:node-js-fs-stat-operations",
+        "verdict": "confirmed",
+        "confidence": 0.73,
+        "severity": "low",
+        "reason": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:58:node-js-fs-stat-operations",
+        "verdict": "confirmed",
+        "confidence": 0.73,
+        "severity": "low",
+        "reason": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:70:node-js-fs-stat-operations",
+        "verdict": "confirmed",
+        "confidence": 0.73,
+        "severity": "low",
+        "reason": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:76:node-js-fs-stat-operations",
+        "verdict": "confirmed",
+        "confidence": 0.73,
+        "severity": "low",
+        "reason": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:84:node-js-fs-stat-operations",
+        "verdict": "confirmed",
+        "confidence": 0.73,
+        "severity": "low",
+        "reason": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:267:node-js-fs-stat-operations",
+        "verdict": "confirmed",
+        "confidence": 0.73,
+        "severity": "low",
+        "reason": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:96:synchronous-file-operations",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The synchronous read is normal local CLI behavior and not a security issue by itself. The privacy risk from reading session files is covered by the filesystem access findings."
+      },
+      {
+        "id": "filesystem:scripts/extract-session.js:322:synchronous-file-operations",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The synchronous read is normal local CLI behavior and not a security issue by itself. The privacy risk from reading session files is covered by the filesystem access findings."
+      },
+      {
+        "id": "blocker:scripts/extract-session.js:102:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The cited text is a comment or documentation about analysis workflow, not system reconnaissance. No host enumeration or probing occurs at this location."
+      },
+      {
+        "id": "blocker:scripts/extract-session.js:149:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The cited text is a comment or documentation about analysis workflow, not system reconnaissance. No host enumeration or probing occurs at this location."
+      },
+      {
+        "id": "blocker:scripts/extract-session.js:174:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The cited text is a comment or documentation about analysis workflow, not system reconnaissance. No host enumeration or probing occurs at this location."
+      },
+      {
+        "id": "blocker:scripts/extract-session.js:200:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The cited text is a comment or documentation about analysis workflow, not system reconnaissance. No host enumeration or probing occurs at this location."
+      },
+      {
+        "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:21:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is Markdown backtick or code fence syntax in documentation, not shell backtick execution. Any listed command requires explicit user invocation."
+      },
+      {
+        "id": "filesystem:SKILL.md:40:hidden-file-in-home-directory",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "high",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:41:hidden-file-in-home-directory",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "high",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:42:hidden-file-in-home-directory",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "high",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:54:hidden-file-in-home-directory",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "high",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:55:hidden-file-in-home-directory",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "high",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:56:hidden-file-in-home-directory",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "high",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:118:hidden-file-in-home-directory",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "high",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:40:hidden-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "medium",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:41:hidden-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "medium",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:42:hidden-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "medium",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:54:hidden-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "medium",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:55:hidden-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "medium",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:56:hidden-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "medium",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:118:hidden-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.4,
+        "severity": "medium",
+        "reason": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "id": "filesystem:SKILL.md:50:temp-directory-access",
+        "verdict": "confirmed",
+        "confidence": 0.88,
+        "severity": "medium",
+        "reason": "The documentation suggests writing full session transcripts to /tmp. Temporary files can expose sensitive transcript content to other local processes or users."
+      },
+      {
+        "id": "filesystem:SKILL.md:96:temp-directory-access",
+        "verdict": "confirmed",
+        "confidence": 0.88,
+        "severity": "medium",
+        "reason": "The documentation suggests writing full session transcripts to /tmp. Temporary files can expose sensitive transcript content to other local processes or users."
+      },
+      {
+        "id": "blocker:SKILL.md:115:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The cited text is a comment or documentation about analysis workflow, not system reconnaissance. No host enumeration or probing occurs at this location."
+      },
+      {
+        "id": "blocker:SKILL.md:149:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The cited text is a comment or documentation about analysis workflow, not system reconnaissance. No host enumeration or probing occurs at this location."
+      },
+      {
+        "id": "blocker:SKILL.md:151:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The cited text is a comment or documentation about analysis workflow, not system reconnaissance. No host enumeration or probing occurs at this location."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Raw Session Transcript Reuse Can Carry Prompt Injection",
+        "description": "The workflow tells users to paste the extracted transcript into a fresh agent session. Untrusted session text can include instructions that steer the new agent unless isolated and reviewed.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 60,
+            "line_end": 88
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 101,
+            "line_end": 135
+          }
+        ],
+        "confidence": 0.84,
+        "confidence_reasoning": "The cited prompt templates embed a session transcript into a new agent workflow with no instruction to treat transcript text as untrusted data. This is a common prompt-injection transfer path."
+      },
+      {
+        "title": "Sensitive Agent Session Data Is Extracted Without Redaction",
+        "description": "The script reads local agent session files and prints message content. The documentation also suggests saving the transcript in /tmp, which may expose secrets or private project data.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 322,
+            "line_end": 343
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 48,
+            "line_end": 50
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 94,
             "line_end": 96
           }
         ],
-        "confidence": 0.82,
-        "confidence_reasoning": "The command examples explicitly write transcript output to /tmp. This is common workflow behavior, but it increases exposure if the file is not removed."
+        "confidence": 0.91,
+        "confidence_reasoning": "The script reads the selected session file and prints the formatted transcript, while the documentation redirects output to a temporary file. I found no redaction or secret scanning step in the cited workflow."
       }
     ],
+    "critical_findings": [],
+    "high_findings": [
+      {
+        "title": "Node.js fs operations",
+        "description": "const content = fs.readFileSync(result.path, 'utf8');",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 322,
+            "line_end": 322
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.9,
+        "confidence_reasoning": "The script reads the selected agent session file and later prints its transcript. Session files can contain sensitive prompts, code, and tool results."
+      },
+      {
+        "title": "Hidden file in home directory",
+        "description": "- **Claude Code**: `~/.claude/projects/<encoded-cwd>/*.jsonl`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 40
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file in home directory",
+        "description": "- **Pi**: `~/.pi/agent/sessions/<encoded-cwd>/*.jsonl`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 41
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file in home directory",
+        "description": "- **Codex**: `~/.codex/sessions/YYYY/MM/DD/*.jsonl`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 42
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file in home directory",
+        "description": "- `~/.codex/skills/<skill-name>/SKILL.md`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 54
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file in home directory",
+        "description": "- `~/.claude/skills/<skill-name>/SKILL.md`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 55
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file in home directory",
+        "description": "- `~/.pi/agent/skills/<skill-name>/SKILL.md`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 56
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file in home directory",
+        "description": "Write the skill to: ~/.codex/skills/<skill-name>/SKILL.md",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 118,
+            "line_end": 118
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Raw Session Transcript Reuse Can Carry Prompt Injection",
+        "description": "The workflow tells users to paste the extracted transcript into a fresh agent session. Untrusted session text can include instructions that steer the new agent unless isolated and reviewed.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 60,
+            "line_end": 88
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 101,
+            "line_end": 135
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.84,
+        "confidence_reasoning": "The cited prompt templates embed a session transcript into a new agent workflow with no instruction to treat transcript text as untrusted data. This is a common prompt-injection transfer path."
+      },
+      {
+        "title": "Sensitive Agent Session Data Is Extracted Without Redaction",
+        "description": "The script reads local agent session files and prints message content. The documentation also suggests saving the transcript in /tmp, which may expose secrets or private project data.",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 322,
+            "line_end": 343
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 48,
+            "line_end": 50
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 94,
+            "line_end": 96
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.91,
+        "confidence_reasoning": "The script reads the selected session file and prints the formatted transcript, while the documentation redirects output to a temporary file. I found no redaction or secret scanning step in the cited workflow."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Node.js fs operations",
+        "description": "const files = fs.readdirSync(dir)",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 53,
+            "line_end": 53
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.8,
+        "confidence_reasoning": "The script enumerates local agent session directories to find transcripts. The behavior is documented, but it accesses sensitive local history."
+      },
+      {
+        "title": "Node.js fs operations",
+        "description": "for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 77,
+            "line_end": 77
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.8,
+        "confidence_reasoning": "The script enumerates local agent session directories to find transcripts. The behavior is documented, but it accesses sensitive local history."
+      },
+      {
+        "title": "Node.js fs operations",
+        "description": "const firstLine = fs.readFileSync(session.path, 'utf8').split('\\n')[0];",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 96,
+            "line_end": 96
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.84,
+        "confidence_reasoning": "The script reads Codex session files while searching for the matching working directory. This is local and intended, but it touches sensitive agent history."
+      },
+      {
+        "title": "Hidden file access",
+        "description": "- **Claude Code**: `~/.claude/projects/<encoded-cwd>/*.jsonl`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 40
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file access",
+        "description": "- **Pi**: `~/.pi/agent/sessions/<encoded-cwd>/*.jsonl`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 41,
+            "line_end": 41
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file access",
+        "description": "- **Codex**: `~/.codex/sessions/YYYY/MM/DD/*.jsonl`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 42,
+            "line_end": 42
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file access",
+        "description": "- `~/.codex/skills/<skill-name>/SKILL.md`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 54
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file access",
+        "description": "- `~/.claude/skills/<skill-name>/SKILL.md`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 55,
+            "line_end": 55
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file access",
+        "description": "- `~/.pi/agent/skills/<skill-name>/SKILL.md`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 56,
+            "line_end": 56
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Hidden file access",
+        "description": "Write the skill to: ~/.codex/skills/<skill-name>/SKILL.md",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 118,
+            "line_end": 118
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.4,
+        "confidence_reasoning": "No specific safe context was identified for this static finding, so it is kept for review with low confidence."
+      },
+      {
+        "title": "Temp directory access",
+        "description": "./scripts/extract-session.js > /tmp/session-transcript.txt",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 50,
+            "line_end": 50
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.88,
+        "confidence_reasoning": "The documentation suggests writing full session transcripts to /tmp. Temporary files can expose sensitive transcript content to other local processes or users."
+      },
+      {
+        "title": "Temp directory access",
+        "description": "./scripts/extract-session.js > /tmp/session-transcript.txt",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 96,
+            "line_end": 96
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.88,
+        "confidence_reasoning": "The documentation suggests writing full session transcripts to /tmp. Temporary files can expose sensitive transcript content to other local processes or users."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Node.js fs stat operations",
+        "description": "if (!fs.existsSync(dir)) return null;",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 51,
+            "line_end": 51
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.73,
+        "confidence_reasoning": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      },
+      {
+        "title": "Node.js fs stat operations",
+        "description": "mtime: fs.statSync(path.join(dir, f)).mtime",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 58,
+            "line_end": 58
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.73,
+        "confidence_reasoning": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      },
+      {
+        "title": "Node.js fs stat operations",
+        "description": "if (!fs.existsSync(baseDir)) return null;",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 70,
+            "line_end": 70
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.73,
+        "confidence_reasoning": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      },
+      {
+        "title": "Node.js fs stat operations",
+        "description": "if (!fs.existsSync(dir)) return;",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 76,
+            "line_end": 76
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.73,
+        "confidence_reasoning": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      },
+      {
+        "title": "Node.js fs stat operations",
+        "description": "mtime: fs.statSync(fullPath).mtime",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 84,
+            "line_end": 84
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.73,
+        "confidence_reasoning": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      },
+      {
+        "title": "Node.js fs stat operations",
+        "description": "if (!fs.existsSync(sessionPath)) {",
+        "locations": [
+          {
+            "file": "scripts/extract-session.js",
+            "line_start": 267,
+            "line_end": 267
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.73,
+        "confidence_reasoning": "The script checks local paths and file metadata while locating session transcripts. This is expected for the tool, but it still observes hidden session storage."
+      }
+    ],
+    "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 506,
     "audit_model": "codex",
-    "audited_at": "2026-06-29T21:52:53.122Z",
-    "risk_factors": [
-      "scripts",
-      "filesystem",
-      "external_commands"
-    ]
+    "audited_at": "2026-07-05T12:12:41.351Z",
+    "agent_auto_install_policy": "confirmation_required",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Improve Skills from Agent Sessions",
-    "value_statement": "Skill authors need evidence from real agent sessions to improve unclear instructions. This skill extracts recent transcripts and turns usage history into focused prompts for improving or creating skills.",
+    "user_title": "Improve Skills From Agent Sessions",
+    "value_statement": "Skill authors need clear evidence from real agent sessions. This skill extracts transcripts and turns them into prompts for improving or creating skills.",
     "seo_keywords": [
-      "Claude skill improvement",
-      "Codex skill improvement",
-      "Claude Code skill improvement",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "skill improvement",
       "agent session transcript",
-      "AI skill authoring",
+      "AI skill marketplace",
+      "Codex skills",
+      "Claude skills",
       "session analysis",
-      "prompt improvement workflow",
-      "Claude Code transcripts",
-      "Codex transcripts",
-      "skill creation prompt"
+      "prompt generation"
     ],
     "actual_capabilities": [
-      "Finds recent Claude Code, Pi, or Codex session files for the current project.",
-      "Parses JSONL session records into a readable transcript format.",
-      "Supports explicit agent selection, working directory selection, and direct session file paths.",
-      "Generates workflows for improving an existing skill from session evidence.",
-      "Generates workflows for drafting a new skill from a successful agent session."
+      "Extracts recent Claude Code, Pi, or Codex session transcripts for the current working directory.",
+      "Parses JSONL session records into a readable role-based transcript.",
+      "Supports selecting an agent, custom working directory, or explicit session file.",
+      "Builds workflows for improving an existing skill from transcript evidence.",
+      "Provides a creation workflow for turning a session into a new skill."
     ],
     "limitations": [
-      "It reads local agent session files and can expose sensitive transcript content.",
-      "It does not redact secrets, private code, or personal data from output.",
-      "It only supports the documented Claude Code, Pi, and Codex session formats.",
-      "It creates prompts for another session rather than editing skills automatically."
+      "Reads local session history and may expose sensitive prompts, code, or tool outputs.",
+      "Does not redact secrets or classify sensitive content before output.",
+      "Requires users to copy generated prompts into a separate agent session.",
+      "Handles only supported session formats and recent Codex sessions matching the working directory."
     ],
     "use_cases": [
       {
-        "title": "Improve a Reused Skill",
-        "description": "Review a session where an existing skill was confusing, then produce a prompt that asks an agent to update the skill.",
+        "title": "Improve an Existing Skill",
+        "description": "Review a real agent session and identify missing instructions, examples, and corrections for a current skill.",
         "target_user": "Skill maintainer"
       },
       {
-        "title": "Capture a New Workflow",
-        "description": "Extract a productive coding session and convert the repeated commands, decisions, and pitfalls into a new skill outline.",
-        "target_user": "Developer building personal skills"
+        "title": "Create a Reusable Skill",
+        "description": "Turn a successful coding session into a reusable workflow that other agents can follow.",
+        "target_user": "AI tooling engineer"
       },
       {
-        "title": "Audit Agent Friction",
-        "description": "Compare transcript evidence against current skill instructions to find missing examples, unclear steps, and repeated retries.",
-        "target_user": "AI workflow reviewer"
+        "title": "Document Agent Workflow Lessons",
+        "description": "Extract repeated failures, workarounds, and successful patterns from session history for team review.",
+        "target_user": "Developer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Extract My Current Session",
-        "scenario": "Beginner transcript extraction",
-        "prompt": "Use improve-skill to extract the most recent session for this project. Show me the transcript location and remind me what sensitive data to review before sharing it."
+        "title": "Find Skill Gaps",
+        "scenario": "Beginner review of the latest session.",
+        "prompt": "Use improve-skill to extract my current session and list the top missing instructions in the skill I used."
       },
       {
-        "title": "Improve an Existing Skill",
-        "scenario": "Skill maintenance",
-        "prompt": "Use improve-skill to analyze my latest session with the current skill. Identify missing guidance, unclear steps, and examples that should be added."
+        "title": "Draft an Improvement Prompt",
+        "scenario": "Prepare a fresh session for skill editing.",
+        "prompt": "Analyze the latest Claude Code session for this project and draft a concise improvement prompt for the existing skill."
       },
       {
-        "title": "Create a Skill from a Session",
-        "scenario": "New skill drafting",
-        "prompt": "Use improve-skill to turn this successful agent session into a reusable skill. Focus on the workflow, commands, pitfalls, and decision rules."
+        "title": "Use a Specific Session",
+        "scenario": "Review a chosen transcript instead of auto-detection.",
+        "prompt": "Use this specific Codex session file to identify examples, corrections, and warnings that should be added to my skill."
       },
       {
-        "title": "Compare Transcript Against Skill Quality",
-        "scenario": "Advanced review",
-        "prompt": "Use improve-skill to compare the transcript with the existing skill. Produce prioritized edits, risk notes, and a concise replacement structure."
+        "title": "Prioritize Safe Skill Changes",
+        "scenario": "Advanced review with security and quality constraints.",
+        "prompt": "Compare the transcript against the current skill and produce a prioritized edit plan with redaction notes and risk checks."
       }
     ],
     "output_examples": [
       {
-        "input": "A maintainer asks why a skill caused repeated retries during a coding session.",
-        "output": "The skill returns a readable transcript summary, identifies missing setup steps, and drafts an improvement prompt for a clean follow-up session."
+        "input": "Improve the deployment skill using my latest Codex session.",
+        "output": "A readable transcript summary, a list of skill gaps, and a prompt for a fresh session to update the skill."
       },
       {
-        "input": "A developer wants to preserve a useful one-off debugging workflow.",
-        "output": "The skill extracts the relevant session, highlights commands and decision points, and proposes a new skill structure."
+        "input": "Create a new skill from a successful debugging session.",
+        "output": "A proposed skill focus, key workflow steps, common pitfalls, and example usage guidance."
       },
       {
-        "input": "A reviewer wants to share a transcript with another agent.",
-        "output": "The skill creates the transcript and warns the user to review it for secrets, private code, and personal data first."
+        "input": "Review a session where the agent kept retrying commands.",
+        "output": "A focused analysis of confusion points, missing examples, and clearer instructions for future agents."
       }
     ],
     "best_practices": [
-      "Review extracted transcripts for secrets, private code, and personal data before sharing them.",
-      "Use a fresh agent session for skill improvement so the transcript and current skill stay focused.",
-      "Keep final skill edits concise and based on repeated evidence from the transcript."
+      "Review transcripts for secrets before sharing them with another agent.",
+      "Use explicit skill paths and confirm the target skill before editing.",
+      "Keep improvement prompts focused on observed failures and successful patterns."
     ],
     "anti_patterns": [
-      "Do not paste raw transcripts into public tools without redaction.",
-      "Do not treat a single failed command as a reason to add broad skill instructions.",
-      "Do not overwrite an existing skill before reviewing the proposed changes."
+      "Do not paste raw production secrets or private customer data into new sessions.",
+      "Do not run transcript extraction from shared machines without consent.",
+      "Do not treat generated improvement prompts as reviewed skill changes."
     ],
     "faq": [
       {
-        "question": "What agent session formats does this skill support?",
-        "answer": "It supports Claude Code, Pi, and Codex JSONL session files in the documented local paths."
+        "question": "What session formats does this skill support?",
+        "answer": "It supports Claude Code, Pi, and Codex JSONL session files documented by the skill."
       },
       {
-        "question": "Does it automatically edit my skills?",
-        "answer": "No. It helps extract transcripts and build prompts for a separate improvement session."
+        "question": "Does it edit skills automatically?",
+        "answer": "No. It helps generate prompts and workflows that guide a separate skill editing session."
       },
       {
-        "question": "Can transcript output contain secrets?",
-        "answer": "Yes. Session logs can contain credentials, private code, paths, and user instructions. Review output before sharing."
+        "question": "Can it use a specific session file?",
+        "answer": "Yes. The extractor accepts an explicit session path when auto-detection is not enough."
       },
       {
-        "question": "Can I choose a specific session file?",
-        "answer": "Yes. The script accepts a direct session file path when automatic discovery is not enough."
+        "question": "Does it redact sensitive data?",
+        "answer": "No. Users should review and redact transcripts before copying them into another agent session."
       },
       {
-        "question": "Why use a fresh session for improvements?",
-        "answer": "A fresh session keeps the task focused on the transcript and the skill being improved."
+        "question": "Why does it use a fresh session?",
+        "answer": "A fresh session keeps the improvement task focused on the transcript and the target skill."
       },
       {
-        "question": "Is this useful for marketplace skills?",
-        "answer": "Yes. It can help authors improve instructions, examples, and limitations using real usage evidence."
+        "question": "Is it safe for private repositories?",
+        "answer": "Use caution. Session transcripts may contain private code, paths, commands, and tool outputs."
       }
     ]
   },
