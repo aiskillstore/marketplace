@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-30T14:23:36.791Z",
+    "generated_at": "2026-07-05T23:06:12.656Z",
     "slug": "sickn33-cc-skill-continuous-learning",
     "source_url": "https://github.com/sickn33/antigravity-awesome-skills/tree/main/skills/cc-skill-continuous-learning",
     "source_ref": "main",
@@ -9,17 +9,29 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "4b24f1a908a9543bcb29319814a7383fb7d778104109fdf831ff83222ff0c231",
-    "tree_hash": "bb63172fde34032e5d87ce387f2f9bcd6a1542a8acf9ac6cdfad2056adc79ad9"
+    "tree_hash": "be61bc41c40f5f341550a481ec6e69cedaa161b8d251f6f7449dbe984363762e",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "cc-skill-continuous-learning",
-    "description": "Adds a Claude Code stop hook that identifies reusable lessons from longer coding sessions.",
-    "summary": "Capture reusable coding lessons from Claude Code sessions.",
+    "description": "Adds a Claude Code Stop hook that flags longer sessions for reusable development patterns.",
+    "summary": "Flags longer Claude Code sessions for reusable learning.",
     "icon": "📦",
     "version": "1.0",
     "author": "affaan-m",
     "license": "MIT",
-    "category": "coding",
     "tags": [
       "claude-code",
       "continuous-learning",
@@ -35,17 +47,46 @@
     "risk_factors": [
       "filesystem",
       "external_commands"
-    ]
+    ],
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
-    "summary": "The static findings are mostly true for local filesystem and shell-hook behavior, but no malicious exfiltration or prompt injection was found. The main risk is that the hook can encourage session review and local skill persistence under the user's Claude directory, which may retain sensitive project context.",
+    "safe_to_publish": false,
+    "analysis_status": "ok",
+    "summary": "The skill is a small Claude Code Stop-hook script, not a network exfiltration tool. The main risks are automatic shell execution, local transcript-derived learning, and persistence under a hidden Claude skills directory. Comment-only hidden path matches were dismissed, while runtime home-directory and hook risks remain confirmed.",
+    "remediation": [
+      {
+        "issue": "Hidden Claude skills persistence",
+        "suggestion": "Default to a project-local dry-run path, then ask before creating or saving learned skills under ~/.claude.",
+        "severity": "high"
+      },
+      {
+        "issue": "Session-derived content may include sensitive details",
+        "suggestion": "Show proposed learned content for manual approval and redact secrets, customer names, and project identifiers before saving.",
+        "severity": "high"
+      },
+      {
+        "issue": "Hook execution is easy to enable globally",
+        "suggestion": "Document that the Stop hook runs after sessions and require explicit per-user setup rather than automatic installation.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Shell script relies on local tools and configurable paths",
+        "suggestion": "Check for jq and grep, validate learned_skills_path, and reject unexpected absolute or world-writable destinations.",
+        "severity": "medium"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "filesystem",
         "evidence": [
+          {
+            "file": "config.json",
+            "line_start": 5,
+            "line_end": 5
+          },
           {
             "file": "config.json",
             "line_start": 5,
@@ -70,6 +111,36 @@
             "file": "evaluate-session.sh",
             "line_start": 36,
             "line_end": 36
+          },
+          {
+            "file": "evaluate-session.sh",
+            "line_start": 9,
+            "line_end": 9
+          },
+          {
+            "file": "evaluate-session.sh",
+            "line_start": 16,
+            "line_end": 16
+          },
+          {
+            "file": "evaluate-session.sh",
+            "line_start": 24,
+            "line_end": 24
+          },
+          {
+            "file": "evaluate-session.sh",
+            "line_start": 30,
+            "line_end": 30
+          },
+          {
+            "file": "evaluate-session.sh",
+            "line_start": 36,
+            "line_end": 36
+          },
+          {
+            "file": "evaluate-session.sh",
+            "line_start": 50,
+            "line_end": 50
           }
         ]
       },
@@ -104,44 +175,297 @@
         ]
       }
     ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
+    "static_findings": [
       {
-        "title": "Persistent Learned Skill Storage",
-        "description": "The skill configures and creates a learned-skills directory under the user's Claude home path. This is legitimate for a continuous-learning workflow, but it can persist derived project or session knowledge outside the active workspace.",
-        "locations": [
-          {
-            "file": "config.json",
-            "line_start": 5,
-            "line_end": 5
-          },
-          {
-            "file": "evaluate-session.sh",
-            "line_start": 30,
-            "line_end": 30
-          },
-          {
-            "file": "evaluate-session.sh",
-            "line_start": 40,
-            "line_end": 40
-          }
-        ],
-        "confidence": 0.78,
-        "confidence_reasoning": "The home-directory path and directory creation are explicit. The risk is contextual because local persistence is the skill's intended behavior, and no network exfiltration is present."
+        "id": "filesystem:config.json:5:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "config.json",
+        "line_start": 5,
+        "line_end": 5,
+        "snippet": "\"learned_skills_path\": \"~/.claude/skills/learned/\","
       },
       {
-        "title": "Session Review Hook May Retain Sensitive Context",
-        "description": "The stop hook reads the Claude transcript path for message counting and emits instructions to evaluate longer sessions for reusable patterns. This can lead to local retention of sensitive session details if the assistant follows the hook guidance without user review.",
+        "id": "filesystem:config.json:5:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "config.json",
+        "line_start": 5,
+        "line_end": 5,
+        "snippet": "\"learned_skills_path\": \"~/.claude/skills/learned/\","
+      },
+      {
+        "id": "external_commands:evaluate-session.sh:28:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "evaluate-session.sh",
+        "line_start": 28,
+        "line_end": 28,
+        "snippet": "SCRIPT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\""
+      },
+      {
+        "id": "external_commands:evaluate-session.sh:35:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "evaluate-session.sh",
+        "line_start": 35,
+        "line_end": 35,
+        "snippet": "MIN_SESSION_LENGTH=$(jq -r '.min_session_length // 10' \"$CONFIG_FILE\")"
+      },
+      {
+        "id": "external_commands:evaluate-session.sh:36:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "evaluate-session.sh",
+        "line_start": 36,
+        "line_end": 36,
+        "snippet": "LEARNED_SKILLS_PATH=$(jq -r '.learned_skills_path // \"~/.claude/skills/learned/\"' \"$CONFIG_FILE\" | s"
+      },
+      {
+        "id": "external_commands:evaluate-session.sh:50:shell-command-substitution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Shell command substitution",
+        "file": "evaluate-session.sh",
+        "line_start": 50,
+        "line_end": 50,
+        "snippet": "message_count=$(grep -c '\"type\":\"user\"' \"$transcript_path\" 2>/dev/null || echo \"0\")"
+      },
+      {
+        "id": "external_commands:evaluate-session.sh:1:unix-shell-invocation",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Unix shell invocation",
+        "file": "evaluate-session.sh",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "#!/bin/bash"
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:9:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "evaluate-session.sh",
+        "line_start": 9,
+        "line_end": 9,
+        "snippet": "# Hook config (in ~/.claude/settings.json):"
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:16:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "evaluate-session.sh",
+        "line_start": 16,
+        "line_end": 16,
+        "snippet": "#         \"command\": \"~/.claude/skills/continuous-learning/evaluate-session.sh\""
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:24:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "evaluate-session.sh",
+        "line_start": 24,
+        "line_end": 24,
+        "snippet": "# Extracted skills saved to: ~/.claude/skills/learned/"
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:36:hidden-file-in-home-directory",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Hidden file in home directory",
+        "file": "evaluate-session.sh",
+        "line_start": 36,
+        "line_end": 36,
+        "snippet": "LEARNED_SKILLS_PATH=$(jq -r '.learned_skills_path // \"~/.claude/skills/learned/\"' \"$CONFIG_FILE\" | s"
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:9:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "evaluate-session.sh",
+        "line_start": 9,
+        "line_end": 9,
+        "snippet": "# Hook config (in ~/.claude/settings.json):"
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:16:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "evaluate-session.sh",
+        "line_start": 16,
+        "line_end": 16,
+        "snippet": "#         \"command\": \"~/.claude/skills/continuous-learning/evaluate-session.sh\""
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:24:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "evaluate-session.sh",
+        "line_start": 24,
+        "line_end": 24,
+        "snippet": "# Extracted skills saved to: ~/.claude/skills/learned/"
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:30:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "evaluate-session.sh",
+        "line_start": 30,
+        "line_end": 30,
+        "snippet": "LEARNED_SKILLS_PATH=\"${HOME}/.claude/skills/learned\""
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:36:hidden-file-access",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Hidden file access",
+        "file": "evaluate-session.sh",
+        "line_start": 36,
+        "line_end": 36,
+        "snippet": "LEARNED_SKILLS_PATH=$(jq -r '.learned_skills_path // \"~/.claude/skills/learned/\"' \"$CONFIG_FILE\" | s"
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:50:standard-device-file-access",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Standard device file access",
+        "file": "evaluate-session.sh",
+        "line_start": 50,
+        "line_end": 50,
+        "snippet": "message_count=$(grep -c '\"type\":\"user\"' \"$transcript_path\" 2>/dev/null || echo \"0\")"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "filesystem:config.json:5:hidden-file-in-home-directory",
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "severity": "high",
+        "reason": "The config sets learned_skills_path to ~/.claude/skills/learned, a hidden Claude skills directory. That location can persist generated behavior across future Claude Code sessions."
+      },
+      {
+        "id": "filesystem:config.json:5:hidden-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "severity": "medium",
+        "reason": "The configured output path targets a hidden directory in the user home. This is intentional persistence and should be reviewed before enabling the hook."
+      },
+      {
+        "id": "external_commands:evaluate-session.sh:28:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "The substitution only resolves the script directory from BASH_SOURCE using quoted values. It does not execute user-controlled input or construct a dynamic command."
+      },
+      {
+        "id": "external_commands:evaluate-session.sh:35:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "The jq command reads a local numeric setting from the bundled config file with a quoted filename. This is normal configuration loading, not command injection."
+      },
+      {
+        "id": "external_commands:evaluate-session.sh:36:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.78,
+        "reason": "The command reads a configured path and expands a leading home marker through sed. The filesystem persistence risk is covered by the corresponding filesystem findings."
+      },
+      {
+        "id": "external_commands:evaluate-session.sh:50:shell-command-substitution",
+        "verdict": "false_positive",
+        "confidence": 0.8,
+        "reason": "The grep invocation counts user messages in a quoted transcript path and suppresses errors. It does not execute transcript contents or expose the transcript text."
+      },
+      {
+        "id": "external_commands:evaluate-session.sh:1:unix-shell-invocation",
+        "verdict": "confirmed",
+        "confidence": 0.91,
+        "severity": "medium",
+        "reason": "The skill ships a Bash script intended to run as a Claude Code Stop hook. Automatic local command execution is a real risk factor even when the current commands are simple."
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:9:hidden-file-in-home-directory",
+        "verdict": "false_positive",
+        "confidence": 0.72,
+        "reason": "This line is a comment showing where a user could place hook configuration. It does not perform runtime filesystem access."
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:16:hidden-file-in-home-directory",
+        "verdict": "false_positive",
+        "confidence": 0.72,
+        "reason": "This is a commented example command path for manual hook setup. It is not executed by the script itself."
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:24:hidden-file-in-home-directory",
+        "verdict": "false_positive",
+        "confidence": 0.74,
+        "reason": "This line only documents the intended output location. Runtime access to the same hidden path is adjudicated on the executable lines."
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:36:hidden-file-in-home-directory",
+        "verdict": "confirmed",
+        "confidence": 0.89,
+        "severity": "high",
+        "reason": "The script loads a learned-skills path that defaults to ~/.claude/skills/learned and later creates that directory. This can establish persistent skill state under the hidden Claude home."
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:9:hidden-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.72,
+        "reason": "The hidden path appears inside a comment-only hook configuration example. No file is read or written on this line."
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:16:hidden-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.72,
+        "reason": "The line is a commented installation example and does not access the filesystem at runtime. The actual runtime path usage is handled separately."
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:24:hidden-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.74,
+        "reason": "This line is documentation for where learned skills are saved. The executable path initialization and config loading are the real filesystem concerns."
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:30:hidden-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.9,
+        "severity": "high",
+        "reason": "The script initializes LEARNED_SKILLS_PATH to ${HOME}/.claude/skills/learned. It later creates that directory, which persists data under a hidden Claude skills location."
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:36:hidden-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.89,
+        "severity": "high",
+        "reason": "The config-derived path keeps the default hidden Claude skills directory and is used for local persistence. This is a real hidden home-directory access pattern."
+      },
+      {
+        "id": "filesystem:evaluate-session.sh:50:standard-device-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "Redirecting grep errors to /dev/null is a standard shell pattern. It does not expose data or create a meaningful filesystem security issue."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Session Transcript Learning Can Persist Sensitive Context",
+        "description": "The hook reads the Claude transcript path, counts user messages, and asks Claude Code to evaluate long sessions for reusable patterns saved to the learned-skills path. This can persist project-specific or sensitive lessons across future sessions if users enable it without review.",
+        "severity": "high",
         "locations": [
           {
             "file": "evaluate-session.sh",
-            "line_start": 43,
-            "line_end": 43
-          },
-          {
-            "file": "evaluate-session.sh",
-            "line_start": 50,
+            "line_start": 42,
             "line_end": 50
           },
           {
@@ -150,233 +474,297 @@
             "line_end": 60
           }
         ],
-        "confidence": 0.7,
-        "confidence_reasoning": "The script only counts transcript messages, but its output directs Claude to evaluate the session and save learned skills. The privacy risk depends on the user's session content and review process."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Local Shell Utilities Used in Hook Script",
-        "description": "The shell invocation, command substitution, jq, sed, grep, and stderr redirection are local workflow plumbing. They do not show command injection because arguments are derived from the script path, config file, or Claude-provided transcript path and are quoted.",
-        "locations": [
-          {
-            "file": "evaluate-session.sh",
-            "line_start": 1,
-            "line_end": 1
-          },
-          {
-            "file": "evaluate-session.sh",
-            "line_start": 28,
-            "line_end": 28
-          },
-          {
-            "file": "evaluate-session.sh",
-            "line_start": 35,
-            "line_end": 36
-          },
-          {
-            "file": "evaluate-session.sh",
-            "line_start": 50,
-            "line_end": 50
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The detected shell patterns are real, but the command arguments are quoted and there is no eval or dynamic execution. The remaining concern is normal hook-script execution risk."
+        "confidence": 0.84,
+        "confidence_reasoning": "Lines 42-50 use the Claude transcript path and count messages, while lines 58-60 request evaluation and name the save location. The script does not write transcript contents itself, so confidence is high but not absolute."
       },
       {
-        "title": "Weak Cryptography Finding Is a False Positive",
-        "description": "The SKILL.md line flagged by static analysis contains only the skill description text. No cryptographic operation, hashing algorithm, or security-sensitive implementation is present.",
+        "title": "Automatic Stop Hook Execution Requires Explicit Consent",
+        "description": "The script is designed to run from a Claude Code Stop hook after sessions end. Users need clear opt-in because the hook runs local commands and can create persistent learning state after normal coding sessions.",
+        "severity": "medium",
         "locations": [
           {
-            "file": "SKILL.md",
-            "line_start": 3,
+            "file": "evaluate-session.sh",
+            "line_start": 2,
             "line_end": 3
-          }
-        ],
-        "confidence": 0.96,
-        "confidence_reasoning": "The referenced line is plain metadata text. There is no code path or cryptographic primitive to evaluate."
-      },
-      {
-        "title": "Hidden Claude Directory References Are Intentional",
-        "description": "References to ~/.claude in comments, configuration, and hook paths are expected for a Claude Code skill. They are not hidden malware indicators by themselves, but users should know that the skill operates in their Claude home directory.",
-        "locations": [
+          },
           {
             "file": "evaluate-session.sh",
             "line_start": 9,
-            "line_end": 16
-          },
+            "line_end": 17
+          }
+        ],
+        "confidence": 0.8,
+        "confidence_reasoning": "The file header and hook example clearly show Stop-hook usage. The hook is manually configured, so this is a consent and transparency risk rather than covert installation."
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [
+      {
+        "title": "Hidden file in home directory",
+        "description": "\"learned_skills_path\": \"~/.claude/skills/learned/\",",
+        "locations": [
           {
-            "file": "evaluate-session.sh",
-            "line_start": 24,
-            "line_end": 24
-          },
+            "file": "config.json",
+            "line_start": 5,
+            "line_end": 5
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.86,
+        "confidence_reasoning": "The config sets learned_skills_path to ~/.claude/skills/learned, a hidden Claude skills directory. That location can persist generated behavior across future Claude Code sessions."
+      },
+      {
+        "title": "Hidden file in home directory",
+        "description": "LEARNED_SKILLS_PATH=$(jq -r '.learned_skills_path // \"~/.claude/skills/learned/\"' \"$CONFIG_FILE\" | s",
+        "locations": [
           {
             "file": "evaluate-session.sh",
             "line_start": 36,
             "line_end": 36
           }
         ],
-        "confidence": 0.84,
-        "confidence_reasoning": "The hidden-directory references match the documented Claude Code hook and skill layout. They are still relevant because they affect files outside the current project."
-      }
-    ],
-    "dangerous_patterns": [
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.89,
+        "confidence_reasoning": "The script loads a learned-skills path that defaults to ~/.claude/skills/learned and later creates that directory. This can establish persistent skill state under the hidden Claude home."
+      },
       {
-        "title": "Home Directory Filesystem Writes",
-        "description": "The script resolves the learned-skills path under the user's home directory and creates it if needed. This is not malicious, but marketplace users should understand the persistence behavior.",
+        "title": "Hidden file access",
+        "description": "LEARNED_SKILLS_PATH=\"${HOME}/.claude/skills/learned\"",
         "locations": [
           {
             "file": "evaluate-session.sh",
             "line_start": 30,
             "line_end": 30
-          },
-          {
-            "file": "evaluate-session.sh",
-            "line_start": 40,
-            "line_end": 40
           }
         ],
-        "confidence": 0.8,
-        "confidence_reasoning": "The filesystem write is explicit and confirmed. The intent appears aligned with the skill purpose, so the pattern is a warning rather than a block."
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.9,
+        "confidence_reasoning": "The script initializes LEARNED_SKILLS_PATH to ${HOME}/.claude/skills/learned. It later creates that directory, which persists data under a hidden Claude skills location."
       },
       {
-        "title": "Hook Output Influences Assistant Behavior",
-        "description": "The script emits instructions asking Claude to evaluate sessions and save learned skills. This is the core feature, but it can change assistant behavior at session end.",
+        "title": "Hidden file access",
+        "description": "LEARNED_SKILLS_PATH=$(jq -r '.learned_skills_path // \"~/.claude/skills/learned/\"' \"$CONFIG_FILE\" | s",
         "locations": [
+          {
+            "file": "evaluate-session.sh",
+            "line_start": 36,
+            "line_end": 36
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.89,
+        "confidence_reasoning": "The config-derived path keeps the default hidden Claude skills directory and is used for local persistence. This is a real hidden home-directory access pattern."
+      },
+      {
+        "title": "Session Transcript Learning Can Persist Sensitive Context",
+        "description": "The hook reads the Claude transcript path, counts user messages, and asks Claude Code to evaluate long sessions for reusable patterns saved to the learned-skills path. This can persist project-specific or sensitive lessons across future sessions if users enable it without review.",
+        "locations": [
+          {
+            "file": "evaluate-session.sh",
+            "line_start": 42,
+            "line_end": 50
+          },
           {
             "file": "evaluate-session.sh",
             "line_start": 58,
             "line_end": 60
           }
         ],
-        "confidence": 0.72,
-        "confidence_reasoning": "The hook message is directly visible and action-oriented. It does not contain override language or impersonate system instructions."
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.84,
+        "confidence_reasoning": "Lines 42-50 use the Claude transcript path and count messages, while lines 58-60 request evaluation and name the save location. The script does not write transcript contents itself, so confidence is high but not absolute."
       }
     ],
+    "medium_findings": [
+      {
+        "title": "Hidden file access",
+        "description": "\"learned_skills_path\": \"~/.claude/skills/learned/\",",
+        "locations": [
+          {
+            "file": "config.json",
+            "line_start": 5,
+            "line_end": 5
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The configured output path targets a hidden directory in the user home. This is intentional persistence and should be reviewed before enabling the hook."
+      },
+      {
+        "title": "Unix shell invocation",
+        "description": "#!/bin/bash",
+        "locations": [
+          {
+            "file": "evaluate-session.sh",
+            "line_start": 1,
+            "line_end": 1
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.91,
+        "confidence_reasoning": "The skill ships a Bash script intended to run as a Claude Code Stop hook. Automatic local command execution is a real risk factor even when the current commands are simple."
+      },
+      {
+        "title": "Automatic Stop Hook Execution Requires Explicit Consent",
+        "description": "The script is designed to run from a Claude Code Stop hook after sessions end. Users need clear opt-in because the hook runs local commands and can create persistent learning state after normal coding sessions.",
+        "locations": [
+          {
+            "file": "evaluate-session.sh",
+            "line_start": 2,
+            "line_end": 3
+          },
+          {
+            "file": "evaluate-session.sh",
+            "line_start": 9,
+            "line_end": 17
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.8,
+        "confidence_reasoning": "The file header and hook example clearly show Stop-hook usage. The hook is manually configured, so this is a consent and transparency risk rather than covert installation."
+      }
+    ],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 91,
     "audit_model": "codex",
-    "audited_at": "2026-06-30T14:23:36.791Z",
-    "risk_factors": [
-      "filesystem",
-      "external_commands"
-    ]
+    "audited_at": "2026-07-05T23:06:12.656Z",
+    "agent_auto_install_policy": "confirmation_required",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Build Continuous Learning for Claude Code",
-    "value_statement": "Developer sessions often contain fixes and debugging patterns that are lost after the work ends. This skill adds a Claude Code stop hook that flags longer sessions for review and local lesson capture.",
+    "user_title": "Review Claude Code Sessions for Learning",
+    "value_statement": "Long coding sessions often contain fixes that are hard to remember. This skill adds a Stop hook that flags reusable patterns for Claude Code review.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "continuous learning",
-      "developer workflow",
       "session review",
+      "AI coding workflow",
+      "developer productivity",
+      "skill automation",
       "Claude hooks",
-      "learned skills",
-      "coding assistant",
-      "debugging patterns"
+      "workflow memory"
     ],
     "actual_capabilities": [
-      "Provides a stop-hook shell script for Claude Code sessions.",
-      "Counts user messages in the Claude transcript before triggering review.",
-      "Loads configurable session length and learned-skill path settings.",
-      "Creates a local learned-skills directory when needed.",
-      "Signals Claude to evaluate longer sessions for reusable patterns."
+      "Provides a Bash Stop hook for Claude Code sessions.",
+      "Loads session thresholds and output path from config.json.",
+      "Counts user messages in the transcript referenced by CLAUDE_TRANSCRIPT_PATH.",
+      "Skips sessions shorter than the configured minimum length.",
+      "Creates the configured learned-skills directory before signaling evaluation.",
+      "Prints guidance for evaluating reusable session patterns."
     ],
     "limitations": [
-      "Does not generate learned skills by itself.",
-      "Requires jq, grep, sed, bash, and Claude Code hook support.",
-      "Only checks session length before requesting review.",
-      "Can persist sensitive context if users save lessons without review."
+      "It does not extract or write complete skills by itself.",
+      "It requires Bash, jq, grep, and Claude Code hook configuration.",
+      "It reads transcript metadata from the local Claude Code environment.",
+      "It uses a hidden Claude home directory unless reconfigured."
     ],
     "use_cases": [
       {
-        "title": "Preserve Debugging Lessons",
-        "description": "Capture recurring debugging techniques from longer Claude Code sessions for future local reuse.",
-        "target_user": "Software developers"
+        "title": "Capture debugging lessons",
+        "description": "Review long Claude Code sessions for repeatable fixes and workflow patterns.",
+        "target_user": "Individual developer"
       },
       {
-        "title": "Standardize Team Learning",
-        "description": "Use a shared review threshold and output location for developers who maintain local Claude Code workflows.",
-        "target_user": "Engineering leads"
+        "title": "Standardize recurring fixes",
+        "description": "Identify patterns that could become reviewed team guidance or reusable local skills.",
+        "target_user": "Engineering lead"
       },
       {
-        "title": "Review Project-Specific Patterns",
-        "description": "Identify workarounds, project conventions, and repeated fixes after substantial implementation sessions.",
-        "target_user": "Maintainers"
+        "title": "Test learning workflows",
+        "description": "Evaluate how Stop hooks can support memory without adding per-message latency.",
+        "target_user": "AI tooling maintainer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Install the Hook",
-        "scenario": "Beginner setup",
-        "prompt": "Set up this continuous-learning hook for my Claude Code environment and explain which files it will create or modify."
+        "title": "Review my last session",
+        "scenario": "Beginner session review",
+        "prompt": "Use the continuous learning hook output to identify one reusable debugging pattern. Show the lesson and why it is worth saving."
       },
       {
-        "title": "Review a Session",
-        "scenario": "Basic session review",
-        "prompt": "Review the current session for reusable debugging or project-specific lessons. Ask before saving anything to learned skills."
+        "title": "Draft a learned skill",
+        "scenario": "Intermediate skill drafting",
+        "prompt": "Review the session summary and draft a concise learned skill for a repeated workflow. Keep sensitive project details out."
       },
       {
-        "title": "Tune the Threshold",
-        "scenario": "Workflow customization",
-        "prompt": "Adjust the continuous-learning configuration for a team that wants review only after substantial coding sessions."
+        "title": "Tune detection settings",
+        "scenario": "Configuration review",
+        "prompt": "Inspect my continuous learning configuration and suggest safer threshold, pattern, and output path choices for my workflow."
       },
       {
-        "title": "Audit Learned Lessons",
-        "scenario": "Advanced governance",
-        "prompt": "Inspect the learned-skill output plan for sensitive data, narrow scope, and duplicate lessons before approving persistence."
+        "title": "Audit before enabling",
+        "scenario": "Advanced security review",
+        "prompt": "Evaluate this hook setup for privacy, persistence, and shell execution risks. Recommend changes before I enable it across projects."
       }
     ],
     "output_examples": [
       {
-        "input": "A long debugging session ends after several failed build attempts.",
-        "output": "Claude reports that the session is long enough for review and proposes reusable debugging lessons before local saving."
+        "input": "A long debugging session fixed repeated test setup failures.",
+        "output": "The review identifies a reusable test setup lesson, recommends a short skill name, and asks for approval before saving."
       },
       {
-        "input": "A short session contains only a small typo fix.",
-        "output": "The hook skips review because the message count is below the configured threshold."
+        "input": "A short three-message session ended without a reusable pattern.",
+        "output": "The hook reports that the session is too short and does not request learning review."
       },
       {
-        "input": "A maintainer changes the learned skill path in the config file.",
-        "output": "The hook resolves the configured path and prepares that local directory for future learned skills."
+        "input": "A project-specific workaround includes sensitive customer details.",
+        "output": "The review rejects sensitive details, keeps only general workflow guidance, and recommends manual approval."
       }
     ],
     "best_practices": [
-      "Review proposed learned skills before saving them.",
-      "Exclude credentials, customer data, and private repository details from retained lessons.",
-      "Set a higher session threshold for teams with sensitive projects."
+      "Review generated learning content before saving it to a shared skill directory.",
+      "Use a project-local output path when sessions may include private details.",
+      "Keep the minimum session length high enough to avoid noisy captures."
     ],
     "anti_patterns": [
-      "Do not auto-save lessons from every session.",
-      "Do not store secrets or proprietary incident details in learned skills.",
-      "Do not enable the hook without documenting local filesystem changes."
+      "Do not enable the hook globally before reviewing its filesystem behavior.",
+      "Do not save raw transcript excerpts as reusable skills.",
+      "Do not assume every long session contains a useful pattern."
     ],
     "faq": [
       {
-        "question": "Does this skill send data to a server?",
-        "answer": "No evidence of network access was found in the reviewed files."
+        "question": "Does this skill automatically create complete skills?",
+        "answer": "No. The script creates the learned-skills directory and signals Claude Code to review longer sessions."
       },
       {
-        "question": "Does it read Claude transcripts?",
-        "answer": "The script uses the Claude transcript path to count user messages. It then asks Claude to review longer sessions."
+        "question": "What data does it read?",
+        "answer": "It reads the transcript path from Claude Code and counts user messages in that transcript."
       },
       {
-        "question": "Where are learned skills stored?",
-        "answer": "The default path is under the user's Claude home directory, configured as ~/.claude/skills/learned/."
+        "question": "Does it require extra tools?",
+        "answer": "Yes. The script expects Bash, jq, grep, and Claude Code hook support."
       },
       {
-        "question": "Can users change the review threshold?",
-        "answer": "Yes. The config file includes a minimum session length setting."
+        "question": "Can I change the output location?",
+        "answer": "Yes. Change learned_skills_path in config.json before enabling the hook."
       },
       {
-        "question": "Is this safe for sensitive projects?",
-        "answer": "Use caution. Review every proposed learned skill and remove sensitive project details before saving."
+        "question": "Is it safe for private projects?",
+        "answer": "Use caution. Review outputs manually and avoid saving sensitive project details."
       },
       {
-        "question": "Does it work outside Claude Code?",
-        "answer": "It is designed for Claude Code hook behavior and expects Claude Code transcript environment variables."
+        "question": "Can Codex use it?",
+        "answer": "Codex can inspect the files, but the automatic Stop hook is designed for Claude Code."
       }
     ]
   },
