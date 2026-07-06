@@ -1,16 +1,16 @@
 ---
 name: influencer-discovery
-slug: aaron-influencer-discovery
+slug: influencer-discovery
 displayName: "Influencer Discovery · 红人发现"
 summary: "多平台红人挖掘:候选池、画像与互动指标、真实性红旗筛查、分层短名单"
 description: 'Use when the user asks to "find influencers", "build an influencer list", or "discover creators in [niche]"; produces a multi-platform candidate pool, per-influencer profiles with audience and engagement metrics, authenticity red-flag screening, and a tiered shortlist with fit scores. Not for scoring or ranking a known shortlist — use fit-scorer.'
-version: "13.0.0"
+version: "16.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Activate when building an influencer roster from scratch, expanding into a new platform or niche, replacing churned partners, finding micro and nano creators at scale, identifying which influencers a competitor partners with, or standing up an always-on discovery pipeline. The user names a niche, platform, follower band, or brand and wants a list of candidate creators to evaluate."
 argument-hint: "<brand or niche> [platform] [follower-range]"
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "influencer", "phase": "discover", "family": "influencer-marketing", "impact-phase": "Map", "hermes": {"tags": ["marketing", "influencer", "discover"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "influencer", "phase": "discover", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "discover"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Influencer Discovery
@@ -94,7 +94,7 @@ Save the report to `memory/influencer/influencer-discovery/YYYY-MM-DD-<topic>.md
 
 **Primary**: [fit-scorer](../fit-scorer/SKILL.md) — score and rank the discovered candidates with weighted criteria before outreach.
 
-**Alternates (same IMPACT family)**:
+**Alternates (same influencer family)**:
 - [competitor-tracker](../../plan/competitor-tracker/SKILL.md) — when discovery surfaced competitor-saturated creators and you want to map the competitive field first.
 - [audience-mapper](../audience-mapper/SKILL.md) — when the target audience is still fuzzy and criteria need sharpening before a re-search.
 

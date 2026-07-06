@@ -4,7 +4,7 @@ slug: aaron-ad-account-auditor
 displayName: "Ad Account Auditor · 付费广告账户审计"
 summary: "付费广告账户审计/ROAS评分"
 description: 'Use when auditing a paid ad account for ROAS quality, wasted spend, or measurement integrity before scaling; runs RQS scoring with veto checks and a SHIP/FIX/BLOCK gate on your own exported account data. Not for building campaign structure — use campaign-architect; not for creative units — use ad-creative-builder. 付费广告账户审计/ROAS评分'
-version: "13.0.0"
+version: "16.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
@@ -12,7 +12,7 @@ when_to_use: "Use when checking whether a paid ad account is safe to scale. Runs
 argument-hint: "<campaign export CSV / GA4 export / account topic> [goal: DR|prospecting]"
 allowed-tools: WebFetch
 class: auditor
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "ad", "phase": "activate", "geo-relevance": "medium", "hermes": {"tags": ["marketing", "ad", "activate"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "ad", "phase": "activate", "geo-relevance": "medium", "hermes": {"tags": ["marketing", "ad", "activate"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Ad Account Auditor

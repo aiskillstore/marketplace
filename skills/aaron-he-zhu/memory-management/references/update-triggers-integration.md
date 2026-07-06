@@ -65,7 +65,7 @@
 | **content-writer** | Log to memory/content/published/YYYY-MM-DD-[slug].md; track keyword + publish date; set 30-day performance check |
 | **content-quality-auditor** | Save to memory/audits/content/; update hot cache Key Metrics; flag score < 60 in Active Campaigns |
 | **domain-authority-auditor** | Save to memory/audits/domain/; update CITE Score in hot cache; note veto status; compare against previous |
-| **influencer skills (IMPACT)** | Save dated outputs to memory/influencer/[skill]/; promote confirmed partners, agreed rates, campaign facts to hot cache; creator facts go to memory/creators/candidates.md |
+| **influencer skills** | Save dated outputs to memory/influencer/[skill]/; promote confirmed partners, agreed rates, campaign facts to hot cache; creator facts go to memory/creators/candidates.md |
 | **content-reviewer** | Save gated ART verdict to memory/audits/influencer/; log dated compliance events as creator-registry candidates; flag T1/T2 vetoes in hot cache |
 | **creator-registry** | Sole writer of memory/creators/[handle-slug].md; reconciles memory/creators/candidates.md; promotes expiring exclusivity windows + rate ceilings to hot cache |
 | **paid skills (ROAS)** | Save dated outputs to memory/ad/[skill]/; promote chosen structures/angles and readback deltas to hot cache; claim candidates go to memory/claims/candidates.md |

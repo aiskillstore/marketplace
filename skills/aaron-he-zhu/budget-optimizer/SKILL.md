@@ -1,16 +1,16 @@
 ---
 name: budget-optimizer
-slug: aaron-budget-optimizer
+slug: budget-optimizer
 displayName: "Budget Optimizer · 预算优化"
 summary: "跨创作者与层级的预算分配:目标导向的花费拆分与情景对比"
 description: 'Use when the user asks to "allocate my influencer budget", "optimize spend across tiers", or "compare budget scenarios"; produces a tier/platform/content allocation table, ROI and CPM/CPE projections, scenario comparisons, and mid-campaign reallocation moves. Not for building the full campaign plan — use campaign-planner.'
-version: "13.0.0"
+version: "16.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when planning budget allocation for a new influencer campaign, splitting spend across nano/micro/macro tiers or platforms, estimating influencer costs and projecting ROI, modeling conservative vs aggressive scenarios, justifying a budget request, or reallocating budget mid-campaign based on performance."
 argument-hint: "<total budget> [platforms] [campaign goal]"
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "influencer", "phase": "plan", "family": "influencer-marketing", "impact-phase": "Plan", "hermes": {"tags": ["marketing", "influencer", "plan"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "influencer", "phase": "plan", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "plan"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Budget Optimizer
@@ -135,7 +135,7 @@ This allocation prioritizes TikTok for viral potential while using Instagram for
 
 **Primary**: [outreach-manager](../../activate/outreach-manager/SKILL.md) — once the allocation is funded and the tier mix is locked, move to recruiting the influencers it pays for.
 
-**Alternates** (same IMPACT family):
+**Alternates** (same influencer family):
 
 - [influencer-discovery](../../discover/influencer-discovery/SKILL.md) — if you need to source candidates that fit each tier's per-influencer budget first.
 - [campaign-planner](../campaign-planner/SKILL.md) — if the budget exposed a gap in the underlying campaign plan.

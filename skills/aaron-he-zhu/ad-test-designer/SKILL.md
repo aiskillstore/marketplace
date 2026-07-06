@@ -4,13 +4,13 @@ slug: aaron-ad-test-designer
 displayName: "Ad Test Designer · 广告AB测试设计"
 summary: "广告AB测试设计/实验设计/显著性判定/增效测试"
 description: 'Use when the user asks to "design an A/B test", "set up a creative/landing test", "run an incrementality test", or "is this test significant — promote or kill?"; produces a hypothesis, variant matrix, sample-size/duration/power plan, a documented significance read, and a promote/kill decision on your own exported results. Not for producing the variants — use ad-creative-builder; not for reading back one shipped change vs a control — use paid-measurement-loop; not for cross-channel reporting — use performance-analyzer. 广告AB测试设计/实验设计/显著性判定/增效测试'
-version: "13.0.0"
+version: "16.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when designing a creative/landing A/B/n or incrementality test (hypothesis, variant matrix, sample size, duration, power) or when reading out a finished test for significance and a promote/kill call from the user's own exported results CSV. Not for generating the ad variants (use ad-creative-builder), not for reading back one already-shipped change vs a control (use paid-measurement-loop)."
 argument-hint: "<what to test / results CSV> [goal: DR|prospecting] [baseline CVR/CTR]"
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "ad", "phase": "orchestrate", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "orchestrate"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "ad", "phase": "orchestrate", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "orchestrate"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Ad Test Designer

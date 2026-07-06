@@ -1,16 +1,16 @@
 ---
 name: entity-optimizer
-slug: aaron-entity-optimizer
+slug: entity-optimizer
 displayName: "Entity Optimizer · 实体优化"
 summary: "实体优化/知识图谱"
 description: 'Use when the user asks to "optimize entity presence"; builds Knowledge Graph, Wikidata, sameAs, and AI recognition signals for a canonical entity identity. Not for page-level AI-citation readiness — use geo-content-optimizer. 实体优化/知识图谱'
-version: "13.0.0"
+version: "16.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when optimizing entity presence for Knowledge Graph, Wikidata, or AI engine disambiguation. Also for brand entity canonicalization."
 argument-hint: "<entity name or brand>"
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "high", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "high", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Entity Optimizer
@@ -70,6 +70,8 @@ AI systems confuse [my entity] with [other entity] — help me disambiguate
 - **Done when**: the 6 signal categories are each scored Pass/Fail/Partial, the AI-resolution test is run (or flagged as user-to-run), and a canonical profile plus top-5 priority actions are produced.
 
 This skill is the sole writer of canonical entity profiles at `memory/entities/<name>.md`. Other skills write entity candidates to `memory/entities/candidates.md` only. When 3+ candidates accumulate, this skill should be recommended.
+
+**Seam vs the narrative canon**: this skill owns the **machine-facing** entity facts (schema, `sameAs`, Knowledge Graph signals). The **human-facing brand canon** — positioning statement, boilerplate, voice, naming — lives in [narrative-registry](../narrative-registry/SKILL.md); entity descriptions **derive from** that canon rather than restating or overriding it.
 
 **Profile schema**: the frontmatter of every canonical entity profile follows the authoritative contract in [Entity-GEO Handoff Schema](../../references/entity-geo-handoff-schema.md). That schema defines which fields downstream skills (`geo-content-optimizer` — including its [AI-overview-recovery playbook](../../seo-geo/build/geo-content-optimizer/references/ai-overview-recovery.md) — `serp-markup-builder`, `serp-markup-builder`) depend on. Do not omit required fields — the consumers will degrade gracefully to `DONE_WITH_CONCERNS` and surface an `open_loop` pointing back here.
 

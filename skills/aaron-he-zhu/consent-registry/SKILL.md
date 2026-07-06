@@ -4,13 +4,13 @@ slug: aaron-consent-registry
 displayName: "Consent Registry · 订阅同意台账"
 summary: "订阅同意台账/退订抑制记录/合法性依据登记"
 description: 'Use when the user asks to "log this subscriber''s opt-in", "record our unsubscribes and complaints", or "what lawful basis do we have to email this list"; maintains one durable record per subscriber under memory/consent/ — subscription status, opt-in timestamp + lawful basis, double-opt-in proof, acquisition source, and an append-only unsubscribe/bounce/complaint history — and resolves consent candidates from list imports. Not for scoring the S2 consent or N1 opt-out vetoes or issuing an EQS verdict — use email-quality-auditor; not for building suppression segments — use list-segment-builder. 订阅同意台账/退订抑制记录/合法性依据登记'
-version: "13.0.0"
+version: "16.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when recording or updating a subscriber's consent status, logging opt-in timestamp and lawful basis, filing double-opt-in proof, appending unsubscribe/bounce/complaint events, reconciling consent candidates from a list import, or answering whether a lawful basis is on file before an email send."
 argument-hint: "<subscriber email/id, 'record opt-in', or 'reconcile candidates'>"
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Consent Registry

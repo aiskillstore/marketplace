@@ -3,21 +3,21 @@ name: attribution-reconciler
 slug: aaron-attribution-reconciler
 displayName: "Attribution Reconciler · 付费广告归因对账"
 summary: "付费广告归因对账/去重/增量"
-description: 'Use when platform-reported conversions disagree with GA4/ecommerce, when you suspect Meta and Google are double-counting the same sales, or for a standing (monthly) reconciliation workbook that de-dups stacked credit against an order-ID truth set, normalizes attribution windows and currency, compares attribution models, and reads incrementality from a geo/holdout test. Not for the point-in-time R2 veto or RQS gate — use ad-account-auditor; not for the ROI/ROAS ratio math itself — use roi-calculator. 付费广告归因对账/去重/增量'
-version: "13.0.0"
+description: 'Use when platform-reported conversions disagree with GA4/ecommerce, when you suspect Meta and Google are double-counting the same sales, or for a standing (monthly) reconciliation workbook that de-dups stacked credit against an order-ID truth set, normalizes attribution windows and currency, compares attribution models, and reads incrementality from a geo/holdout test. Not for the point-in-time R2 veto or RQS gate — use ad-account-auditor; not for the ROI/ROAS ratio math itself — use roi-calculator; not for organic dark-social share attribution or GA4 direct-traffic decomposition — use dark-social-attributor. 付费广告归因对账/去重/增量'
+version: "16.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when running a standing reconciliation of platform-reported conversions against the GA4/ecommerce order-ID truth set: de-dup stacked credit across Meta + Google, normalize differing attribution windows and currency, compare attribution models side by side, and read incrementality where a geo/holdout test exists. Activate when the user has each platform's conversion export plus an order-ID export and wants to know which conversions are real and not double-counted."
 argument-hint: "<GA4/ecommerce order-ID export> [platform conversion exports] [goal: DR|prospecting]"
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "ad", "phase": "scale", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "scale"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "ad", "phase": "scale", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "scale"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Attribution Reconciler
 
 > Based on the ROAS dimension **R** (attribution integrity) in the [ROAS Benchmark](../../../references/roas-benchmark.md). This is the **standing de-dup / incrementality workbook**: it reconciles platform-reported conversions against the GA4/ecommerce order-ID truth set on a recurring cadence. It delegates **all** ratio/ROAS math to [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) and does **not** re-run the R2 veto — [ad-account-auditor](../../activate/ad-account-auditor/SKILL.md) judges R2 once, point-in-time. This workbook just keeps the truth set clean between audits. Upstream, [conversion-signal-qa](../../activate/conversion-signal-qa/SKILL.md) is the **pre-launch** instrumentation pass that makes the signal trustworthy and only *gates* that a dedup rule exists; this skill is the recurring reconciliation that runs **on** that signal — match, de-dup, quantify, read incrementality.
 
-The single rule: the truth set is the **order IDs** from GA4/ecommerce, **never** any platform's reported-conversion count.
+The single rule: the truth set is the **order IDs** from GA4/ecommerce, **never** any platform's reported-conversion count. This workbook reconciles **paid** channels only — decomposing GA4 direct traffic and estimating organic dark-social share attribution belongs to [dark-social-attributor](../../../social/observe/dark-social-attributor/SKILL.md).
 
 ## Quick Start
 

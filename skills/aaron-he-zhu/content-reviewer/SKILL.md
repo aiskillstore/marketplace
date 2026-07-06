@@ -1,17 +1,17 @@
 ---
 name: content-reviewer
-slug: aaron-content-reviewer
+slug: content-reviewer
 displayName: "Content Reviewer · 红人内容审核"
 summary: "C³ ART 门:品牌契合、信息准确、FTC 披露合规的门控判定与创作者修改反馈"
 description: 'Use when the user asks to "review this influencer content" or "check if this post meets brand guidelines"; produces a structured review (brand alignment, message accuracy, compliance, quality, technical specs), an approve/revise/reject decision, and a constructive feedback message for the creator. Not for drafting the brief that sets the criteria — use brief-generator; not for the partnership agreement — use contract-helper.'
-version: "13.0.0"
+version: "16.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Activate when the user has an influencer content submission (draft post, video, image, caption) and needs a gate decision before it goes live. Triggers include reviewing content against a brief, checking FTC/disclosure compliance, scoring creative quality, building a review checklist, or writing revision feedback for a creator. Use after the brief exists and before the content is published or amplified."
 argument-hint: "<content submission or link> [platform] [campaign]"
 class: auditor
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "influencer", "phase": "activate", "family": "influencer-marketing", "impact-phase": "Activate", "hermes": {"tags": ["marketing", "influencer", "activate"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "influencer", "phase": "activate", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "activate"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Content Reviewer
