@@ -1,23 +1,23 @@
 ---
 name: content-amplifier
-slug: aaron-content-amplifier
+slug: content-amplifier
 displayName: "Content Amplifier · 内容放量."
 summary: "内容放量."
-description: 'Use when the user asks to "amplify influencer content with paid media", "set up whitelisting or Spark Ads", "decide which posts to boost", "repurpose influencer content", "turn one video into multiple ads", or "build a UGC asset library"; produces (paid mode) a content-selection scorecard, a paid amplification strategy (whitelisting/boosting/dark posts), audience targeting, and a budget+optimization plan, or (repurpose mode) a rights-tracked content inventory, a 1-video-to-10+-asset repurposing map, per-format transformation specs, and a 30-day distribution plan. Not for gating whether a deliverable is publishable or FTC-compliant — use content-reviewer. 复用达人内容 / 内容放量.'
-version: "13.0.0"
+description: 'Use when the user asks to "amplify influencer content with paid media", "set up whitelisting or Spark Ads", "decide which posts to boost", "repurpose influencer content", "turn one video into multiple ads", or "build a UGC asset library"; produces (paid mode) a content-selection scorecard, a paid amplification strategy (whitelisting/boosting/dark posts), audience targeting, and a budget+optimization plan, or (repurpose mode) a rights-tracked content inventory, a 1-video-to-10+-asset repurposing map, per-format transformation specs, and a 30-day distribution plan. Not for gating whether a deliverable is publishable or FTC-compliant — use content-reviewer; not for the always-on brand posting calendar — use social-calendar-builder; not for drafting a net-new idea into platform-native packages — use social-creative-builder. 复用达人内容 / 内容放量.'
+version: "16.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when a brand has live, approved creator content and wants to extract more value from it. Paid mode: extend reach with paid spend — choosing which posts to boost, setting up whitelisted Partnership Ads or TikTok Spark Ads, planning dark posts, allocating an ad budget across creators and platforms, building audience targeting off creator lookalikes, running an optimization and scale/pause playbook. Repurpose mode: reuse one asset across paid, website, email, and organic social — generating ad variations from organic clips, building a searchable rights-tracked library, populating product pages with social proof, or planning a multi-channel rollout from a small source set."
 argument-hint: "[--mode paid|repurpose] <campaign or content set> [budget] [platforms/channels]"
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "influencer", "phase": "activate", "geo-relevance": "low", "family": "influencer-marketing", "impact-phase": "Activate", "hermes": {"tags": ["marketing", "influencer", "activate"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "influencer", "phase": "activate", "geo-relevance": "low", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "activate"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Content Amplifier
 
 Extract more value from live, approved creator content. Two modes: **paid** (extend reach with paid spend — whitelisting, Spark Ads, dark posts, budget + optimization) and **repurpose** (reuse one asset across paid, website, email, and social — inventory, repurposing map, format specs, distribution plan). Both start from content that is already published and cleared; neither reviews whether the content is publishable — that gate is [content-reviewer](../content-reviewer/SKILL.md).
 
-**Scope guard**: this skill does NOT score a deliverable for brand alignment, message accuracy, or FTC/disclosure compliance, and it does NOT compute a C³ ART score or run the T1/T2 veto — that is the [content-reviewer](../content-reviewer/SKILL.md) gate's job. This skill works the downstream lever: turning approved content into paid reach or many-channel assets, then hands off.
+**Scope guard**: this skill does NOT score a deliverable for brand alignment, message accuracy, or FTC/disclosure compliance, and it does NOT compute a C³ ART score or run the T1/T2 veto — that is the [content-reviewer](../content-reviewer/SKILL.md) gate's job. This skill works the downstream lever: turning approved content into paid reach or many-channel assets, then hands off. In a product launch, this skill owns the **repurposing map and the paid-amplification / distribution execution calendar** (including the 30-day plan for launch content); the launch discipline's [momentum-planner](../../../launch/prove/momentum-planner/SKILL.md) schedules only the launch *moments* and hands the distribution work here. In always-on organic social the split is the same shape: the standing brand posting calendar belongs to [social-calendar-builder](../../../social/craft/social-calendar-builder/SKILL.md) and net-new idea-to-multi-platform package drafting to [social-creative-builder](../../../social/craft/social-creative-builder/SKILL.md) — this skill keeps repurposing of existing assets and ALL paid amplification, and the social discipline only flags boost-worthy organic winners to it.
 
 ## Mode selector
 

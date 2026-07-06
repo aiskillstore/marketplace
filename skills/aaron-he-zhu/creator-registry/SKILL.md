@@ -4,18 +4,18 @@ slug: aaron-creator-registry
 displayName: "Creator Registry · 创作者档案"
 summary: "创作者档案/达人名册"
 description: 'Use when the user asks "what did we pay this creator last time" or to "update the creator roster"; maintains one durable record per creator — verified handles, rate history, exclusivity windows, dated compliance events, performance baselines. Not for scoring fit — use fit-scorer; not for reviewing content — use content-reviewer. 创作者档案/达人名册'
-version: "13.0.0"
+version: "16.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when consolidating a creator's record after a campaign closes, reconciling accumulated candidate updates, deduplicating cross-platform handles, or answering rate/exclusivity/compliance-history questions about a rostered creator."
 argument-hint: "<creator handle or name>"
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Creator Registry
 
-The canonical creator roster SSOT — the entity-optimizer analog for the IMPACT discipline. Curates the canonical per-creator record — **registry, not gate**: no `class: auditor`, no cap fields, no veto scoring, no roll-up labels; it stores dated facts and history, and the existing gates and scorers judge against it.
+The canonical creator roster SSOT — the entity-optimizer analog for the influencer discipline. Curates the canonical per-creator record — **registry, not gate**: no `class: auditor`, no cap fields, no veto scoring, no roll-up labels; it stores dated facts and history, and the existing gates and scorers judge against it.
 
 One durable record per creator holds: verified cross-platform handles (identity dedup — is `@sarah_ig` the same person as `@sarahtok`?), audience stats each carrying an as-of date and a Measured / User-provided / Estimated label, rate card and negotiation history, past-campaign performance baselines, dated disclosure/FTC compliance events (each citing the content-reviewer verdict ID that produced it), exclusivity windows and contract status, and the confirmed contact path (with which waterfall step produced it). The registry registers, reconciles, and versions the record; it never scores, gates, or judges.
 

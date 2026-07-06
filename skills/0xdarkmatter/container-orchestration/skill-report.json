@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-06T01:49:35.958Z",
+    "generated_at": "2026-07-06T14:26:30.072Z",
     "slug": "0xdarkmatter-container-orchestration",
     "source_url": "https://github.com/0xDarkMatter/claude-mods/tree/main/skills/container-orchestration",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "4a3a341612b682e002eb9af3b49147461c8b580d3088b6bab7f5a8ec4102393f",
-    "tree_hash": "940a3521146312b20beabe3383b9208ddc656ed38f2aa6460634d9c58ae0d59d",
+    "content_hash": "800f45845ae7a5f47d47159c7ec19a796f1b4d8e8d2a89a54a468662b7e52aeb",
+    "tree_hash": "642b3441656338b6fc3bfa6d17fe654842fe47d88cb89d794dfc83ed04aba710",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,17 +23,17 @@
   },
   "skill": {
     "name": "container-orchestration",
-    "description": "Provides Docker, Docker Compose, Kubernetes, Helm, and AWS ECS/Fargate patterns for containerized application deployment.",
-    "summary": "Guides container deployment patterns across Docker, Kubernetes, Helm, and AWS ECS/Fargate.",
+    "description": "Docker, Kubernetes, Helm, Docker Compose, and AWS ECS/Fargate guidance for building, deploying, and operating containerized applications.",
+    "summary": "Create and review container orchestration patterns for Docker, Kubernetes, Helm, Docker Compose, and AWS ECS/Fargate.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "0xDarkMatter",
     "license": "MIT",
     "tags": [
       "docker",
       "kubernetes",
       "helm",
-      "ecs",
+      "ecs-fargate",
       "containers"
     ],
     "supported_tools": [
@@ -57,27 +54,27 @@
     "is_blocked": true,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Most static alerts are false positives from Markdown examples, localhost health checks, apt cleanup, and legitimate container user setup. Confirmed issues are insecure copy-paste patterns: weak default database credentials, hardcoded dummy secrets, a debug listener on all interfaces, and broad Kubernetes secret access. No prompt injection attempt or hidden exfiltration intent was found.",
+    "summary": "I confirmed risks where templates or examples include weak default credentials, plaintext secret values, an executable Bash build script, and a debugpy listener on all interfaces. Most static hits are false positives from fenced examples, normal Docker cache cleanup, localhost health checks, Kubernetes references, and safe documentation links. No prompt injection attempt was found in the reviewed files.",
     "remediation": [
       {
-        "issue": "Weak or hardcoded secret examples appear in Compose and Kubernetes templates.",
-        "suggestion": "Replace sample credentials with placeholders and require runtime secret managers or local environment files outside version control.",
+        "issue": "Weak default database credentials in Compose templates",
+        "suggestion": "Remove postgres fallback passwords and require users to provide DB_PASSWORD through a local env file or secret manager.",
         "severity": "high"
       },
       {
-        "issue": "A debug container example listens on all interfaces.",
-        "suggestion": "Bind debug tooling to loopback where possible and mark debug targets as isolated, temporary, and not for production.",
+        "issue": "Plaintext secret values in Kubernetes and Compose examples",
+        "suggestion": "Replace user:pass and supersecretkey with non-secret placeholders and prefer ExternalSecret or secret manager examples.",
+        "severity": "high"
+      },
+      {
+        "issue": "Debugpy listens on all interfaces in the debug Dockerfile example",
+        "suggestion": "Bind debugpy to 127.0.0.1 or document strict local-only port forwarding and network isolation requirements.",
         "severity": "medium"
       },
       {
-        "issue": "The Kubernetes RBAC example can list all secrets in the namespace.",
-        "suggestion": "Remove the list verb for secrets and restrict access with resourceNames when a workload needs one specific secret.",
-        "severity": "high"
-      },
-      {
-        "issue": "Build and deployment commands can affect registries and clusters when run in the wrong context.",
-        "suggestion": "Add preflight checks that print the Docker registry, Kubernetes context, AWS account, and target namespace before mutating commands.",
-        "severity": "low"
+        "issue": "Build script can build and optionally push container images",
+        "suggestion": "Add a dry-run mode, confirm registry pushes, and validate registry, tag, Dockerfile, and context arguments before execution.",
+        "severity": "medium"
       }
     ],
     "risk_factor_evidence": [
@@ -1293,549 +1290,534 @@
       {
         "id": "network:assets/docker-compose.template.yml:31:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL targets localhost for a container health check. It does not contact an external service or exfiltrate data."
+        "confidence": 0.87,
+        "reason": "The URL targets localhost for a health check inside the container or Compose network. It does not contact an external endpoint or exfiltrate data."
       },
       {
         "id": "env_access:assets/docker-compose.template.yml:22:database-connection-strings",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The Compose template builds a database URL with a default postgres password. Users can copy this into deployments with weak credentials unless they override it.",
+        "confidence": 0.78,
+        "reason": "The Compose template builds DATABASE_URL with fallback DB_USER and DB_PASSWORD values of postgres. If copied beyond local development, the predictable default credentials are a real exposure risk.",
         "severity": "high"
       },
       {
         "id": "env_access:assets/docker-compose.template.yml:23:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The Redis URL names an internal Compose service and contains no credentials. It is a local service reference, not secret access."
+        "confidence": 0.87,
+        "reason": "REDIS_URL points to the local Redis service within the Compose network and contains no credential. It is normal service wiring, not secret access."
       },
       {
         "id": "env_access:assets/docker-compose.template.yml:52:database-connection-strings",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "The database service defaults POSTGRES_PASSWORD to postgres. This is a weak default in a reusable template and can create insecure deployments.",
+        "confidence": 0.82,
+        "reason": "POSTGRES_PASSWORD falls back to postgres in an active database service template. That default can create a weak database password when users do not override the variable.",
         "severity": "high"
       },
       {
         "id": "env_access:assets/docker-compose.template.yml:98:database-connection-strings",
-        "verdict": "confirmed",
-        "confidence": 0.58,
-        "reason": "The commented worker example repeats the same default database password pattern. It is inactive by default, but users may uncomment it without changing credentials.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.87,
+        "reason": "The match is inside a commented optional worker example. It is not active Compose configuration unless the user deliberately edits the template."
       },
       {
         "id": "env_access:assets/docker-compose.template.yml:99:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The Redis URL names an internal Compose service and contains no credentials. It is a local service reference, not secret access."
+        "confidence": 0.87,
+        "reason": "The match is inside a commented optional worker example. It is not active Compose configuration unless the user deliberately edits the template."
       },
       {
         "id": "blocker:assets/docker-compose.template.yml:22:llm-role-tokens-injection",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is ordinary Compose variable syntax or a plain YAML value, not text that impersonates LLM roles or instructions. No prompt injection language is present at this location."
+        "confidence": 0.87,
+        "reason": "The matched text is Docker Compose variable expansion or a plain database username, not LLM role text. It does not try to override assistant instructions."
       },
       {
         "id": "blocker:assets/docker-compose.template.yml:51:llm-role-tokens-injection",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is ordinary Compose variable syntax or a plain YAML value, not text that impersonates LLM roles or instructions. No prompt injection language is present at this location."
+        "confidence": 0.87,
+        "reason": "The matched text is Docker Compose variable expansion or a plain database username, not LLM role text. It does not try to override assistant instructions."
       },
       {
         "id": "blocker:assets/docker-compose.template.yml:60:llm-role-tokens-injection",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is ordinary Compose variable syntax or a plain YAML value, not text that impersonates LLM roles or instructions. No prompt injection language is present at this location."
+        "confidence": 0.87,
+        "reason": "The matched text is Docker Compose variable expansion or a plain database username, not LLM role text. It does not try to override assistant instructions."
       },
       {
         "id": "blocker:assets/docker-compose.template.yml:98:llm-role-tokens-injection",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is ordinary Compose variable syntax or a plain YAML value, not text that impersonates LLM roles or instructions. No prompt injection language is present at this location."
+        "confidence": 0.87,
+        "reason": "The matched text is Docker Compose variable expansion or a plain database username, not LLM role text. It does not try to override assistant instructions."
       },
       {
         "id": "external_commands:assets/Dockerfile.template:44:unix-shell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The shell path appears in Dockerfile user creation examples. It assigns a login shell inside the container and is not command injection."
+        "confidence": 0.87,
+        "reason": "This Dockerfile instruction creates a non-root container user during image build with static arguments. There is no command injection path or hidden host command."
       },
       {
         "id": "network:assets/Dockerfile.template:62:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL targets localhost for a container health check. It does not contact an external service or exfiltrate data."
+        "confidence": 0.87,
+        "reason": "The URL targets localhost for a health check inside the container or Compose network. It does not contact an external endpoint or exfiltrate data."
       },
       {
         "id": "network:assets/Dockerfile.template:68:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The address 0.0.0.0 is used to bind an application inside a container. This is a common container pattern and not a hardcoded remote endpoint."
+        "confidence": 0.87,
+        "reason": "Binding a containerized web server to 0.0.0.0 is a standard container pattern so published ports can receive traffic. The snippet is not an external destination."
       },
       {
         "id": "blocker:assets/Dockerfile.template:14:recursive-delete-on-root-home",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The command only removes apt package index files under /var/lib/apt/lists. This is standard Docker image cleanup and does not delete root or home directories."
+        "confidence": 0.87,
+        "reason": "The command removes /var/lib/apt/lists/* after package installation to reduce image size. It is scoped package metadata cleanup, not deletion of root, home, or user data."
       },
       {
         "id": "blocker:assets/Dockerfile.template:36:recursive-delete-on-root-home",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The command only removes apt package index files under /var/lib/apt/lists. This is standard Docker image cleanup and does not delete root or home directories."
+        "confidence": 0.87,
+        "reason": "The command removes /var/lib/apt/lists/* after package installation to reduce image size. It is scoped package metadata cleanup, not deletion of root, home, or user data."
       },
       {
         "id": "blocker:assets/Dockerfile.template:43:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line defines container users, scheduling settings, or descriptive platform text. It does not collect host information or perform reconnaissance."
+        "confidence": 0.87,
+        "reason": "The snippet is container user creation, Kubernetes scheduling metadata, or a NetworkPolicy field in documentation. It does not enumerate host state, credentials, or networks."
       },
       {
         "id": "blocker:assets/Dockerfile.template:44:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line defines container users, scheduling settings, or descriptive platform text. It does not collect host information or perform reconnaissance."
+        "confidence": 0.87,
+        "reason": "The snippet is container user creation, Kubernetes scheduling metadata, or a NetworkPolicy field in documentation. It does not enumerate host state, credentials, or networks."
       },
       {
         "id": "external_commands:references/dockerfile-patterns.md:38:unix-shell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The shell path appears in Dockerfile user creation examples. It assigns a login shell inside the container and is not command injection."
+        "confidence": 0.87,
+        "reason": "This is a Dockerfile example for creating a non-root container user with fixed arguments. It is documentation, not user-controlled shell execution by the skill."
       },
       {
         "id": "external_commands:references/dockerfile-patterns.md:157:unix-shell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The shell path appears in Dockerfile user creation examples. It assigns a login shell inside the container and is not command injection."
+        "confidence": 0.87,
+        "reason": "This is a Dockerfile example for creating a non-root container user with fixed arguments. It is documentation, not user-controlled shell execution by the skill."
       },
       {
         "id": "network:references/dockerfile-patterns.md:218:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The Python HTTP call is a localhost health check example. It does not send data to an external host."
+        "confidence": 0.87,
+        "reason": "The Python urllib call targets localhost for a container health check. It is not a third-party network request or data exfiltration path."
       },
       {
         "id": "network:references/dockerfile-patterns.md:214:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL targets localhost for a container health check. It does not contact an external service or exfiltrate data."
+        "confidence": 0.87,
+        "reason": "The URL targets localhost for a health check inside the container or Compose network. It does not contact an external endpoint or exfiltrate data."
       },
       {
         "id": "network:references/dockerfile-patterns.md:218:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL targets localhost for a container health check. It does not contact an external service or exfiltrate data."
+        "confidence": 0.87,
+        "reason": "The URL targets localhost for a health check inside the container or Compose network. It does not contact an external endpoint or exfiltrate data."
       },
       {
         "id": "network:references/dockerfile-patterns.md:277:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The URL is placeholder OCI image metadata in a documentation example. It is not used to make a network request."
+        "confidence": 0.87,
+        "reason": "The URL is an OCI image source label in documentation. It is public metadata, not code that performs a network request."
       },
       {
         "id": "network:references/dockerfile-patterns.md:45:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The address 0.0.0.0 is used to bind an application inside a container. This is a common container pattern and not a hardcoded remote endpoint."
+        "confidence": 0.87,
+        "reason": "Binding a containerized web server to 0.0.0.0 is a standard container pattern so published ports can receive traffic. The snippet is not an external destination."
       },
       {
         "id": "network:references/dockerfile-patterns.md:328:hardcoded-ip-address",
         "verdict": "confirmed",
-        "confidence": 0.66,
-        "reason": "The debug container example listens with debugpy on 0.0.0.0:5678. If copied outside an isolated debug environment, this can expose a remote debugging interface.",
+        "confidence": 0.72,
+        "reason": "The debug stage starts debugpy listening on 0.0.0.0:5678. This is acceptable only in isolated debugging and can expose a remote debugger if the port is published.",
         "severity": "medium"
       },
       {
         "id": "filesystem:references/dockerfile-patterns.md:252:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The hidden path is a BuildKit cache mount for pip downloads. It is build-cache usage, not secret file access."
+        "confidence": 0.87,
+        "reason": "The path is a BuildKit cache target for pip downloads during image builds. It does not read host hidden files or access secrets."
       },
       {
         "id": "env_access:references/dockerfile-patterns.md:185:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is an explicitly labeled WRONG example in the Dockerfile security section. The surrounding text warns users not to bake secrets into images."
+        "confidence": 0.87,
+        "reason": "The API_KEY build-arg example is explicitly labeled WRONG under No Secrets in Image. It is an anti-pattern warning, not recommended active configuration."
       },
       {
         "id": "env_access:references/dockerfile-patterns.md:186:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is an explicitly labeled WRONG example in the Dockerfile security section. The surrounding text warns users not to bake secrets into images."
+        "confidence": 0.87,
+        "reason": "The API_KEY build-arg example is explicitly labeled WRONG under No Secrets in Image. It is an anti-pattern warning, not recommended active configuration."
       },
       {
         "id": "env_access:references/dockerfile-patterns.md:190:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This line sets an empty runtime placeholder rather than a real secret value. It does not expose credentials."
+        "confidence": 0.87,
+        "reason": "The API_KEY line is an empty runtime placeholder in the documented correct pattern. It does not contain or retrieve a secret value."
       },
       {
         "id": "sensitive:references/dockerfile-patterns.md:286:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The .env entries appear in a .dockerignore example to exclude environment files from images. This is a protective pattern, not sensitive file access."
+        "confidence": 0.87,
+        "reason": "The .env patterns appear inside a .dockerignore example that excludes environment files from the Docker build context. This reduces secret exposure rather than reading the files."
       },
       {
         "id": "sensitive:references/dockerfile-patterns.md:287:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The .env entries appear in a .dockerignore example to exclude environment files from images. This is a protective pattern, not sensitive file access."
+        "confidence": 0.87,
+        "reason": "The .env patterns appear inside a .dockerignore example that excludes environment files from the Docker build context. This reduces secret exposure rather than reading the files."
       },
       {
         "id": "sensitive:references/dockerfile-patterns.md:102:certificate-key-files",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The copied file is the system CA certificate bundle from a build stage. It is not a private key or credential."
+        "confidence": 0.87,
+        "reason": "The snippet copies the public CA certificate bundle into a scratch image for TLS verification. It is not a private key or credential file."
       },
       {
         "id": "blocker:references/dockerfile-patterns.md:18:recursive-delete-on-root-home",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The command only removes apt package index files under /var/lib/apt/lists. This is standard Docker image cleanup and does not delete root or home directories."
+        "confidence": 0.87,
+        "reason": "The command removes /var/lib/apt/lists/* after package installation to reduce image size. It is scoped package metadata cleanup, not deletion of root, home, or user data."
       },
       {
         "id": "blocker:references/dockerfile-patterns.md:122:recursive-delete-on-root-home",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The command only removes apt package index files under /var/lib/apt/lists. This is standard Docker image cleanup and does not delete root or home directories."
+        "confidence": 0.87,
+        "reason": "The command removes /var/lib/apt/lists/* after package installation to reduce image size. It is scoped package metadata cleanup, not deletion of root, home, or user data."
       },
       {
         "id": "blocker:references/dockerfile-patterns.md:141:recursive-delete-on-root-home",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The command only removes apt package index files under /var/lib/apt/lists. This is standard Docker image cleanup and does not delete root or home directories."
+        "confidence": 0.87,
+        "reason": "The command removes /var/lib/apt/lists/* after package installation to reduce image size. It is scoped package metadata cleanup, not deletion of root, home, or user data."
       },
       {
         "id": "blocker:references/dockerfile-patterns.md:147:recursive-delete-on-root-home",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The command only removes apt package index files under /var/lib/apt/lists. This is standard Docker image cleanup and does not delete root or home directories."
+        "confidence": 0.87,
+        "reason": "The command removes /var/lib/apt/lists/* after package installation to reduce image size. It is scoped package metadata cleanup, not deletion of root, home, or user data."
       },
       {
         "id": "blocker:references/dockerfile-patterns.md:70:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line defines container users, scheduling settings, or descriptive platform text. It does not collect host information or perform reconnaissance."
+        "confidence": 0.87,
+        "reason": "The snippet is container user creation, Kubernetes scheduling metadata, or a NetworkPolicy field in documentation. It does not enumerate host state, credentials, or networks."
       },
       {
         "id": "blocker:references/dockerfile-patterns.md:71:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line defines container users, scheduling settings, or descriptive platform text. It does not collect host information or perform reconnaissance."
+        "confidence": 0.87,
+        "reason": "The snippet is container user creation, Kubernetes scheduling metadata, or a NetworkPolicy field in documentation. It does not enumerate host state, credentials, or networks."
       },
       {
         "id": "blocker:references/dockerfile-patterns.md:156:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line defines container users, scheduling settings, or descriptive platform text. It does not collect host information or perform reconnaissance."
+        "confidence": 0.87,
+        "reason": "The snippet is container user creation, Kubernetes scheduling metadata, or a NetworkPolicy field in documentation. It does not enumerate host state, credentials, or networks."
       },
       {
         "id": "blocker:references/dockerfile-patterns.md:157:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line defines container users, scheduling settings, or descriptive platform text. It does not collect host information or perform reconnaissance."
+        "confidence": 0.87,
+        "reason": "The snippet is container user creation, Kubernetes scheduling metadata, or a NetworkPolicy field in documentation. It does not enumerate host state, credentials, or networks."
       },
       {
         "id": "blocker:references/ecs-fargate.md:28:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line defines container users, scheduling settings, or descriptive platform text. It does not collect host information or perform reconnaissance."
+        "confidence": 0.87,
+        "reason": "The snippet is container user creation, Kubernetes scheduling metadata, or a NetworkPolicy field in documentation. It does not enumerate host state, credentials, or networks."
       },
       {
         "id": "network:references/helm-patterns.md:44:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The URL is a public Helm chart repository reference in a Chart.yaml example. This is expected package metadata, not unexpected network behavior."
+        "confidence": 0.87,
+        "reason": "The URL is a public Helm dependency repository in a Chart.yaml example. It is normal chart metadata, not a hidden outbound request."
       },
       {
         "id": "env_access:references/k8s-manifests.md:47:database-connection-strings",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The production Kubernetes secret example contains a concrete database URL with user:pass credentials. Copying this pattern can commit credentials into manifests.",
+        "confidence": 0.78,
+        "reason": "The production Kubernetes Secret example embeds a database URL with user:pass in stringData. Copying this manifest can normalize committed plaintext credentials.",
         "severity": "high"
       },
       {
         "id": "env_access:references/k8s-manifests.md:64:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This line references a Kubernetes secret key name, not a secret value. It is the normal way to consume an existing secret."
+        "confidence": 0.87,
+        "reason": "The snippet references a Kubernetes secret key name, not the secret value. This is the standard pattern for consuming a Secret from a Deployment."
       },
       {
         "id": "env_access:references/k8s-manifests.md:118:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This line references a Kubernetes secret key name, not a secret value. It is the normal way to consume an existing secret."
+        "confidence": 0.87,
+        "reason": "The snippet references a Kubernetes secret key name, not the secret value. This is the standard pattern for consuming a Secret from a Deployment."
       },
       {
         "id": "env_access:references/k8s-manifests.md:122:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This line references a Kubernetes secret key name, not a secret value. It is the normal way to consume an existing secret."
+        "confidence": 0.87,
+        "reason": "The snippet references a Kubernetes secret key name, not the secret value. This is the standard pattern for consuming a Secret from a Deployment."
       },
       {
         "id": "env_access:references/k8s-manifests.md:48:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The production Kubernetes secret example contains a concrete API key value. Even though it is a dummy value, it normalizes hardcoded secrets in manifests.",
+        "confidence": 0.8,
+        "reason": "The production Kubernetes Secret example includes API_KEY: supersecretkey as plaintext. Even as an example, it is a copy-paste secret value rather than an external reference.",
         "severity": "high"
       },
       {
         "id": "blocker:references/k8s-manifests.md:172:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line defines container users, scheduling settings, or descriptive platform text. It does not collect host information or perform reconnaissance."
+        "confidence": 0.87,
+        "reason": "The snippet is container user creation, Kubernetes scheduling metadata, or a NetworkPolicy field in documentation. It does not enumerate host state, credentials, or networks."
       },
       {
         "id": "blocker:references/k8s-manifests.md:365:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line defines container users, scheduling settings, or descriptive platform text. It does not collect host information or perform reconnaissance."
+        "confidence": 0.87,
+        "reason": "The snippet is container user creation, Kubernetes scheduling metadata, or a NetworkPolicy field in documentation. It does not enumerate host state, credentials, or networks."
       },
       {
         "id": "blocker:references/k8s-manifests.md:330:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The line lists Kubernetes NetworkPolicy types in documentation. It does not scan networks or enumerate hosts."
+        "confidence": 0.87,
+        "reason": "The snippet is container user creation, Kubernetes scheduling metadata, or a NetworkPolicy field in documentation. It does not enumerate host state, credentials, or networks."
       },
       {
         "id": "external_commands:scripts/build-push.sh:46:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The command substitution derives an image name, timestamp, or git revision and is quoted when passed to docker. I did not find eval or unquoted user input execution here."
+        "confidence": 0.87,
+        "reason": "The substitution calls basename, date, or git rev-parse with quoted arguments for image metadata. It does not evaluate untrusted input as shell code."
       },
       {
         "id": "external_commands:scripts/build-push.sh:66:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The command substitution derives an image name, timestamp, or git revision and is quoted when passed to docker. I did not find eval or unquoted user input execution here."
+        "confidence": 0.87,
+        "reason": "The substitution calls basename, date, or git rev-parse with quoted arguments for image metadata. It does not evaluate untrusted input as shell code."
       },
       {
         "id": "external_commands:scripts/build-push.sh:67:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The command substitution derives an image name, timestamp, or git revision and is quoted when passed to docker. I did not find eval or unquoted user input execution here."
+        "confidence": 0.87,
+        "reason": "The substitution calls basename, date, or git rev-parse with quoted arguments for image metadata. It does not evaluate untrusted input as shell code."
       },
       {
         "id": "external_commands:scripts/build-push.sh:1:unix-shell-invocation",
-        "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This is the script shebang for an explicitly documented build helper. It is not hidden execution and users must run the script intentionally."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "This is an executable Bash script shipped with the skill, and it runs Docker build commands with an optional push path. The behavior is expected but still creates local and registry side effects if run.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:scripts/build-push.sh:67:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The /dev/null access only suppresses git error output while reading the local commit id. It does not read sensitive device data."
+        "confidence": 0.87,
+        "reason": "The /dev/null redirection only suppresses git rev-parse errors. It does not read device data or expose sensitive files."
       },
       {
         "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:112:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:118:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:165:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:169:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:181:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:185:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:205:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:211:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:212:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:213:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:214:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:215:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:216:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:217:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:218:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:222:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:223:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:224:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:225:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:229:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "external_commands:SKILL.md:233:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks are Markdown code fences or inline command examples in documentation. They are not executed by the skill itself."
+        "confidence": 0.87,
+        "reason": "The match is a Markdown code fence, table entry, or file reference in documentation. It is not Ruby backtick execution and is not automatically run by the skill."
       },
       {
         "id": "network:SKILL.md:48:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL targets localhost for a container health check. It does not contact an external service or exfiltrate data."
+        "confidence": 0.87,
+        "reason": "The URL targets localhost for a health check inside the container or Compose network. It does not contact an external endpoint or exfiltrate data."
       },
       {
         "id": "network:SKILL.md:91:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL targets localhost for a container health check. It does not contact an external service or exfiltrate data."
+        "confidence": 0.87,
+        "reason": "The URL targets localhost for a health check inside the container or Compose network. It does not contact an external endpoint or exfiltrate data."
       },
       {
         "id": "network:SKILL.md:51:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The address 0.0.0.0 is used to bind an application inside a container. This is a common container pattern and not a hardcoded remote endpoint."
+        "confidence": 0.87,
+        "reason": "Binding a containerized web server to 0.0.0.0 is a standard container pattern so published ports can receive traffic. The snippet is not an external destination."
       },
       {
         "id": "env_access:SKILL.md:86:database-connection-strings",
         "verdict": "confirmed",
-        "confidence": 0.73,
-        "reason": "The Docker Compose example includes a database URL with user:pass credentials. It is example content, but it can be copied into real local or shared environments.",
+        "confidence": 0.74,
+        "reason": "The primary skill documentation shows a Compose DATABASE_URL containing user:pass credentials. It is a copy-paste example that can encourage hardcoded database credentials.",
         "severity": "high"
       },
       {
         "id": "env_access:SKILL.md:160:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This line references a Kubernetes secret key name, not a secret value. It is the normal way to consume an existing secret."
+        "confidence": 0.87,
+        "reason": "The snippet references a Kubernetes Secret key from a Deployment example. It does not expose the database URL value."
       },
       {
         "id": "blocker:SKILL.md:101:llm-role-tokens-injection",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is ordinary Compose variable syntax or a plain YAML value, not text that impersonates LLM roles or instructions. No prompt injection language is present at this location."
+        "confidence": 0.87,
+        "reason": "The matched text is Docker Compose variable expansion or a plain database username, not LLM role text. It does not try to override assistant instructions."
       }
     ],
-    "semantic_findings": [
-      {
-        "title": "Over-Permissive Kubernetes Secret Access",
-        "description": "The Kubernetes RBAC example grants the application role get and list access to secrets. Production workloads should avoid broad secret listing and should scope access to specific secret names where possible.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "references/k8s-manifests.md",
-            "line_start": 292,
-            "line_end": 300
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The Role explicitly includes resources configmaps and secrets with get and list verbs. This is a clear least-privilege issue in a production manifest example."
-      }
-    ],
+    "semantic_findings": [],
     "critical_findings": [
       {
         "title": "Recursive delete on root/home",
@@ -1948,8 +1930,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "The Compose template builds a database URL with a default postgres password. Users can copy this into deployments with weak credentials unless they override it."
+        "confidence": 0.78,
+        "confidence_reasoning": "The Compose template builds DATABASE_URL with fallback DB_USER and DB_PASSWORD values of postgres. If copied beyond local development, the predictable default credentials are a real exposure risk."
       },
       {
         "title": "Database connection strings",
@@ -1964,24 +1946,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The database service defaults POSTGRES_PASSWORD to postgres. This is a weak default in a reusable template and can create insecure deployments."
-      },
-      {
-        "title": "Database connection strings",
-        "description": "#     - DATABASE_URL=postgres://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@db:5432/${DB_NAME:-mya",
-        "locations": [
-          {
-            "file": "assets/docker-compose.template.yml",
-            "line_start": 98,
-            "line_end": 98
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.58,
-        "confidence_reasoning": "The commented worker example repeats the same default database password pattern. It is inactive by default, but users may uncomment it without changing credentials."
+        "confidence": 0.82,
+        "confidence_reasoning": "POSTGRES_PASSWORD falls back to postgres in an active database service template. That default can create a weak database password when users do not override the variable."
       },
       {
         "title": "LLM role tokens injection",
@@ -2060,8 +2026,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "The production Kubernetes secret example contains a concrete database URL with user:pass credentials. Copying this pattern can commit credentials into manifests."
+        "confidence": 0.78,
+        "confidence_reasoning": "The production Kubernetes Secret example embeds a database URL with user:pass in stringData. Copying this manifest can normalize committed plaintext credentials."
       },
       {
         "title": "Generic API/secret keys",
@@ -2076,8 +2042,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "The production Kubernetes secret example contains a concrete API key value. Even though it is a dummy value, it normalizes hardcoded secrets in manifests."
+        "confidence": 0.8,
+        "confidence_reasoning": "The production Kubernetes Secret example includes API_KEY: supersecretkey as plaintext. Even as an example, it is a copy-paste secret value rather than an external reference."
       },
       {
         "title": "Database connection strings",
@@ -2092,8 +2058,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.73,
-        "confidence_reasoning": "The Docker Compose example includes a database URL with user:pass credentials. It is example content, but it can be copied into real local or shared environments."
+        "confidence": 0.74,
+        "confidence_reasoning": "The primary skill documentation shows a Compose DATABASE_URL containing user:pass credentials. It is a copy-paste example that can encourage hardcoded database credentials."
       },
       {
         "title": "LLM role tokens injection",
@@ -2110,22 +2076,6 @@
         "source_severity": "high",
         "confidence": 1,
         "confidence_reasoning": "Force-confirmed blocker/high static finding; AI dismissal overridden."
-      },
-      {
-        "title": "Over-Permissive Kubernetes Secret Access",
-        "description": "The Kubernetes RBAC example grants the application role get and list access to secrets. Production workloads should avoid broad secret listing and should scope access to specific secret names where possible.",
-        "locations": [
-          {
-            "file": "references/k8s-manifests.md",
-            "line_start": 292,
-            "line_end": 300
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The Role explicitly includes resources configmaps and secrets with get and list verbs. This is a clear least-privilege issue in a production manifest example."
       }
     ],
     "medium_findings": [
@@ -2142,8 +2092,24 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.66,
-        "confidence_reasoning": "The debug container example listens with debugpy on 0.0.0.0:5678. If copied outside an isolated debug environment, this can expose a remote debugging interface."
+        "confidence": 0.72,
+        "confidence_reasoning": "The debug stage starts debugpy listening on 0.0.0.0:5678. This is acceptable only in isolated debugging and can expose a remote debugger if the port is published."
+      },
+      {
+        "title": "Unix shell invocation",
+        "description": "#!/bin/bash",
+        "locations": [
+          {
+            "file": "scripts/build-push.sh",
+            "line_start": 1,
+            "line_end": 1
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "This is an executable Bash script shipped with the skill, and it runs Docker build commands with an optional push path. The behavior is expected but still creates local and registry side effects if run."
       }
     ],
     "low_findings": [],
@@ -2328,138 +2294,135 @@
     "files_scanned": 8,
     "total_lines": 1762,
     "audit_model": "codex",
-    "audited_at": "2026-07-06T01:49:35.958Z",
+    "audited_at": "2026-07-06T14:26:30.072Z",
     "agent_auto_install_policy": "blocked",
     "manual_install_policy": "allowed_with_warning"
   },
   "content": {
-    "user_title": "Build Container Orchestration Workflows",
-    "value_statement": "Container deployment work often needs repeatable Docker, Kubernetes, Helm, and ECS patterns. This skill provides templates, examples, and operational guidance for common orchestration tasks.",
+    "user_title": "Deploy Containers with Docker, Kubernetes, and ECS",
+    "value_statement": "Container deployment patterns are easy to misconfigure across Docker, Kubernetes, Helm, and ECS. This skill provides templates, examples, and references for safer container orchestration workflows.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "Docker deployment",
-      "Kubernetes manifests",
-      "Helm charts",
-      "AWS ECS Fargate",
-      "container orchestration",
+      "Docker",
+      "Kubernetes",
+      "Helm",
+      "ECS Fargate",
       "Docker Compose",
+      "container orchestration",
       "DevOps automation"
     ],
     "actual_capabilities": [
-      "Provides Dockerfile patterns for multi-stage builds, non-root users, health checks, and image labels.",
-      "Includes a Docker Compose starter template with app, database, Redis, health checks, networks, and volumes.",
-      "Shows Kubernetes manifests for deployments, services, ingress, autoscaling, pod disruption budgets, RBAC, and network policies.",
-      "Documents Helm chart structure, values files, helper templates, deployment templates, and common Helm commands.",
-      "Explains AWS ECS on Fargate concepts, networking, IAM roles, secrets, scaling, observability, and deployment tooling.",
-      "Includes a Bash script for building Docker images and optionally pushing them to a configured registry."
+      "Provides Dockerfile patterns for multi-stage builds, non-root users, health checks, caching, and debug targets.",
+      "Includes a Docker Compose starter template with app, database, Redis, health checks, volumes, and network configuration.",
+      "Documents Kubernetes manifests for Namespace, ConfigMap, Secret, Deployment, Service, Ingress, HPA, PDB, RBAC, NetworkPolicy, and CronJob.",
+      "Shows Helm chart structure, values files, helper templates, deployment templates, and common Helm commands.",
+      "Explains AWS ECS on Fargate architecture, networking, IAM roles, secrets, scaling, observability, deployment options, and failure modes.",
+      "Includes a Bash helper script for building Docker images and optionally pushing them to a registry."
     ],
     "limitations": [
-      "Examples require review before production use, especially secrets, ports, registry names, and access policies.",
-      "The skill does not validate manifests against a live cluster, registry, or AWS account.",
-      "The build script requires Docker, local shell access, and registry credentials when pushing images.",
-      "Platform details can change, so AWS, Docker, Kubernetes, and Helm versions must be checked."
+      "Examples require review and customization before production use.",
+      "The skill does not inspect live clusters unless the user provides context or asks to run commands.",
+      "The build script assumes Docker, Git, and registry credentials are already configured.",
+      "Cloud provider details can change, so AWS and Kubernetes versions should be verified against official documentation."
     ],
     "use_cases": [
       {
-        "title": "Create Deployment Starters",
-        "description": "Generate an initial Dockerfile, Compose file, or Kubernetes manifest set for a new service.",
-        "target_user": "Application developer"
+        "title": "Create a container deployment baseline",
+        "description": "Use the Dockerfile and Compose templates to start a service with health checks, non-root execution, and local dependencies.",
+        "target_user": "Backend developer"
       },
       {
-        "title": "Review Container Patterns",
-        "description": "Compare a service configuration against common production patterns for users, probes, resources, and rollout safety.",
-        "target_user": "DevOps engineer"
+        "title": "Review Kubernetes production manifests",
+        "description": "Compare deployments, services, ingress, RBAC, scaling, disruption budgets, and network policies against documented patterns.",
+        "target_user": "Platform engineer"
       },
       {
-        "title": "Plan AWS Fargate Services",
-        "description": "Map an application to ECS tasks, services, IAM roles, networking, secrets, scaling, and observability choices.",
-        "target_user": "Cloud platform engineer"
+        "title": "Choose between ECS Fargate and Kubernetes",
+        "description": "Use the Fargate reference to evaluate operations burden, AWS integration, networking, IAM, scaling, and deployment tooling.",
+        "target_user": "DevOps lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a Basic Container Setup",
-        "scenario": "Beginner setup for a single web service.",
-        "prompt": "Create a Dockerfile and Docker Compose plan for my web service. Include health checks, a non-root user, and local development notes."
+        "title": "Create a Dockerfile",
+        "scenario": "Beginner container setup",
+        "prompt": "Create a production Dockerfile for my application. Include a non-root user, dependency caching, a health check, and clear notes for values I must customize."
       },
       {
-        "title": "Convert to Kubernetes Manifests",
-        "scenario": "Move a containerized service into Kubernetes.",
-        "prompt": "Turn this service description into Kubernetes manifests. Include deployment, service, ingress, resources, probes, secrets references, and rollout settings."
+        "title": "Build Local Compose Stack",
+        "scenario": "Local development environment",
+        "prompt": "Draft a Docker Compose setup for an app with Postgres and Redis. Use safe placeholders, explain required environment variables, and include health checks."
       },
       {
-        "title": "Design a Helm Chart",
-        "scenario": "Package a service for repeatable Kubernetes installs.",
-        "prompt": "Design a Helm chart structure for this application. Include values files, helper templates, security settings, autoscaling, and environment overrides."
+        "title": "Review Kubernetes Manifests",
+        "scenario": "Pre-production manifest review",
+        "prompt": "Review these Kubernetes manifests for reliability and security. Check probes, resources, secret handling, RBAC, network policy, autoscaling, and rollout behavior."
       },
       {
-        "title": "Compare ECS and Kubernetes",
-        "scenario": "Advanced platform decision for production deployment.",
-        "prompt": "Compare ECS on Fargate and Kubernetes for this workload. Cover networking, IAM, secrets, scaling, observability, cost, and operational tradeoffs."
+        "title": "Design ECS Fargate Deployment",
+        "scenario": "Advanced AWS deployment planning",
+        "prompt": "Design an ECS Fargate deployment for this service. Cover task definition, networking, IAM roles, secrets, scaling, logging, load balancing, and failure modes."
       }
     ],
     "output_examples": [
       {
-        "input": "A Python API needs a production container setup.",
+        "input": "Review my Dockerfile for production readiness.",
         "output": [
-          "A multi-stage image plan with dependency caching and a non-root runtime user.",
-          "Health check and exposed port guidance for the application.",
-          "Notes about secrets, environment variables, and files that should stay outside the image."
+          "Identifies missing non-root execution, weak dependency caching, missing health checks, and unnecessary runtime packages.",
+          "Recommends a multi-stage build, pinned base image, smaller runtime image, and clear runtime environment variables."
         ]
       },
       {
-        "input": "A team wants to deploy one service to Kubernetes.",
+        "input": "Help me prepare Kubernetes manifests for a web service.",
         "output": [
-          "A manifest checklist covering namespace, deployment, service, ingress, probes, resource limits, and autoscaling.",
-          "Recommendations for secret references, network policy, and pod disruption protection.",
-          "Operational notes for rollout checks and troubleshooting commands."
+          "Produces a deployment checklist covering probes, resource requests, secret references, pod security context, service exposure, and rollout safety.",
+          "Highlights where placeholders must be replaced before applying manifests to a cluster."
         ]
       },
       {
-        "input": "An AWS team is choosing between ECS Fargate and Kubernetes.",
+        "input": "Should this workload use ECS Fargate or Kubernetes?",
         "output": [
-          "A decision summary based on portability, operational burden, networking, IAM integration, and ecosystem needs.",
-          "A Fargate service plan covering task roles, execution roles, subnets, load balancing, logging, and scaling.",
-          "Risks to verify before production, including secrets access and private network routing."
+          "Compares operational complexity, AWS integration, portability, scheduling needs, cost levers, and team experience.",
+          "Recommends a deployment path and lists the main risks to validate before implementation."
         ]
       }
     ],
     "best_practices": [
-      "Review all generated templates before use and replace sample values with environment-specific settings.",
-      "Use runtime secret managers or Kubernetes secret references instead of baking secrets into images or manifests.",
-      "Run security and policy checks on Dockerfiles, Helm output, and Kubernetes manifests before deployment."
+      "Review every template value before production use, especially credentials, image names, exposed ports, and resource limits.",
+      "Use secret managers or Kubernetes Secret references instead of committing real secret values into examples or manifests.",
+      "Test health checks, probes, rollout behavior, and rollback paths before promoting container changes."
     ],
     "anti_patterns": [
-      "Do not copy sample passwords, API keys, or database URLs into production environments.",
-      "Do not expose debug listeners, databases, or cache services unless access is tightly controlled.",
-      "Do not run build, push, kubectl, Helm, or AWS commands without checking the current context and target account."
+      "Do not copy placeholder credentials or default passwords into shared environments.",
+      "Do not expose debug listeners or admin ports on public interfaces.",
+      "Do not run build or push scripts without confirming the target registry, tag, Dockerfile, and build context."
     ],
     "faq": [
       {
-        "question": "Does this skill deploy containers automatically?",
-        "answer": "No. It provides patterns, templates, and commands that a user must review and run intentionally."
+        "question": "Does this skill create production-ready manifests automatically?",
+        "answer": "It provides strong starting patterns, but users must customize and review every value before production use."
       },
       {
-        "question": "Can it help with Docker Compose?",
-        "answer": "Yes. It includes a starter Compose template with an app service, database, Redis, health checks, networks, and volumes."
+        "question": "Can it help with both Docker and Kubernetes?",
+        "answer": "Yes. It covers Dockerfiles, Docker Compose, Kubernetes manifests, Helm charts, and ECS Fargate guidance."
       },
       {
-        "question": "Can it generate Kubernetes resources?",
-        "answer": "Yes. It covers common manifests such as deployments, services, ingress, autoscaling, RBAC, and network policies."
+        "question": "Does it require live cluster access?",
+        "answer": "No. It can work from files and user-provided context, but live checks require explicit user permission and tooling."
       },
       {
-        "question": "Does it support Helm?",
-        "answer": "Yes. It documents chart layout, values files, helpers, deployment templates, and common Helm commands."
+        "question": "Does it manage secrets safely by default?",
+        "answer": "It includes secret-handling patterns, but some examples need safer placeholders before publication or production reuse."
       },
       {
-        "question": "Does it cover AWS ECS on Fargate?",
-        "answer": "Yes. It explains task definitions, services, networking, IAM roles, secrets, scaling, logs, and deployment tooling."
+        "question": "Can it build and push images?",
+        "answer": "The package includes a Bash helper script for Docker builds and optional pushes, which users should inspect before running."
       },
       {
-        "question": "What should users review most carefully?",
-        "answer": "Users should review secrets, exposed ports, cluster context, registry targets, IAM permissions, and production environment settings."
+        "question": "Is ECS Fargate covered separately from Kubernetes?",
+        "answer": "Yes. The Fargate reference covers AWS-native networking, IAM roles, secrets, scaling, logging, deployment tools, and common failures."
       }
     ]
   },
