@@ -1,3 +1,8 @@
+---
+name: backlink-analyzer
+description: Redirects older backlink-analyzer links to the active offsite-signal-analyzer skill and frozen standalone copy.
+---
+
 # `backlink-analyzer` has moved
 
 > [!IMPORTANT]

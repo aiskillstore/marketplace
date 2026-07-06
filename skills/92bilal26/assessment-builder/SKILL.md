@@ -1,6 +1,5 @@
 ---
 name: assessment-builder
-version: 2.0
 description: |
   Creates assessments with varied question types (MCQ, code-completion, debugging, projects) aligned
   to learning objectives with meaningful distractors based on common misconceptions. Activate when

@@ -1,16 +1,6 @@
 ---
 name: exercise-designer
-version: 2.0
-description: |
-  Designs deliberate practice exercises applying evidence-based learning strategies like retrieval
-  practice, spaced repetition, and interleaving. Activate when educators need varied exercise types
-  (fill-in-blank, debug-this, build-from-scratch, extend-code, AI-collaborative) targeting learning
-  objectives with appropriate difficulty progression. Creates exercise sets that apply cognitive
-  science principles to maximize retention and skill development. Use when designing practice
-  activities for Python concepts, creating homework assignments, generating problem sets, or
-  evaluating exercise quality.
-version: "2.1.0"
-constitution_alignment: v4.0.1
+description: Designs evidence-based Python practice exercises with varied formats, difficulty progression, spaced repetition, test cases, hints, and rubrics.
 ---
 
 ## Purpose

@@ -1,3 +1,8 @@
+---
+name: code-example-generator
+description: Generate pedagogically sound, runnable code examples using spec-first validation, production-relevant patterns, and learner-focused reasoning.
+---
+
 # Code Example Generator Skill v3.0 (Reasoning-Activated)
 
 **Version**: 3.0.0
