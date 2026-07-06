@@ -1,3 +1,8 @@
+---
+name: technical-clarity
+description: Review technical content for clarity, accessibility, learner comprehension, jargon, context, and grade-level fit.
+---
+
 # Technical Clarity Skill v3.0 (Reasoning-Activated)
 
 **Version**: 3.0.0

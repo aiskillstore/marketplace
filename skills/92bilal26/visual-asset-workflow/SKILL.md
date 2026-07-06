@@ -1,3 +1,8 @@
+---
+name: visual-asset-workflow
+description: Guides educational visual asset creation using professional creative briefs, proficiency alignment, prerequisite validation, and duplicate prevention.
+---
+
 # Visual Asset Workflow Skill
 
 ## Context & Problem
