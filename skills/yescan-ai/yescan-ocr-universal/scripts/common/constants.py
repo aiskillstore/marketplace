@@ -5,7 +5,7 @@
 
 
 # 文件配置
-ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif", ".wbmp"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 # 请求配置

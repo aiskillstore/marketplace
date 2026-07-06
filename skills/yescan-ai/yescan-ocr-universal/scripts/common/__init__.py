@@ -1,33 +1,14 @@
 #!/usr/bin/env python3
 """
 Common - 夸克扫描王公共模块
-提供 OCR 客户端、文件保存、验证器等公共功能
+提供客户端、文件保存、验证器等公共功能
+
+所有导入均为静态相对导入，模块加载时即解析完成，不含任何运行时动态加载。
+数据流披露详见 ../../SECURITY.md 及 ../../references/privacy.md。
 """
 from .settings import API_URL, PLATFORM, VERSION, SKILL_NAME
-from .constants import (
-    ALLOWED_IMAGE_EXTENSIONS,
-    MAX_FILE_SIZE,
-    REQUEST_TIMEOUT,
-    HTTP_OK,
-    ERROR_MSG_MAX_LENGTH,
-    SUCCESS_CODE,
-    QUOTA_ERROR_CODE,
-)
-from .messages import (
-    CREDENTIAL_NOT_CONFIGURED,
-    QUOTA_INSUFFICIENT,
-    BASE64_CONTENT_EMPTY,
-    FILE_SAVE_SUCCESS,
-    FILE_SAVE_FAILED,
-    UNSUPPORTED_IMAGE_FORMAT,
-    CLI_DESCRIPTION,
-    CLI_EPILOG_AVAILABLE_SCENES,
-    CLI_SCENE_HELP,
-    CLI_URL_HELP,
-    CLI_PATH_HELP,
-    CLI_BASE64_HELP,
-    CLI_EPILOG_EXAMPLES,
-)
+from .constants import ALLOWED_IMAGE_EXTENSIONS, MAX_FILE_SIZE, REQUEST_TIMEOUT, HTTP_OK, ERROR_MSG_MAX_LENGTH, SUCCESS_CODE, QUOTA_ERROR_CODE
+from .messages import CREDENTIAL_NOT_CONFIGURED, QUOTA_INSUFFICIENT, BASE64_CONTENT_EMPTY, FILE_SAVE_SUCCESS, FILE_SAVE_FAILED, UNSUPPORTED_IMAGE_FORMAT, CLI_DESCRIPTION, CLI_EPILOG_AVAILABLE_SCENES, CLI_SCENE_HELP, CLI_URL_HELP, CLI_PATH_HELP, CLI_BASE64_HELP, CLI_EPILOG_EXAMPLES
 from .validators import URLValidator, FileValidator
 from .ocr_client import OCRResult, CredentialManager, QuarkOCRClient
 from .file_saver import FileSaver, SaveResult, ResponseCode, FileExtension, SubDirectory
@@ -66,7 +47,7 @@ __all__ = [
     # 验证器
     "URLValidator",
     "FileValidator",
-    # OCR 客户端
+    # 扫描王客户端
     "OCRResult",
     "CredentialManager",
     "QuarkOCRClient",

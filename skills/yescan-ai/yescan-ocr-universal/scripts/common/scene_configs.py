@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-场景配置模块 - 统一管理所有 OCR/扫描场景的配置
+场景配置模块 - 统一管理扫描王服务支持的场景配置
 """
 from typing import Dict, List
 

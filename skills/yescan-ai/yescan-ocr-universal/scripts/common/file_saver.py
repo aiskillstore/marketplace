@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 FileSaver - 通用文件保存器
-用于保存 OCR 结果到文件（图片、Word、Excel 等）
+用于保存扫描王服务返回的结果到文件（图片、Word、Excel 等）
 """
 import os
 import base64
