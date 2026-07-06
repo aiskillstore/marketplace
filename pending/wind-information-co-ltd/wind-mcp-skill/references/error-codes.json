@@ -1,0 +1,28 @@
+{
+  "schema_version": 4,
+  "description": "wind-mcp-skill CLI 错误码字典。每条 code 对应一段 agent_action（诊断 + 行动一体）。CLI 运行时读取本文件;本文件也是开发者参考与监控/集成的唯一码表。",
+  "envelope_contract": {
+    "success": "成功路径不返回 envelope,直接 stdout 输出纯数据。call 命令透传 result.content[0].text(JSON 字符串则 parse 后输出)；其它命令直接输出结构化对象;help 输出 USAGE 纯文本。exit code 0。",
+    "failure": "失败路径返回 envelope: { ok: false, error: { code, agent_action } }。exit code 1。agent 用 exit code 判断成功/失败；失败时直接执行 agent_action 即可。"
+  },
+  "codes": {
+    "TEMPORARILY_UNAVAILABLE": "原因：后端临时不可用。处理：保持当前 server_type、tool_name 和参数不变。重试：仅允许原样重试一次，仍失败则停止并告知用户稍后再试。",
+    "INVALID_PARAM_NAME": "原因：参数名错误或缺少必填字段。处理：按 references/tool-contracts.md 修正字段名或补齐必填字段。重试：禁止原样重试；修正后最多重试一次。",
+    "INVALID_PARAM_VALUE": "原因：参数值不合法。处理：按 references/tool-contracts.md 核对日期、枚举、windcode 等值；indexes 必须来自 references/indicators.md。重试：禁止原样重试；修正后最多重试一次。",
+    "EDB_INDICATOR_NOT_FOUND": "原因：EDB 未找到用户想查询的经济指标。处理：保持 economic_data.natural_language_get_edb_data，只将 question 改成更短、更标准、更明确的单个指标名；优先补充官方口径、地区、来源或常见英文名，去掉年份、预测、市场规模、CAGR 或多个指标拼接等非指标名成分。重试：禁止原样重试；改写后最多重试一次。若改写后仍未找到，停止自动尝试并提示用户提供更明确的指标名称、来源或口径。",
+    "MARKET_TARGET_NOT_FOUND": "原因：行情类金融标的未识别，通常是 windcode 中的标的名称、简称或代码无法被 Wind NER 匹配。处理：保持当前行情工具；若用户输入的是中文名、简称或自然语言标的，优先原样传入更明确的单个名称，不得自行补交易所后缀或把名称猜成代码；若原始 windcode 是 1-5 位纯大写英文字母，且用户问题明确是美股/美国上市公司语境，允许仅在本错误后改为 <ticker>.O 重试一次；台股、日股、韩股、欧股等超出本 skill 覆盖范围的请求不得套用 .O 重试，应停止并说明不在支持范围；只有用户明确给出标准代码且明确市场时，才可修正为用户确认的其它 Wind 标准代码。重试：禁止原样重试；修正后最多重试一次。若仍未识别，停止自动尝试并提示用户提供更明确的标的全称、交易所或 Wind 标准代码。",
+    "PARAM_TYPE_ERROR": "原因：参数类型错误，列表传给了只接受字符串的字段。处理：windcode 只保留单个字符串；多个标的拆成多次调用；indexes 使用英文逗号分隔字符串。重试：禁止原样重试；修正后最多重试一次。",
+    "PERIOD_PARSE_ERROR": "原因：K 线周期值无法解析。处理：保持当前 K 线工具，只修 period；日线用 '10'，周线用 '11'，月线用 '12'。重试：禁止原样重试；修正后最多重试一次。",
+    "USAGE_ERROR": "原因：CLI 命令格式错误。处理：修正为 cli.mjs call <server_type> <tool_name> '<params_json>'。重试：禁止原样重试；修正命令形态后最多重试一次。",
+    "INVALID_PARAMS_JSON": "原因：第三参数不是可解析的 JSON 字符串。处理：只修 shell 引号或 JSON 转义，不改字段、日期、indexes、question 或工具。重试：禁止原样重试；修正 JSON 后最多重试一次。",
+    "ROUTE_ERROR": "原因：server_type 或 tool_name 不合法。处理：按 SKILL.md 范围表和 references/tool-contracts.md 选择合法路由。重试：禁止原样重试；修正路由后最多重试一次。",
+    "PARAM_VALIDATION_ERROR": "原因：本地或后端参数校验未通过。处理：按 references/tool-contracts.md 核对字段名、必填项、日期、单标的和枚举；indexes 必须来自 references/indicators.md。重试：禁止原样重试；修正后最多重试一次。",
+    "AUTH_ERROR": "原因：认证失败或 API Key 缺失/无效。处理：按 detail 配置或更换有效 Key；不要换工具绕过。重试：Key 修复前禁止重试；Key 修复后最多原样重试一次。",
+    "QUOTA_ERROR": "原因：额度不足、余额不足或 QPS 限流。处理：日额度/余额问题需等待刷新、充值或更换有额度的 Key；QPS 限流等待 3-5 秒。重试：只有 QPS 限流可原样重试一次；额度或余额问题禁止重试。",
+    "NETWORK_ERROR": "原因：网络连接或后端 HTTP 5xx 异常。处理：若 detail 暴露参数问题，先修参数；否则稍后再试。重试：仅允许原样重试一次，仍失败则停止并告知用户。",
+    "TOOL_RUNTIME_ERROR": "原因：后端工具运行失败。处理：优先根据 detail 判断是否为请求过大、字段不支持或数据未覆盖；能定位则只修对应项。重试：禁止盲目原样重试；修正后最多重试一次，无法定位则停止。",
+    "NO_RESULTS": "原因：工具执行成功但没有匹配结果。处理：保持同一 server_type、tool_name 和用户意图，只调整一个直接相关的关键词、时间范围或粒度。重试：禁止原样重试；调整后最多重试一次。若第二次仍无结果，停止自动尝试并提示用户提供更明确的指标名称、来源或口径。",
+    "SETUP_ERROR": "原因：本地配置或环境操作失败。处理：按 detail 修正 scope、权限、路径或让用户手动打开 URL。重试：禁止原样重试；修正本地问题后最多重试一次。",
+    "UNKNOWN": "原因：未归类的后端或本地错误；不代表参数、工具或标的可修复。处理：保留 detail 原文，不要猜测参数、切换工具或扩大查询；仅当能明确判断属于本地命令、参数、认证或网络问题时，才修正对应项。重试：禁止原样重试；有确定修正项时最多重试一次，无法明确定位则停止并将 detail 原文告知用户。"
+  }
+}
