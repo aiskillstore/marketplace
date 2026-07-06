@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-28T16:12:39.764Z",
+    "generated_at": "2026-07-06T05:28:35.350Z",
     "slug": "bohuyeshan-apb-document-generation",
     "source_url": "https://github.com/BOHUYESHAN-APB/N-T-AI/tree/main/backend/app/skills/common/document_skill",
     "source_ref": "main",
@@ -9,19 +9,32 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "451afd5e9b9f4d3dd5ff586a021b581646838af431d30005ea11f7fdb7bc8fea",
-    "tree_hash": "c581819c30559ea510aaf13457e661048a8a149bd4df0b6ff60e7e27833a8eac"
+    "tree_hash": "9ae6355bf110810993c058a2ed623cb56c2d95579a88c1500df4596b8273a0b0",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "document-generation",
-    "description": "Generate Word, PowerPoint, Excel, and PDF documents from structured text, HTML, Markdown, and tabular data.",
-    "summary": "Create and process common office documents with Python-based generators.",
+    "description": "Generate Word, PowerPoint, Excel, and PDF documents from structured content and simple HTML inputs.",
+    "summary": "Creates common Office documents and extracts PDF text for document automation workflows.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "BOHUYESHAN-APB",
     "license": "MIT",
     "tags": [
       "document-generation",
-      "office-documents",
+      "office-automation",
       "word",
       "powerpoint",
       "pdf"
@@ -32,40 +45,58 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
+      "filesystem",
       "network",
-      "filesystem"
+      "external_commands"
     ],
     "category": "office"
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
-    "safe_to_publish": false,
-    "summary": "Static weak-cryptography, reconnaissance, and external-command detections are false positives from prose, comments, and Python code examples. However, the Word and PowerPoint generators fetch user-controlled image URLs and read local image paths without allowlists, and multiple generators build output paths from unsanitized filenames. No prompt injection or confirmed malicious intent was found, but the skill should not be published until these issues are fixed.",
+    "safe_to_publish": true,
+    "analysis_status": "ok",
+    "summary": "Most static findings are false positives from Markdown code fences, CSS text, comments, or routine output directory handling. The real risks are unvalidated remote image downloads in Word and PowerPoint generation, plus unsanitized output filenames that can escape intended output directories.",
+    "remediation": [
+      {
+        "issue": "Remote image URLs are fetched during Word and PowerPoint generation without network policy controls.",
+        "suggestion": "Restrict image fetching to approved schemes and hosts, block private network ranges, enforce timeouts, verify content type, and cap response size.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Output filenames can escape the configured output directory.",
+        "suggestion": "Accept only safe basenames, reject absolute paths and parent directory segments, and verify resolved paths remain under the output directory before writing.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Temporary image files may remain on disk after PowerPoint image handling errors.",
+        "suggestion": "Use a try/finally cleanup block or a temporary directory context so downloaded image files are removed after any failure.",
+        "severity": "low"
+      }
+    ],
     "risk_factor_evidence": [
       {
-        "factor": "scripts",
+        "factor": "filesystem",
         "evidence": [
           {
             "file": "scripts/excel_generator.py",
-            "line_start": 11,
-            "line_end": 17
-          },
-          {
-            "file": "scripts/pdf_generator.py",
-            "line_start": 10,
+            "line_start": 15,
             "line_end": 15
           },
           {
             "file": "scripts/ppt_generator.py",
-            "line_start": 23,
-            "line_end": 284
+            "line_start": 20,
+            "line_end": 20
           },
           {
-            "file": "scripts/word_generator.py",
-            "line_start": 17,
-            "line_end": 25
+            "file": "scripts/ppt_generator.py",
+            "line_start": 270,
+            "line_end": 270
+          },
+          {
+            "file": "scripts/ppt_generator.py",
+            "line_start": 278,
+            "line_end": 278
           }
         ]
       },
@@ -74,275 +105,262 @@
         "evidence": [
           {
             "file": "scripts/ppt_generator.py",
-            "line_start": 19,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 267,
-            "line_end": 270
+            "line_start": 268,
+            "line_end": 268
           },
           {
             "file": "scripts/word_generator.py",
-            "line_start": 243,
-            "line_end": 248
+            "line_start": 246,
+            "line_end": 246
           }
         ]
       },
       {
-        "factor": "filesystem",
+        "factor": "external_commands",
         "evidence": [
-          {
-            "file": "scripts/excel_generator.py",
-            "line_start": 12,
-            "line_end": 15
-          },
-          {
-            "file": "scripts/excel_generator.py",
-            "line_start": 32,
-            "line_end": 35
-          },
-          {
-            "file": "scripts/pdf_generator.py",
-            "line_start": 11,
-            "line_end": 13
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 263,
-            "line_end": 278
-          },
-          {
-            "file": "scripts/word_generator.py",
-            "line_start": 239,
-            "line_end": 241
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [
-      {
-        "title": "User-Controlled Image Fetch Enables SSRF",
-        "description": "HTML img src values are accepted from document input and passed to requests.get without an allowlist, private network blocking, or scheme validation. This can let a crafted document force the runtime to contact internal or sensitive endpoints.",
-        "locations": [
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 259,
-            "line_end": 270
-          },
-          {
-            "file": "scripts/word_generator.py",
-            "line_start": 234,
-            "line_end": 248
-          }
-        ],
-        "confidence": 0.92,
-        "confidence_reasoning": "The source value comes directly from parsed HTML image tags and reaches requests.get. The code shows no allowlist, host validation, or private address filtering."
-      },
-      {
-        "title": "Unsanitized Filename Can Escape Output Directory",
-        "description": "Generator methods append an extension but do not normalize or reject path separators in caller-provided filenames. A filename containing traversal segments can write outside the intended output directory.",
-        "locations": [
-          {
-            "file": "scripts/excel_generator.py",
-            "line_start": 22,
-            "line_end": 35
-          },
-          {
-            "file": "scripts/pdf_generator.py",
-            "line_start": 32,
-            "line_end": 70
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 295,
-            "line_end": 303
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 463,
-            "line_end": 464
-          },
-          {
-            "file": "scripts/word_generator.py",
-            "line_start": 36,
-            "line_end": 43
-          },
-          {
-            "file": "scripts/word_generator.py",
-            "line_start": 289,
-            "line_end": 290
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The code combines output directories with caller-controlled filename strings and then writes files. I did not find sanitization that strips absolute paths or traversal segments."
-      }
-    ],
-    "medium_findings": [
-      {
-        "title": "Local Image Paths Can Be Embedded in Generated Documents",
-        "description": "The Word and PowerPoint generators treat an img src that exists on disk as a local picture path. Crafted input can cause accessible local image files to be embedded into generated documents.",
-        "locations": [
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 259,
-            "line_end": 265
-          },
-          {
-            "file": "scripts/word_generator.py",
-            "line_start": 234,
-            "line_end": 241
-          }
-        ],
-        "confidence": 0.83,
-        "confidence_reasoning": "The file existence checks and add_picture calls are direct. Impact is limited by file type handling and filesystem permissions, so this is not rated critical."
-      },
-      {
-        "title": "Remote Image Downloads Lack Size and Type Limits",
-        "description": "Remote images are downloaded and inserted without content-type checks or response size limits. This can cause resource exhaustion or processing of unexpected data from attacker-controlled URLs.",
-        "locations": [
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 267,
-            "line_end": 275
-          },
-          {
-            "file": "scripts/word_generator.py",
-            "line_start": 243,
-            "line_end": 248
-          }
-        ],
-        "confidence": 0.8,
-        "confidence_reasoning": "Both implementations download response bodies and pass them into document image handling. PPT has a timeout, but neither path limits byte size or verifies media type."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Output Directory Creation Is Legitimate Filesystem Use",
-        "description": "The static filesystem detections for creating output directories are expected behavior for a document generator. They are low risk when output locations are controlled by the host application.",
-        "locations": [
-          {
-            "file": "scripts/excel_generator.py",
-            "line_start": 12,
-            "line_end": 15
-          },
-          {
-            "file": "scripts/pdf_generator.py",
-            "line_start": 11,
-            "line_end": 13
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 24,
-            "line_end": 26
-          }
-        ],
-        "confidence": 0.95,
-        "confidence_reasoning": "These lines create output folders and do not execute commands or exfiltrate data. The remaining risk depends on who controls the output_dir argument."
-      },
-      {
-        "title": "Static External Command Findings Are Documentation False Positives",
-        "description": "The reported SKILL.md locations are Markdown prose and a Python import example inside a fenced code block. I did not find shell execution or Ruby backtick execution there.",
-        "locations": [
           {
             "file": "SKILL.md",
             "line_start": 30,
+            "line_end": 30
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
             "line_end": 47
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 47,
+            "line_end": 57
           },
           {
             "file": "SKILL.md",
             "line_start": 57,
             "line_end": 58
           }
-        ],
-        "confidence": 0.97,
-        "confidence_reasoning": "The cited text documents script locations and imports Python classes. It contains backticks as Markdown formatting, not executable shell syntax."
-      },
-      {
-        "title": "Static Weak Cryptography Findings Are False Positives",
-        "description": "The cited weak-cryptography locations are prose, comments, parser method names, argument descriptions, or document-generation calls. I did not find DES, MD5, SHA1, or cryptographic use in these locations.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 4,
-            "line_end": 14
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 4,
-            "line_end": 4
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 39,
-            "line_end": 39
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 178,
-            "line_end": 190
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 289,
-            "line_end": 315
-          },
-          {
-            "file": "scripts/word_generator.py",
-            "line_start": 191,
-            "line_end": 191
-          }
-        ],
-        "confidence": 0.98,
-        "confidence_reasoning": "Manual review of the cited lines shows document parsing and presentation generation logic, not cryptographic functions. The matches appear to come from overly broad text patterns."
-      },
-      {
-        "title": "Static System Reconnaissance Findings Are False Positives",
-        "description": "The cited reconnaissance locations are CSS styling and comments about HTML parsing or slide placement. I did not find host, user, process, or environment reconnaissance behavior there.",
-        "locations": [
-          {
-            "file": "scripts/pdf_generator.py",
-            "line_start": 55,
-            "line_end": 55
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 204,
-            "line_end": 204
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 372,
-            "line_end": 372
-          }
-        ],
-        "confidence": 0.96,
-        "confidence_reasoning": "The reviewed lines are static style text and explanatory comments. No system information collection or command execution is present."
+        ]
       }
     ],
-    "dangerous_patterns": [
+    "static_findings": [
       {
-        "title": "requests.get on HTML-Derived Image Sources",
-        "description": "Image URLs parsed from input HTML are fetched directly by the runtime. Add URL validation, scheme restrictions, private address blocking, timeouts, and response size limits before publication.",
-        "locations": [
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 267,
-            "line_end": 270
-          },
-          {
-            "file": "scripts/word_generator.py",
-            "line_start": 243,
-            "line_end": 248
-          }
-        ],
-        "confidence": 0.93,
-        "confidence_reasoning": "The network calls are explicit and use values derived from img src attributes. This is a well-known SSRF pattern in document renderers."
+        "id": "filesystem:scripts/excel_generator.py:15:python-os-file-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Python os file operations",
+        "file": "scripts/excel_generator.py",
+        "line_start": 15,
+        "line_end": 15,
+        "snippet": "os.makedirs(self.output_dir)"
       },
       {
-        "title": "Path Join with Caller-Supplied Filename",
-        "description": "Caller-provided filenames are joined to output directories and then written. Restrict filenames to basenames and reject absolute paths or traversal segments.",
+        "id": "blocker:scripts/pdf_generator.py:55:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/pdf_generator.py",
+        "line_start": 55,
+        "line_end": 55,
+        "snippet": "h2 {{ color: #34495e; border-bottom: 1px solid #eee; margin-top: 1.5em; }}"
+      },
+      {
+        "id": "network:scripts/ppt_generator.py:268:python-http-libraries",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Python HTTP libraries",
+        "file": "scripts/ppt_generator.py",
+        "line_start": 268,
+        "line_end": 268,
+        "snippet": "response = requests.get(url, timeout=10)"
+      },
+      {
+        "id": "filesystem:scripts/ppt_generator.py:20:temp-file-creation",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Temp file creation",
+        "file": "scripts/ppt_generator.py",
+        "line_start": 20,
+        "line_end": 20,
+        "snippet": "import tempfile"
+      },
+      {
+        "id": "filesystem:scripts/ppt_generator.py:270:temp-file-creation",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Temp file creation",
+        "file": "scripts/ppt_generator.py",
+        "line_start": 270,
+        "line_end": 270,
+        "snippet": "with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(url)[1] or \".jpg\") as tmp:"
+      },
+      {
+        "id": "filesystem:scripts/ppt_generator.py:278:python-os-file-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Python os file operations",
+        "file": "scripts/ppt_generator.py",
+        "line_start": 278,
+        "line_end": 278,
+        "snippet": "os.remove(tmp_path)"
+      },
+      {
+        "id": "blocker:scripts/ppt_generator.py:204:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/ppt_generator.py",
+        "line_start": 204,
+        "line_end": 204,
+        "snippet": "# Use recursive=True (default), but check parents to avoid duplication"
+      },
+      {
+        "id": "blocker:scripts/ppt_generator.py:372:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/ppt_generator.py",
+        "line_start": 372,
+        "line_end": 372,
+        "snippet": "# For now, put in left column to avoid overlap."
+      },
+      {
+        "id": "network:scripts/word_generator.py:246:python-http-libraries",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Python HTTP libraries",
+        "file": "scripts/word_generator.py",
+        "line_start": 246,
+        "line_end": 246,
+        "snippet": "resp = requests.get(src)"
+      },
+      {
+        "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 30,
+        "line_end": 30,
+        "snippet": "This skill exposes a set of Python scripts located in the `scripts/` directory."
+      },
+      {
+        "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 34,
+        "line_end": 47,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 47,
+        "line_end": 57,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 57,
+        "line_end": 58,
+        "snippet": "- `scripts/`: Implementation logic."
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "filesystem:scripts/excel_generator.py:15:python-os-file-operations",
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "This creates the configured reports output directory when it does not exist. The line does not read sensitive files, execute commands, or use user-controlled paths directly."
+      },
+      {
+        "id": "blocker:scripts/pdf_generator.py:55:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The flagged text is a CSS style rule for an h2 element inside generated HTML. It performs no system inspection or environment discovery."
+      },
+      {
+        "id": "network:scripts/ppt_generator.py:268:python-http-libraries",
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "severity": "medium",
+        "reason": "PowerPoint image generation fetches the supplied image URL with requests.get and only a timeout. There is no scheme, host, content type, or size validation, so attacker-controlled HTML can trigger SSRF or resource abuse."
+      },
+      {
+        "id": "filesystem:scripts/ppt_generator.py:20:temp-file-creation",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line only imports the tempfile module. Importing the library is not a security issue without unsafe temporary file use."
+      },
+      {
+        "id": "filesystem:scripts/ppt_generator.py:270:temp-file-creation",
+        "verdict": "confirmed",
+        "confidence": 0.61,
+        "severity": "low",
+        "reason": "The code writes downloaded image bytes into a delete=False temporary file and removes it only after add_picture succeeds. Failures between creation and cleanup can leave untrusted remote content on disk."
+      },
+      {
+        "id": "filesystem:scripts/ppt_generator.py:278:python-os-file-operations",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The os.remove call deletes the temporary file path created by NamedTemporaryFile in the same function. It is not deleting an arbitrary user-supplied path."
+      },
+      {
+        "id": "blocker:scripts/ppt_generator.py:204:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The flagged line is a comment about recursive HTML parsing with BeautifulSoup. It does not access system metadata or run reconnaissance commands."
+      },
+      {
+        "id": "blocker:scripts/ppt_generator.py:372:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The flagged line is a layout comment about placing tables in a slide column. It has no system inspection behavior."
+      },
+      {
+        "id": "network:scripts/word_generator.py:246:python-http-libraries",
+        "verdict": "confirmed",
+        "confidence": 0.9,
+        "severity": "medium",
+        "reason": "Word generation fetches any http image source found in the input HTML without a timeout, allowlist, or response size limit. This can be abused for SSRF, tracking, or memory exhaustion."
+      },
+      {
+        "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The backticks mark an inline directory name in Markdown documentation. They do not represent shell execution or runtime command invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged text begins a Markdown Python code fence showing API usage. It is documentation, not Ruby backtick execution or an external command call."
+      },
+      {
+        "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged text closes a Markdown code fence. It has no execution semantics in the skill runtime."
+      },
+      {
+        "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The backticks mark documented folder names in Markdown. This is not command execution and does not launch a shell."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Unsanitized Output Filename Path Traversal",
+        "description": "Document generators append trusted extensions and then join caller-provided filenames with output directories without basename checks or resolved-path containment checks. A filename containing parent directory segments or an absolute path can write outside the intended generated document folder.",
+        "severity": "medium",
         "locations": [
           {
             "file": "scripts/excel_generator.py",
@@ -350,167 +368,233 @@
             "line_end": 35
           },
           {
+            "file": "scripts/word_generator.py",
+            "line_start": 40,
+            "line_end": 43
+          },
+          {
             "file": "scripts/pdf_generator.py",
-            "line_start": 39,
-            "line_end": 70
+            "line_start": 36,
+            "line_end": 39
           },
           {
             "file": "scripts/ppt_generator.py",
-            "line_start": 302,
-            "line_end": 303
-          },
-          {
-            "file": "scripts/word_generator.py",
-            "line_start": 43,
-            "line_end": 43
+            "line_start": 299,
+            "line_end": 302
           }
         ],
-        "confidence": 0.87,
-        "confidence_reasoning": "The construction and save operations are visible in the cited files. No evidence of basename normalization or traversal rejection was found."
-      },
+        "confidence": 0.88,
+        "confidence_reasoning": "The code directly combines caller-controlled filenames with output directories in multiple generators. No sanitization or containment check is visible at the cited locations."
+      }
+    ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
       {
-        "title": "Local File Inclusion Through img src",
-        "description": "A document can reference local filesystem paths in image tags, and the generators will try to embed them. Disable local path loading unless explicitly enabled for trusted inputs.",
+        "title": "Python HTTP libraries",
+        "description": "response = requests.get(url, timeout=10)",
         "locations": [
           {
             "file": "scripts/ppt_generator.py",
-            "line_start": 263,
-            "line_end": 265
+            "line_start": 268,
+            "line_end": 268
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.86,
+        "confidence_reasoning": "PowerPoint image generation fetches the supplied image URL with requests.get and only a timeout. There is no scheme, host, content type, or size validation, so attacker-controlled HTML can trigger SSRF or resource abuse."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "resp = requests.get(src)",
+        "locations": [
+          {
+            "file": "scripts/word_generator.py",
+            "line_start": 246,
+            "line_end": 246
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.9,
+        "confidence_reasoning": "Word generation fetches any http image source found in the input HTML without a timeout, allowlist, or response size limit. This can be abused for SSRF, tracking, or memory exhaustion."
+      },
+      {
+        "title": "Unsanitized Output Filename Path Traversal",
+        "description": "Document generators append trusted extensions and then join caller-provided filenames with output directories without basename checks or resolved-path containment checks. A filename containing parent directory segments or an absolute path can write outside the intended generated document folder.",
+        "locations": [
+          {
+            "file": "scripts/excel_generator.py",
+            "line_start": 32,
+            "line_end": 35
           },
           {
             "file": "scripts/word_generator.py",
-            "line_start": 239,
-            "line_end": 241
+            "line_start": 40,
+            "line_end": 43
+          },
+          {
+            "file": "scripts/pdf_generator.py",
+            "line_start": 36,
+            "line_end": 39
+          },
+          {
+            "file": "scripts/ppt_generator.py",
+            "line_start": 299,
+            "line_end": 302
           }
         ],
-        "confidence": 0.84,
-        "confidence_reasoning": "The code branches on os.path.exists and then calls add_picture. The effect is constrained to files the process can read and the library accepts as images."
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.88,
+        "confidence_reasoning": "The code directly combines caller-controlled filenames with output directories in multiple generators. No sanitization or containment check is visible at the cited locations."
       }
     ],
+    "low_findings": [
+      {
+        "title": "Temp file creation",
+        "description": "with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(url)[1] or \".jpg\") as tmp:",
+        "locations": [
+          {
+            "file": "scripts/ppt_generator.py",
+            "line_start": 270,
+            "line_end": 270
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "low",
+        "confidence": 0.61,
+        "confidence_reasoning": "The code writes downloaded image bytes into a delete=False temporary file and removes it only after add_picture succeeds. Failures between creation and cleanup can leave untrusted remote content on disk."
+      }
+    ],
+    "dangerous_patterns": [],
     "files_scanned": 7,
     "total_lines": 1031,
     "audit_model": "codex",
-    "audited_at": "2026-06-28T16:12:39.764Z",
-    "risk_factors": [
-      "scripts",
-      "network",
-      "filesystem"
-    ]
+    "audited_at": "2026-07-06T05:28:35.350Z",
+    "agent_auto_install_policy": "allowed",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Create Office Documents from Structured Content",
-    "value_statement": "Teams often need repeatable documents without manual formatting work. This skill converts structured content into Word, PowerPoint, Excel, and PDF files.",
+    "user_title": "Generate Office Documents from Structured Content",
+    "value_statement": "Teams often need repeatable Word, PowerPoint, Excel, and PDF files from structured content. This skill provides Python document generators for Claude, Codex, and Claude Code workflows.",
     "seo_keywords": [
-      "Claude document generation",
-      "Codex office automation",
-      "Claude Code document skill",
-      "Word document generator",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "document generation",
+      "office automation",
+      "Word generator",
       "PowerPoint generator",
-      "Excel report builder",
-      "PDF generation skill",
-      "Markdown to office documents",
-      "AI document automation"
+      "Excel export",
+      "PDF generation",
+      "document processing"
     ],
     "actual_capabilities": [
-      "Generates DOCX files from HTML with headings, paragraphs, lists, tables, and inline text styling.",
-      "Creates PPTX presentations from slide-oriented HTML with titles, text, bullets, tables, charts, and images.",
-      "Builds XLSX spreadsheets from lists of dictionary-style row data.",
-      "Renders PDF files from HTML or wrapped plain text using WeasyPrint when available.",
-      "Extracts text from PDF files and converts Markdown to HTML for later document generation."
+      "Generates DOCX documents from HTML with headings, paragraphs, lists, tables, inline styles, and images.",
+      "Creates PPTX presentations from slide-oriented HTML with titles, text blocks, tables, charts, and images.",
+      "Exports spreadsheet rows from a list of dictionaries into XLSX files.",
+      "Renders HTML or plain text content into PDF documents using WeasyPrint.",
+      "Extracts text from PDF files and converts Markdown into HTML for downstream generation."
     ],
     "limitations": [
-      "Remote and local images need security controls before use with untrusted input.",
-      "Generated layouts are basic and may require manual review for polished business documents.",
-      "PDF generation depends on WeasyPrint being installed in the runtime environment.",
-      "The generators do not validate filenames against path traversal by default."
+      "PDF extraction is implemented, but Word, PowerPoint, and Excel extraction are not implemented in the scripts.",
+      "Remote image fetching needs network safety controls before use with untrusted HTML.",
+      "Generated layouts are basic and may need manual review for complex branding or dense content.",
+      "Filename inputs should be sanitized by the caller until the skill enforces path containment."
     ],
     "use_cases": [
       {
-        "title": "Prepare Client Reports",
-        "description": "Convert structured analysis notes into a DOCX or PDF report with headings, tables, and readable formatting.",
-        "target_user": "Consultants"
+        "title": "Generate Client Reports",
+        "description": "Create Word or PDF reports from prepared HTML sections, tables, and summary text.",
+        "target_user": "Consultants and analysts"
       },
       {
         "title": "Build Presentation Drafts",
-        "description": "Turn slide HTML into a PPTX deck with themed slides, charts, bullets, and supporting images.",
-        "target_user": "Product managers"
+        "description": "Turn structured slide content into a PowerPoint deck with titles, text, tables, charts, and images.",
+        "target_user": "Product and sales teams"
       },
       {
         "title": "Export Operational Data",
-        "description": "Create Excel workbooks from tabular records for sharing, review, or lightweight reporting.",
+        "description": "Convert row-based business data into an Excel workbook for review, handoff, or reporting.",
         "target_user": "Operations teams"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a Simple Report",
-        "scenario": "Beginner document generation",
-        "prompt": "Create a DOCX report from this outline. Use clear headings, short paragraphs, and a summary table."
+        "title": "Create a Basic Document",
+        "scenario": "Beginner request for a simple Word or PDF output.",
+        "prompt": "Create a Word document from this content. Use clear headings, short paragraphs, and a simple table for any structured data I provide."
       },
       {
-        "title": "Convert Notes to Slides",
-        "scenario": "Intermediate presentation drafting",
-        "prompt": "Turn these meeting notes into a PowerPoint deck. Use one main idea per slide and include a final next-steps slide."
+        "title": "Draft a Slide Deck",
+        "scenario": "Intermediate request for a presentation from an outline.",
+        "prompt": "Convert this outline into a PowerPoint deck. Use one main idea per slide, concise bullet points, and tables only where they improve comparison."
       },
       {
-        "title": "Generate a Data Workbook",
-        "scenario": "Structured spreadsheet export",
-        "prompt": "Create an Excel file from these records. Use descriptive column names and keep the rows ready for review."
+        "title": "Export Data to Excel",
+        "scenario": "Intermediate request for spreadsheet generation.",
+        "prompt": "Create an Excel file from these rows. Preserve the column names, keep values readable, and use a filename that contains only letters, numbers, hyphens, and underscores."
       },
       {
-        "title": "Produce a Document Package",
-        "scenario": "Advanced multi-format workflow",
-        "prompt": "Create a DOCX report, a PDF version, and a short PPTX summary from this project brief and data table."
+        "title": "Produce a Report Package",
+        "scenario": "Advanced request combining multiple output formats.",
+        "prompt": "Generate a report package with a DOCX narrative, a PDF copy, a PPTX executive summary, and an XLSX data appendix from the supplied source material."
       }
     ],
     "output_examples": [
       {
-        "input": "A project brief with goals, milestones, risks, and a small status table.",
-        "output": "A formatted Word report with section headings, paragraphs, bullet lists, and a table for status details."
+        "input": "A project status outline with milestones, risks, owners, and next steps.",
+        "output": "A Word report with section headings, a risk table, owner assignments, and a concise action summary."
       },
       {
-        "input": "A product update outline with feature notes, metrics, and launch dates.",
-        "output": "A PowerPoint draft with title slides, content slides, bullets, and a chart-ready table slide."
+        "input": "A sales briefing with three product messages, market data, and a comparison table.",
+        "output": "A PowerPoint deck with title slides, message slides, a data chart, and a comparison table formatted for review."
       },
       {
-        "input": "A list of sales records with customer, region, amount, and status fields.",
-        "output": "An Excel workbook containing one worksheet with clean columns and one row per sales record."
+        "input": "A list of monthly support metrics with categories, counts, and notes.",
+        "output": "An Excel workbook containing the provided rows as columns and records for analysis or sharing."
       }
     ],
     "best_practices": [
-      "Use trusted input or sanitize HTML before generating documents.",
-      "Provide simple structure with clear headings, tables, and concise sections.",
-      "Review generated files before sending them outside your organization."
+      "Provide structured source content with clear headings, tables, and image references before generation.",
+      "Use safe filenames without path separators, parent directory segments, or user-specific secrets.",
+      "Review generated documents for layout quality, brand fit, and external image references before sharing."
     ],
     "anti_patterns": [
-      "Do not process untrusted image URLs without network allowlists and size limits.",
-      "Do not pass filenames that include directories, absolute paths, or traversal segments.",
-      "Do not expect publication-ready design from the default generated layouts."
+      "Do not pass untrusted HTML that contains arbitrary remote image URLs without network controls.",
+      "Do not use this skill as a secure file conversion sandbox for unknown documents.",
+      "Do not rely on the README extraction claims for Word, PowerPoint, or Excel files without adding those processors."
     ],
     "faq": [
       {
-        "question": "What document formats can this skill generate?",
-        "answer": "It can generate DOCX, PPTX, XLSX, and PDF files when the required Python libraries are installed."
+        "question": "Which document formats can this skill generate?",
+        "answer": "It can generate DOCX, PPTX, XLSX, and PDF files through Python scripts."
       },
       {
-        "question": "Can it extract text from existing files?",
-        "answer": "It includes PDF text extraction and Markdown to HTML conversion for document preparation workflows."
+        "question": "Can it extract text from uploaded documents?",
+        "answer": "It includes PDF text extraction. The current scripts do not implement extraction for Word, PowerPoint, or Excel files."
       },
       {
-        "question": "Does it support images in Word and PowerPoint files?",
-        "answer": "Yes, but remote and local image loading should be restricted before processing untrusted content."
+        "question": "Does it work with Claude, Codex, and Claude Code?",
+        "answer": "Yes. The report declares support for Claude, Codex, and Claude Code workflows."
       },
       {
-        "question": "Is this skill ready for public marketplace publishing?",
-        "answer": "No. The audit found high-risk input handling issues that should be fixed before publication."
+        "question": "Can it include images in generated documents?",
+        "answer": "Yes. Word and PowerPoint generation can add local images and remote image URLs, but remote URLs need safety controls."
       },
       {
-        "question": "Can Claude, Codex, or Claude Code use this skill?",
-        "answer": "The report marks it as compatible with Claude, Codex, and Claude Code."
+        "question": "What inputs produce the best results?",
+        "answer": "Simple HTML, Markdown converted to HTML, structured rows, and concise outlines produce the most reliable output."
       },
       {
-        "question": "What setup is required?",
-        "answer": "The runtime needs Python libraries such as python-docx, python-pptx, openpyxl, pandas, BeautifulSoup, pdfplumber, markdown, and WeasyPrint for PDF output."
+        "question": "Is it safe to use with untrusted content?",
+        "answer": "Use caution. Validate filenames and restrict remote URL fetching before processing untrusted content."
       }
     ]
   },
