@@ -71,6 +71,11 @@ on:
         required: false
         type: string
         default: 'latest'
+      checkout_cache_dir:
+        description: 'Persistent upstream checkout cache directory on self-hosted runners'
+        required: false
+        type: string
+        default: '/home/runner/_work/_cache/skill-source-monitor'
 
 permissions:
   contents: write
@@ -132,6 +137,7 @@ jobs:
           CONCURRENCY: ${{ inputs.concurrency || 8 }}
           WRITE_CONCURRENCY: ${{ inputs.write_concurrency || 2 }}
           MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 100 }}
+          CHECKOUT_CACHE_DIR: ${{ inputs.checkout_cache_dir || '/home/runner/_work/_cache/skill-source-monitor' }}
           DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
           CREATE_PR: ${{ github.event_name == 'schedule' && 'true' || inputs.create_pr }}
           ARCHIVE_MISSING: ${{ inputs.archive_missing || false }}
@@ -142,7 +148,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p source-monitor-results
+          mkdir -p source-monitor-results "$CHECKOUT_CACHE_DIR"
           JSONL_FILE="source-monitor-results/skill-source-monitor-${GITHUB_RUN_ID}.jsonl"
           SUMMARY_FILE="source-monitor-results/skill-source-monitor-${GITHUB_RUN_ID}.md"
 
@@ -161,6 +167,12 @@ jobs:
             CMD+=(--writeConcurrency "$WRITE_CONCURRENCY")
           else
             echo "::warning::Downloaded Skillstore CLI does not support --writeConcurrency; Supabase writes will use scan concurrency."
+          fi
+
+          if "$GITHUB_WORKSPACE/skillstore-cli" skill monitor-upstream --help 2>&1 | grep -q -- '--checkoutCacheDir'; then
+            CMD+=(--checkoutCacheDir "$CHECKOUT_CACHE_DIR")
+          else
+            echo "::warning::Downloaded Skillstore CLI does not support --checkoutCacheDir; upstream checkouts will not use the persistent runner cache."
           fi
 
           if [ -n "$SLUGS" ]; then
@@ -206,6 +218,7 @@ jobs:
           echo "Source scan concurrency: $CONCURRENCY"
           echo "Supabase write concurrency: $WRITE_CONCURRENCY"
           echo "Max local updates per run: $MAX_UPDATES_PER_RUN"
+          echo "Checkout cache dir: $CHECKOUT_CACHE_DIR"
           echo "Archive missing: $ARCHIVE_MISSING"
           echo "Delete archived: $DELETE_ARCHIVED"
           echo "Command: ${CMD[*]}"
@@ -319,6 +332,7 @@ jobs:
           CONCURRENCY: ${{ inputs.concurrency || 8 }}
           WRITE_CONCURRENCY: ${{ inputs.write_concurrency || 2 }}
           MAX_UPDATES_PER_RUN: ${{ inputs.max_updates_per_run || 100 }}
+          CHECKOUT_CACHE_DIR: ${{ inputs.checkout_cache_dir || '/home/runner/_work/_cache/skill-source-monitor' }}
           ARCHIVE_MISSING: ${{ inputs.archive_missing || false }}
           DELETE_ARCHIVED: ${{ inputs.delete_archived || false }}
         run: |
@@ -356,6 +370,7 @@ jobs:
             echo "- Source scan concurrency: $CONCURRENCY"
             echo "- Supabase write concurrency: $WRITE_CONCURRENCY"
             echo "- Max local updates per run: $MAX_UPDATES_PER_RUN"
+            echo "- Checkout cache dir: \`$CHECKOUT_CACHE_DIR\`"
             echo "- Archive actions: $ARCHIVE_MODE"
             echo "- Marketplace deletions: $DELETE_MODE"
             echo "- Evidence artifact: skill-source-monitor-${{ github.run_id }}"
