@@ -4,13 +4,13 @@ slug: aaron-roi-calculator
 displayName: "ROI Calculator · ROI 计算"
 summary: "活动投入产出核算:成本归集、收益口径与 CVI/ROI 汇总"
 description: 'Use when the user asks to "calculate influencer ROI", "prove campaign value", or "what was our ROAS"; produces direct ROI/ROAS, earned media value, attribution-modeled revenue, LTV-based ROI, and a stakeholder-ready summary. Not for building the full slide/written report — use report-generator.'
-version: "16.0.0"
+version: "16.0.1"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when measuring or projecting influencer campaign ROI, justifying or defending budgets, comparing ROI across campaigns or channels, evaluating individual influencer or tier value, or preparing executive-level ROI numbers. Activate when the user supplies spend and results data and wants ROI, ROAS, EMV, CPA/CAC, attribution, or LTV impact computed."
 argument-hint: "<campaign name or spend> [revenue] [results data]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "influencer", "phase": "measure", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "measure"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.1", "discipline": "influencer", "phase": "measure", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "measure"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # ROI Calculator
@@ -147,7 +147,7 @@ Industry ROAS benchmarks (Beauty, Fashion, Food & Beverage, Tech, Health) live i
 
 **Primary**: [report-generator](../report-generator/SKILL.md) — turn the ROI numbers into a stakeholder-ready report.
 
-**Alternates** (same Track family):
+**Alternates** (same Measure family):
 
 - [performance-analyzer](../performance-analyzer/SKILL.md) — go back for deeper performance breakdowns if the ROI math exposed gaps.
 - [budget-optimizer](../../plan/budget-optimizer/SKILL.md) — feed by-influencer and by-tier ROI into the next budget allocation.

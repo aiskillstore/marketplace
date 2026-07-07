@@ -4,13 +4,13 @@ slug: aaron-send-experiment-designer
 displayName: "Send Experiment Designer · 邮件AB测试设计"
 summary: "邮件AB测试设计/多变量测试/发送时间测试/留出组/显著性判定"
 description: 'Use when the user asks to "design an email A/B test", "set up a multivariate subject/CTA test", "run a send-time test", "build a hold-out group", or "is this email test significant — promote or kill?"; produces a falsifiable hypothesis, a one-variable-per-cell variant matrix, a sample-size / MDE / duration / power plan, and a documented significance read with a promote / kill / keep-testing call on your own ESP export. Not for computing the program-wide EQS or running the vetoes — use email-quality-auditor; not for writing the email itself — use email-creative-builder. 邮件AB测试设计/多变量测试/发送时间测试/留出组/显著性判定'
-version: "13.0.0"
+version: "16.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when designing an email experiment in any of four modes — an A/B test, a multivariate test (subject/preheader/CTA/creative), a send-time test, or a hold-out group — needing a hypothesis, variant matrix, sample size, minimum-detectable-effect, run duration, and power; or when reading out a finished email test for statistical significance and a promote/kill/keep-testing call from the user's own ESP results export. Not for computing the goal-weighted EQS or running the S1/S2/N1/D1 vetoes (use email-quality-auditor), not for writing the subject/body/CTA under test (use email-creative-builder)."
 argument-hint: "<what to test / results export> [mode: a-b|multivariate|send-time|hold-out] [goal: promo|retention|cold] [baseline open/click/CVR] [list size]"
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "email", "phase": "deliver", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "deliver"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "email", "phase": "deliver", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "deliver"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Send Experiment Designer

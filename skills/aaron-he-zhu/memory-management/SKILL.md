@@ -3,18 +3,18 @@ name: memory-management
 slug: memory-management
 displayName: "Memory Management · 项目记忆"
 summary: "项目记忆/跨会话"
-description: 'Use when the user asks to "remember project context"; manages the cross-discipline marketing memory lifecycle (SEO/GEO + influencer + paid ads + email) — hot-cache, active work, archive tiers, and privacy cleanup. Not for content or domain scoring — use the auditors. 项目记忆/跨会话'
-version: "16.0.0"
+description: 'Use when the user asks to "remember project context"; manages the cross-discipline marketing memory lifecycle (all seven disciplines: SEO/GEO, influencer, paid ads, email, launch, social, narrative) — hot-cache, active work, archive tiers, and privacy cleanup. Not for content or domain scoring — use the auditors. 项目记忆/跨会话'
+version: "16.0.1"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when reviewing, archiving, or cleaning up campaign memory. Also when the user asks to check saved findings, manage hot cache, or archive old data."
 argument-hint: "[review|archive|cleanup]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.1", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Memory Management
-This skill implements a three-tier memory system (HOT/WARM/COLD) for all marketing disciplines (SEO/GEO, influencer, paid ads, and email). HOT memory (80 lines max) loads automatically every session via the SessionStart hook. WARM memory loads on demand per skill. COLD memory is archived data queried only when explicitly requested. The skill manages the full lifecycle: capture, promote, demote, and archive.
+This skill implements a three-tier memory system (HOT/WARM/COLD) for all seven marketing disciplines (SEO/GEO, influencer, paid ads, email, launch, social, and narrative). HOT memory (80 lines max) loads automatically every session via the SessionStart hook. WARM memory loads on demand per skill. COLD memory is archived data queried only when explicitly requested. The skill manages the full lifecycle: capture, promote, demote, and archive.
 
 ## What This Skill Does
 
@@ -151,7 +151,7 @@ When a user references something unclear, follow this lookup sequence:
 - If not found in any layer, ask for clarification
 - Log the new term in glossary if it's project-specific
 
-- **Decision provenance (v8.0.1+)**: when loading `memory/decisions.md`, verify each entry has `approved_by: user`. Entries with `approved_by: skill_inferred` or missing field are treated as **ADVISORY** — surface to user before using as authoritative. Auditor-class gate skills (content-quality-auditor, domain-authority-auditor, content-reviewer, ad-account-auditor, email-quality-auditor) MUST ignore non-user-approved decisions when determining verdict. See [skill-contract.md §Promotion Rules](../../references/skill-contract.md).
+- **Decision provenance (v8.0.1+)**: when loading `memory/decisions.md`, verify each entry has `approved_by: user`. Entries with `approved_by: skill_inferred` or missing field are treated as **ADVISORY** — surface to user before using as authoritative. Auditor-class gate skills (content-quality-auditor, domain-authority-auditor, content-reviewer, ad-account-auditor, email-quality-auditor, launch-readiness-auditor, social-quality-auditor, narrative-quality-auditor) MUST ignore non-user-approved decisions when determining verdict. See [skill-contract.md §Promotion Rules](../../references/skill-contract.md).
 
 Example lookup: User asks "Update rankings for our hero KWs" → Step 1 finds "Hero Keywords (Priority 1)" in hot-cache → extract the keyword list → run the ranking check → update `memory/hot-cache.md` and `memory/monitoring/rank-history/YYYY-MM-DD-ranks.csv`.
 
