@@ -67,7 +67,7 @@ on:
         type: string
         default: ''
       cli_version:
-        description: 'Skillstore CLI version: latest, 1.50.x, or cli-v1.50.x'
+        description: 'Skillstore CLI version: latest, 1.50.x, or cli-v1.50.x; checkout cache requires >=1.50.15'
         required: false
         type: string
         default: 'latest'
@@ -151,6 +151,9 @@ jobs:
           mkdir -p source-monitor-results "$CHECKOUT_CACHE_DIR"
           JSONL_FILE="source-monitor-results/skill-source-monitor-${GITHUB_RUN_ID}.jsonl"
           SUMMARY_FILE="source-monitor-results/skill-source-monitor-${GITHUB_RUN_ID}.md"
+          CLI_VERSION_OUTPUT="$("$GITHUB_WORKSPACE/skillstore-cli" --version 2>&1 || true)"
+          MONITOR_HELP="$("$GITHUB_WORKSPACE/skillstore-cli" skill monitor-upstream --help 2>&1 || true)"
+          echo "Downloaded CLI version: $CLI_VERSION_OUTPUT"
 
           CMD=(
             "$GITHUB_WORKSPACE/skillstore-cli"
@@ -163,16 +166,21 @@ jobs:
             --maxLocalUpdates "$MAX_UPDATES_PER_RUN"
           )
 
-          if "$GITHUB_WORKSPACE/skillstore-cli" skill monitor-upstream --help 2>&1 | grep -q -- '--writeConcurrency'; then
+          if grep -q -- '--writeConcurrency' <<<"$MONITOR_HELP"; then
             CMD+=(--writeConcurrency "$WRITE_CONCURRENCY")
           else
             echo "::warning::Downloaded Skillstore CLI does not support --writeConcurrency; Supabase writes will use scan concurrency."
           fi
 
-          if "$GITHUB_WORKSPACE/skillstore-cli" skill monitor-upstream --help 2>&1 | grep -q -- '--checkoutCacheDir'; then
-            CMD+=(--checkoutCacheDir "$CHECKOUT_CACHE_DIR")
-          else
-            echo "::warning::Downloaded Skillstore CLI does not support --checkoutCacheDir; upstream checkouts will not use the persistent runner cache."
+          if [ -n "$CHECKOUT_CACHE_DIR" ]; then
+            if grep -q -- '--checkoutCacheDir' <<<"$MONITOR_HELP"; then
+              CMD+=(--checkoutCacheDir "$CHECKOUT_CACHE_DIR")
+            else
+              echo "::error::Downloaded Skillstore CLI does not support --checkoutCacheDir, but checkout_cache_dir is set to '$CHECKOUT_CACHE_DIR'. Re-run with cli_version=latest or cli_version>=1.50.15. Older CLI versions re-download upstream checkouts and burn runner/network traffic."
+              echo "Monitor help:"
+              echo "$MONITOR_HELP"
+              exit 1
+            fi
           fi
 
           if [ -n "$SLUGS" ]; then
