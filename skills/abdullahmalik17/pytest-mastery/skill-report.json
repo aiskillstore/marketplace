@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-06T01:29:27.765Z",
+    "generated_at": "2026-07-07T18:46:56.169Z",
     "slug": "abdullahmalik17-pytest-mastery",
     "source_url": "https://github.com/AbdullahMalik17/Cloud-Native-AI/tree/main/.claude/skills/pytest-mastery",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "28d0c39ef515a0fc9a3740a7421a720c45812c85afb0b6df61cabb0945f7cc42",
-    "tree_hash": "edc5017df733ef225020ee0a5d175e2b55a713ae4a36b4e45992f09b9c42aa7c",
+    "content_hash": "8a6a4fb08999d2473cfce7001befd557c2757a90fc7eee7cf468eab2e13073a1",
+    "tree_hash": "dade152a4b2fe2636ce26e653dd067d96098776b7b028a086a456737e5690cc9",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,10 +23,10 @@
   },
   "skill": {
     "name": "pytest-mastery",
-    "description": "Pytest guidance for Python projects that use uv. It covers test execution, fixtures, parametrization, coverage, FastAPI testing, and failure debugging.",
-    "summary": "Build, run, and debug Python pytest suites with uv and FastAPI patterns.",
+    "description": "Guidance for running, writing, and debugging pytest tests with uv, including fixtures, parametrization, coverage, and FastAPI testing patterns.",
+    "summary": "Run, write, and debug pytest suites with uv and FastAPI examples.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "AbdullahMalik17",
     "license": "MIT",
     "tags": [
@@ -56,8 +53,19 @@
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Manual review found no evidence of malicious intent, prompt injection, credential access, or data exfiltration. The static findings are false positives from Markdown backticks, local FastAPI test examples, and an explicit pytest runner that invokes uv without shell execution.",
-    "remediation": [],
+    "summary": "Most static findings are documentation false positives caused by Markdown code fences, inline commands, and test-only FastAPI examples. One confirmed issue remains: scripts/run_tests.py executes uv run pytest through subprocess.call with forwarded user arguments, which is expected for a test runner but still executes local code.",
+    "remediation": [
+      {
+        "issue": "The test runner executes an external pytest command with forwarded arguments.",
+        "suggestion": "Document that users should run scripts/run_tests.py only inside trusted projects, and consider allowlisting supported modes and options for automated use.",
+        "severity": "high"
+      },
+      {
+        "issue": "The FastAPI database example writes to a local SQLite file when copied directly.",
+        "suggestion": "Prefer a temporary directory or in-memory SQLite example for tests that should leave no persistent database file.",
+        "severity": "low"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "network",
@@ -766,409 +774,427 @@
       {
         "id": "network:references/fastapi-testing.md:38:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL is base_url=\"http://test\" inside an httpx AsyncClient configured with ASGITransport. It is an in-process FastAPI test host, not an external network destination."
+        "confidence": 0.94,
+        "reason": "The URL is http://test inside an httpx AsyncClient configured with ASGITransport for in-process FastAPI tests. It is a placeholder base URL, not an outbound network destination."
       },
       {
         "id": "env_access:references/fastapi-testing.md:71:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The connection string is a documented test fixture using a local SQLite database path. It does not read environment variables, include credentials, or connect to a production service."
+        "confidence": 0.91,
+        "reason": "The value is a documented test-only SQLite URL named TEST_DATABASE_URL. It is not read from the environment and does not expose credentials or a production database."
       },
       {
         "id": "env_access:references/fastapi-testing.md:73:database-connection-strings",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The connection string is a documented test fixture using a local SQLite database path. It does not read environment variables, include credentials, or connect to a production service."
+        "confidence": 0.9,
+        "reason": "The create_engine call consumes the same local TEST_DATABASE_URL example for isolated tests. No environment variable or secret-bearing production connection string is present."
       },
       {
         "id": "sensitive:references/fastapi-testing.md:71:sqlite-database-file",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The SQLite path points to ./test.db in a testing example and contains no secret material. The surrounding fixture creates and drops schema for isolated tests."
+        "confidence": 0.88,
+        "reason": "The SQLite path is part of a FastAPI testing example and points to a local throwaway test database. The skill does not include an actual database file or sensitive data."
       },
       {
         "id": "external_commands:scripts/run_tests.py:32:python-subprocess-call",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "subprocess.call receives a list command for uv run pytest with shell=False by default. The script is an explicit test runner, not hidden command execution or shell injection."
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "severity": "high",
+        "reason": "The helper script invokes uv run pytest through subprocess.call and forwards user-supplied pytest arguments. shell=False limits shell injection, but it still executes local project test code and plugins, so this is a real external command risk."
       },
       {
         "id": "external_commands:SKILL.md:11:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:90:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:99:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:114:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:128:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:135:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:136:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:137:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:138:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:140:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:141:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:142:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:143:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:144:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:145:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:146:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is inline Markdown code or a table entry documenting pytest syntax. It is not executable Ruby or shell backtick substitution."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:150:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:162:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:166:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:184:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:187:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:190:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:194:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:214:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:227:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This location is a Markdown code fence in documentation, not Ruby or shell backtick execution. The fenced examples describe pytest and uv usage and are not executed by the file itself."
+        "confidence": 0.96,
+        "reason": "This occurrence is Markdown documentation, such as a code fence, inline command, or options table. It is not Ruby syntax or runtime backtick execution, and the skill does not execute it."
       }
     ],
     "semantic_findings": [],
     "critical_findings": [],
-    "high_findings": [],
+    "high_findings": [
+      {
+        "title": "Python subprocess.call",
+        "description": "return subprocess.call(cmd, cwd=get_project_root())",
+        "locations": [
+          {
+            "file": "scripts/run_tests.py",
+            "line_start": 32,
+            "line_end": 32
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.78,
+        "confidence_reasoning": "The helper script invokes uv run pytest through subprocess.call and forwards user-supplied pytest arguments. shell=False limits shell injection, but it still executes local project test code and plugins, so this is a real external command risk."
+      }
+    ],
     "medium_findings": [],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 578,
     "audit_model": "codex",
-    "audited_at": "2026-07-06T01:29:27.765Z",
+    "audited_at": "2026-07-07T18:46:56.169Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Master Pytest Testing with uv",
-    "value_statement": "Python teams need repeatable tests, fixtures, coverage, and FastAPI checks. This skill provides focused pytest workflows, commands, and patterns for Claude, Codex, and Claude Code.",
+    "user_title": "Run Reliable Pytest Workflows",
+    "value_statement": "Python teams need repeatable tests, fixtures, coverage, and FastAPI patterns. This skill gives practical pytest guidance with uv commands and focused examples.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
       "pytest",
       "Python testing",
       "uv package manager",
       "FastAPI testing",
-      "pytest fixtures",
       "test coverage",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "pytest fixtures",
       "unit testing"
     ],
     "actual_capabilities": [
-      "Shows uv commands for running all tests, selected files, selected functions, and name filters.",
-      "Explains pytest discovery rules for files, functions, classes, and methods.",
-      "Provides fixture, scope, conftest, and parametrization examples for reusable test setup.",
-      "Documents coverage commands, threshold checks, and terminal, HTML, and XML reports.",
-      "Covers FastAPI TestClient, async httpx clients, dependency overrides, authentication, uploads, WebSockets, and background tasks.",
-      "Includes a Python helper script for common pytest modes such as quick, full, coverage, failed, and watch."
+      "Shows uv commands for running all tests, single files, single tests, filtered tests, and coverage reports.",
+      "Explains pytest discovery rules, fixture scopes, shared conftest fixtures, and parametrized tests.",
+      "Provides common pytest options for verbosity, tracebacks, markers, last-failed runs, and parallel execution.",
+      "Includes FastAPI testing patterns for TestClient, async httpx clients, database fixtures, dependency overrides, and authentication.",
+      "Includes a helper script with quick, full, coverage, failed, and watch test modes.",
+      "Covers debugging workflows with long tracebacks, pdb, local variables, and last-failed test selection."
     ],
     "limitations": [
-      "It assumes projects use Python, pytest, and uv.",
-      "It does not generate a full test suite from application requirements by itself.",
-      "It does not validate that project-specific fixtures, imports, or database models exist.",
-      "It does not replace security review for tests that call real services or use real credentials."
+      "Assumes a Python project that uses uv and pytest.",
+      "Examples must be adapted to the user project structure and application imports.",
+      "The helper script does not sandbox test execution or third-party pytest plugins.",
+      "FastAPI examples are reference patterns, not a complete application test suite."
     ],
     "use_cases": [
       {
-        "title": "Create pytest coverage for a Python module",
-        "description": "Use the skill to plan fixtures, parametrized cases, and coverage commands for a new or existing module.",
-        "target_user": "Backend developers"
+        "title": "Add Pytest to a Python Project",
+        "target_user": "Backend developer",
+        "description": "Set up pytest with uv, create initial test files, and run a useful default test command."
       },
       {
-        "title": "Test FastAPI endpoints consistently",
-        "description": "Apply TestClient, async client, dependency override, authentication, upload, WebSocket, and background task patterns.",
-        "target_user": "API engineers"
+        "title": "Test FastAPI Endpoints",
+        "target_user": "API developer",
+        "description": "Build tests for sync endpoints, async endpoints, dependencies, authentication, uploads, and error responses."
       },
       {
-        "title": "Standardize test execution in CI",
-        "description": "Use the documented uv and pytest options to define quick, full, coverage, and failed-test workflows.",
-        "target_user": "DevOps and platform teams"
+        "title": "Standardize Team Test Commands",
+        "target_user": "Engineering lead",
+        "description": "Use shared pytest modes for quick checks, full runs, coverage reports, and failed-test reruns."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Run the current tests",
+        "title": "Run My Tests",
         "scenario": "Beginner test execution",
-        "prompt": "Use the pytest-mastery skill to run this Python project test suite with uv. Summarize failures and suggest the next debugging step."
+        "prompt": "Use pytest-mastery to show the uv commands I should run for all tests, one test file, and one test function."
       },
       {
-        "title": "Write focused unit tests",
-        "scenario": "Intermediate test creation",
-        "prompt": "Use the pytest-mastery skill to write pytest tests for this module. Include fixtures and parametrized cases where they improve coverage."
+        "title": "Create Fixtures",
+        "scenario": "Reusable test setup",
+        "prompt": "Use pytest-mastery to design pytest fixtures for my Python module, including fixture scope and conftest placement."
       },
       {
-        "title": "Add FastAPI integration tests",
-        "scenario": "Advanced API testing",
-        "prompt": "Use the pytest-mastery FastAPI patterns to test these endpoints. Include dependency overrides, authentication setup, and async client coverage when needed."
+        "title": "Improve Coverage",
+        "scenario": "Coverage and parametrization",
+        "prompt": "Use pytest-mastery to add parametrized tests and recommend pytest coverage commands for my src package."
       },
       {
-        "title": "Improve coverage and CI signal",
-        "scenario": "Advanced workflow hardening",
-        "prompt": "Use the pytest-mastery skill to review this test setup. Recommend pytest options, coverage thresholds, markers, and faster failure workflows for CI."
+        "title": "Plan FastAPI Tests",
+        "scenario": "Advanced API test strategy",
+        "prompt": "Use pytest-mastery to create a FastAPI test plan with TestClient, async httpx tests, database isolation, dependency overrides, and authentication checks."
       }
     ],
     "output_examples": [
       {
-        "input": "Run the tests and explain why one failure occurs.",
-        "output": "A concise test summary, the failing test name, the likely cause, and the exact pytest command to rerun that case."
+        "input": "I need to run only the failing tests with useful output.",
+        "output": "The skill recommends a last-failed pytest run with verbose output and a shorter traceback, then suggests a full run after fixes pass."
       },
       {
-        "input": "Write tests for a service function with several input cases.",
-        "output": "A pytest-oriented plan with fixture setup, parametrized scenarios, expected assertions, and coverage gaps to confirm."
+        "input": "I need FastAPI tests that avoid using the real database.",
+        "output": "The skill outlines a test database fixture, a dependency override for the application database session, and cleanup after each test."
       },
       {
-        "input": "Add FastAPI tests for authenticated endpoints.",
-        "output": "A testing approach that uses TestClient or an async client, dependency overrides, test credentials, and clear success and error cases."
+        "input": "I want better coverage for similar validation cases.",
+        "output": "The skill suggests parametrized pytest cases, a coverage command for the src package, and a minimum coverage threshold for CI."
       }
     ],
     "best_practices": [
-      "Use fixtures for shared setup and keep their scope as narrow as practical.",
-      "Parametrize repeated assertions instead of copying similar test functions.",
-      "Run focused tests first, then use coverage reports to find untested behavior."
+      "Keep test fixtures small, named clearly, and scoped to the minimum lifetime needed.",
+      "Run focused tests during development, then run the full suite with coverage before merging.",
+      "Use dependency overrides and isolated databases for FastAPI tests that touch state."
     ],
     "anti_patterns": [
-      "Do not make tests depend on execution order or shared mutable state.",
-      "Do not call real external services when a mock or dependency override is available.",
-      "Do not use production credentials, production databases, or irreversible side effects in tests."
+      "Do not point tests at production databases, services, or credentials.",
+      "Do not hide flaky tests with broad skip markers instead of fixing the cause.",
+      "Do not run helper scripts in untrusted repositories without reviewing the test code first."
     ],
     "faq": [
       {
         "question": "Does this skill require uv?",
-        "answer": "Yes. The documented commands and helper script assume uv is available for running pytest."
+        "answer": "Yes. The documented commands use uv to run pytest and manage development dependencies."
       },
       {
-        "question": "Can it help with FastAPI tests?",
-        "answer": "Yes. It includes TestClient, async httpx, dependency override, authentication, upload, WebSocket, and background task patterns."
+        "question": "Can it help write new pytest tests?",
+        "answer": "Yes. It covers fixtures, parametrization, discovery rules, markers, and practical test structure."
       },
       {
-        "question": "Does it install pytest automatically?",
-        "answer": "No. It shows uv commands for adding pytest and related packages, but installation remains a user action."
+        "question": "Does it support FastAPI testing?",
+        "answer": "Yes. It includes TestClient, async httpx, database fixtures, dependency overrides, authentication, uploads, and websockets."
       },
       {
-        "question": "Can it debug failed tests?",
-        "answer": "Yes. It documents traceback, debugger, local variable, and last-failed workflows for narrowing failures."
+        "question": "Does the helper script sandbox test execution?",
+        "answer": "No. It runs pytest in the local project, so tests and plugins execute with normal local permissions."
       },
       {
-        "question": "Does it cover pytest configuration?",
-        "answer": "Yes. It includes pyproject.toml examples for discovery, default options, markers, and coverage settings."
+        "question": "Can it produce coverage reports?",
+        "answer": "Yes. It documents terminal, HTML, XML, and threshold-based coverage commands through pytest-cov."
       },
       {
-        "question": "Is it safe to use with real credentials?",
-        "answer": "No. Tests should use test credentials, mocks, local fixtures, or dependency overrides instead of production secrets."
+        "question": "Is this a complete test framework?",
+        "answer": "No. It is guidance and a small runner script for pytest workflows in existing Python projects."
       }
     ]
   },
