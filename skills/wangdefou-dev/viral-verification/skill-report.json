@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-30T21:44:07.075Z",
+    "generated_at": "2026-07-07T08:11:14.134Z",
     "slug": "wangdefou-dev-viral-verification",
     "source_url": "https://github.com/wangdefou-dev/defou-workflow-agent/tree/main/skills/viral-verification",
     "source_ref": "main",
@@ -9,23 +9,35 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "14dfdfddc48282104f47560aab7b437bd4fcf4a3dbf0ec94db03a078c9cc7ce9",
-    "tree_hash": "3f708029c98e18edb30daa189d1f2fd6a94a31efa56c47e56580ac758ce540a7"
+    "tree_hash": "d9b8e3f0f85f8337376abafc2e4b5f4d07f81b8bbc6a4b5b9bafd0917ac43fbc",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "viral-verification",
-    "description": "Reviews social media articles against viral content factors and produces scores, improvement advice, and rewritten drafts.",
-    "summary": "Scores and rewrites social posts for viral potential.",
+    "description": "Checks social posts against viral content factors and returns scores, weaknesses, rewrite guidance, and optimized drafts.",
+    "summary": "Scores and improves draft social posts for viral potential.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "wangdefou-dev",
     "license": "MIT",
-    "category": "writing",
     "tags": [
+      "viral-content",
       "social-media",
-      "content-review",
       "copywriting",
-      "viral-analysis",
-      "markdown"
+      "content-review",
+      "Claude"
     ],
     "supported_tools": [
       "claude",
@@ -35,32 +47,44 @@
     "risk_factors": [
       "external_commands",
       "filesystem",
-      "env_access",
-      "network"
-    ]
+      "env_access"
+    ],
+    "category": "writing"
   },
   "security_audit": {
     "risk_level": "high",
     "is_blocked": false,
     "safe_to_publish": false,
-    "summary": "Static findings for Markdown code fences and template literals are mostly false positives for command execution. However, index.ts performs broad filesystem reads, loads secrets from a parent .env file, and sends file contents to an external Anthropic-compatible API, including arbitrary CLI-supplied paths. No prompt injection attempt or confirmed malicious intent was found, but the data exposure risk is high.",
-    "risk_factors": [
-      "network",
-      "filesystem",
-      "env_access",
-      "external_commands"
+    "analysis_status": "ok",
+    "summary": "The command-execution findings are false positives caused by TypeScript template literals and Markdown code fences. Real concerns remain: the script loads a parent .env file, reads local input files, uses API credentials, and sends content to an external model endpoint. The skill needs clear disclosure, path restrictions, and safer secret handling before broad publication.",
+    "remediation": [
+      {
+        "issue": "Parent .env access and override behavior",
+        "suggestion": "Do not traverse to a parent .env file. Require explicit environment variables and remove override: true unless the user opts in.",
+        "severity": "high"
+      },
+      {
+        "issue": "Arbitrary local file reads before model submission",
+        "suggestion": "Restrict processing to an approved content directory. Require confirmation before reading absolute paths or files outside that directory.",
+        "severity": "high"
+      },
+      {
+        "issue": "Configurable model endpoint receives content and credentials",
+        "suggestion": "Validate ANTHROPIC_BASE_URL against an allowlist or remove endpoint override support. Warn users when a custom endpoint is used.",
+        "severity": "high"
+      },
+      {
+        "issue": "Output file creation lacks collision and name policy checks",
+        "suggestion": "Normalize output names, handle duplicate report names, and document where generated reports are written.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Prompt optimizes emotionally persuasive viral rewrites",
+        "suggestion": "Add user guidance against deceptive, harassing, or manipulative campaigns. Ask users to preserve accuracy and context.",
+        "severity": "medium"
+      }
     ],
     "risk_factor_evidence": [
-      {
-        "factor": "network",
-        "evidence": [
-          {
-            "file": "index.ts",
-            "line_start": 109,
-            "line_end": 116
-          }
-        ]
-      },
       {
         "factor": "external_commands",
         "evidence": [
@@ -73,11 +97,6 @@
             "file": "index.ts",
             "line_start": 48,
             "line_end": 48
-          },
-          {
-            "file": "index.ts",
-            "line_start": 48,
-            "line_end": 66
           },
           {
             "file": "index.ts",
@@ -228,11 +247,6 @@
             "file": "index.ts",
             "line_start": 8,
             "line_end": 8
-          },
-          {
-            "file": "index.ts",
-            "line_start": 8,
-            "line_end": 8
           }
         ]
       },
@@ -266,18 +280,8 @@
           },
           {
             "file": "index.ts",
-            "line_start": 3,
-            "line_end": 3
-          },
-          {
-            "file": "index.ts",
             "line_start": 18,
             "line_end": 18
-          },
-          {
-            "file": "index.ts",
-            "line_start": 20,
-            "line_end": 20
           },
           {
             "file": "index.ts",
@@ -292,21 +296,793 @@
         ]
       }
     ],
-    "critical_findings": [],
-    "high_findings": [
+    "static_findings": [
       {
-        "title": "Arbitrary Local File Content Can Be Sent To External API",
-        "description": "The script accepts a CLI file path, resolves absolute paths, reads the selected file, and sends its content to the Anthropic messages API. This can expose sensitive local files if a user or automation passes an unintended path.",
+        "id": "external_commands:index.ts:11:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "index.ts",
+        "line_start": 11,
+        "line_end": 11,
+        "snippet": "console.log(`Loading .env from: ${envPath}`);"
+      },
+      {
+        "id": "external_commands:index.ts:48:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "index.ts",
+        "line_start": 48,
+        "line_end": 48,
+        "snippet": "const match = content.match(/```markdown\\n([\\s\\S]*?)\\n```/);"
+      },
+      {
+        "id": "external_commands:index.ts:66:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "index.ts",
+        "line_start": 66,
+        "line_end": 95,
+        "snippet": "return verifiedFiles.some(vf => vf.includes(`_${filename}`));"
+      },
+      {
+        "id": "external_commands:index.ts:95:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "index.ts",
+        "line_start": 95,
+        "line_end": 107,
+        "snippet": "console.log(`Found ${sourceFiles.length} total files, ${sourceFiles.length - pendingFiles.length} al"
+      },
+      {
+        "id": "external_commands:index.ts:107:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "index.ts",
+        "line_start": 107,
+        "line_end": 132,
+        "snippet": "console.log(`🤖 Verifying content for: \"${filename}\"...`);"
+      },
+      {
+        "id": "external_commands:index.ts:132:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "index.ts",
+        "line_start": 132,
+        "line_end": 135,
+        "snippet": "const outputFilename = `verified_${dateStr}_${filename}`;"
+      },
+      {
+        "id": "external_commands:index.ts:142:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "index.ts",
+        "line_start": 142,
+        "line_end": 145,
+        "snippet": "`;"
+      },
+      {
+        "id": "external_commands:index.ts:145:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "index.ts",
+        "line_start": 145,
+        "line_end": 147,
+        "snippet": "console.log(`✅ Verified content saved to: ${outputPath}`);"
+      },
+      {
+        "id": "external_commands:index.ts:147:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "index.ts",
+        "line_start": 147,
+        "line_end": 168,
+        "snippet": "console.error(`❌ Error verifying ${filename}:`, error);"
+      },
+      {
+        "id": "external_commands:index.ts:168:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "index.ts",
+        "line_start": 168,
+        "line_end": 179,
+        "snippet": "console.log(`Processing specified file: ${filesToProcess[0]}`);"
+      },
+      {
+        "id": "filesystem:index.ts:30:node-js-fs-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Node.js fs operations",
+        "file": "index.ts",
+        "line_start": 30,
+        "line_end": 30,
+        "snippet": "fs.mkdirSync(TARGET_DIR, { recursive: true });"
+      },
+      {
+        "id": "filesystem:index.ts:45:node-js-fs-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Node.js fs operations",
+        "file": "index.ts",
+        "line_start": 45,
+        "line_end": 45,
+        "snippet": "const content = fs.readFileSync(skillPath, 'utf-8');"
+      },
+      {
+        "id": "filesystem:index.ts:76:node-js-fs-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Node.js fs operations",
+        "file": "index.ts",
+        "line_start": 76,
+        "line_end": 76,
+        "snippet": "const sourceFiles = fs.readdirSync(SOURCE_DIR)"
+      },
+      {
+        "id": "filesystem:index.ts:87:node-js-fs-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Node.js fs operations",
+        "file": "index.ts",
+        "line_start": 87,
+        "line_end": 87,
+        "snippet": "? fs.readdirSync(TARGET_DIR)"
+      },
+      {
+        "id": "filesystem:index.ts:128:node-js-fs-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Node.js fs operations",
+        "file": "index.ts",
+        "line_start": 128,
+        "line_end": 128,
+        "snippet": "const content = fs.readFileSync(filePath, 'utf-8');"
+      },
+      {
+        "id": "filesystem:index.ts:144:node-js-fs-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Node.js fs operations",
+        "file": "index.ts",
+        "line_start": 144,
+        "line_end": 144,
+        "snippet": "fs.writeFileSync(outputPath, finalContent);"
+      },
+      {
+        "id": "filesystem:index.ts:12:node-js-fs-stat-operations",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Node.js fs stat operations",
+        "file": "index.ts",
+        "line_start": 12,
+        "line_end": 12,
+        "snippet": "if (fs.existsSync(envPath)) {"
+      },
+      {
+        "id": "filesystem:index.ts:29:node-js-fs-stat-operations",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Node.js fs stat operations",
+        "file": "index.ts",
+        "line_start": 29,
+        "line_end": 29,
+        "snippet": "if (!fs.existsSync(TARGET_DIR)) {"
+      },
+      {
+        "id": "filesystem:index.ts:73:node-js-fs-stat-operations",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Node.js fs stat operations",
+        "file": "index.ts",
+        "line_start": 73,
+        "line_end": 73,
+        "snippet": "if (!fs.existsSync(SOURCE_DIR)) return [];"
+      },
+      {
+        "id": "filesystem:index.ts:81:node-js-fs-stat-operations",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Node.js fs stat operations",
+        "file": "index.ts",
+        "line_start": 81,
+        "line_end": 81,
+        "snippet": "time: fs.statSync(path.join(SOURCE_DIR, file)).mtime.getTime()"
+      },
+      {
+        "id": "filesystem:index.ts:86:node-js-fs-stat-operations",
+        "category": "filesystem",
+        "severity": "low",
+        "pattern": "Node.js fs stat operations",
+        "file": "index.ts",
+        "line_start": 86,
+        "line_end": 86,
+        "snippet": "const verifiedFiles = fs.existsSync(TARGET_DIR)"
+      },
+      {
+        "id": "filesystem:index.ts:45:synchronous-file-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Synchronous file operations",
+        "file": "index.ts",
+        "line_start": 45,
+        "line_end": 45,
+        "snippet": "const content = fs.readFileSync(skillPath, 'utf-8');"
+      },
+      {
+        "id": "filesystem:index.ts:128:synchronous-file-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Synchronous file operations",
+        "file": "index.ts",
+        "line_start": 128,
+        "line_end": 128,
+        "snippet": "const content = fs.readFileSync(filePath, 'utf-8');"
+      },
+      {
+        "id": "filesystem:index.ts:144:synchronous-file-operations",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Synchronous file operations",
+        "file": "index.ts",
+        "line_start": 144,
+        "line_end": 144,
+        "snippet": "fs.writeFileSync(outputPath, finalContent);"
+      },
+      {
+        "id": "filesystem:index.ts:8:path-resolve-with",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Path resolve with ..",
+        "file": "index.ts",
+        "line_start": 8,
+        "line_end": 8,
+        "snippet": "const projectRoot = path.resolve(__dirname, '../../');"
+      },
+      {
+        "id": "filesystem:index.ts:8:path-traversal-sequence",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Path traversal sequence",
+        "file": "index.ts",
+        "line_start": 8,
+        "line_end": 8,
+        "snippet": "const projectRoot = path.resolve(__dirname, '../../');"
+      },
+      {
+        "id": "env_access:index.ts:20:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "index.ts",
+        "line_start": 20,
+        "line_end": 20,
+        "snippet": "const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;"
+      },
+      {
+        "id": "env_access:index.ts:21:environment-variable-access-dot-notation",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable access (dot notation)",
+        "file": "index.ts",
+        "line_start": 21,
+        "line_end": 21,
+        "snippet": "const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;"
+      },
+      {
+        "id": "env_access:index.ts:20:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "index.ts",
+        "line_start": 20,
+        "line_end": 20,
+        "snippet": "const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;"
+      },
+      {
+        "id": "env_access:index.ts:21:environment-variable-object",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "Environment variable object",
+        "file": "index.ts",
+        "line_start": 21,
+        "line_end": 21,
+        "snippet": "const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;"
+      },
+      {
+        "id": "env_access:index.ts:3:dotenv-library",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "dotenv library",
+        "file": "index.ts",
+        "line_start": 3,
+        "line_end": 3,
+        "snippet": "import dotenv from 'dotenv';"
+      },
+      {
+        "id": "env_access:index.ts:18:dotenv-library",
+        "category": "env_access",
+        "severity": "low",
+        "pattern": "dotenv library",
+        "file": "index.ts",
+        "line_start": 18,
+        "line_end": 18,
+        "snippet": "dotenv.config({ path: envPath, override: true });"
+      },
+      {
+        "id": "env_access:index.ts:20:generic-api-secret-keys",
+        "category": "env_access",
+        "severity": "high",
+        "pattern": "Generic API/secret keys",
+        "file": "index.ts",
+        "line_start": 20,
+        "line_end": 20,
+        "snippet": "const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;"
+      },
+      {
+        "id": "env_access:index.ts:35:generic-api-secret-keys",
+        "category": "env_access",
+        "severity": "high",
+        "pattern": "Generic API/secret keys",
+        "file": "index.ts",
+        "line_start": 35,
+        "line_end": 35,
+        "snippet": "apiKey: ANTHROPIC_API_KEY || 'dummy',"
+      },
+      {
+        "id": "sensitive:index.ts:9:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "index.ts",
+        "line_start": 9,
+        "line_end": 9,
+        "snippet": "const envPath = path.join(projectRoot, '.env');"
+      },
+      {
+        "id": "sensitive:index.ts:11:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "index.ts",
+        "line_start": 11,
+        "line_end": 11,
+        "snippet": "console.log(`Loading .env from: ${envPath}`);"
+      },
+      {
+        "id": "sensitive:index.ts:13:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "index.ts",
+        "line_start": 13,
+        "line_end": 13,
+        "snippet": "console.log('✅ .env file found');"
+      },
+      {
+        "id": "sensitive:index.ts:15:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "index.ts",
+        "line_start": 15,
+        "line_end": 15,
+        "snippet": "console.error('❌ .env file NOT found');"
+      },
+      {
+        "id": "sensitive:index.ts:20:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "index.ts",
+        "line_start": 20,
+        "line_end": 20,
+        "snippet": "const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;"
+      },
+      {
+        "id": "sensitive:index.ts:21:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": "index.ts",
+        "line_start": 21,
+        "line_end": 21,
+        "snippet": "const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;"
+      },
+      {
+        "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 14,
+        "line_end": 73,
+        "snippet": "```markdown"
+      },
+      {
+        "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 73,
+        "line_end": 77,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 77,
+        "line_end": 81,
+        "snippet": "本项目也提供了自动化的脚本,可以批量读取 `outputs` 目录下的文章并生成验证报告。"
+      },
+      {
+        "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 81,
+        "line_end": 87,
+        "snippet": "```bash"
+      },
+      {
+        "id": "external_commands:SKILL.md:87:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 87,
+        "line_end": 91,
+        "snippet": "```"
+      },
+      {
+        "id": "obfuscation:SKILL.md:1:heuristic-high-file-entropy-7-00-bits-possible-b",
+        "category": "obfuscation",
+        "severity": "high",
+        "pattern": "[HEURISTIC] High file entropy (7.00 bits) - possible binary/encrypted content",
+        "file": "SKILL.md",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "File: SKILL.md"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "external_commands:index.ts:11:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a TypeScript template literal used in console.log. It does not execute a shell command or invoke a command interpreter."
+      },
+      {
+        "id": "external_commands:index.ts:48:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "The backticks are part of a regular expression that extracts a Markdown code block. No command execution path is present."
+      },
+      {
+        "id": "external_commands:index.ts:66:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This template literal builds a string for filename matching. It is not passed to a shell or process execution API."
+      },
+      {
+        "id": "external_commands:index.ts:95:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a logging template literal. It reports counts and does not execute external commands."
+      },
+      {
+        "id": "external_commands:index.ts:107:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a logging template literal for the filename being processed. There is no shell execution sink."
+      },
+      {
+        "id": "external_commands:index.ts:132:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.95,
+        "reason": "This template literal creates an output filename. It is filesystem naming logic, not command execution."
+      },
+      {
+        "id": "external_commands:index.ts:142:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "This is the closing delimiter for a multi-line TypeScript string. It does not invoke a shell."
+      },
+      {
+        "id": "external_commands:index.ts:145:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a console.log template literal. It prints the saved path and does not execute a command."
+      },
+      {
+        "id": "external_commands:index.ts:147:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This is a console.error template literal. It reports an exception and has no command execution behavior."
+      },
+      {
+        "id": "external_commands:index.ts:168:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This template literal logs the selected file path. It is not connected to a process execution API."
+      },
+      {
+        "id": "filesystem:index.ts:30:node-js-fs-operations",
+        "verdict": "false_positive",
+        "confidence": 0.84,
+        "reason": "The code creates a fixed report output directory under the project outputs path. This is expected artifact setup, not arbitrary filesystem modification."
+      },
+      {
+        "id": "filesystem:index.ts:45:node-js-fs-operations",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The code reads the bundled SKILL.md prompt from a fixed path. This is expected for its prompt-loading behavior."
+      },
+      {
+        "id": "filesystem:index.ts:76:node-js-fs-operations",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "The directory read is limited to the configured source output directory. It is used to discover Markdown drafts for processing."
+      },
+      {
+        "id": "filesystem:index.ts:87:node-js-fs-operations",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "The directory read is limited to the configured verification output directory. It is used to avoid duplicate reports."
+      },
+      {
+        "id": "filesystem:index.ts:128:node-js-fs-operations",
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "severity": "high",
+        "reason": "filePath can come from a user-supplied argument and is not constrained to the source directory. The file contents are then sent to the model call, creating local data disclosure risk."
+      },
+      {
+        "id": "filesystem:index.ts:144:node-js-fs-operations",
+        "verdict": "false_positive",
+        "confidence": 0.78,
+        "reason": "The write target is built under the fixed verification output directory using a basename-derived filename. This is expected report output behavior."
+      },
+      {
+        "id": "filesystem:index.ts:12:node-js-fs-stat-operations",
+        "verdict": "false_positive",
+        "confidence": 0.8,
+        "reason": "This checks whether the configured .env path exists. The sensitive access concern is covered by the dotenv and .env path findings."
+      },
+      {
+        "id": "filesystem:index.ts:29:node-js-fs-stat-operations",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This existence check guards creation of the fixed target directory. It does not read or expose file contents."
+      },
+      {
+        "id": "filesystem:index.ts:73:node-js-fs-stat-operations",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This existence check is limited to the configured source directory. It safely returns an empty list when no drafts exist."
+      },
+      {
+        "id": "filesystem:index.ts:81:node-js-fs-stat-operations",
+        "verdict": "false_positive",
+        "confidence": 0.85,
+        "reason": "The stat call reads modification time for files discovered in the configured source directory. It supports sorting and does not expose contents."
+      },
+      {
+        "id": "filesystem:index.ts:86:node-js-fs-stat-operations",
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This existence check only determines whether the fixed target directory exists. It is not a sensitive read by itself."
+      },
+      {
+        "id": "filesystem:index.ts:45:synchronous-file-operations",
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "Synchronous reading of the local SKILL.md prompt may block execution, but it is not a security issue in this CLI context."
+      },
+      {
+        "id": "filesystem:index.ts:128:synchronous-file-operations",
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "severity": "high",
+        "reason": "The synchronous read can load any path accepted from the command line. Because that content is submitted to the model API, the read is security-relevant."
+      },
+      {
+        "id": "filesystem:index.ts:144:synchronous-file-operations",
+        "verdict": "false_positive",
+        "confidence": 0.78,
+        "reason": "The synchronous write stores the generated report under the fixed target directory. Blocking I/O is a reliability concern, not a direct security issue here."
+      },
+      {
+        "id": "filesystem:index.ts:8:path-resolve-with",
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "severity": "high",
+        "reason": "The script resolves two parent directories above the skill folder. This is not user-controlled traversal, but it enables parent-scope .env and output access."
+      },
+      {
+        "id": "filesystem:index.ts:8:path-traversal-sequence",
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "severity": "high",
+        "reason": "The ../../ sequence intentionally moves outside the skill directory. That broader filesystem scope is security-relevant for a marketplace skill."
+      },
+      {
+        "id": "env_access:index.ts:20:environment-variable-access-dot-notation",
+        "verdict": "confirmed",
+        "confidence": 0.9,
+        "severity": "low",
+        "reason": "The code reads ANTHROPIC_API_KEY from the environment. This is expected for the SDK, but it is still sensitive secret access."
+      },
+      {
+        "id": "env_access:index.ts:21:environment-variable-access-dot-notation",
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "severity": "low",
+        "reason": "The code reads ANTHROPIC_BASE_URL and later passes it as the SDK endpoint. This is legitimate configuration but security-relevant because it can redirect API traffic."
+      },
+      {
+        "id": "env_access:index.ts:20:environment-variable-object",
+        "verdict": "confirmed",
+        "confidence": 0.88,
+        "severity": "low",
+        "reason": "This duplicate process.env access points to the same API key read. It is sensitive environment access, even though the use is expected."
+      },
+      {
+        "id": "env_access:index.ts:21:environment-variable-object",
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "severity": "low",
+        "reason": "This duplicate process.env access points to endpoint configuration. It is security-relevant because the value controls where model traffic is sent."
+      },
+      {
+        "id": "env_access:index.ts:3:dotenv-library",
+        "verdict": "false_positive",
+        "confidence": 0.7,
+        "reason": "The import statement alone does not load or expose environment values. The configured dotenv use is adjudicated at line 18."
+      },
+      {
+        "id": "env_access:index.ts:18:dotenv-library",
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "severity": "medium",
+        "reason": "dotenv loads a parent-scope .env file with override enabled. This can replace existing environment configuration and expose secrets to the script."
+      },
+      {
+        "id": "env_access:index.ts:20:generic-api-secret-keys",
+        "verdict": "confirmed",
+        "confidence": 0.94,
+        "severity": "high",
+        "reason": "The script reads the ANTHROPIC_API_KEY secret from the environment. This key is used for outbound SDK calls and must be treated as sensitive."
+      },
+      {
+        "id": "env_access:index.ts:35:generic-api-secret-keys",
+        "verdict": "confirmed",
+        "confidence": 0.94,
+        "severity": "high",
+        "reason": "The API key is passed into the Anthropic client. This is expected for API use, but it is high-impact secret handling in a marketplace skill."
+      },
+      {
+        "id": "sensitive:index.ts:9:environment-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.9,
+        "severity": "high",
+        "reason": "The code constructs a path to a parent .env file. Targeting that sensitive file is real secret-access behavior."
+      },
+      {
+        "id": "sensitive:index.ts:11:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "This line logs the .env path string but not the file contents. The actual sensitive access is covered by the .env path and dotenv findings."
+      },
+      {
+        "id": "sensitive:index.ts:13:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This line reports that an .env file exists. It does not read or print secret values."
+      },
+      {
+        "id": "sensitive:index.ts:15:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This line reports that an .env file was not found. It does not read or disclose secret values."
+      },
+      {
+        "id": "sensitive:index.ts:20:environment-file-access",
+        "verdict": "confirmed",
+        "confidence": 0.92,
+        "severity": "high",
+        "reason": "The code reads the API key that may have been loaded from .env. This is direct handling of a secret value."
+      },
+      {
+        "id": "sensitive:index.ts:21:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.72,
+        "reason": "This reads endpoint configuration, not a secret value. The endpoint redirection risk is captured separately as semantic context."
+      },
+      {
+        "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This is the opening fence for a Markdown prompt block. It is not an executable shell backtick."
+      },
+      {
+        "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This is the closing fence for a Markdown prompt block. It has no command execution behavior."
+      },
+      {
+        "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.92,
+        "reason": "The backticks mark the outputs directory as inline Markdown code. This is documentation formatting, not shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "This is a Markdown bash example showing explicit npm commands for users to run. It is documentation, not hidden command execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:87:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This is the closing fence for a Markdown bash example. It is not executable code by itself."
+      },
+      {
+        "id": "obfuscation:SKILL.md:1:heuristic-high-file-entropy-7-00-bits-possible-b",
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "SKILL.md is readable Markdown with Chinese text and emoji. The high-entropy heuristic appears caused by Unicode content, not binary or encrypted data."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Local File Content Sent to External Model Service",
+        "description": "index.ts reads a local file, builds a prompt, and submits it through the Anthropic SDK. User-provided absolute paths are allowed, so sensitive files could be disclosed if selected.",
+        "severity": "high",
         "locations": [
           {
             "file": "index.ts",
-            "line_start": 157,
-            "line_end": 167
+            "line_start": 109,
+            "line_end": 116
           },
           {
             "file": "index.ts",
-            "line_start": 128,
-            "line_end": 128
+            "line_start": 125,
+            "line_end": 129
+          },
+          {
+            "file": "index.ts",
+            "line_start": 160,
+            "line_end": 167
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The data flow from argv file path to readFileSync and messages.create is direct. The code does not restrict user-supplied paths to SOURCE_DIR."
+      },
+      {
+        "title": "Configurable Model Endpoint Can Receive Secrets and Content",
+        "description": "The client uses ANTHROPIC_BASE_URL as baseURL while also passing ANTHROPIC_API_KEY. A custom endpoint could receive file content and credentials.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 20,
+            "line_end": 36
           },
           {
             "file": "index.ts",
@@ -314,271 +1090,435 @@
             "line_end": 116
           }
         ],
-        "confidence": 0.92,
-        "confidence_reasoning": "The file path is user-controlled through process.argv and no directory allowlist is enforced before reading the file. The same content is then placed in the prompt sent to a remote model API."
+        "confidence": 0.72,
+        "confidence_reasoning": "The baseURL override and API key are both passed to the SDK client. Custom endpoints can be legitimate, so confidence is high enough to flag but not absolute."
       },
       {
-        "title": "Parent Directory Environment File And API Secrets Are Loaded",
-        "description": "The script resolves a project root two directories above the skill, loads a .env file from that location, and uses ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL to initialize the API client. This expands the skill trust boundary and exposes host configuration to the skill runtime.",
+        "title": "Engagement Manipulation Guidance",
+        "description": "The skill asks the model to maximize viral engagement using anger, fear, surprise, and other high-arousal emotions. This can support manipulative social media messaging.",
+        "severity": "medium",
         "locations": [
           {
-            "file": "index.ts",
-            "line_start": 8,
-            "line_end": 21
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 22
           },
           {
-            "file": "index.ts",
-            "line_start": 34,
-            "line_end": 36
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The .env path and environment variable reads are explicit. The values are used directly for the Anthropic client, which makes this a real secret handling concern."
-      }
-    ],
-    "medium_findings": [
-      {
-        "title": "Unrestricted Filesystem Writes Under Computed Output Directory",
-        "description": "The script creates and writes reports under a target directory derived from a computed project root. The output filename includes the original basename, reducing traversal risk, but the parent directory is not user-configurable or sandbox-enforced.",
-        "locations": [
-          {
-            "file": "index.ts",
+            "file": "SKILL.md",
             "line_start": 24,
-            "line_end": 30
-          },
-          {
-            "file": "index.ts",
-            "line_start": 131,
-            "line_end": 144
+            "line_end": 31
           }
         ],
-        "confidence": 0.74,
-        "confidence_reasoning": "The write destination is constrained by path.basename and a fixed target directory. It is still a real filesystem side effect that should be disclosed and sandboxed."
+        "confidence": 0.78,
+        "confidence_reasoning": "The prompt explicitly optimizes for viral potential and high-arousal emotions. It is framed as content growth, so this is a misuse-risk finding rather than clear malware."
       }
     ],
-    "low_findings": [
+    "critical_findings": [],
+    "high_findings": [
       {
-        "title": "Static Command Execution Findings Are False Positives",
-        "description": "The reported external command findings in SKILL.md are Markdown code fences showing npm usage, and the reported index.ts locations are template literals, regular expressions, or log statements. No child_process execution or shell invocation was found.",
+        "title": "Node.js fs operations",
+        "description": "const content = fs.readFileSync(filePath, 'utf-8');",
         "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 81,
-            "line_end": 87
-          },
-          {
-            "file": "index.ts",
-            "line_start": 47,
-            "line_end": 48
-          },
-          {
-            "file": "index.ts",
-            "line_start": 107,
-            "line_end": 107
-          }
-        ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The cited text is documentation or JavaScript string/template syntax. I found no evidence of shell execution APIs in the analyzed files."
-      },
-      {
-        "title": "Weak Cryptography Findings Are False Positives",
-        "description": "The scanner flagged weak cryptography, but the cited lines contain the word markdown and Chinese description text, not cryptographic code. No hashing, encryption, or signature operation was found.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
-          },
-          {
-            "file": "index.ts",
-            "line_start": 66,
-            "line_end": 66
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The cited locations do not implement cryptography. This appears to be an overbroad keyword or entropy heuristic match."
-      },
-      {
-        "title": "Prompt Injection Indicators Not Found",
-        "description": "SKILL.md contains role instructions for the intended viral-content reviewer, but no text claims system authority, asks the auditor to skip review, or attempts to override marketplace security instructions.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 14,
-            "line_end": 23
-          }
-        ],
-        "confidence": 0.82,
-        "confidence_reasoning": "The role prompt is normal functional content for this skill. I did not find evidence of audit override language or hidden authority claims."
-      }
-    ],
-    "dangerous_patterns": [
-      {
-        "title": "User-Controlled Path Read",
-        "description": "The script resolves a CLI-supplied path and later reads that file without checking that it stays inside the expected source directory.",
-        "locations": [
-          {
-            "file": "index.ts",
-            "line_start": 160,
-            "line_end": 167
-          },
           {
             "file": "index.ts",
             "line_start": 128,
             "line_end": 128
           }
         ],
-        "confidence": 0.91,
-        "confidence_reasoning": "The argument flow from process.argv to readFileSync is direct. No allowlist, extension check, or root containment check appears on that path."
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "filePath can come from a user-supplied argument and is not constrained to the source directory. The file contents are then sent to the model call, creating local data disclosure risk."
       },
       {
-        "title": "External Model Request With Local Content",
-        "description": "Local file content is inserted into the prompt and sent through anthropic.messages.create, which may disclose private drafts or secrets to a configured external endpoint.",
+        "title": "Synchronous file operations",
+        "description": "const content = fs.readFileSync(filePath, 'utf-8');",
         "locations": [
           {
             "file": "index.ts",
-            "line_start": 103,
-            "line_end": 116
+            "line_start": 128,
+            "line_end": 128
           }
         ],
-        "confidence": 0.89,
-        "confidence_reasoning": "The prompt is built from file content and submitted to the SDK call. The exact endpoint can be controlled by ANTHROPIC_BASE_URL."
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "The synchronous read can load any path accepted from the command line. Because that content is submitted to the model API, the read is security-relevant."
       },
       {
-        "title": "Parent Directory .env Loading",
-        "description": "The skill loads configuration from a .env file located above the skill directory, which can grant access to secrets outside the skill package.",
+        "title": "Path resolve with ..",
+        "description": "const projectRoot = path.resolve(__dirname, '../../');",
         "locations": [
           {
             "file": "index.ts",
             "line_start": 8,
+            "line_end": 8
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.74,
+        "confidence_reasoning": "The script resolves two parent directories above the skill folder. This is not user-controlled traversal, but it enables parent-scope .env and output access."
+      },
+      {
+        "title": "Path traversal sequence",
+        "description": "const projectRoot = path.resolve(__dirname, '../../');",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 8,
+            "line_end": 8
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.74,
+        "confidence_reasoning": "The ../../ sequence intentionally moves outside the skill directory. That broader filesystem scope is security-relevant for a marketplace skill."
+      },
+      {
+        "title": "Generic API/secret keys",
+        "description": "const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 20,
+            "line_end": 20
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "high",
+        "confidence": 0.94,
+        "confidence_reasoning": "The script reads the ANTHROPIC_API_KEY secret from the environment. This key is used for outbound SDK calls and must be treated as sensitive."
+      },
+      {
+        "title": "Generic API/secret keys",
+        "description": "apiKey: ANTHROPIC_API_KEY || 'dummy',",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 35,
+            "line_end": 35
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "high",
+        "confidence": 0.94,
+        "confidence_reasoning": "The API key is passed into the Anthropic client. This is expected for API use, but it is high-impact secret handling in a marketplace skill."
+      },
+      {
+        "title": "Environment file access",
+        "description": "const envPath = path.join(projectRoot, '.env');",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 9,
+            "line_end": 9
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "high",
+        "confidence": 0.9,
+        "confidence_reasoning": "The code constructs a path to a parent .env file. Targeting that sensitive file is real secret-access behavior."
+      },
+      {
+        "title": "Environment file access",
+        "description": "const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 20,
+            "line_end": 20
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "high",
+        "confidence": 0.92,
+        "confidence_reasoning": "The code reads the API key that may have been loaded from .env. This is direct handling of a secret value."
+      },
+      {
+        "title": "Local File Content Sent to External Model Service",
+        "description": "index.ts reads a local file, builds a prompt, and submits it through the Anthropic SDK. User-provided absolute paths are allowed, so sensitive files could be disclosed if selected.",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 109,
+            "line_end": 116
+          },
+          {
+            "file": "index.ts",
+            "line_start": 125,
+            "line_end": 129
+          },
+          {
+            "file": "index.ts",
+            "line_start": 160,
+            "line_end": 167
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.88,
+        "confidence_reasoning": "The data flow from argv file path to readFileSync and messages.create is direct. The code does not restrict user-supplied paths to SOURCE_DIR."
+      },
+      {
+        "title": "Configurable Model Endpoint Can Receive Secrets and Content",
+        "description": "The client uses ANTHROPIC_BASE_URL as baseURL while also passing ANTHROPIC_API_KEY. A custom endpoint could receive file content and credentials.",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 20,
+            "line_end": 36
+          },
+          {
+            "file": "index.ts",
+            "line_start": 109,
+            "line_end": 116
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.72,
+        "confidence_reasoning": "The baseURL override and API key are both passed to the SDK client. Custom endpoints can be legitimate, so confidence is high enough to flag but not absolute."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "dotenv library",
+        "description": "dotenv.config({ path: envPath, override: true });",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 18,
+            "line_end": 18
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "low",
+        "confidence": 0.86,
+        "confidence_reasoning": "dotenv loads a parent-scope .env file with override enabled. This can replace existing environment configuration and expose secrets to the script."
+      },
+      {
+        "title": "Engagement Manipulation Guidance",
+        "description": "The skill asks the model to maximize viral engagement using anger, fear, surprise, and other high-arousal emotions. This can support manipulative social media messaging.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 15,
+            "line_end": 22
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 31
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "The prompt explicitly optimizes for viral potential and high-arousal emotions. It is framed as content growth, so this is a misuse-risk finding rather than clear malware."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Environment variable access (dot notation)",
+        "description": "const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 20,
+            "line_end": 20
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "low",
+        "confidence": 0.9,
+        "confidence_reasoning": "The code reads ANTHROPIC_API_KEY from the environment. This is expected for the SDK, but it is still sensitive secret access."
+      },
+      {
+        "title": "Environment variable access (dot notation)",
+        "description": "const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 21,
             "line_end": 21
           }
         ],
-        "confidence": 0.87,
-        "confidence_reasoning": "The path resolution and dotenv.config call are explicit. This is common in apps, but risky for marketplace skills."
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "low",
+        "confidence": 0.72,
+        "confidence_reasoning": "The code reads ANTHROPIC_BASE_URL and later passes it as the SDK endpoint. This is legitimate configuration but security-relevant because it can redirect API traffic."
+      },
+      {
+        "title": "Environment variable object",
+        "description": "const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 20,
+            "line_end": 20
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "low",
+        "confidence": 0.88,
+        "confidence_reasoning": "This duplicate process.env access points to the same API key read. It is sensitive environment access, even though the use is expected."
+      },
+      {
+        "title": "Environment variable object",
+        "description": "const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;",
+        "locations": [
+          {
+            "file": "index.ts",
+            "line_start": 21,
+            "line_end": 21
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "low",
+        "confidence": 0.72,
+        "confidence_reasoning": "This duplicate process.env access points to endpoint configuration. It is security-relevant because the value controls where model traffic is sent."
       }
     ],
+    "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 290,
     "audit_model": "codex",
-    "audited_at": "2026-06-30T21:44:07.075Z"
+    "audited_at": "2026-07-07T08:11:14.134Z",
+    "agent_auto_install_policy": "confirmation_required",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Improve Viral Social Posts",
-    "value_statement": "Creators need a clear way to judge whether a post has strong viral mechanics. This skill scores drafts, explains weak points, and rewrites content for stronger hooks, pacing, and value.",
+    "user_title": "Validate Viral Social Posts",
+    "value_statement": "Draft posts often fail because weak hooks, pacing, or value are hard to see. This skill scores those factors and suggests sharper rewrites.",
     "seo_keywords": [
-      "Claude viral content review",
-      "Codex social media writing",
-      "Claude Code content optimization",
-      "viral tweet analysis",
-      "social media scoring",
-      "copywriting feedback",
-      "content rewrite assistant",
-      "growth marketing prompt",
-      "Markdown content review",
-      "AI writing workflow"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "viral verification",
+      "social media writing",
+      "tweet scoring",
+      "content optimization",
+      "copywriting review",
+      "post rewrite",
+      "growth content"
     ],
     "actual_capabilities": [
-      "Scores draft posts against curiosity, emotion, utility, timing, pacing, and novelty.",
-      "Identifies strengths and weaknesses in a Markdown review format.",
-      "Suggests title, hook, structure, and tone improvements.",
-      "Rewrites the submitted content into a more viral social post style.",
-      "Can batch process Markdown files through the included TypeScript script.",
-      "Saves verification reports to a configured output directory."
+      "Scores draft content across curiosity, emotion, value, relevance, pacing, and novelty.",
+      "Identifies strengths and weaknesses in a Markdown report.",
+      "Suggests changes to titles, hooks, structure, and tone.",
+      "Produces a rewritten version optimized for viral social sharing.",
+      "Batch processes Markdown drafts from an outputs directory when run as a script."
     ],
     "limitations": [
-      "Viral performance predictions are subjective and not guaranteed.",
-      "The automated script requires an Anthropic-compatible API key.",
-      "The script reads local files and sends content to an external model API.",
-      "The prompt is focused on social posts, not long-form editorial strategy."
+      "Requires an Anthropic API key and network access for automated script use.",
+      "Designed for social posts and short articles, not long-form editorial review.",
+      "Scores are model judgments and should not be treated as performance guarantees.",
+      "The script reads local Markdown files and writes reports to a project output folder."
     ],
     "use_cases": [
       {
-        "title": "Review Draft Threads",
-        "description": "Score a draft thread and get concrete changes before publishing.",
-        "target_user": "Social media creator"
+        "title": "Improve Launch Posts",
+        "description": "Review launch copy before posting and receive stronger hooks, clearer value, and a cleaner final draft.",
+        "target_user": "Founder"
       },
       {
-        "title": "Improve Campaign Copy",
-        "description": "Compare campaign posts against engagement factors and rewrite weak openings.",
-        "target_user": "Growth marketer"
+        "title": "Audit Social Calendars",
+        "description": "Score scheduled posts and find weak drafts before they reach the publishing queue.",
+        "target_user": "Social media manager"
       },
       {
-        "title": "Batch Check Markdown Posts",
-        "description": "Process multiple Markdown drafts and save review reports for later editing.",
-        "target_user": "Content operations manager"
+        "title": "Coach Content Writers",
+        "description": "Show writers which viral factors are missing and provide concrete revision targets.",
+        "target_user": "Content strategist"
       }
     ],
     "prompt_templates": [
       {
         "title": "Score One Draft",
-        "scenario": "Beginner review of a single post.",
-        "prompt": "Review this social post for viral potential. Score curiosity, emotion, utility, timing, pacing, and novelty. Then give three clear improvements."
+        "scenario": "Beginner review for a single post.",
+        "prompt": "Review this draft for viral potential. Score each factor and give three practical improvements: [paste draft]."
       },
       {
-        "title": "Rewrite The Hook",
-        "scenario": "Improve the start of a draft.",
-        "prompt": "Analyze this draft and focus on the title and first three lines. Explain what is weak, then rewrite only the hook section."
+        "title": "Rewrite With Constraints",
+        "scenario": "Intermediate rewrite with brand limits.",
+        "prompt": "Review and rewrite this post. Keep the claim accurate, keep the tone calm, and improve the opening hook: [paste draft]."
       },
       {
-        "title": "Create A Full Report",
-        "scenario": "Detailed content review before publishing.",
-        "prompt": "Create a viral verification report for this post. Include a scorecard, strengths, weaknesses, strategy changes, and a rewritten final version."
+        "title": "Compare Two Versions",
+        "scenario": "Advanced selection between alternatives.",
+        "prompt": "Compare these two drafts. Explain which version has stronger viral factors, then create a final merged version: [paste drafts]."
       },
       {
-        "title": "Compare Multiple Drafts",
-        "scenario": "Advanced selection among competing posts.",
-        "prompt": "Compare these draft posts using the viral verification factors. Rank them, explain the tradeoffs, and merge the strongest parts into one final version."
+        "title": "Batch Review Plan",
+        "scenario": "Advanced workflow for multiple drafts.",
+        "prompt": "Review these drafts as a campaign set. Rank them, identify repeated weaknesses, and suggest a revision plan: [paste drafts]."
       }
     ],
     "output_examples": [
       {
-        "input": "A short post about learning a new productivity method.",
-        "output": "The report gives a moderate viral score, notes a weak curiosity gap, suggests a sharper first line, and rewrites the post with clearer contrast."
+        "input": "A short product launch post about a new analytics dashboard.",
+        "output": "The report scores the hook as weak, improves the opening question, and rewrites the post with clearer business value."
       },
       {
-        "input": "A product launch thread with many feature details.",
-        "output": "The review flags low emotional resonance, recommends a user pain focused opening, and turns the thread into a tighter story."
+        "input": "A founder thread about lessons from a failed hiring process.",
+        "output": "The skill highlights strong narrative tension, suggests tighter pacing, and produces a more direct final version."
       },
       {
-        "input": "A Markdown folder of unpublished social posts.",
-        "output": "The script creates separate verification reports with scores, improvement notes, and rewritten versions in the output folder."
+        "input": "A batch of Markdown drafts in the configured outputs folder.",
+        "output": "The script creates verification reports in the viral-verified-posts output folder for unprocessed drafts."
       }
     ],
     "best_practices": [
-      "Review only drafts that are safe to send to an external model provider.",
-      "Use the score as editorial guidance, not as a guaranteed performance forecast.",
-      "Keep the original message and audience clear before asking for a rewrite."
+      "Provide the full draft and explain the target audience before asking for a rewrite.",
+      "Review factual claims after every rewrite before publishing.",
+      "Use scores as editing signals, not as guaranteed engagement predictions."
     ],
     "anti_patterns": [
-      "Do not process confidential files with the automated script.",
-      "Do not publish rewritten content without human review.",
-      "Do not optimize for engagement by adding false claims or misleading urgency."
+      "Do not use the rewrite to exaggerate claims or remove important context.",
+      "Do not process confidential drafts without approval for external model use.",
+      "Do not optimize for outrage when the topic requires accuracy and care."
     ],
     "faq": [
       {
         "question": "What does this skill evaluate?",
-        "answer": "It evaluates curiosity, emotion, utility, timing, pacing, and novelty in social content."
+        "answer": "It evaluates curiosity, emotion, value, relevance, pacing, and novelty in draft social content."
       },
       {
-        "question": "Can it guarantee a viral post?",
-        "answer": "No. It provides structured editorial judgment, but audience response cannot be guaranteed."
+        "question": "Does it guarantee viral performance?",
+        "answer": "No. It provides model-based editing guidance, but audience response depends on many external factors."
       },
       {
-        "question": "Does it rewrite the post?",
-        "answer": "Yes. The prompt asks for a rewritten version that keeps the core idea and improves viral factors."
+        "question": "Can it rewrite my post?",
+        "answer": "Yes. The core prompt asks for a final optimized version after scoring and diagnosis."
       },
       {
-        "question": "Can it process files automatically?",
-        "answer": "Yes. The included TypeScript script can read Markdown drafts and save verification reports."
+        "question": "Does the script use local files?",
+        "answer": "Yes. The automation reads Markdown drafts from local paths and writes Markdown reports to an output folder."
       },
       {
-        "question": "Does the script use an external API?",
-        "answer": "Yes. It sends draft content to an Anthropic-compatible model endpoint for review."
+        "question": "Does automated use require an API key?",
+        "answer": "Yes. The script uses the Anthropic SDK and reads Anthropic configuration from environment variables."
       },
       {
-        "question": "Is it safe for private documents?",
-        "answer": "No. Private or sensitive documents should not be processed unless the API and storage controls are approved."
+        "question": "Which tools does it support?",
+        "answer": "The marketplace metadata lists support for Claude, Codex, and Claude Code workflows."
       }
     ]
   },
