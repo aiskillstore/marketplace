@@ -605,6 +605,154 @@ jobs:
           SLUG_COUNT=$(wc -l < synced-slugs.txt | tr -d ' ')
           echo "📦 Saved $SLUG_COUNT slugs to artifact"
 
+      - name: Resolve published submissions
+        id: published_submissions
+        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_slugs != ''
+        env:
+          BASE_SHA: ${{ steps.last_sync.outputs.base_sha }}
+          SYNCED_SLUGS: ${{ steps.sync.outputs.synced_slugs }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const { execFileSync } = require('child_process');
+
+          const baseSha = process.env.BASE_SHA || 'HEAD~1';
+          const syncedSlugs = new Set(
+            (process.env.SYNCED_SLUGS || '')
+              .split(',')
+              .map((slug) => slug.trim())
+              .filter(Boolean),
+          );
+
+          function git(args) {
+            return execFileSync('git', args, { encoding: 'utf8' }).trim();
+          }
+
+          function safeGit(args) {
+            try {
+              return git(args);
+            } catch {
+              return '';
+            }
+          }
+
+          function resolveSkillPath(changedPath) {
+            if (!changedPath.startsWith('skills/')) return null;
+            const parts = changedPath.split('/');
+            if (parts.length < 3) return null;
+
+            const flatPath = parts[1];
+            const namespacedPath = `${parts[1]}/${parts[2]}`;
+
+            if (fs.existsSync(`skills/${namespacedPath}/skill-report.json`)) {
+              return namespacedPath;
+            }
+            if (fs.existsSync(`skills/${flatPath}/skill-report.json`)) {
+              return flatPath;
+            }
+            return null;
+          }
+
+          function resolveSlug(skillPath) {
+            const reportPath = `skills/${skillPath}/skill-report.json`;
+            try {
+              const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+              if (typeof report?.meta?.slug === 'string' && report.meta.slug.trim()) {
+                return report.meta.slug.trim();
+              }
+            } catch {
+              // Fall back to path-derived slug below.
+            }
+
+            return skillPath.replace(/\//g, '-');
+          }
+
+          const commits = safeGit(['rev-list', '--reverse', `${baseSha}..HEAD`])
+            .split('\n')
+            .map((commit) => commit.trim())
+            .filter(Boolean);
+
+          const bySubmission = new Map();
+
+          for (const commit of commits) {
+            const body = safeGit(['log', '-1', '--format=%B', commit]);
+            const match = body.match(/\[submission:\s*([0-9a-f-]{36})\]/i);
+            if (!match) continue;
+
+            const submissionId = match[1].toLowerCase();
+            const changedPaths = safeGit(['diff-tree', '--no-commit-id', '--name-only', '-r', commit])
+              .split('\n')
+              .map((item) => item.trim())
+              .filter(Boolean);
+
+            for (const changedPath of changedPaths) {
+              const skillPath = resolveSkillPath(changedPath);
+              if (!skillPath) continue;
+
+              const slug = resolveSlug(skillPath);
+              if (syncedSlugs.size > 0 && !syncedSlugs.has(slug)) continue;
+
+              if (!bySubmission.has(submissionId)) {
+                bySubmission.set(submissionId, new Set());
+              }
+              bySubmission.get(submissionId).add(slug);
+            }
+          }
+
+          const payload = [...bySubmission.entries()]
+            .map(([submission_id, slugs]) => ({
+              submission_id,
+              skill_slugs: [...slugs].sort(),
+            }))
+            .filter((entry) => entry.skill_slugs.length > 0);
+
+          fs.writeFileSync('published-submissions.json', JSON.stringify(payload, null, 2));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `count=${payload.length}\n`);
+          console.log(`Resolved ${payload.length} published submission callback(s)`);
+          NODE
+
+      - name: Notify skillstore - Published submissions
+        if: steps.published_submissions.outputs.count != '' && steps.published_submissions.outputs.count != '0'
+        env:
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          SKILLSTORE_CALLBACK_TOKEN: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
+          WORKFLOW_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WORKFLOW_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$SKILLSTORE_API_URL" ] || [ -z "$SKILLSTORE_CALLBACK_TOKEN" ]; then
+            echo "::warning::Skillstore callback secrets are not configured; skipping published notifications"
+            exit 0
+          fi
+
+          jq -c '.[]' published-submissions.json | while read -r row; do
+            SUBMISSION_ID=$(echo "$row" | jq -r '.submission_id')
+            SKILL_SLUGS=$(echo "$row" | jq -c '.skill_slugs')
+
+            PAYLOAD=$(jq -n \
+              --arg submission_id "$SUBMISSION_ID" \
+              --argjson skill_slugs "$SKILL_SLUGS" \
+              --arg workflow_run_id "$WORKFLOW_RUN_ID" \
+              --arg workflow_run_url "$WORKFLOW_RUN_URL" \
+              '{
+                submission_id: $submission_id,
+                event: "published",
+                skill_slugs: $skill_slugs,
+                published_count: ($skill_slugs | length),
+                workflow_run_id: ($workflow_run_id | tonumber),
+                workflow_run_url: $workflow_run_url
+              }')
+
+            echo "📤 Notifying skillstore: submission $SUBMISSION_ID published ($SKILL_SLUGS)"
+            curl -sS -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
+              -H "Authorization: Bearer $SKILLSTORE_CALLBACK_TOKEN" \
+              -H "Content-Type: application/json" \
+              -H "User-Agent: GitHub-Actions/SkillstoreBot" \
+              -H "X-Skillstore-Callback: true" \
+              -d "$PAYLOAD" || echo "::warning::Failed to notify skillstore for $SUBMISSION_ID"
+          done
+
       - name: Upload synced slugs artifact
         if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_slugs != ''
         uses: actions/upload-artifact@v6

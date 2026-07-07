@@ -23,11 +23,26 @@ jobs:
         with:
           node-version: '24'
 
+      - name: Extract submission ID from PR body
+        id: extract_submission
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Extract submission ID from PR body: **Submission ID**: `UUID`
+          SUBMISSION_ID=$(echo "$PR_BODY" | grep -oE 'Submission ID.*`[0-9a-f-]{36}`' | grep -oE '[0-9a-f-]{36}' || echo "")
+          echo "submission_id=$SUBMISSION_ID" >> $GITHUB_OUTPUT
+          if [ -n "$SUBMISSION_ID" ]; then
+            echo "📋 Found submission ID: $SUBMISSION_ID"
+          else
+            echo "⚠️ No submission ID found in PR body"
+          fi
+
       - name: Find pending skills and commit to skills directory
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           REPOSITORY: ${{ github.repository }}
+          SUBMISSION_ID: ${{ steps.extract_submission.outputs.submission_id }}
         run: |
           set -euo pipefail
 
@@ -101,7 +116,12 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Approve skills:$SKILL_NAMES"
+            SUBMISSION_TAG=""
+            if [ -n "$SUBMISSION_ID" ]; then
+              SUBMISSION_TAG=" [submission: $SUBMISSION_ID]"
+            fi
+
+            git commit -m "Approve skills:$SKILL_NAMES$SUBMISSION_TAG"
 
             # Configure git remote URL with authentication token
             echo "🔑 Configuring git authentication..."
@@ -122,21 +142,6 @@ jobs:
               }
               sleep 2
             done
-          fi
-
-      - name: Extract submission ID from PR body
-        id: extract_submission
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-        run: |
-          # Extract submission ID from PR body: **Submission ID**: `UUID`
-          # Use grep with PCRE or sed to extract UUID pattern
-          SUBMISSION_ID=$(echo "$PR_BODY" | grep -oE 'Submission ID.*`[0-9a-f-]{36}`' | grep -oE '[0-9a-f-]{36}' || echo "")
-          echo "submission_id=$SUBMISSION_ID" >> $GITHUB_OUTPUT
-          if [ -n "$SUBMISSION_ID" ]; then
-            echo "📋 Found submission ID: $SUBMISSION_ID"
-          else
-            echo "⚠️ No submission ID found in PR body"
           fi
 
       - name: Notify skillstore - Merged
