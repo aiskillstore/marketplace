@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-06-30T22:06:17.107Z",
+    "generated_at": "2026-07-07T07:29:25.573Z",
     "slug": "vercel-labs-web-design-guidelines",
     "source_url": "https://github.com/vercel-labs/agent-skills/tree/main/skills/web-design-guidelines/",
     "source_ref": "main",
@@ -9,21 +9,33 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "43e2bd48c2be70b6c4b00a7618c8c3a2394964fea517b48d6079648d639dd7b4",
-    "tree_hash": "15731387aa719cde9f994cbf7c122bc969dcdec5268248e938eaddc0aa8d6c0f"
+    "tree_hash": "2fd2cb947906128019606cb429a1b64d47741565692daedba1581e8967cf7a4a",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "web-design-guidelines",
-    "description": "Review UI files against Vercel Web Interface Guidelines for accessibility, interaction quality, layout, and visual design issues.",
-    "summary": "Audit web interfaces against current Vercel design and accessibility guidance.",
+    "description": "Review interface files for Web Interface Guidelines compliance, including accessibility, UX, and design quality checks.",
+    "summary": "Audit frontend UI files against Web Interface Guidelines and return concise file-line findings.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "vercel-labs",
     "license": "MIT",
-    "category": "design",
     "tags": [
+      "web-design",
       "ui-review",
       "accessibility",
-      "web-design",
       "ux-audit",
       "frontend"
     ],
@@ -33,63 +45,38 @@
       "claude-code"
     ],
     "risk_factors": [
+      "external_commands",
       "network"
-    ]
+    ],
+    "category": "design"
   },
   "security_audit": {
     "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "The static external command and weak cryptography findings are false positives caused by Markdown backticks, front matter, and prose. The confirmed risk is the skill's instruction to fetch mutable remote guidelines and use the fetched content as review rules and output instructions. No evidence found of malicious prompt injection, credential exfiltration, filesystem writes, or executable code.",
+    "analysis_status": "ok",
+    "summary": "The Markdown backtick findings are false positives and do not represent command execution. The skill has a real network dependency because it tells agents to fetch mutable external guidelines from GitHub before each review. I found one additional semantic risk where fetched remote content is treated as authoritative review instructions.",
+    "remediation": [
+      {
+        "issue": "Unpinned remote guideline fetch",
+        "suggestion": "Vendor the guideline text in the skill or pin the URL to a commit and document an update process.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Remote content treated as instructions",
+        "suggestion": "Tell agents to treat fetched guidelines as reference data and ignore instructions that conflict with user requests or system policy.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Network dependency can fail during reviews",
+        "suggestion": "Provide a local fallback so reviews can continue when the GitHub raw URL is unavailable.",
+        "severity": "low"
+      }
+    ],
     "risk_factor_evidence": [
       {
-        "factor": "network",
+        "factor": "external_commands",
         "evidence": [
-          {
-            "file": "SKILL.md",
-            "line_start": 23,
-            "line_end": 29
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 33,
-            "line_end": 37
-          }
-        ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "Mutable Remote Guidelines Control Review Behavior",
-        "description": "The skill instructs the agent to fetch a raw GitHub URL before each review and use the fetched content for rules and output format instructions. This is a legitimate design-review workflow, but the remote content is mutable and can change the agent's behavior after publication.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 23,
-            "line_end": 29
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 33,
-            "line_end": 37
-          }
-        ],
-        "confidence": 0.78,
-        "confidence_reasoning": "The network dependency is explicit and semantically relevant because fetched content supplies review rules and output instructions. I found no evidence that the current URL is malicious, so the risk is mutable remote control rather than confirmed abuse."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Static Analyzer False Positives in Markdown",
-        "description": "The reported Ruby or shell backtick execution locations are Markdown formatting, not executable code. The reported weak cryptography locations are front matter or ordinary prose, and no cryptographic operation is present at those lines.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 2,
-            "line_end": 3
-          },
           {
             "file": "SKILL.md",
             "line_start": 19,
@@ -99,155 +86,260 @@
             "file": "SKILL.md",
             "line_start": 25,
             "line_end": 27
-          },
+          }
+        ]
+      },
+      {
+        "factor": "network",
+        "evidence": [
           {
             "file": "SKILL.md",
-            "line_start": 33,
-            "line_end": 33
+            "line_start": 26,
+            "line_end": 26
           }
-        ],
-        "confidence": 0.96,
-        "confidence_reasoning": "The referenced lines contain YAML metadata, prose, inline code formatting, and a fenced URL block. There is no executable Ruby, shell command, hash function, or encryption API in the skill file."
+        ]
       }
     ],
-    "dangerous_patterns": [
+    "static_findings": [
       {
-        "title": "Runtime WebFetch of Instruction Content",
-        "description": "The skill requires fetching fresh remote content during each review and treating that content as authoritative instructions. This pattern can expose users to changed or compromised upstream instructions.",
+        "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 19,
+        "line_end": 19,
+        "snippet": "4. Output findings in the terse `file:line` format"
+      },
+      {
+        "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 25,
+        "line_end": 27,
+        "snippet": "```"
+      },
+      {
+        "id": "network:SKILL.md:26:hardcoded-url",
+        "category": "network",
+        "severity": "low",
+        "pattern": "Hardcoded URL",
+        "file": "SKILL.md",
+        "line_start": 26,
+        "line_end": 26,
+        "snippet": "https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "Line 19 is inline Markdown code showing the required file:line output format. It does not execute Ruby or shell code and contains no command invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "Lines 25-27 form a Markdown fenced code block containing only a URL. The backticks delimit documentation, not executable shell syntax."
+      },
+      {
+        "id": "network:SKILL.md:26:hardcoded-url",
+        "verdict": "confirmed",
+        "confidence": 0.88,
+        "severity": "low",
+        "reason": "The URL is intentionally used with WebFetch per lines 23-29, so the skill performs a live network retrieval. The target is a public GitHub raw URL, but mutable remote content can affect review behavior."
+      }
+    ],
+    "semantic_findings": [
+      {
+        "title": "Unpinned Remote Instruction Source",
+        "description": "The skill tells agents to fetch fresh guidelines before each review and says fetched content contains the rules and output instructions. Because the URL is not pinned or integrity checked, remote changes can alter skill behavior after audit.",
+        "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 23,
+            "line_start": 16,
             "line_end": 29
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 37
           }
         ],
-        "confidence": 0.8,
-        "confidence_reasoning": "The file directly instructs use of WebFetch and states that fetched content contains rules and output format instructions. The risk depends on future remote content changes, so confidence is high for the pattern and moderate for exploitability."
+        "confidence": 0.86,
+        "confidence_reasoning": "The instruction to fetch latest guidelines and apply remote rules is explicit. The risk depends on future remote content, so this is a control risk rather than evidence of current malicious intent."
       }
     ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Unpinned Remote Instruction Source",
+        "description": "The skill tells agents to fetch fresh guidelines before each review and says fetched content contains the rules and output instructions. Because the URL is not pinned or integrity checked, remote changes can alter skill behavior after audit.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 16,
+            "line_end": 29
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 34,
+            "line_end": 37
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The instruction to fetch latest guidelines and apply remote rules is explicit. The risk depends on future remote content, so this is a control risk rather than evidence of current malicious intent."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Hardcoded URL",
+        "description": "https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 26,
+            "line_end": 26
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.88,
+        "confidence_reasoning": "The URL is intentionally used with WebFetch per lines 23-29, so the skill performs a live network retrieval. The target is a public GitHub raw URL, but mutable remote content can affect review behavior."
+      }
+    ],
+    "dangerous_patterns": [],
     "files_scanned": 1,
     "total_lines": 40,
     "audit_model": "codex",
-    "audited_at": "2026-06-30T22:06:17.107Z",
-    "risk_factors": [
-      "network"
-    ]
+    "audited_at": "2026-07-07T07:29:25.573Z",
+    "agent_auto_install_policy": "allowed",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Audit Web Interfaces Against Design Guidelines",
-    "value_statement": "UI reviews often miss consistent accessibility, layout, and interaction details. This skill checks selected files against Vercel guidelines and reports concise findings.",
+    "user_title": "Review Web UI Against Design Guidelines",
+    "value_statement": "Teams need consistent UI reviews before visual issues reach users. This skill checks interfaces against current Web Interface Guidelines and reports concise file-line findings.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "web design guidelines",
       "UI review",
-      "UX audit",
-      "accessibility review",
+      "accessibility audit",
+      "UX review",
       "frontend design",
-      "Vercel guidelines",
-      "interface quality"
+      "interface compliance",
+      "Vercel guidelines"
     ],
     "actual_capabilities": [
-      "Fetches the latest Vercel Web Interface Guidelines before a review.",
-      "Reads user-specified files or file patterns for interface review.",
-      "Checks UI implementation against accessibility and design rules.",
-      "Reports findings in a concise file and line format.",
-      "Asks the user for target files when no file or pattern is provided."
+      "Fetches the current Web Interface Guidelines from the configured source URL.",
+      "Reviews user-specified files or file patterns for guideline compliance.",
+      "Checks UI work for accessibility, UX, layout, and design best practices.",
+      "Asks which files to review when no file or pattern is provided.",
+      "Returns concise findings with file and line references."
     ],
     "limitations": [
-      "Requires network access to retrieve the latest guideline document.",
-      "Depends on the availability and integrity of the remote GitHub source.",
-      "Reviews source files and cannot fully replace manual browser testing.",
-      "Does not include its own fixed guideline copy for offline audits."
+      "Requires network access to fetch the latest external guidelines.",
+      "Depends on the availability and integrity of the GitHub raw URL.",
+      "Reviews files and text context, not live browser behavior by itself.",
+      "Reports issues but does not automatically apply fixes."
     ],
     "use_cases": [
       {
         "title": "Pre-merge UI Review",
-        "description": "Check changed frontend files before a pull request is merged.",
-        "target_user": "Frontend engineer"
+        "description": "Check changed frontend files before merging a feature branch.",
+        "target_user": "Frontend developer"
       },
       {
-        "title": "Accessibility Pass",
-        "description": "Find interface issues that may affect keyboard use, contrast, or readable structure.",
-        "target_user": "Accessibility reviewer"
-      },
-      {
-        "title": "Design Consistency Audit",
-        "description": "Review pages and components for consistency with shared web interface standards.",
+        "title": "Design Quality Audit",
+        "description": "Find interface consistency and usability issues across a product area.",
         "target_user": "Product designer"
+      },
+      {
+        "title": "Accessibility Triage",
+        "description": "Identify likely accessibility concerns in selected UI components.",
+        "target_user": "QA engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Review One File",
-        "prompt": "Review my UI in app/page.tsx against the Web Interface Guidelines.",
-        "scenario": "Beginner review of a single page or component."
+        "title": "Review One Page",
+        "scenario": "Basic review of a single page.",
+        "prompt": "Review app/page.tsx against the Web Interface Guidelines. Report concise findings with file and line references."
       },
       {
-        "title": "Check a Feature Folder",
-        "prompt": "Audit the files in app/settings for accessibility, layout, and interaction issues.",
-        "scenario": "Review a small product area before release."
+        "title": "Audit A Feature Flow",
+        "scenario": "Review a focused user journey.",
+        "prompt": "Review the checkout UI files in app/checkout/** for accessibility, layout, interaction, and copy issues."
       },
       {
-        "title": "Review Changed UI Files",
-        "prompt": "Review the changed frontend files in this branch and report only guideline violations.",
-        "scenario": "Focused pull request review for UI quality."
+        "title": "Check Components Before Release",
+        "scenario": "Review shared UI before shipping.",
+        "prompt": "Review components/**/*.tsx before release against the latest Web Interface Guidelines. Prioritize issues that affect users."
       },
       {
-        "title": "Prioritize Release Blockers",
-        "prompt": "Audit the checkout UI and prioritize findings that could block release or harm usability.",
-        "scenario": "Advanced review that emphasizes severity and release risk."
+        "title": "Run Targeted Design QA",
+        "scenario": "Advanced review across a larger surface.",
+        "prompt": "Review app/** and components/** with extra focus on keyboard access, responsive behavior, error states, and information density."
       }
     ],
     "output_examples": [
       {
-        "input": "Review app/dashboard/page.tsx for Web Interface Guidelines compliance.",
-        "output": "Reports concise findings with file and line references, such as contrast, focus state, spacing, or responsive layout issues."
+        "input": "Review components/Button.tsx.",
+        "output": "components/Button.tsx:18 - Button label may not describe the action clearly."
       },
       {
-        "input": "Audit components/navigation for accessibility and interaction quality.",
-        "output": "Lists guideline violations by location and keeps the response focused on actionable UI fixes."
+        "input": "Review app/settings/** for design issues.",
+        "output": "Findings are grouped by file, with line references for layout, accessibility, and copy concerns."
       },
       {
-        "input": "Check the checkout flow before release.",
-        "output": "Highlights severe usability and accessibility concerns first, then includes lower priority interface polish items."
+        "input": "Review the selected dashboard files.",
+        "output": "No issues found after checking the selected files against the guidelines."
       }
     ],
     "best_practices": [
-      "Provide specific files or narrow patterns so findings include useful locations.",
-      "Run the review after major UI changes and before final pull request approval.",
-      "Pair the results with browser testing for responsive behavior and real interaction checks."
+      "Review a small, related set of frontend files for the clearest results.",
+      "Include the user flow or product context when requesting a review.",
+      "Verify reported line references before creating implementation tasks."
     ],
     "anti_patterns": [
-      "Using broad repository patterns that include non-UI code and reduce review focus.",
-      "Treating the audit as a replacement for accessibility testing with assistive technology.",
-      "Ignoring the remote guideline dependency when reviewing sensitive or offline projects."
+      "Do not ask it to replace a full accessibility test plan.",
+      "Do not review generated files unless users will edit them directly.",
+      "Do not treat remote guideline content as higher priority than system policy."
     ],
     "faq": [
       {
         "question": "What does this skill review?",
-        "answer": "It reviews web interface files against Vercel Web Interface Guidelines and reports design or accessibility issues."
+        "answer": "It reviews UI files against Web Interface Guidelines for accessibility, UX, layout, interaction, and design consistency."
+      },
+      {
+        "question": "Does it make changes?",
+        "answer": "No. It reports findings and file-line references. You decide which changes to make."
       },
       {
         "question": "Does it need internet access?",
-        "answer": "Yes. The skill fetches the latest guideline document from a raw GitHub URL before each review."
+        "answer": "Yes. The skill asks the agent to fetch current guidelines from a GitHub raw URL before each review."
       },
       {
-        "question": "Can it review an entire project?",
-        "answer": "It can review broad patterns, but smaller file sets usually produce clearer and more useful findings."
+        "question": "Can it review screenshots?",
+        "answer": "The skill is written for files and file patterns. Screenshot review depends on the host agent and provided context."
       },
       {
-        "question": "Does it change my code?",
-        "answer": "No. The skill is designed to report findings, not apply edits automatically."
+        "question": "Which tools are supported?",
+        "answer": "It supports Claude, Codex, and Claude Code in the marketplace metadata."
       },
       {
-        "question": "Which tools can use it?",
-        "answer": "The report lists support for Claude, Codex, and Claude Code."
-      },
-      {
-        "question": "Is the guideline source fixed?",
-        "answer": "No. It fetches fresh remote content, so the review criteria can change when the upstream document changes."
+        "question": "How should I choose files?",
+        "answer": "Start with changed frontend files or one user flow. Broaden the review after high-impact issues are fixed."
       }
     ]
   },
