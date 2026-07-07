@@ -31,6 +31,7 @@ const WRAPPER = join(REPO_ROOT, 'scripts', 'recalculate-scores.sh');
 const FAKE_CLI = join(REPO_ROOT, 'scripts', 'tests', 'fake-cli.sh');
 const RECALCULATE_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'recalculate-scores.yml');
 const SYNC_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'sync-to-supabase.yml');
+const MONITOR_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'monitor-skill-sources.yml');
 const DOWNLOAD_CLI_ACTION = join(REPO_ROOT, '.github', 'actions', 'download-skillstore-cli', 'action.yml');
 
 function runWrapper({
@@ -385,4 +386,14 @@ test('download action invalidates stale local CLI cache entries', () => {
 	assert.match(action, /EXPECTED_VERSION=\$\{RELEASE_TAG#cli-v\}/, 'expected version must come from the resolved release tag');
 	assert.match(action, /rm -f "\$CACHE_FILE" "\$GITHUB_WORKSPACE\/skillstore-cli"/, 'stale local cache must be removed so the Download CLI step runs');
 	assert.match(action, /cache-hit=false/, 'stale local cache must flip cache-hit back to false');
+});
+
+test('source monitor requires checkout-cache-capable CLI before scanning', () => {
+	const workflow = readFileSync(MONITOR_WORKFLOW, 'utf8');
+	assert.match(workflow, /checkout cache requires >=1\.50\.15/, 'operator-facing input text must call out the minimum cache-capable CLI');
+	assert.match(workflow, /MONITOR_HELP=/, 'workflow must feature-probe monitor-upstream once before building the command');
+	assert.match(workflow, /grep -q -- '--checkoutCacheDir' <<<"\$MONITOR_HELP"/, 'workflow must check for checkout cache support');
+	assert.match(workflow, /Older CLI versions re-download upstream checkouts and burn runner\/network traffic/, 'old CLI must fail before expensive upstream downloads');
+	assert.match(workflow, /exit 1/, 'missing checkout cache support must stop the scan');
+	assert.doesNotMatch(workflow, /upstream checkouts will not use the persistent runner cache/, 'workflow must not silently continue without checkout caching');
 });
