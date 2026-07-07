@@ -4,13 +4,13 @@ slug: aaron-report-generator
 displayName: "Report Generator · 报告生成"
 summary: "面向干系人的营销活动报告:叙事结构、图表建议与洞察提炼"
 description: 'Use when the user asks to "create a campaign report", "build an executive summary", or "deliver client results"; produces audience-tailored influencer marketing reports (executive, client, internal team) with data tables, narrative, key learnings, and recommendations. Not for raw metric computation — use performance-analyzer.'
-version: "16.0.0"
+version: "16.0.1"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Activate after a campaign or reporting period ends and the user needs a written report for a specific stakeholder. Triggers include post-campaign wrap-ups, executive or board summaries, client-facing results decks, internal team retrospectives, and monthly or quarterly performance reports. Pick this when the inputs are already-computed metrics that need structure, narrative, and recommendations for a named audience."
 argument-hint: "<campaign name> [audience: executive|client|team|board]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "influencer", "phase": "measure", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "measure"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.1", "discipline": "influencer", "phase": "measure", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "measure"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Report Generator
@@ -121,10 +121,3 @@ Increase Q1 influencer budget by 25%, focused on TikTok micro-influencers and pr
 - [roi-calculator](../roi-calculator/SKILL.md) — recompute return figures if the financial inputs changed.
 
 **Termination note** (visited-set): if a recommended skill has already been invoked this session, stop and report the chain as complete instead of re-running it. Honor a max chain depth of 3 hops to avoid loops.
-
-## Related Skills
-
-- [performance-analyzer](../performance-analyzer/SKILL.md) - Generate data for reports
-- [roi-calculator](../roi-calculator/SKILL.md) - Calculate ROI figures
-- [campaign-planner](../../plan/campaign-planner/SKILL.md) - Reference original plans
-- [content-amplifier](../../activate/content-amplifier/SKILL.md) - Report on amplification results
