@@ -1,3 +1,8 @@
+---
+name: draft-commit
+description: Create a thoughtful, supportive commit message from your staged changes.
+---
+
 # Draft a Commit
 
 Create a thoughtful, supportive commit message from your staged changes.
