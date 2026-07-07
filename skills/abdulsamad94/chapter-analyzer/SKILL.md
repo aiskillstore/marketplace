@@ -1,5 +1,5 @@
 ---
-name: chapter-analyzer
+name: Chapter Analyzer
 description: Validates and analyzes Docusaurus MDX chapters for structure, pedagogical quality, and component usage.
 ---
 

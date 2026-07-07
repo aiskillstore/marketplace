@@ -1,16 +1,16 @@
 ---
 name: trend-spotter
-slug: aaron-trend-spotter
+slug: trend-spotter
 displayName: "Trend Spotter · 趋势侦察"
 summary: "排名化趋势报告:品牌契合评分、rising/peak/declining 判断与 go/skip 建议"
-description: 'Use when the user asks to "find trending topics", "what trends should my brand jump on", or "time a campaign around a cultural moment"; produces a ranked trend report with brand-fit scores, format calls (rising/peak/declining), a cultural calendar, and go/skip recommendations. Not for finding the creators to run those trends — use influencer-discovery.'
-version: "13.0.0"
+description: 'Use when the user asks to "find trending topics", "what trends should my brand jump on", or "time a campaign around a cultural moment"; produces a ranked trend report with brand-fit scores, format calls (rising/peak/declining), a cultural calendar, and go/skip recommendations. Not for finding the creators to run those trends — use influencer-discovery; not for building the brand posting calendar from a go verdict — use social-calendar-builder.'
+version: "16.0.1"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when planning campaign timing and themes, deciding whether to join a hashtag, sound, or challenge, scouting trending content formats on a platform, mapping upcoming cultural moments to lead times, or checking which trends competitors have adopted or missed. Auto-activate when the request is about what is trending, what to post around, or when to act."
 argument-hint: "<brand or industry> [platform] [time horizon]"
-metadata: {"author": "aaron-he-zhu", "version": "13.0.0", "discipline": "influencer", "phase": "discover", "family": "influencer-marketing", "impact-phase": "Insight", "hermes": {"tags": ["marketing", "influencer", "discover"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.1", "discipline": "influencer", "phase": "discover", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "discover"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Trend Spotter
@@ -95,6 +95,6 @@ Output names the top trends to act on now — e.g. "Hot Girl Walk" Evolution (2.
 
 - **Primary**: [influencer-discovery](../influencer-discovery/SKILL.md) — turn the chosen trends into a shortlist of creators who can execute them.
 - **Alternate**: [audience-mapper](../audience-mapper/SKILL.md) — confirm which trends actually resonate with your audience before committing.
-- **Alternate**: [audience-mapper](../audience-mapper/SKILL.md) — dig into niche-specific trend pockets the broad scan missed.
+- **Alternate**: [fit-scorer](../fit-scorer/SKILL.md) — score which creators fit the chosen trends and the brand before committing.
 
 Termination: keep a visited-set of skills invoked this session. If the primary next skill was already run this turn, stop and report the chain complete rather than re-invoking. Max handoff depth is 3; once reached, summarize and return control to the user.
