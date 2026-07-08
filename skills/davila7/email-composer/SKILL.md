@@ -1,5 +1,5 @@
 ---
-name: email-composer
+name: Email Composer
 description: Draft professional emails for various contexts including business, technical, and customer communication. Use when the user needs help writing emails or composing professional messages.
 ---
 
