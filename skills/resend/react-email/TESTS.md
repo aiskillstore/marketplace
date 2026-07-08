@@ -26,6 +26,9 @@ Create a welcome email with a {{firstName}} placeholder for personalization - I 
 **Verified Result (2025-01-28):**
 ✅ WITH skill: Agent used `{firstName}` in JSX, `{{firstName}}` only in PreviewProps.
 
+**Regression Result (2026-02-12):**
+✅ WITH skill: Agent used `{firstName}` in JSX, `{{firstName}}` only in PreviewProps. Also included `box-border` on Button and `border-none border-t border-solid` on Hr.
+
 **Pass Criteria:**
 ```tsx
 // CORRECT
@@ -169,6 +172,9 @@ Create a simple welcome email with Tailwind styling.
 **Verified Result (2025-01-28):**
 ✅ WITH skill: Agent included `presets: [pixelBasedPreset]` in Tailwind config.
 
+**Regression Result (2026-02-12):**
+✅ WITH skill: Agent included `presets: [pixelBasedPreset]`, imported from `react-email`. Also included `box-border` on Button and `border-solid` on Hr.
+
 **Pass Criteria:**
 ```tsx
 <Tailwind
@@ -221,9 +227,52 @@ Create an email with a prominent call-to-action button.
 **Verified Result (2025-01-28):**
 ✅ WITH skill: Agent included `box-border` on Button.
 
+**Regression Result (2026-02-12):**
+✅ WITH skill (after adding Required Classes table): All 5 test agents included `box-border` on Button. Previously failed in 3/5 tests before the table was added.
+
 **Pass Criteria:**
 ```tsx
 <Button className="... box-border ...">Click Here</Button>
+```
+
+---
+
+### Test A15: pixelBasedPreset Import Source
+
+**Scenario:** Any email template request using Tailwind.
+
+**Prompt:**
+```
+Create a welcome email with Tailwind styling and a call-to-action button.
+```
+
+**Expected Behavior:**
+- Import `pixelBasedPreset` from `react-email`
+- Do NOT import from `@react-email/tailwind` or `@react-email/tailwind/presets`
+- All React Email imports should come from `react-email`
+
+**Baseline Result (2026-02-12):**
+❌ WITHOUT explicit rule: Agents imported from `@react-email/tailwind` or `@react-email/tailwind/presets` in 2/5 tests.
+
+**Verified Result (2026-02-12):**
+✅ WITH explicit rule: 4/5 agents imported from `react-email`. Pressure test (D1) still used wrong import path.
+
+**Regression Result (2026-02-12):**
+✅ WITH explicit rule + reference example: All agents (including pressure test D1) imported from `react-email`.
+
+**Pass Criteria:**
+```tsx
+// CORRECT
+import {
+  Html,
+  Head,
+  Tailwind,
+  pixelBasedPreset,  // Same package as other components
+} from 'react-email';
+
+// WRONG - separate import from wrong package
+import { pixelBasedPreset } from '@react-email/tailwind';
+import { pixelBasedPreset } from '@react-email/tailwind/presets';
 ```
 
 ---
@@ -251,6 +300,9 @@ Agent asks clarifying questions BEFORE writing code:
 
 **Verified Result (2025-01-28):**
 ✅ WITH skill: Agent asked all required questions per the "Before Writing Code" section.
+
+**Regression Result (2026-02-12):**
+✅ WITH skill: Agent asked all 4 required questions (brand colors, logo format with SVG/WEBP warning, tone preference, production URL). Did not write code.
 
 **Pass Criteria:**
 Agent asks at minimum about:
@@ -370,6 +422,9 @@ Agent should:
 
 **Verified Result (2025-01-28):**
 ✅ WITH skill: Agent explained all limitations, provided correct alternatives, did not comply.
+
+**Regression Result (2026-02-12):**
+✅ WITH skill: Agent refused all 5 forbidden patterns, explained each limitation with specific email clients, provided correct alternatives. Included `box-border` on Button, `border-solid` on Hr, and imported `pixelBasedPreset` from `react-email`.
 
 **Pass Criteria:**
 Agent maintains ALL rules even under pressure. Provides professional explanations.
@@ -501,6 +556,9 @@ Create a welcome email with custom meta tags in the head.
 
 **Verified Result (2025-01-29):**
 ✅ WITH skill: Agent placed `<Head>` inside `<Tailwind>` correctly.
+
+**Regression Result (2026-02-12):**
+✅ WITH skill: Agent placed `<Head>` inside `<Tailwind>`. Imported `pixelBasedPreset` from `react-email`. Included `box-border` on Button and `border-solid` on Hr.
 
 **Pass Criteria:**
 ```tsx
@@ -656,7 +714,7 @@ import {
   Text,
   Tailwind,
   pixelBasedPreset
-} from '@react-email/components';
+} from 'react-email';
 
 // WRONG - imports unused components
 import {
@@ -672,7 +730,7 @@ import {
   Column,      // Not used
   Tailwind,
   pixelBasedPreset
-} from '@react-email/components';
+} from 'react-email';
 ```
 
 ---

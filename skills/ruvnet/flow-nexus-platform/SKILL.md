@@ -1,10 +1,7 @@
 ---
 name: flow-nexus-platform
-description: Comprehensive Flow Nexus platform management - authentication, sandboxes, app deployment, payments, and challenges
-category: platform
-version: 1.0.0
-author: Flow Nexus
-tags: [authentication, sandboxes, deployment, payments, gamification, cloud]
+description: |
+  Comprehensive Flow Nexus platform management - authentication, sandboxes, app deployment, payments, and challenges
 ---
 
 # Flow Nexus Platform Management

@@ -32,7 +32,7 @@ To upload straight to an existing organization instead, get `SCREENCI_SECRET` in
 
 - Recording runs with local Playwright.
 - `record` uploads every successful recording, with or without `SCREENCI_SECRET` set.
-- Without an account, or on the free tier, renders include a ScreenCI watermark; after upload `record` prints a link that removes it.
+- Without an account, or on the free tier, renders include a ScreenCI watermark.
 - Playwright arguments can be passed through after the command.
 - After a successful `record`, report the URL it printed (starts with the app's domain, e.g. `https://app.screenci.com/record/...`) back to the user so they can open it. Without a `SCREENCI_SECRET`, this is also how they view and claim the anonymous trial recording.
 

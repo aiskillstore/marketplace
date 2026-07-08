@@ -1,10 +1,7 @@
 ---
 name: performance-analysis
-version: 1.0.0
-description: Comprehensive performance analysis, bottleneck detection, and optimization recommendations for Claude Flow swarms
-category: monitoring
-tags: [performance, bottleneck, optimization, profiling, metrics, analysis]
-author: Claude Flow Team
+description: |
+  Comprehensive performance analysis, bottleneck detection, and optimization recommendations for Claude Flow swarms
 ---
 
 # Performance Analysis Skill
