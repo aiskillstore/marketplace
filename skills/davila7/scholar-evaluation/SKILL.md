@@ -1,3 +1,9 @@
+---
+name: scholar-evaluation
+description: Evaluate scholarly work using ScholarEval rubrics for research questions, literature, methodology, data, analysis, writing, and citations.
+license: MIT
+---
+
 # Scholar Evaluation
 
 ## Overview

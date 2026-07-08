@@ -1,5 +1,5 @@
 ---
-name: Error Resolver
+name: error-resolver
 description: Systematic error diagnosis and resolution using first-principle analysis. Use when encountering any error message, stack trace, or unexpected behavior. Supports replay functionality to record and reuse solutions.
 ---
 
