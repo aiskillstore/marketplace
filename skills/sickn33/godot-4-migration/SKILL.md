@@ -1,8 +1,9 @@
 ---
 name: godot-4-migration
-description: Specialized guide for migrating Godot 3.x projects to Godot 4 (GDScript 2.0), covering syntax changes, Tweens, and exports.
+description: "Specialized guide for migrating Godot 3.x projects to Godot 4 (GDScript 2.0), covering syntax changes, Tweens, and exports."
 risk: safe
 source: community
+date_added: "2026-02-27"
 ---
 
 # Godot 4 Migration Guide
@@ -124,3 +125,8 @@ await get_tree().create_timer(1.0).timeout
 
 **Problem:** "Identifier 'Tween' is not a valid type."
 **Solution:** `Tween` is now `SceneTreeTween` or just an object returned by `create_tween()`. You rarely type it explicitly, just use `var tween = create_tween()`.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

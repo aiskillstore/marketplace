@@ -1,12 +1,9 @@
 ---
 name: flutter-expert
-description: Master Flutter development with Dart 3, advanced widgets, and
-  multi-platform deployment. Handles state management, animations, testing, and
-  performance optimization for mobile, web, desktop, and embedded platforms. Use
-  PROACTIVELY for Flutter architecture, UI implementation, or cross-platform
-  features.
-metadata:
-  model: inherit
+description: Master Flutter development with Dart 3, advanced widgets, and multi-platform deployment.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 ## Use this skill when
@@ -198,3 +195,8 @@ Expert Flutter developer specializing in Flutter 3.x+, Dart 3.x, and comprehensi
 - "Create accessible widgets following Material Design 3 guidelines"
 
 Always use null safety with Dart 3 features. Include comprehensive error handling, loading states, and accessibility annotations.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

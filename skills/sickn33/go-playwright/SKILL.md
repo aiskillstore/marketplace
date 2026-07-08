@@ -1,8 +1,9 @@
 ---
 name: go-playwright
-description: Expert capability for robust, stealthy, and efficient browser automation using Playwright Go.
+description: "Expert capability for robust, stealthy, and efficient browser automation using Playwright Go."
 risk: safe
-source: https://github.com/playwright-community/playwright-go
+source: "https://github.com/playwright-community/playwright-go"
+date_added: "2026-02-27"
 ---
 
 # Playwright Go Automation Expert
@@ -67,7 +68,6 @@ To bypass anti-bot systems (Cloudflare, Akamai), the generated code must **imita
 
 ## Resources
 - `resources/implementation-playbook.md` for detailed code examples and implementation patterns.
-
 
 ### Summary Checklist for Agent
  - Is Debug Mode on? -> `Headless=false`, `SlowMo=100+`.

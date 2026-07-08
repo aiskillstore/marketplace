@@ -1,6 +1,9 @@
 ---
 name: frontend-mobile-security-xss-scan
 description: "You are a frontend security specialist focusing on Cross-Site Scripting (XSS) vulnerability detection and prevention. Analyze React, Vue, Angular, and vanilla JavaScript code to identify injection poi"
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # XSS Vulnerability Scanner for Frontend Code
@@ -320,3 +323,8 @@ class XSSReportGenerator {
 5. **Prevention Checklist**: Best practices for XSS prevention
 
 Focus on identifying XSS attack vectors, providing actionable fixes, and establishing secure coding patterns.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
