@@ -1,10 +1,15 @@
 ---
 name: active-directory-attacks
-description: This skill should be used when the user asks to "attack Active Directory", "exploit AD", "Kerberoasting", "DCSync", "pass-the-hash", "BloodHound enumeration", "Golden Ticket", "Silver Ticket", "AS-REP roasting", "NTLM relay", or needs guidance on Windows domain penetration testing.
-metadata:
-  author: zebbern
-  version: "1.1"
+description: "Provide comprehensive techniques for attacking Microsoft Active Directory environments. Covers reconnaissance, credential harvesting, Kerberos attacks, lateral movement, privilege escalation, and domain dominance for red team operations and penetration testing."
+risk: offensive
+source: community
+author: zebbern
+date_added: "2026-02-27"
 ---
+
+> AUTHORIZED USE ONLY: Use this skill only for authorized security assessments, defensive validation, or controlled educational environments.
+
+<!-- security-allowlist: credential-extraction, kerberos-attacks -->
 
 # Active Directory Attacks
 
@@ -381,3 +386,6 @@ python3 printerbug.py domain.local/user:pass@target 10.10.10.12
 ## Additional Resources
 
 For advanced techniques including delegation attacks, GPO abuse, RODC attacks, SCCM/WSUS deployment, ADCS exploitation, trust relationships, and Linux AD integration, see [references/advanced-attacks.md](references/advanced-attacks.md).
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.

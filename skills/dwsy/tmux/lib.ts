@@ -383,7 +383,9 @@ Examples:
   }
 }
 
-main().catch(err => {
-  console.error("Error:", err.message);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch(err => {
+    console.error("Error:", err.message);
+    process.exit(1);
+  });
+}

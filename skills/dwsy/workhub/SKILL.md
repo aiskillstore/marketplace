@@ -13,85 +13,49 @@ description: 工作文档枢纽，强制执行 SSOT（Single Source of Truth）�
 |---------|------|---------|
 | **技能目录** | `~/.pi/agent/skills/workhub/` | 固定位置 |
 | **主脚本** | `~/.pi/agent/skills/workhub/lib.ts` | 技能目录 |
-| **模板目录** | `~/.pi/agent/skills/workhub/templates/` | 技能目录 |
 | **项目文档目录** | `./docs/` | **工作目录** (执行命令时的当前目录) |
-
-## 重要区分
-
-```
-注意：这是两个完全不同的目录！
-
-1. 脚本位置（固定）：~/.pi/agent/skills/workhub/lib.ts
-   - 这个文件在技能安装目录中，不会移动
-
-2. 文档位置（可变）：./docs/
-   - 这个目录在**执行命令时的当前目录**中
-   - 即用户的项目根目录
-```
 
 ## 标准文档结构
 
 ```
 docs/
-├── adr/                  # 架构决策记录 (Architecture Decision Records)
-│   └── yyyymmdd-[decision].md
+├── adr/                  # 架构决策记录
 ├── architecture/         # 架构设计文档
-│   ├── boundaries.md
-│   └── data-flow.md
-├── issues/               # 任务跟踪 (GitHub Issues 风格)
-│   ├── [模块分类]/        # 可选：按职责模块分类（前端/后端/数据库等）
+├── issues/               # 任务跟踪
+│   ├── [模块分类]/        # 可选：按模块分类
 │   │   └── yyyymmdd-[描述].md
-│   └── yyyymmdd-[描述].md  # 或直接在 issues/ 根目录
-├── pr/                   # 变更记录 (GitHub PR 风格)
-│   ├── [模块分类]/        # 可选：按职责模块分类（前端/后端/数据库等）
+│   └── yyyymmdd-[描述].md
+├── pr/                   # 变更记录
+│   ├── [模块分类]/
 │   │   └── yyyymmdd-[描述].md
-│   └── yyyymmdd-[描述].md  # 或直接在 pr/ 根目录
+│   └── yyyymmdd-[描述].md
 └── guides/               # 使用指南
-    └── [topic].md
 ```
-
-**说明：**
-- `issues/` 和 `pr/` 目录可以包含子目录分类
-- 常见分类方式：按职责模块（前端/后端/数据库/运维）、按功能模块（用户系统/订单系统/支付系统）
-- 如果项目规模较小，可以直接在 `issues/` 和 `pr/` 根目录下创建文件
-- 如果项目规模较大或有明确模块划分，建议使用子目录分类
 
 ## 调用命令
 
 ```bash
-# 正确方式 1：从项目目录执行（推荐）
+# 正确方式：从项目目录执行
 cd /path/to/your/project
-~/.pi/agent/skills/workhub/lib.ts tree     # 查看文档结构
-~/.pi/agent/skills/workhub/lib.ts audit    # 审计文档规范
-~/.pi/agent/skills/workhub/lib.ts read conventions  # 读取文档
-~/.pi/agent/skills/workhub/lib.ts init     # 初始化文档结构
-
-# 正确方式 2：从技能目录执行
-cd ~/.pi/agent/skills/workhub
-bun run lib.ts tree
-bun run lib.ts audit
-
-# 错误方式：假设 lib.ts 在当前目录
-cd /path/to/your/project
-bun run lib.ts tree   # 错误：lib.ts 在 ~/.pi/agent/skills/workhub/，不在当前目录！
+~/.pi/agent/skills/workhub/lib.ts <command>
 ```
 
 ## 文档操作
 
-### 1. 初始化文档结构 (`init`)
+### 1. 初始化 (`init`)
 创建标准文档目录结构。
 ```bash
 ~/.pi/agent/skills/workhub/lib.ts init
 ```
 
-### 2. 查看文档结构 (`tree`)
+### 2. 查看结构 (`tree`)
 显示文档目录树。
 ```bash
 ~/.pi/agent/skills/workhub/lib.ts tree
 ```
 
-### 3. 审计文档规范 (`audit`)
-检查 `docs/` 文件夹是否遵循标准文档治理规范。
+### 3. 审计规范 (`audit`)
+检查 `docs/` 文件夹是否遵循标准规范。
 ```bash
 ~/.pi/agent/skills/workhub/lib.ts audit
 ```
@@ -99,28 +63,18 @@ bun run lib.ts tree   # 错误：lib.ts 在 ~/.pi/agent/skills/workhub/，不在
 ### 4. 读取文档 (`read`)
 通过关键词或相对路径读取文档。
 ```bash
-~/.pi/agent/skills/workhub/lib.ts read conventions
-~/.pi/agent/skills/workhub/lib.ts read architecture/boundaries.md
 ~/.pi/agent/skills/workhub/lib.ts read issues/20250106-添加深色模式.md
 ```
 
 ### 5. 创建 Issue (`create issue`)
 创建新的 Issue 文件，自动使用模板。
 ```bash
-# 方式 1：在 issues/ 根目录创建
-~/.pi/agent/skills/workhub/lib.ts create issue "添加深色模式"
-
-# 方式 2：在子目录中创建（自动创建目录）
 ~/.pi/agent/skills/workhub/lib.ts create issue "添加深色模式" 前端
 ```
 
 ### 6. 创建 PR (`create pr`)
 创建新的 PR 文件，自动使用模板。
 ```bash
-# 方式 1：在 pr/ 根目录创建
-~/.pi/agent/skills/workhub/lib.ts create pr "修复登录bug"
-
-# 方式 2：在子目录中创建（自动创建目录）
 ~/.pi/agent/skills/workhub/lib.ts create pr "修复登录bug" 后端
 ```
 
@@ -136,7 +90,7 @@ bun run lib.ts tree   # 错误：lib.ts 在 ~/.pi/agent/skills/workhub/，不在
 ~/.pi/agent/skills/workhub/lib.ts list prs
 ```
 
-### 9. 查看整体状态 (`status`)
+### 9. 查看状态 (`status`)
 显示所有 Issues 和 PRs 的状态概览。
 ```bash
 ~/.pi/agent/skills/workhub/lib.ts status
@@ -154,13 +108,8 @@ bun run lib.ts tree   # 错误：lib.ts 在 ~/.pi/agent/skills/workhub/，不在
 
 ```
 1. 创建 Issue 文件 (使用模板)
-   方式 1：直接在 issues/ 根目录（适合小型项目）
    → docs/issues/yyyymmdd-[描述].md
-   示例: docs/issues/20250106-添加深色模式.md
-
-   方式 2：在子目录中创建（适合有模块划分的项目）
-   → docs/issues/[模块分类]/yyyymmdd-[描述].md
-   示例: docs/issues/前端/20250106-添加深色模式.md
+   或 docs/issues/[模块分类]/yyyymmdd-[描述].md
 
 2. 填写 Goal、Phases、Acceptance Criteria
 
@@ -172,84 +121,27 @@ bun run lib.ts tree   # 错误：lib.ts 在 ~/.pi/agent/skills/workhub/，不在
 
 4. 完成后创建 PR 文件
    → docs/pr/yyyymmdd-[描述].md
-   或 docs/pr/[模块分类]/yyyymmdd-[描述].md
 
-5. PR 文件关联 Issue 文件名（包含完整路径）
+5. PR 文件关联 Issue 文件名
    → 包含回滚计划、测试验证
 ```
 
-### Issue 模板结构
+### PR 工作流
 
-```markdown
-# Issue: [标题]
-
-## 元数据
-- 文件名: yyyymmdd-[描述].md
-- 状态: 待办 / 进行中 / 已完成
-- 优先级: P0 / P1 / P2 / P3
-
-## Goal
-[一句话描述最终状态]
-
-## 验收标准
-- [ ] WHEN [条件]，系统 SHALL [行为]
-- [ ] WHERE [上下文]，系统 SHALL [行为]
-
-## 实施阶段
-### Phase 1: 规划和准备
-- [ ] [子任务 1]
-- [ ] [子任务 2]
-
-### Phase 2: 执行
-- [ ] [子任务 3]
-- [ ] [子任务 4]
-
-## 关键决策
-| 决策 | 理由 |
-|------|------|
-
-## 遇到的错误
-| 日期 | 错误 | 解决方案 |
-
-## Notes
-[研究过程、临时想法]
-
-## Status 更新日志
-- [日期]: 状态变更 → [新状态]
 ```
+1. 创建 PR 文件 (使用模板)
+   → docs/pr/yyyymmdd-[描述].md
+   或 docs/pr/[模块分类]/yyyymmdd-[描述].md
 
-### PR 模板结构
+2. 填写背景、变更内容、测试验证、回滚计划
 
-```markdown
-# [Pull Request 标题]
+3. 关联 Issue 文件名
+   → 在 "关联 Issue" 中填写完整路径
 
-> 简明扼要描述本次变更的核心目的
-
-## 背景与目的 (Why)
-<!-- 说明为什么要进行本次变更 -->
-
-## 变更内容概述 (What)
-<!-- 列出主要修改点 -->
-
-## 关联 Issue 与 ToDo 条目 (Links)
-- **Issues:** `docs/issues/yyyymmdd-[描述].md`
-- **ToDo:** [可选] `docs/todolist/xxx系统/yyyymmdd-xxx.md`
-
-## 测试与验证结果 (Test Result)
-- [ ] 单元测试通过
-- [ ] 集成测试验证
-- [ ] 手动回归测试通过
-
-## 风险与影响评估 (Risk Assessment)
-<!-- 说明可能的风险点、影响范围 -->
-
-## 回滚方案 (Rollback Plan)
-<!-- 如果出现问题，如何快速回退到稳定版本 -->
+4. 代码审查和合并
+   → 记录审查日志
+   → 更新最终状态
 ```
-
-## Markdown 风格
-
-Issues 和 PRs 文件使用 Markdown 格式，支持 Mermaid 图表。
 
 ## 核心原则
 
@@ -281,7 +173,7 @@ Issues 和 PRs 文件使用 Markdown 格式，支持 Mermaid 图表。
 # 1. 初始化文档结构（首次）
 ~/.pi/agent/skills/workhub/lib.ts init
 
-# 2. 创建 Issue 文件（推荐方式）
+# 2. 创建 Issue 文件
 ~/.pi/agent/skills/workhub/lib.ts create issue "添加深色模式" 前端
 
 # 3. 编辑文件，填写 Goal、Phases、Acceptance Criteria
@@ -298,69 +190,29 @@ Issues 和 PRs 文件使用 Markdown 格式，支持 Mermaid 图表。
 
 # 3. 遇到错误时记录
 # 在 "Errors Encountered" 表格中添加记录
-
-# 4. 研究发现保存到 Notes
 ```
 
 ### 创建 PR
 
 ```bash
-# 1. 创建 PR 文件（推荐方式）
+# 1. 创建 PR 文件
 ~/.pi/agent/skills/workhub/lib.ts create pr "添加深色模式" 前端
 
 # 2. 编辑文件，填写变更内容、测试验证、回滚计划
 
 # 3. 关联 Issue 文件名
-# 在 "关联 Issue 与 ToDo 条目" 中填写:
-# - Issues: docs/issues/前端/20250106-添加深色模式.md
+# 在 "关联 Issue" 中填写完整路径
 ```
 
-### 查看状态
+### 错误恢复模式
 
-```bash
-# 查看所有 Issues
-~/.pi/agent/skills/workhub/lib.ts list issues
-
-# 查看所有 PRs
-~/.pi/agent/skills/workhub/lib.ts list prs
-
-# 查看整体状态
-~/.pi/agent/skills/workhub/lib.ts status
-```
-
-### 搜索内容
-
-```bash
-# 搜索关键词
-~/.pi/agent/skills/workhub/lib.ts search "深色模式"
-```
-
-### 状态跟踪
-
-```markdown
-## Status 更新日志
-- 2025-01-06 10:00: 状态变更 → 进行中，备注: 开始 Phase 2
-- 2025-01-06 14:30: 状态变更 → 已完成，备注: 所有测试通过
-```
-
-## 错误恢复模式
-
-### 错误方式
-```
-[执行失败]
-[静默重试]
-[再次失败]
-[继续尝试]
-```
-
-### 正确方式
 ```bash
 # 1. 读取 Issue
 ~/.pi/agent/skills/workhub/lib.ts read issues/20250106-添加深色模式.md
 
 # 2. 在 "Errors Encountered" 中记录
 | 日期 | 错误 | 解决方案 |
-| 2025-01-06 | FileNotFoundError: config.json | 将创建默认配置 |
+| 2025-01-06 | FileNotFoundError | 创建默认配置 |
 
 # 3. 执行解决方案
 # 创建默认配置文件
@@ -375,13 +227,13 @@ Issues 和 PRs 文件使用 Markdown 格式，支持 Mermaid 图表。
 | `init` | 初始化文档结构 | `~/.pi/agent/skills/workhub/lib.ts init` |
 | `tree` | 查看文档结构 | `~/.pi/agent/skills/workhub/lib.ts tree` |
 | `audit` | 审计文档规范 | `~/.pi/agent/skills/workhub/lib.ts audit` |
-| `read` | 读取文档 | `~/.pi/agent/skills/workhub/lib.ts read issues/20250106-添加深色模式.md` |
-| `create issue` | 创建 Issue | `~/.pi/agent/skills/workhub/lib.ts create issue "添加深色模式" 前端` |
-| `create pr` | 创建 PR | `~/.pi/agent/skills/workhub/lib.ts create pr "修复登录bug" 后端` |
+| `read` | 读取文档 | `~/.pi/agent/skills/workhub/lib.ts read issues/xxx.md` |
+| `create issue` | 创建 Issue | `~/.pi/agent/skills/workhub/lib.ts create issue "描述" [分类]` |
+| `create pr` | 创建 PR | `~/.pi/agent/skills/workhub/lib.ts create pr "描述" [分类]` |
 | `list issues` | 列出所有 Issues | `~/.pi/agent/skills/workhub/lib.ts list issues` |
 | `list prs` | 列出所有 PRs | `~/.pi/agent/skills/workhub/lib.ts list prs` |
 | `status` | 查看整体状态 | `~/.pi/agent/skills/workhub/lib.ts status` |
-| `search` | 搜索内容 | `~/.pi/agent/skills/workhub/lib.ts search "深色模式"` |
+| `search` | 搜索内容 | `~/.pi/agent/skills/workhub/lib.ts search "关键词"` |
 
 ## 扩展计划
 
@@ -389,4 +241,3 @@ Issues 和 PRs 文件使用 Markdown 格式，支持 Mermaid 图表。
 - 交互式创建 Issue
 - 交互式创建 PR
 - 关联 Issue 和 PR
-

@@ -1,6 +1,21 @@
 # Analyze Workspace
 
-Determine the preparation path based on workspace state.
+## ⛔ MANDATORY FIRST — Specialized Technology Delegation
+
+**STOP. Before choosing a mode, check the user's prompt for specialized technology keywords.**
+If matched, invoke the corresponding skill **immediately** — it has tested templates and correct SDK usage.
+
+> ⚠️ **Re-entry guard**: If azure-prepare was invoked as a **resume** from a specialized skill, **skip this check** and go directly to Step 4.
+
+| User prompt mentions | Action |
+|---------------------|--------|
+| Azure Functions, function app, serverless function, timer trigger, func new | Stay in **azure-prepare**. When selecting compute, **prefer Azure Functions** templates and best practices, then continue from Step 4. |
+
+> ⚠️ Check the user's **prompt text** — not just existing code. This is critical for greenfield projects with no codebase. See [full routing table](specialized-routing.md).
+
+If no match, continue below.
+
+---
 
 ## Three Modes — Always Choose One
 
@@ -23,7 +38,9 @@ What does the user want to do?
 │   ├── Has azure.yaml/infra? → Mode: MODIFY
 │   └── No Azure config? → Mode: MODERNIZE (add Azure support first)
 │
-└── Migrate/modernize for Azure → Mode: MODERNIZE
+└── Migrate/modernize for Azure
+    ├── Cross-cloud migration (AWS/GCP/Lambda)? → **Invoke azure-cloud-migrate skill** (do NOT continue in azure-prepare)
+    └── On-prem or generic modernization → Mode: MODERNIZE
 ```
 
 ## Mode: NEW
@@ -66,3 +83,17 @@ Converting an existing application to run on Azure.
 | `infra/*.tf` exists | Terraform IaC |
 | `Dockerfile` exists | Containerized app |
 | No Azure files | NEW or MODERNIZE mode |
+
+---
+
+## ⛔ MANDATORY for Azure Functions: Load Composition Rules BEFORE Execution
+
+**If the target compute is Azure Functions**, you MUST load the composition algorithm before generating ANY infrastructure:
+
+1. Load `services/functions/templates/selection.md` — decision tree for base template + recipe
+2. Load `services/functions/templates/recipes/composition.md` — the exact algorithm to follow
+3. Use `functions_template_get` MCP tool to list and fetch templates and write `functionFiles[]` + `projectFiles[]` directly — NEVER hand-write Bicep/Terraform and use `azd init -t <template>`/`func init`/`func new` as fallback when composing multiple recipes and required templates are not found
+
+> ⚠️ **Critical**: The Functions `bicep.md` and `terraform.md` files are **REFERENCE DOCUMENTATION**, not templates to copy. Hand-writing infrastructure from these patterns results in missing RBAC, incorrect managed identity configuration, and security vulnerabilities.
+
+For other compute targets (Container Apps, App Service, Static Web Apps), load their respective README files in `services/` for guidance.

@@ -1,6 +1,37 @@
 # AZD IAC Rules
 
-Bicep rules for AZD projects. **Additive** — apply `mcp_bicep_get_bicep_best_practices`, `mcp_bicep_list_avm_metadata`, and `mcp_bicep_get_az_resource_type_schema` first, then these azd-specific rules.
+IaC rules for AZD projects. **Additive** — for Bicep, apply `mcp_bicep_get_bicep_best_practices`, `mcp_bicep_list_avm_metadata`, and `mcp_bicep_get_az_resource_type_schema` first; for Terraform, apply `mcp_azure_mcp_azureterraformbestpractices` first; then apply these azd-specific rules.
+
+## AVM Module Selection Order (MANDATORY)
+
+Always prefer modules in provider-specific order:
+
+For **Bicep**:
+1. AVM Bicep Pattern Modules (AVM+AZD first when available)
+2. AVM Bicep Resource Modules
+3. AVM Bicep Utility Modules
+
+For **Terraform**:
+1. AVM Terraform Pattern Modules
+2. AVM Terraform Resource Modules
+3. AVM Terraform Utility Modules
+
+If no pattern module exists for the active provider, default immediately to AVM modules in the same provider order (resource, then utility) instead of using non-AVM modules.
+
+## Retrieval Strategy (azure-documentation MCP primary + optional Context7)
+
+- **Primary (authoritative):** Use `mcp_azure_mcp_documentation` (`azure-documentation`) for current Azure guidance and AVM integration documentation.
+- **Primary (module catalog):** Use `mcp_bicep_list_avm_metadata` plus official AVM indexes to select concrete modules.
+- **Secondary (supplemental):** Use Context7 only for implementation examples when `mcp_azure_mcp_documentation` does not provide enough detail. If Context7 is not available, instruct the user to install it: `npx -y @upstash/context7-mcp@latest`.
+
+## Validation Plan
+
+Before finalizing generated guidance:
+
+1. Verify the selected module path uses the required AVM order above.
+2. Verify AVM+AZD pattern modules were checked first, and fallback moved to AVM resource/utility modules when no pattern module exists.
+3. Verify Terraform guidance follows pattern -> resource -> utility ordering.
+4. Include selected module names and source links in the plan/output for traceability.
 
 ## File Structure
 
@@ -8,8 +39,25 @@ Bicep rules for AZD projects. **Additive** — apply `mcp_bicep_get_bicep_best_p
 |-------------|---------|
 | Location | `./infra/` folder |
 | Entry point | `main.bicep` with `targetScope = 'subscription'` |
-| Parameters | `main.parameters.json` |
+| Parameters | `main.parameters.json` (ARM JSON — see format below) |
 | Modules | `./infra/modules/*.bicep` with `targetScope = 'resourceGroup'` |
+
+## Parameter File Format
+
+`main.parameters.json` uses ARM JSON syntax. Do **not** use `.bicepparam` syntax (`using`, `param`, `readEnvironmentVariable()`) in this file — `azd` will fail with a JSON parse error.
+
+```json
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": { "value": "${AZURE_ENV_NAME}" },
+    "location": { "value": "${AZURE_LOCATION}" }
+  }
+}
+```
+
+Use `azd env set` to supply values. During `azd provision`, azd substitutes `${VAR}` placeholders with values from the environment.
 
 ## Naming Convention
 

@@ -1,8 +1,3 @@
----
-name: scholar-evaluation
-description: Apply the ScholarEval framework to systematically evaluate scholarly work, score research quality dimensions, and provide actionable academic feedback.
----
-
 # Scholar Evaluation
 
 ## Overview

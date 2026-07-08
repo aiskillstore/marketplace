@@ -1,4 +1,15 @@
-# Functions Bicep Patterns
+# Functions Bicep Patterns — REFERENCE ONLY
+
+> ⛔ **DO NOT COPY THIS CODE DIRECTLY**
+>
+> This file contains **reference patterns** for understanding Azure Functions Bicep structure.
+> **You MUST use the composition algorithm** to generate infrastructure:
+>
+> 1. Load `templates/selection.md` to choose the correct base template
+> 2. Follow `templates/recipes/composition.md` for the exact algorithm
+> 3. Use `functions_template_get` MCP tool to list and fetch templates and write `functionFiles[]` + `projectFiles[]` directly — NEVER hand-write Bicep/Terraform and use `azd init -t <template>`/`func init`/`func new` as fallback when composing multiple recipes and required templates are not found
+>
+> Hand-writing Bicep from these patterns will result in missing RBAC, incorrect managed identity configuration, and security vulnerabilities.
 
 ## Flex Consumption (Recommended)
 
@@ -74,14 +85,14 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       }
       runtime: {
         name: 'python'  // or 'node', 'dotnet-isolated'
-        version: '3.11'
+        version: '<version>'  // Query latest GA: https://learn.microsoft.com/en-us/azure/azure-functions/supported-languages
       }
     }
     siteConfig: {
       appSettings: [
         {
-          name: 'AzureWebJobsStorage__accountName'
-          value: storageAccount.name
+          name: 'AzureWebJobsStorage__blobServiceUri'
+          value: storageAccount.properties.primaryEndpoints.blob
         }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
@@ -113,12 +124,28 @@ resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-
 ```
 
 > 💡 **Key Points:**
-> - Use `AzureWebJobsStorage__accountName` instead of connection string
+>
+> - Use `AzureWebJobsStorage__blobServiceUri` instead of connection string
 > - Set `allowSharedKeyAccess: false` for enhanced security
 > - Use `SystemAssignedIdentity` for deployment authentication
 > - Grant `Storage Blob Data Owner` role for full access to blobs, queues, and tables
 
 ## Consumption Plan (Legacy)
+
+> ⛔ **DO NOT USE** — Y1/Dynamic SKU is deprecated for new deployments.
+> **ALWAYS use Flex Consumption (FC1)** for all new Azure Functions.
+> The Y1 example below is only for reference when migrating legacy apps.
+
+**⚠️ Not recommended for new deployments. Use Flex Consumption instead.**
+
+> 💡 **OS and Slots Matter for Consumption:**
+>
+> - **Linux Consumption** (`kind: 'functionapp,linux'`, `reserved: true`): Does **not** support deployment slots.
+> - **Windows Consumption** (`kind: 'functionapp'`, no `reserved`): Supports **1 staging slot** (2 total including production).
+>   If a user specifically needs Windows Consumption with a slot, that is supported — use the Windows pattern below.
+>   For new apps needing slots, prefer **Elastic Premium (EP1)** for better performance and no cold-start issues.
+
+### Linux Consumption (no slot support)
 
 ```bicep
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
@@ -144,14 +171,84 @@ resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
     serverFarmId: functionAppPlan.id
     httpsOnly: true
     siteConfig: {
-      linuxFxVersion: 'Node|18'
+      linuxFxVersion: 'Node|20'
       appSettings: [
         { name: 'AzureWebJobsStorage', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value}' }
         { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
         { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'node' }
+        { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+      ]
+    }
+  }
+}
+```
+
+### Windows Consumption (supports 1 staging slot)
+
+> ⚠️ **Windows Consumption is not recommended for new projects** — consider Flex Consumption or Elastic Premium.
+> Use this pattern only for existing Windows apps or when Windows-specific features are required.
+
+```bicep
+resource functionAppPlan 'Microsoft.Web/serverfarms@2022-09-01' = {
+  name: '${resourcePrefix}-funcplan-${uniqueHash}'
+  location: location
+  sku: { name: 'Y1', tier: 'Dynamic' }
+  // No 'reserved: true' for Windows
+}
+
+resource functionApp 'Microsoft.Web/sites@2022-09-01' = {
+  name: '${resourcePrefix}-${serviceName}-${uniqueHash}'
+  location: location
+  kind: 'functionapp'  // Windows (no 'linux' suffix)
+  identity: { type: 'SystemAssigned' }
+  properties: {
+    serverFarmId: functionAppPlan.id
+    httpsOnly: true
+    siteConfig: {
+      appSettings: [
+        { name: 'WEBSITE_NODE_DEFAULT_VERSION', value: '~20' }
+        { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
+        { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'node' }
+        { name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value}' }
+        { name: 'WEBSITE_CONTENTSHARE', value: '${toLower(serviceName)}-prod' }
+        { name: 'AzureWebJobsStorage', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value}' }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: applicationInsights.properties.ConnectionString }
       ]
     }
+  }
+}
+
+// 1 staging slot is supported on Windows Consumption
+resource stagingSlot 'Microsoft.Web/sites/slots@2022-09-01' = {
+  parent: functionApp
+  name: 'staging'
+  location: location
+  kind: 'functionapp'
+  properties: {
+    serverFarmId: functionAppPlan.id
+    siteConfig: {
+      appSettings: [
+        { name: 'WEBSITE_NODE_DEFAULT_VERSION', value: '~20' }
+        { name: 'FUNCTIONS_EXTENSION_VERSION', value: '~4' }
+        { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'node' }
+        { name: 'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value}' }
+        { name: 'WEBSITE_CONTENTSHARE', value: '${toLower(serviceName)}-staging' }  // MUST differ from production
+        { name: 'AzureWebJobsStorage', value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};AccountKey=${storageAccount.listKeys().keys[0].value}' }
+        { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: applicationInsights.properties.ConnectionString }
+      ]
+    }
+  }
+}
+
+// Sticky settings — do not swap WEBSITE_CONTENTSHARE between slots
+resource slotConfigNames 'Microsoft.Web/sites/config@2022-09-01' = {
+  parent: functionApp
+  name: 'slotConfigNames'
+  properties: {
+    appSettingNames: [
+      'WEBSITE_CONTENTSHARE'
+      'WEBSITE_CONTENTAZUREFILECONNECTIONSTRING'
+    ]
   }
 }
 ```
@@ -171,8 +268,8 @@ resource functionApp 'Microsoft.Web/sites@2024-04-01' = {
       appSettings: [
         // Storage with managed identity
         {
-          name: 'AzureWebJobsStorage__accountName'
-          value: storageAccount.name
+          name: 'AzureWebJobsStorage__blobServiceUri'
+          value: storageAccount.properties.primaryEndpoints.blob
         }
         // Service Bus with managed identity
         {
@@ -213,6 +310,7 @@ resource serviceBusSenderRole 'Microsoft.Authorization/roleAssignments@2022-04-0
 ```
 
 > 💡 **Key Points:**
+>
 > - Use `SERVICEBUS__fullyQualifiedNamespace` (double underscore) for managed identity
 > - Grant `Service Bus Data Receiver` role for reading messages
 > - Grant `Service Bus Data Sender` role for sending messages (if needed)

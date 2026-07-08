@@ -24,6 +24,24 @@ reference frequency — use the signals below or an explicit "promote X".
 
 **Demotion action:**
 1. Remove from memory/hot-cache.md
-2. Archive full data in memory/[category]/archive/
+2. Archive full data to memory/archive/ with a `YYYY-MM-DD-` filename prefix
 3. Add line: "Last reviewed [category]: [date]"
 4. Keep 1-line summary if historically significant
+
+## Supersession Logic — when a new fact contradicts an existing entry
+
+Promotion/demotion handle **age**; supersession handles **disagreement**. When a fresh finding
+contradicts a value already in hot cache or a `candidates.md` ledger (same entity + same field — e.g.
+a competitor's DA changed, an offer's price/terms changed, a veto that was resolved but is still
+listed):
+
+1. Do **not** silently keep both values, and do **not** hard-delete the old one.
+2. Annotate the old line `superseded_by: [date]` (recency-wins) and write the new value as the live one.
+3. Leave the superseded line in place; it demotes/archives on the normal 30/90-day `last_updated`
+   clock. Registry-owned facts (`memory/entities/`, `creators/`, `claims/`, `consent/`,
+   `launch-registry/`, `channels/`, `narrative-registry/`) are superseded only via that registry's
+   `candidates.md` flow, never edited in place here.
+4. If the "contradiction" is actually an **unresolved** disagreement (two sources, unclear which is
+   right), do not auto-pick — log it to `memory/open-loops.md` and surface it to the user.
+
+See [State Model → Supersession Rule](../../../references/state-model.md) for the tier-level definition.

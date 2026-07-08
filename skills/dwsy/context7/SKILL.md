@@ -1,256 +1,142 @@
 ---
 name: context7
-description: Search GitHub issues, pull requests, and discussions across any repository. Activates when researching external dependencies (whisper.cpp, NAudio), looking for similar bugs, or finding implementation examples.
+description: Fetch up-to-date library documentation via Context7 CLI. Use when researching external dependencies, finding implementation examples, or checking API usage for any library.
 ---
 
-# Context7 - GitHub Search
+# Context7 - Library Documentation Fetcher
 
-Search GitHub repositories for issues, PRs, discussions, and code examples to research solutions and best practices.
+Fetch library documentation directly from the terminal using the `ctx7` CLI. Resolve any library by name and query its up-to-date docs without opening a browser.
 
 ## 执行环境
 
 | 路径类型 | 说明 |
 |---------|------|
-| **使用方式** | 此技能通过 API 调用使用，无需本地脚本执行 |
-| **调用场景** | 当用户需要搜索 GitHub 仓库时自动激活 |
-| **输入参数** | 仓库名称 (owner/repo)、搜索关键词、过滤条件 |
+| **CLI** | `npx ctx7` (无需全局安装) |
+| **认证** | 大部分命令无需认证，`ctx7 skills generate` 需要 |
+| **API Key** | 可选：`export CONTEXT7_API_KEY=your_key` |
 
-## 路径说明
+## 工作流程
 
-- **无本地路径依赖**：此技能不涉及本地文件系统操作
-- **仓库引用**：使用 GitHub 标准格式 `owner/repo`（如 `ggerganov/whisper.cpp`）
-- **所有路径都是 GitHub 仓库内的路径**，与本地文件系统无关
+### Step 1: 解析库名 → 获取 Library ID
 
-## When This Skill Activates
+```bash
+# 基础搜索
+npx ctx7 library react
 
-- Keywords: "search GitHub", "find issues", "look up PR", "GitHub discussion"
-- Research patterns: "Are there any [repo] issues about [topic]?"
-- Dependency research: Mentions of whisper.cpp, NAudio, WPF, Inno Setup
-- Bug investigation: "Has anyone else experienced [problem]?"
-- Implementation examples: "How do others implement [feature]?"
+# 带自然语言查询（提高相关性）
+npx ctx7 library react "How to clean up useEffect with async operations"
+npx ctx7 library nextjs "How to set up app router with middleware"
+npx ctx7 library prisma "How to define one-to-many relations"
 
-## Frequently Searched Repositories
-
-VoiceLite dependencies and related projects:
-
-| Repository | Purpose | When to Search |
-|------------|---------|----------------|
-| **ggerganov/whisper.cpp** | Core transcription engine | Performance optimization, model loading, quantization issues |
-| **naudio/NAudio** | Audio recording library | WaveInEvent issues, audio format problems, disposal patterns |
-| **dotnet/wpf** | WPF framework | UI threading, XAML binding, Dispatcher issues |
-| **jrsoftware/issrc** | Inno Setup installer | Installer configuration, file inclusion, signing |
-| **dotnet/runtime** | .NET runtime | Performance issues, GC problems, async/await patterns |
-
-## Search Syntax Examples
-
-### Search whisper.cpp Performance Issues
-
-```
-Repository: ggerganov/whisper.cpp
-Query: "performance optimization" label:performance
-Sort: Most commented
-Filter: Created after 2024-01-01
-
-# Look for:
-- Quantization discussions (Q8_0, Q4_0)
-- Flash attention implementations
-- Beam size optimization
-- Model loading speed improvements
+# 输出 JSON 便于脚本处理
+npx ctx7 library react --json | jq '.[0].id'
 ```
 
-### Search NAudio Recording Problems
+返回字段：
+- **Library ID** — 格式 `/org/project`，传给 `ctx7 docs`
+- **Code Snippets** — 索引的代码示例数量
+- **Source Reputation** — High/Medium/Low/Unknown
+- **Benchmark Score** — 0-100 质量分
 
-```
-Repository: naudio/NAudio
-Query: "WaveInEvent" label:bug is:closed
-Sort: Recently updated
+### Step 2: 查询文档
 
-# Look for:
-- Disposal patterns (memory leaks)
-- Buffer size configurations
-- Sample rate issues (16kHz mono)
-- Event subscription patterns
-```
+```bash
+# 基础查询
+npx ctx7 docs /facebook/react "How to clean up useEffect with async operations"
+npx ctx7 docs /vercel/next.js "How to add middleware that redirects unauthenticated users"
+npx ctx7 docs /prisma/prisma "How to define one-to-many relations with cascade delete"
 
-### Find WPF Dispatcher Examples
+# 指定版本
+npx ctx7 docs /vercel/next.js/v14.3.0-canary.87 "How to set up app router"
 
-```
-Repository: dotnet/wpf
-Query: "Dispatcher.Invoke" in:code language:csharp
-Filter: Stars >100
-
-# Look for:
-- Thread-safe UI updates
-- Background worker patterns
-- Async dispatcher usage
+# JSON 输出
+npx ctx7 docs /facebook/react "How to use hooks for state management" --json
 ```
 
-## Search Strategies
+⚠️ Library ID 必须以 `/` 开头，必须先用 `ctx7 library` 获取。
 
-### 1. Start Broad, Then Narrow
+## 常用库参考
 
-```
-Step 1: Search issue titles
-  → "transcription slow"
+| 库 | Library ID | 典型查询 |
+|----|-----------|---------|
+| React | `/facebook/react` | hooks, state management, effects |
+| Next.js | `/vercel/next.js` | app router, middleware, API routes |
+| Prisma | `/prisma/prisma` | schema, relations, migrations |
+| Vue | `/vuejs/core` | composition API, reactivity |
+| Tailwind | `/tailwindlabs/tailwindcss` | configuration, plugins |
+| Express | `/expressjs/express` | routing, middleware |
+| TypeScript | `/microsoft/typescript` | generics, utility types |
 
-Step 2: Add labels
-  → "transcription slow" label:performance
+## Skills 管理
 
-Step 3: Check discussions
-  → Switch to Discussions tab for detailed solutions
+```bash
+# 搜索技能
+npx ctx7 skills search pdf
+npx ctx7 skills search react typescript
 
-Step 4: Look at closed issues
-  → is:closed (solutions often in closed issues)
-```
+# 安装技能
+npx ctx7 skills install /anthropics/skills pdf
+npx ctx7 skills install /anthropics/skills --all
 
-### 2. Finding Solutions
+# 列出已安装
+npx ctx7 skills list
 
-**For bugs**:
-1. Search closed issues first (likely fixed)
-2. Check PR descriptions for implementation details
-3. Look for "fixed in version X" comments
-4. Check release notes for related fixes
-
-**For features**:
-1. Search discussions for design rationale
-2. Check PRs for code examples
-3. Look for "how to" issues with detailed responses
-
-### 3. Code Examples
-
-```
-# Search for actual code implementation
-in:code language:csharp "WaveInEvent"
-
-# Search for configuration examples
-in:file filename:.csproj "NAudio"
-
-# Search for specific patterns
-in:code "async Task TranscribeAsync"
+# 生成技能（需要认证）
+npx ctx7 skills generate
 ```
 
-## Common VoiceLite Research Queries
+## Setup（配置 MCP）
 
-### Whisper.cpp Performance
+```bash
+# 交互式配置
+npx ctx7 setup
 
-```
-Query: "Q8_0 quantization" OR "performance improvement"
-Repo: ggerganov/whisper.cpp
-Labels: performance, optimization
-Date: After 2024-01-01
+# MCP 模式（IDE 集成）
+npx ctx7 setup --mcp --claude
+npx ctx7 setup --mcp --cursor
 
-Expected: Quantization benchmarks, speed comparisons, optimization tips
-```
-
-### NAudio Memory Leaks
-
-```
-Query: "memory leak" OR "dispose" "WaveInEvent"
-Repo: naudio/NAudio
-State: Closed (to find fixes)
-Sort: Most commented
-
-Expected: Disposal patterns, IDisposable best practices
+# CLI + Skills 模式（无需 MCP）
+npx ctx7 setup --cli --universal
 ```
 
-### Inno Setup File Inclusion
+## 认证
 
-```
-Query: "files not included" OR "missing from installer"
-Repo: jrsoftware/issrc
-Labels: bug, question
+```bash
+# 登录（浏览器 OAuth）
+npx ctx7 login
+npx ctx7 login --no-browser  # 不打开浏览器
 
-Expected: Common .iss mistakes, file path issues, git ignore problems
-```
+# 检查状态
+npx ctx7 whoami
 
-### .NET Process Management
-
-```
-Query: "Process.Kill" OR "zombie process"
-Repo: dotnet/runtime
-Language: C#
-
-Expected: Proper disposal patterns, timeout handling
+# 退出
+npx ctx7 logout
 ```
 
-## Advanced Search Operators
+## 高级用法
 
-```
-# Combine multiple terms
-"whisper performance" AND "quantization"
+```bash
+# 组合：搜索 + 获取 docs
+LIB_ID=$(npx ctx7 library react "hooks" --json | jq -r '.[0].id')
+npx ctx7 docs "$LIB_ID" "How to use useContext for global state"
 
-# Exclude terms
-"audio recording" NOT "streaming"
+# 管道输出
+npx ctx7 docs /facebook/react "useEffect cleanup" | head -50
 
-# Search specific user
-author:ggerganov "optimization"
-
-# Search by date range
-created:>=2024-01-01
-
-# Search by reactions
-reactions:>10
-
-# Search by comments
-comments:>5
-
-# Search in specific locations
-in:title "memory leak"
-in:body "WaveInEvent"
-in:comments "fixed in"
+# 带版本的精确查询
+npx ctx7 library nextjs "app router" --json | jq '.[].id' | grep v14
 ```
 
-## Workflow Example
+## 常见问题
 
-**Scenario**: VoiceLite transcription is slow with tiny model
+| 问题 | 解决 |
+|------|------|
+| `Library ID must start with /` | 先运行 `ctx7 library` 获取 ID |
+| 结果不相关 | 用自然语言描述具体场景，避免单词 |
+| Rate limit | 登录解锁更高速率限制 |
+| 无安装 | `npx ctx7` 无需安装，或 `npm install -g ctx7` |
 
-```
-Step 1: Search whisper.cpp issues
-  → Query: "tiny model slow" label:performance
-  → Find: Issue #1234 - "Tiny model slower than expected"
+## 参考
 
-Step 2: Read discussion
-  → Solution: Enable flash attention, adjust beam size
-  → PR #5678 has implementation
-
-Step 3: Check PR for code changes
-  → Command line flag: --flash-attn
-  → Configuration: beam_size=1
-
-Step 4: Check if applied to VoiceLite
-  → Review PersistentWhisperService.cs whisper command
-  → Verify flags are present
-
-Step 5: Test & validate
-  → Apply if missing, test performance improvement
-```
-
-## Troubleshooting Search Results
-
-### "Too many results"
-- Add more specific labels
-- Filter by date (recent issues more relevant)
-- Use `is:closed` for solved problems
-- Sort by "Most commented" for well-discussed issues
-
-### "No results found"
-- Remove labels, search broadly first
-- Try synonyms ("slow" vs "performance", "crash" vs "exception")
-- Search discussions instead of issues
-- Check if repository is active (last commit date)
-
-### "Results not relevant"
-- Add language filter (language:csharp)
-- Search in code instead of issues (in:code)
-- Use exact phrases with quotes: "exact error message"
-- Exclude common false positives: NOT "unrelated term"
-
-## Integration with VoiceLite Development
-
-When researching VoiceLite issues, search these patterns:
-
-**Audio Issues**: NAudio + "16kHz" OR "mono" OR "WAV format"
-**Transcription Issues**: whisper.cpp + "model loading" OR "timeout" OR "process"
-**Performance Issues**: whisper.cpp + "Q8_0" OR "optimization" OR "speed"
-**Installer Issues**: Inno Setup + "missing files" OR "not included"
-**Memory Issues**: .NET + "memory leak" OR "dispose" OR "GC"
+- 官方文档: https://context7.com/docs/clients/cli
+- Skills 文档: https://context7.com/docs/skills

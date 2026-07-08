@@ -4,13 +4,13 @@ slug: memory-management
 displayName: "Memory Management · 项目记忆"
 summary: "项目记忆/跨会话"
 description: 'Use when the user asks to "remember project context"; manages the cross-discipline marketing memory lifecycle (all seven disciplines: SEO/GEO, influencer, paid ads, email, launch, social, narrative) — hot-cache, active work, archive tiers, and privacy cleanup. Not for content or domain scoring — use the auditors. 项目记忆/跨会话'
-version: "16.0.1"
+version: "16.1.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
-when_to_use: "Use when reviewing, archiving, or cleaning up campaign memory. Also when the user asks to check saved findings, manage hot cache, or archive old data."
-argument-hint: "[review|archive|cleanup]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.1", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+when_to_use: "Use when reviewing, archiving, or cleaning up campaign memory. Also when the user asks to check saved findings, manage hot cache, archive old data, or reconcile/consolidate memory (merge duplicates, resolve conflicting facts)."
+argument-hint: "[review|archive|cleanup|consolidate]"
+metadata: {"author": "aaron-he-zhu", "version": "16.1.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Memory Management
@@ -18,7 +18,7 @@ This skill implements a three-tier memory system (HOT/WARM/COLD) for all seven m
 
 ## What This Skill Does
 
-Manages a three-tier memory lifecycle (HOT/WARM/COLD) with automatic promotion, demotion, and archival. Also maintains open-loop tracking and cross-skill aggregation.
+Manages a three-tier memory lifecycle (HOT/WARM/COLD) with automatic promotion, demotion, and archival. Also maintains open-loop tracking, cross-skill aggregation, and a periodic **consolidation pass** (dedup + conflict resolution) that keeps long-running memory from degrading into stale, contradictory noise.
 
 ## Quick Start
 
@@ -65,7 +65,17 @@ Promote [keyword] to hot cache
 ```
 
 ```
-Archive stale data that hasn't been referenced in 30+ days
+Archive stale data not updated in 30+ days (by last_updated)
+```
+
+### Consolidate & Reconcile
+
+```
+Reconcile memory — merge duplicates and resolve conflicting facts
+```
+
+```
+Run a consolidation pass on hot cache before this quarter's report
 ```
 
 ### Glossary Management
@@ -84,7 +94,7 @@ What does [internal jargon] mean in this project?
 
 - **Reads**: current campaign facts, new findings from other skills, approved decisions, and the shared [State Model](../../references/state-model.md).
 - **Writes**: updates to `memory/hot-cache.md`, `memory/open-loops.md`, `memory/decisions.md`, and related `memory/` folders. Manages WARM-to-COLD archival in `memory/archive/`. **Auditor handoff archiving** (v7.1.0+): when triggered by a direct user request or an auditor's explicit "Save these results?" yes-response, append a structured block to `memory/audits/YYYY-MM.md`. The Stop hook never initiates memory writes. See [Examples](references/examples.md) for the exact archive block format and rules.
-- **Promotes**: durable strategy, blockers, terminology, entity candidates, and major deltas. Applies the temperature lifecycle by **observable** rules only: promote to HOT on an explicit user/skill request ("promote X" / pin); demote and archive by the file's `last_updated` date. Reference-frequency counters are NOT tracked by any hook, so the lifecycle never depends on them — see [State Model](../../references/state-model.md).
+- **Promotes**: durable strategy, blockers, terminology, entity candidates, and major deltas. Applies the temperature lifecycle by **observable** rules only: promote to HOT on an explicit user/skill request ("promote X" / pin); demote and archive by the file's `last_updated` date. Reference-frequency counters are NOT tracked by any hook, so the lifecycle never depends on them — see [State Model](../../references/state-model.md). Conflicting facts (same entity + field) are resolved by **recency-wins with explicit invalidation** — annotate the old line `superseded_by: [date]`, never silent coexistence or hard-delete.
 - **Done when**: the requested lifecycle action (capture/promote/demote/archive/query/purge) is applied, `memory/hot-cache.md` is within the 80-line / 25KB limit, and the affected memory paths are reported back to the user.
 - **Primary next skill**: use the `Next Best Skill` below when the project memory baseline is ready for active work.
 
@@ -99,7 +109,7 @@ What does [internal jargon] mean in this project?
 ### Hook Integration
 
 This skill's behavior is reinforced by the library's `claude-hook.sh` hooks. What the hook **actually does** (do not document behavior it lacks):
-- **SessionStart** (fires on startup, resume, clear, compact): injects a sanitized excerpt of `memory/hot-cache.md`, and when `memory/open-loops.md` has tracked items, appends a one-line pointer to review them for staleness. It does not compute dates or a "Quick Status" — surfacing which open loops are stale is the agent's job once pointed at the file.
+- **SessionStart** (fires on startup, resume, clear, compact): injects a sanitized excerpt of `memory/hot-cache.md`; warns **at load time** when the committed cache is over the 80-line / 25KB limit (it is truncated on inject); surfaces a one-line **staleness signal** naming the oldest `YYYY-MM-DD` dated entry in the cache when that date is >30 days old; and when `memory/open-loops.md` has tracked items, appends a one-line pointer to review them. It computes the hot-cache's oldest date (observable, date-only) but does **not** compute per-open-loop dates or a "Quick Status" — deciding which specific entries or loops are stale is the agent's job once pointed at the file.
 - **PostToolUse**: warns when `memory/hot-cache.md` exceeds 80 lines / 25KB; enforces the auditor artifact-gate on `memory/audits/*.md` writes; offers an optional quality check after user-facing content edits.
 - **Stop**: a no-op (exits without output). CLAUDE.md's "allow-only Stop check" is just this no-op; the hook never initiates memory writes.
 
@@ -113,9 +123,11 @@ With tools: auto-populate from ~~SEO tool, ~~analytics, ~~search console. Withou
 - A purge (Art 17 / CCPA) is requested — present the matched files and the redaction-vs-delete choice, and only act on confirmed matches. Never auto-delete memory.
 - A `memory/decisions.md` entry needed to answer a query has `approved_by: skill_inferred` or a missing field — surface it as ADVISORY and confirm before treating it as authoritative.
 - A referenced term is not found in any memory layer — ask for clarification rather than guessing.
+- A new fact contradicts a **user-approved** `memory/decisions.md` entry or a **registry canonical** record — surface the conflict and supersede via the owner/registry candidate flow; never silently overwrite in place.
 
 **Continue silently (never stop for):**
 - Routine promotion/demotion that follows the temperature lifecycle rules.
+- Routine supersession of an ordinary stale hot-cache value — annotate the old line `superseded_by: [date]` and write the new value (recency-wins per the [State Model](../../references/state-model.md) Supersession Rule).
 - Hot-cache trimming suggestions when over the 80-line / 25KB limit (recommend, don't block).
 - Missing optional tool data when auto-populating — record what is available and proceed.
 
@@ -176,12 +188,23 @@ When invoked for review or cleanup:
 
 Ask "Save these results for future sessions?" — if yes, write `YYYY-MM-DD-<topic>.md` to `memory/`. Add veto issues to `memory/hot-cache.md` only from auditor handoff or explicit user approval.
 
+### 7. Consolidate (Reflection Pass)
+
+When invoked with `consolidate` (or "reconcile/merge memory", or on the monthly cadence), run a reflection pass that reconciles memory **content** — not just size and age like the step-5 hygiene checks:
+
+1. **Deduplicate** — merge hot-cache and `candidates.md` entries that state the same fact in different words; keep the clearest phrasing and the most recent `last_updated`.
+2. **Resolve conflicts** — apply the [State Model Supersession Rule](../../references/state-model.md): where two entries disagree on the same entity + field, mark the older `superseded_by: [date]`. Genuine ambiguity (unclear which is right) goes to `memory/open-loops.md`, not an auto-pick.
+3. **Distill** — where several related WARM findings point at one durable conclusion, promote the one-line conclusion to HOT (the standard ≤3-line promotion) and leave detail in WARM.
+4. **Prune the index** — demote/archive by the normal 30/90-day clock; drop superseded lines already past 90 days.
+
+**Decision gate**: never overwrite a user-approved `memory/decisions.md` entry or a registry canonical record during consolidation — surface the conflict and let the owner/registry reconcile. See [Consolidation Pass](references/consolidation-pass.md) for the full procedure and a worked example.
+
 ## GDPR / Privacy Compliance
 
 `memory/` may store third-party personal data — entity names, founder bios, LinkedIn profiles, author/journalist names surfaced by `entity-optimizer` or research skills. Under GDPR Art 4(1) (applies to **processing of personal data of EU/EEA/UK residents** regardless of where the controller is located), these qualify as "personal data". The user is the data controller. Non-EU users without EU/EEA/UK data subjects may still face analogous obligations under CCPA/CPRA (California), PIPEDA (Canada), LGPD (Brazil), or other national regimes. **Not legal advice.**
 
 ### Retention policy
-- WARM files: archive to `memory/archive/` after 90 days unreferenced (default lifecycle)
+- WARM files: archive to `memory/archive/` after 90 days by `last_updated` (default lifecycle)
 - COLD archive: never auto-deleted, but eligible for Art 17 erasure requests
 - All files: user MUST honor Art 17 requests from data subjects (individuals named in memory)
 
@@ -201,7 +224,8 @@ Before writing a third-party person to `memory/entities/`, the user must have on
 ## Reference Materials
 
 - [Examples](references/examples.md) — Worked examples, advanced features, practical limitations, and the auditor handoff archive block format & rules
-- [Promotion & Demotion Rules](references/promotion-demotion-rules.md) — Full promotion/demotion table and action procedures
+- [Promotion & Demotion Rules](references/promotion-demotion-rules.md) — Full promotion/demotion table, action procedures, and the supersession (conflict-resolution) logic
+- [Consolidation Pass](references/consolidation-pass.md) — The reflection mode: dedup, conflict resolution, distillation, and pruning (procedure + worked example)
 - [Update Triggers & Integration](references/update-triggers-integration.md) — Update procedures, archive routines, and cross-skill integration points
 - [CORE-EEAT Content Benchmark](../../references/core-eeat-benchmark.md) — Content quality scoring stored in memory
 - [CITE Domain Rating](../../references/cite-domain-rating.md) — Domain authority scoring stored in memory

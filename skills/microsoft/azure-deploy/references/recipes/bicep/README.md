@@ -5,7 +5,7 @@ Deploy to Azure using Bicep templates directly.
 ## Prerequisites
 
 - `az` CLI installed with Bicep extension
-- `.azure/plan.md` exists with status `Validated`
+- `.azure/deployment-plan.md` exists with status `Validated`
 - Bicep templates exist in `infra/`
 - **Subscription and location confirmed** → See [Pre-Deploy Checklist](../../pre-deploy-checklist.md)
 
@@ -17,6 +17,7 @@ Deploy to Azure using Bicep templates directly.
 | 2 | Build (optional) | `az bicep build --file main.bicep` |
 | 3 | Deploy | `az deployment sub create` |
 | 4 | Verify | `az resource list` |
+| 5 | **Report** | Present deployed endpoint URLs to the user — see [Verification](verify.md) |
 
 ## Deployment Commands
 
@@ -76,6 +77,16 @@ az deployment sub show \
 | `mcp_bicep_get_bicep_best_practices` | Best practices |
 | `mcp_bicep_get_az_resource_type_schema` | Resource schemas |
 | `mcp_bicep_list_avm_metadata` | Azure Verified Modules |
+
+## AVM Verification Before Deploy
+
+Before running deployment commands, verify generated templates followed AVM-first module selection:
+
+1. AVM Bicep Pattern Modules (prefer AVM+AZD patterns)
+2. AVM Bicep Resource Modules
+3. AVM Bicep Utility Modules
+
+If no AVM+AZD pattern module is available, fallback must remain within AVM modules (resource -> utility).
 
 ## Cleanup (DESTRUCTIVE)
 
