@@ -66,6 +66,31 @@ const { textarea, input } = useTextareaAutosize({ styleProp: 'minHeight' })
 </template>
 ```
 
+### With `maxHeight`
+
+Use the `maxHeight` option to cap the textarea height in pixels while keeping autosize behavior.
+
+```vue
+<script setup lang="ts">
+import { useTextareaAutosize } from '@vueuse/core'
+
+const { textarea, input } = useTextareaAutosize({
+  maxHeight: 180,
+  styleProp: 'minHeight',
+})
+</script>
+
+<template>
+  <textarea
+    ref="textarea"
+    v-model="input"
+    class="resize-none"
+    placeholder="What's on your mind?"
+    rows="3"
+  />
+</template>
+```
+
 ## Type Declarations
 
 ```ts
@@ -74,6 +99,8 @@ export interface UseTextareaAutosizeOptions extends ConfigurableWindow {
   element?: MaybeRef<HTMLTextAreaElement | undefined | null>
   /** Textarea content. */
   input?: MaybeRef<string>
+  /** Maximum autosized height in pixels. */
+  maxHeight?: number
   /** Watch sources that should trigger a textarea resize. */
   watch?: WatchSource | MultiWatchSources
   /** Function called when the textarea size changes. */
@@ -83,15 +110,12 @@ export interface UseTextareaAutosizeOptions extends ConfigurableWindow {
   /** Specify the style property that will be used to manipulate height. Can be `height | minHeight`. Default value is `height`. */
   styleProp?: "height" | "minHeight"
 }
-export declare function useTextareaAutosize(
-  options?: UseTextareaAutosizeOptions,
-): {
-  textarea: Ref<
-    HTMLTextAreaElement | null | undefined,
-    HTMLTextAreaElement | null | undefined
-  >
-  input: Ref<string, string>
+export interface UseTextareaAutosizeReturn {
+  textarea: Ref<HTMLTextAreaElement | undefined | null>
+  input: Ref<string>
   triggerResize: () => void
 }
-export type UseTextareaAutosizeReturn = ReturnType<typeof useTextareaAutosize>
+export declare function useTextareaAutosize(
+  options?: UseTextareaAutosizeOptions,
+): UseTextareaAutosizeReturn
 ```

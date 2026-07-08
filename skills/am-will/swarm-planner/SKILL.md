@@ -61,7 +61,7 @@ Each task MUST include:
 - **depends_on**: Array of task IDs that must complete first (empty `[]` for root tasks)
 - **description**: What the task accomplishes
 - **location**: File paths involved
-- **validation**: How to verify completion
+- **validation**: acceptance criteria
 
 **Example:**
 ```

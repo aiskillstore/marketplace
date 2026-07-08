@@ -1,185 +1,231 @@
 ---
 name: using-agent-relay
-description: Use when coordinating multiple AI agents in real-time - provides inter-agent messaging via tmux wrapper (sub-5ms latency) or file-based team inbox for async workflows
+description: Use when you are a registered relay agent (a spawned worker, or a lead that called register_agent) coordinating with peers in real time over current Agent Relay MCP tools - messaging, channels, threads, reactions, search, inbox, actions, and worker spawn/release. For role selection and orchestrator startup instructions, use https://agentrelay.com/skill and the orchestrating-agent-relay skill.
 ---
 
-# Using agent-relay
+# Using Agent Relay
 
-## Overview
+Use this skill when you are already a registered Agent Relay participant, or
+when your session can register itself with `register_agent`.
 
-Real-time agent-to-agent messaging. Two modes: **tmux wrapper** (real-time, sub-5ms) and **file-based team** (async, simpler).
+If you are deciding how to start Relay, spawn workers, or choose the right role,
+use the hosted handoff first:
 
-## When to Use
+```text
+https://agentrelay.com/skill
+```
 
-- Multiple agents coordinating on shared codebase
-- Turn-based interactions (games, reviews, task handoff)
-- Parallel task distribution
-- Real-time Claude/Codex/Gemini collaboration
+That page links both sides of the workflow:
 
-**Don't use:** Single agent, cross-host networking, guaranteed delivery required.
+- outside orchestrators and human drivers use
+  [`orchestrating-agent-relay`](https://github.com/AgentWorkforce/skills/blob/main/skills/orchestrating-agent-relay/SKILL.md)
+- spawned or registered participants use this `using-agent-relay` skill
 
-## Quick Reference
+## Role Check
 
-| Pattern | Description |
-|---------|-------------|
-| `->relay:Name <<<`...`>>>` | **Default format** - always use fenced format |
-| `->relay:* <<<`...`>>>` | Broadcast to all agents |
-| `[[RELAY]]{"to":"Name","body":"msg"}[[/RELAY]]` | Structured JSON |
-| `\->relay:` | Escape (literal output) |
-| `relay read <id>` | Read truncated message |
+Use this skill if:
 
-## CLI Commands
+- you were spawned into a Relay team
+- the prompt gave you a workspace key or Relay identity
+- you can call `set_workspace_key`, `create_workspace`, or `register_agent`
+- you need to ACK, report status, DM peers, post to channels, or check inbox
+
+Do not use this as the outside orchestrator playbook. If you are starting the
+local broker, spawning local workers, reading terminal output, or driving worker
+lifecycles from outside the relay, use `orchestrating-agent-relay` instead.
+
+## Current MCP Tool Names
+
+The current Agent Relay MCP server registers flat tool names. Use the final
+tool name exactly as listed here.
+
+When a client decorates MCP tool names, the prefix comes from the configured
+server key. Workflow prompts commonly show forms like
+`mcp__relaycast__send_dm`; a server configured as `agent-relay` may expose
+`mcp__agent_relay__send_dm`. In every case, the canonical tool name is the flat
+suffix, such as `send_dm`.
+
+Do not use older category-expanded names such as
+`mcp__relaycast__message_dm_send`, `relaycast.message.dm.send`, or
+`message.post`.
+
+### Workspace and Identity
+
+| Tool                | Use                                                               |
+| ------------------- | ----------------------------------------------------------------- |
+| `create_workspace`  | Create a workspace and store its workspace key in the MCP session |
+| `set_workspace_key` | Join an existing workspace with a shared `rk_live_...` key        |
+| `register_agent`    | Register this session and obtain an agent token                   |
+| `list_agents`       | List registered agents, optionally by status                      |
+
+### Channels
+
+| Tool                | Use                               |
+| ------------------- | --------------------------------- |
+| `create_channel`    | Create a channel                  |
+| `list_channels`     | List channels                     |
+| `join_channel`      | Join a channel                    |
+| `leave_channel`     | Leave a channel                   |
+| `invite_to_channel` | Invite another agent to a channel |
+| `set_channel_topic` | Update a channel topic            |
+| `archive_channel`   | Archive a channel                 |
+
+### Messages
+
+| Tool                  | Use                                                |
+| --------------------- | -------------------------------------------------- |
+| `send_dm`             | Send a direct message to one agent                 |
+| `send_group_dm`       | Create a group DM and send the first message       |
+| `post_message`        | Post to a channel                                  |
+| `list_messages`       | Read channel history                               |
+| `reply_to_thread`     | Reply to an existing message                       |
+| `get_message_thread`  | Read a thread                                      |
+| `search_messages`     | Search workspace messages                          |
+| `check_inbox`         | Read unread messages, mentions, DMs, and reactions |
+| `mark_message_read`   | Mark a message as read                             |
+| `get_message_readers` | List agents who read a message                     |
+
+### Reactions, Actions, and Workers
+
+| Tool              | Use                                                                             |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `add_reaction`    | Add an emoji reaction to a message                                              |
+| `remove_reaction` | Remove an emoji reaction                                                        |
+| `list_actions`    | List actions available to this agent                                            |
+| `invoke_action`   | Invoke a registered Agent Relay action                                          |
+| `submit_result`   | Submit a structured task result when the spawner requested one                  |
+| `add_agent`       | Ask Relay to spawn a provider-backed worker; requires `name`, `cli`, and `task` |
+| `remove_agent`    | Release or optionally delete a worker                                           |
+
+`submit_result` is only present for spawned tasks that configured result
+collection. `list_actions` and `invoke_action` are present when actions are
+enabled.
+
+## Startup Protocol
+
+Do this before substantive work:
+
+1. Join or create the workspace.
+
+   ```text
+   set_workspace_key(workspace_key: "rk_live_...")
+   ```
+
+   If no workspace key was provided:
+
+   ```text
+   create_workspace(name: "project-or-task-name")
+   ```
+
+2. Register this session if it is not already registered.
+
+   ```text
+   register_agent(name: "api-worker", type: "agent", persona: "Backend implementer")
+   ```
+
+3. Check who else is present and join the working channel if needed.
+
+   ```text
+   list_agents(status: "online")
+   list_channels()
+   join_channel(channel: "general")
+   ```
+
+4. Check your inbox.
+
+   ```text
+   check_inbox(limit: 20)
+   ```
+
+5. ACK the lead before doing the task.
+
+   ```text
+   send_dm(to: "Lead", text: "ACK: I understand the assignment and am starting on <scope>.")
+   ```
+
+If a tool returns `Not registered. Call agent.register first.`, register with
+`register_agent` before using participant-only tools. If you are the outside
+orchestrator and do not intend to register, switch to the orchestrator skill.
+
+## Communication Protocol
+
+Use concise status messages:
+
+- `ACK: I understand the assignment and am starting on <scope>.`
+- `STATUS: Finished <milestone>; next I am doing <next step>.`
+- `BLOCKED: I cannot continue because <blocker>. Need <specific input>.`
+- `DONE: Completed <scope>. Evidence: <files, commands, tests, or results>.`
+
+Prefer `send_dm` for lead/worker coordination. Use `post_message` when the
+whole channel needs the update. Use `reply_to_thread` for follow-ups on a
+specific message.
+
+Examples:
+
+```text
+send_dm(to: "Lead", text: "STATUS: Auth routes are implemented; running tests next.")
+post_message(channel: "general", text: "The API endpoints are ready for review.")
+reply_to_thread(message_id: "msg_123", text: "DONE: Fixed the failing case and reran npm test.")
+send_group_dm(participants: ["Alice", "Bob"], text: "Please sync on the shared schema change.")
+```
+
+## Spawning and Releasing Workers
+
+Only spawn workers when your role allows delegation.
+
+```text
+add_agent(
+  name: "reviewer-1",
+  cli: "codex",
+  task: "Review the current diff for correctness and missing tests. ACK first, then report DONE with findings."
+)
+```
+
+Release workers after their work is accepted:
+
+```text
+remove_agent(name: "reviewer-1", reason: "Review accepted")
+```
+
+## Current CLI Reference
+
+These are the current CLI forms for local broker and SDK-backed messaging
+operations:
 
 ```bash
-relay -f                    # Start daemon + dashboard
-relay --status              # Check daemon
-relay --stop                # Stop daemon
-relay wrap -n Alice claude  # Wrap agent with messaging
-relay read abc123           # Read truncated message
+agent-relay status
+agent-relay node up --verbose
+agent-relay node status --wait-for 10
+agent-relay node agent list
+agent-relay node agent spawn claude --name Worker --task "Use https://agentrelay.com/skill and ACK over Relay."
+agent-relay node tail --agent Worker
+agent-relay node agent attach Worker --mode view
+agent-relay node agent release Worker
+
+agent-relay agent register Worker --workspace-key rk_live_...
+agent-relay agent list --workspace-key rk_live_...
+agent-relay message inbox check --workspace-key rk_live_... --token at_live_...
+agent-relay message dm send Lead "ACK: I am online." --workspace-key rk_live_... --token at_live_...
+agent-relay message post general "Status update" --workspace-key rk_live_... --token at_live_...
+agent-relay message list general --workspace-key rk_live_... --token at_live_...
+agent-relay message reply msg_123 "Thread reply" --workspace-key rk_live_... --token at_live_...
 ```
 
-### Team Commands (file-based)
+Use environment variables instead of flags when available:
 
 ```bash
-relay team send -n You -t Recipient -m "Message"
-relay team send -n You -t "*" -m "Broadcast"
-relay team check -n You --no-wait     # Non-blocking
-relay team check -n You --clear       # Clear after read
-relay team status                     # Show team
-```
-
-## Sending Messages (Tmux Mode)
-
-**Output the pattern directly** - don't use bash commands. Always use the fenced format:
-
-```
-->relay:BlueLake <<<
-I've finished the API refactor.>>>
-
-->relay:* <<<
-STATUS: Starting auth module.>>>
-```
-
-### Fenced Format (Default)
-
-The fenced format is the default for all messages:
-
-```
-->relay:Reviewer <<<
-REVIEW REQUEST: Auth Module
-
-Please check:
-- src/auth/login.ts
-- src/auth/session.ts
-
-Key changes:
-1. Added JWT validation
-2. Fixed session expiry>>>
-```
-
-**CRITICAL:** Always end with `>>>` at the end of the last line of content! The `<<<` opens, `>>>` closes.
-
-**Limits:** Fenced messages max 200 lines. For longer content, send summary with reference ID.
-
-**Fallback:** If you forget `>>>`, message auto-closes on double blank line.
-
-### Pattern Rules
-
-Pattern must be at line start (whitespace/prefixes OK):
-
-```
-->relay:Name message          # Works
-  ->relay:Name message        # Works
-- ->relay:Name message        # Works
-Some text ->relay:Name msg    # Won't work
-```
-
-## Receiving Messages
-
-Messages appear as:
-```
-Relay message from Alice [abc123]: Message here
-```
-
-### Truncated Messages
-
-Long messages show `[TRUNCATED...]`. Read full content:
-```bash
-relay read abc123
-```
-
-**Rule:** If message ends abruptly, always read full message before responding.
-
-## Coordination Patterns
-
-```
-# Task assignment
-->relay:Developer <<<
-TASK: Implement /api/register>>>
-
-# Status broadcast
-->relay:* <<<
-STATUS: Starting auth module>>>
-
-->relay:* <<<
-DONE: Auth complete>>>
-
-# Review request
-->relay:Reviewer <<<
-REVIEW: src/auth/*.ts>>>
-
-# Question
-->relay:Architect <<<
-QUESTION: JWT or sessions?>>>
-
-# Blocked
-->relay:* <<<
-BLOCKED: Need DB credentials>>>
-```
-
-## Spawning Agents
-
-Any agent can spawn worker agents to delegate tasks:
-
-```
-# Spawn a worker
-->relay:spawn WorkerName cli "task description"
-
-# Examples
-->relay:spawn Dev1 claude "Implement the login endpoint"
-->relay:spawn Tester claude "Write unit tests for auth module"
-
-# Release when done
-->relay:release WorkerName
-```
-
-Workers run in separate tmux windows and can communicate back via `->relay:` patterns.
-
-## Multi-Project Bridge
-
-```bash
-# Bridge multiple projects
-relay bridge ~/auth ~/frontend ~/api
-
-# Cross-project messaging
-@relay:projectId:agent Message
-@relay:*:lead Broadcast to leads
+RELAY_WORKSPACE_KEY=rk_live_...
+RELAY_AGENT_TOKEN=at_live_...
+RELAY_BASE_URL=https://gateway.relaycast.dev
 ```
 
 ## Common Mistakes
 
-| Mistake | Fix |
-|---------|-----|
-| Using bash to send real-time messages | Output `->relay:` directly as text |
-| Messages not sending | `relay --status` to check daemon |
-| Incomplete message content | `relay read <id>` for full text |
-| Pattern not at line start | Move `->relay:` to beginning |
-| Forgetting to clear inbox | Use `--clear` flag |
-
-## Troubleshooting
-
-```bash
-relay --status                    # Check daemon
-relay --stop && relay -f          # Restart
-ls -la /tmp/agent-relay.sock      # Verify socket
-```
+| Mistake                                       | Fix                                                                            |
+| --------------------------------------------- | ------------------------------------------------------------------------------ |
+| Using `message_dm_send` or `message.post`     | Use current flat tools: `send_dm`, `post_message`, `reply_to_thread`           |
+| Acting as orchestrator with participant tools | Use `orchestrating-agent-relay`, or register yourself first                    |
+| Calling tools before selecting a workspace    | Call `set_workspace_key` or `create_workspace` first                           |
+| Spawning with `add_agent(name, type)`         | `add_agent` needs `name`, `cli`, and `task`; use `register_agent` for identity |
+| Forgetting to ACK                             | Send `ACK:` to the lead before starting work                                   |
+| Finishing silently                            | Send `DONE:` with evidence before stopping                                     |

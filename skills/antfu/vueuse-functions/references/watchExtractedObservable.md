@@ -87,6 +87,31 @@ watchExtractedObservable(player, p => p.progress$, (percentage) => {
 })
 ```
 
+## Subscription Options
+
+| Option       | Type                     | Description                          |
+| ------------ | ------------------------ | ------------------------------------ |
+| `onError`    | `(err: unknown) => void` | Error handler for Observable errors  |
+| `onComplete` | `() => void`             | Called when the Observable completes |
+
+## Return Value
+
+Returns a `WatchHandle` that can be used to stop watching:
+
+```ts no-twoslash
+import { watchExtractedObservable } from '@vueuse/rxjs'
+import { ref } from 'vue'
+
+const source = ref({ data$: null })
+
+const stop = watchExtractedObservable(source, s => s.data$, (data) => {
+  console.log(data)
+})
+
+// Later, stop watching
+stop()
+```
+
 ## Type Declarations
 
 ```ts

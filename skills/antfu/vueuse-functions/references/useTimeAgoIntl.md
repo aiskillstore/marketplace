@@ -63,7 +63,7 @@ export interface FormatTimeAgoIntlOptions {
   units?: TimeAgoUnit[]
 }
 export interface UseTimeAgoIntlOptions<Controls extends boolean>
-  extends FormatTimeAgoIntlOptions {
+  extends FormatTimeAgoIntlOptions, ConfigurableScheduler {
   /**
    * Expose more controls and the raw `parts` result.
    *
@@ -73,6 +73,7 @@ export interface UseTimeAgoIntlOptions<Controls extends boolean>
   /**
    * Update interval in milliseconds, set 0 to disable auto update
    *
+   * @deprecated Please use `scheduler` option instead
    * @default 30_000
    */
   updateInterval?: number

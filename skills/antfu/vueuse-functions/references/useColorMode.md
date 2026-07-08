@@ -79,8 +79,9 @@ const myColorMode = computed(() => store.value === 'auto' ? system.value : store
 ```ts
 export type BasicColorMode = "light" | "dark"
 export type BasicColorSchema = BasicColorMode | "auto"
-export interface UseColorModeOptions<T extends string = BasicColorMode>
-  extends UseStorageOptions<T | BasicColorMode> {
+export interface UseColorModeOptions<
+  T extends string = BasicColorMode,
+> extends UseStorageOptions<T | BasicColorMode> {
   /**
    * CSS Selector for the target element applying to
    *

@@ -14,6 +14,7 @@ These are **NOT bundled** by default:
 
 - **`dependencies`** - Installed automatically with your package
 - **`peerDependencies`** - User must install manually
+- **`optionalDependencies`** - May or may not be installed depending on platform/config
 
 ### Conditionally Bundled
 
@@ -24,48 +25,93 @@ These are **bundled ONLY if imported**:
 
 ## Configuration Options
 
-### `external`
+All dependency options are grouped under the `deps` field:
+
+```ts
+export default defineConfig({
+  deps: {
+    neverBundle: ['react', /^@myorg\//],
+    alwaysBundle: ['some-package'],
+    onlyBundle: ['cac', 'bumpp'],
+    skipNodeModulesBundle: true,
+  },
+})
+```
+
+### `deps.neverBundle`
 
 Mark dependencies as external (not bundled):
 
 ```ts
 export default defineConfig({
   entry: ['src/index.ts'],
-  external: [
-    'react',              // Single package
-    'react-dom',
-    /^@myorg\//,         // Regex pattern (all @myorg/* packages)
-    /^lodash/,           // All lodash packages
-  ],
+  deps: {
+    neverBundle: [
+      'react',              // Single package
+      'react-dom',
+      /^@myorg\//,         // Regex pattern (all @myorg/* packages)
+      /^lodash/,           // All lodash packages
+    ],
+  },
 })
 ```
 
-### `noExternal`
+### `deps.alwaysBundle`
 
 Force dependencies to be bundled:
 
 ```ts
 export default defineConfig({
   entry: ['src/index.ts'],
-  noExternal: [
-    'some-package',      // Bundle this even if in dependencies
-    'vendor-lib',
-  ],
+  deps: {
+    alwaysBundle: [
+      'some-package',      // Bundle this even if in dependencies
+      'vendor-lib',
+    ],
+  },
 })
 ```
 
-### `skipNodeModulesBundle`
+### `deps.onlyBundle`
 
-Skip resolving and bundling ALL node_modules:
+Whitelist of dependencies allowed to be bundled from node_modules. Throws an error if any unlisted dependency is bundled:
 
 ```ts
 export default defineConfig({
   entry: ['src/index.ts'],
-  skipNodeModulesBundle: true,
+  deps: {
+    onlyBundle: [
+      'cac',               // Allow bundling cac
+      'bumpp',             // Allow bundling bumpp
+      /^my-utils/,         // Regex patterns supported
+    ],
+  },
 })
 ```
 
-**Result:** No dependencies from node_modules are parsed or bundled.
+**Behavior:**
+- **Array** (`['cac', /^my-/]`): Only matching dependencies can be bundled. Error for others.
+- **`false`**: Suppress all warnings about bundled dependencies.
+- **Not set** (default): Warns if any node_modules dependencies are bundled.
+
+**Note:** Include all sub-dependencies in the list, not just top-level imports.
+
+### `deps.skipNodeModulesBundle`
+
+Skip bundling ALL node_modules:
+
+```ts
+export default defineConfig({
+  entry: ['src/index.ts'],
+  deps: {
+    skipNodeModulesBundle: true,
+  },
+})
+```
+
+**Result:** No dependencies from node_modules are bundled.
+
+**Note:** Cannot be used together with `alwaysBundle`.
 
 ## Common Patterns
 
@@ -75,11 +121,13 @@ export default defineConfig({
 export default defineConfig({
   entry: ['src/index.tsx'],
   format: ['esm', 'cjs'],
-  external: [
-    'react',
-    'react-dom',
-    /^react\//,          // react/jsx-runtime, etc.
-  ],
+  deps: {
+    neverBundle: [
+      'react',
+      'react-dom',
+      /^react\//,          // react/jsx-runtime, etc.
+    ],
+  },
   dts: true,
 })
 ```
@@ -90,8 +138,9 @@ export default defineConfig({
 export default defineConfig({
   entry: ['src/index.ts'],
   format: ['esm', 'cjs'],
-  // Bundle lodash utilities
-  noExternal: ['lodash-es'],
+  deps: {
+    alwaysBundle: ['lodash-es'],
+  },
   dts: true,
 })
 ```
@@ -102,9 +151,11 @@ export default defineConfig({
 export default defineConfig({
   entry: ['src/index.ts'],
   format: ['esm', 'cjs'],
-  external: [
-    /^@mycompany\//,     // Don't bundle other workspace packages
-  ],
+  deps: {
+    neverBundle: [
+      /^@mycompany\//,     // Don't bundle other workspace packages
+    ],
+  },
   dts: true,
 })
 ```
@@ -116,8 +167,9 @@ export default defineConfig({
   entry: ['src/cli.ts'],
   format: ['esm'],
   platform: 'node',
-  // Bundle all dependencies for standalone CLI
-  noExternal: [/.*/],
+  deps: {
+    alwaysBundle: [/.*/],
+  },
   shims: true,
 })
 ```
@@ -128,11 +180,13 @@ export default defineConfig({
 export default defineConfig({
   entry: ['src/index.ts'],
   format: ['esm', 'cjs'],
-  external: [
-    'vue',
-    '@vue/runtime-core',
-    '@vue/reactivity',
-  ],
+  deps: {
+    neverBundle: [
+      'vue',
+      '@vue/runtime-core',
+      '@vue/reactivity',
+    ],
+  },
   dts: true,
 })
 ```
@@ -163,18 +217,28 @@ export default defineConfig({
 
 ## CLI Usage
 
-### External
+### Never Bundle
 
 ```bash
-tsdown --external react --external react-dom
-tsdown --external '/^@myorg\/.*/'
+tsdown --deps.never-bundle react --deps.never-bundle react-dom
+tsdown --deps.never-bundle '/^@myorg\/.*/'
 ```
 
-### No External
+### Skip Node Modules
 
 ```bash
-tsdown --no-external some-package
+tsdown --deps.skip-node-modules-bundle
 ```
+
+## Migration from Deprecated Options
+
+| Deprecated Option | New Option |
+|---|---|
+| `external` | `deps.neverBundle` |
+| `noExternal` | `deps.alwaysBundle` |
+| `inlineOnly` | `deps.onlyBundle` |
+| `deps.onlyAllowBundle` | `deps.onlyBundle` |
+| `skipNodeModulesBundle` | `deps.skipNodeModulesBundle` |
 
 ## Examples by Use Case
 
@@ -183,7 +247,9 @@ tsdown --no-external some-package
 ```ts
 // Don't bundle framework
 export default defineConfig({
-  external: ['vue', 'react', 'solid-js', 'svelte'],
+  deps: {
+    neverBundle: ['vue', 'react', 'solid-js', 'svelte'],
+  },
 })
 ```
 
@@ -192,8 +258,9 @@ export default defineConfig({
 ```ts
 // Bundle everything
 export default defineConfig({
-  noExternal: [/.*/],
-  skipNodeModulesBundle: false,
+  deps: {
+    alwaysBundle: [/.*/],
+  },
 })
 ```
 
@@ -202,8 +269,10 @@ export default defineConfig({
 ```ts
 // Bundle only specific utils
 export default defineConfig({
-  external: [/.*/],        // External by default
-  noExternal: ['tiny-utils'], // Except this one
+  deps: {
+    neverBundle: [/.*/],        // External by default
+    alwaysBundle: ['tiny-utils'], // Except this one
+  },
 })
 ```
 
@@ -212,14 +281,16 @@ export default defineConfig({
 ```ts
 // External workspace packages, bundle utilities
 export default defineConfig({
-  external: [
-    /^@workspace\//,     // Other workspace packages
-    'react',
-    'react-dom',
-  ],
-  noExternal: [
-    'lodash-es',         // Bundle utility libraries
-  ],
+  deps: {
+    neverBundle: [
+      /^@workspace\//,     // Other workspace packages
+      'react',
+      'react-dom',
+    ],
+    alwaysBundle: [
+      'lodash-es',         // Bundle utility libraries
+    ],
+  },
 })
 ```
 
@@ -241,13 +312,15 @@ Or explicitly externalize:
 
 ```ts
 export default defineConfig({
-  external: ['should-be-external'],
+  deps: {
+    neverBundle: ['should-be-external'],
+  },
 })
 ```
 
 ### Missing Dependency at Runtime
 
-Ensure it's in `dependencies` or `peerDependencies`:
+Ensure it's in `dependencies`, `peerDependencies`, or `optionalDependencies`:
 
 ```json
 {
@@ -261,7 +334,9 @@ Or bundle it:
 
 ```ts
 export default defineConfig({
-  noExternal: ['needed-package'],
+  deps: {
+    alwaysBundle: ['needed-package'],
+  },
 })
 ```
 
@@ -280,12 +355,13 @@ export default defineConfig({
 ## Summary
 
 **Default behavior:**
-- `dependencies` & `peerDependencies` → External
+- `dependencies`, `peerDependencies`, & `optionalDependencies` → External
 - `devDependencies` & phantom deps → Bundled if imported
 
-**Override:**
-- `external` → Force external
-- `noExternal` → Force bundled
+**Override (under `deps`):**
+- `neverBundle` → Force external
+- `alwaysBundle` → Force bundled
+- `onlyBundle` → Whitelist bundled deps
 - `skipNodeModulesBundle` → Skip all node_modules
 
 **Declaration files:**

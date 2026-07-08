@@ -4,7 +4,7 @@ Automatically detect CI environments and toggle features based on local vs CI bu
 
 ## Overview
 
-tsdown uses the [`is-in-ci`](https://www.npmjs.com/package/is-in-ci) package to detect CI environments. This covers GitHub Actions, GitLab CI, Jenkins, CircleCI, Travis CI, and more.
+tsdown detects CI from the `CI` environment variable. CI mode is enabled when `process.env.CI` is set to a value other than `0` or `false` (case-insensitive).
 
 ## CI-Aware Values
 
@@ -28,7 +28,7 @@ These options accept CI-aware values:
 - `exports` - Auto-generate `package.json` exports
 - `unused` - Unused dependency check
 - `devtools` - DevTools integration
-- `failOnWarn` - Fail on warnings (defaults to `'ci-only'`)
+- `failOnWarn` - Fail on warnings (defaults to `false`)
 
 ## Usage
 
@@ -38,7 +38,7 @@ These options accept CI-aware values:
 export default defineConfig({
   dts: 'local-only',        // Skip DTS in CI for faster builds
   publint: 'ci-only',       // Only run publint in CI
-  failOnWarn: 'ci-only',    // Fail on warnings in CI only (default)
+  failOnWarn: 'ci-only',    // Fail on warnings in CI only (opt-in)
 })
 ```
 

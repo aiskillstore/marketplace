@@ -1,7 +1,15 @@
-# PowerShell Installation Wrapper for Claude Bitbucket DevOps Skill
+# PowerShell Installation Wrapper for the Bitbucket DevOps Skill
 # This is a thin wrapper that delegates to install.sh to maintain DRY principle
 
-Write-Host "🚀 Claude Bitbucket DevOps Skill - Windows Installer" -ForegroundColor Cyan
+param(
+    # ValidateSet is case-insensitive by default in every PowerShell version
+    # (Windows PowerShell 5.1 included -- this script is invoked via plain
+    # `powershell`, not `pwsh`, so avoid the PS6+-only IgnoreCase property).
+    [ValidateSet("claude", "agy", "opencode")]
+    [string]$Llm = "claude"
+)
+
+Write-Host "🚀 Bitbucket DevOps Skill - Windows Installer (--llm $Llm)" -ForegroundColor Cyan
 Write-Host ""
 
 # Check if bash is available (Git Bash, WSL, etc.)
@@ -28,8 +36,8 @@ Write-Host ""
 # Get the directory where this script is located
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# Execute install.sh using bash
-& bash "$scriptDir/install.sh"
+# Execute install.sh using bash, forwarding the selected provider
+& bash "$scriptDir/install.sh" --llm $Llm
 
 # Capture exit code
 $exitCode = $LASTEXITCODE

@@ -1,50 +1,72 @@
 ---
 name: vite
-description: Vite next-generation frontend build tool with fast HMR and optimized builds. Use when configuring Vite, adding plugins, working with dev server, or building for production.
+description: Vite build tool configuration, plugin API, SSR, and Vite 8 Rolldown migration. Use when working with Vite projects, vite.config.ts, Vite plugins, or building libraries/SSR apps with Vite.
 metadata:
   author: Anthony Fu
-  version: "2026.1.28"
-  source: Generated from https://github.com/vitejs/vite, scripts located at https://github.com/antfu/skills
+  version: "2026.1.31"
+  source: Generated from https://github.com/vitejs/vite, scripts at https://github.com/antfu/skills
 ---
 
-Vite is a modern build tool for frontend development featuring instant server start with native ES modules, lightning-fast HMR, and optimized production builds using Rolldown/Rollup. It supports TypeScript, JSX, CSS pre-processors out of the box and has a rich plugin ecosystem.
+# Vite
 
-> The skill is based on Vite 6.x, generated at 2026-01-28.
+> Based on Vite 8 beta (Rolldown-powered). Vite 8 uses Rolldown bundler and Oxc transformer.
+
+Vite is a next-generation frontend build tool with fast dev server (native ESM + HMR) and optimized production builds.
+
+## Preferences
+
+- Use TypeScript: prefer `vite.config.ts`
+- Always use ESM, avoid CommonJS
 
 ## Core
 
 | Topic | Description | Reference |
 |-------|-------------|-----------|
-| Configuration | Config file setup, defineConfig, conditional and async configs | [core-config](references/core-config.md) |
-| CLI Commands | Dev server, build, preview commands and options | [core-cli](references/core-cli.md) |
-| Core Features | TypeScript, JSX, CSS, HTML processing, JSON handling | [core-features](references/core-features.md) |
-| Using Plugins | Adding, configuring, and ordering plugins | [core-plugins](references/core-plugins.md) |
+| Configuration | `vite.config.ts`, `defineConfig`, conditional configs, `loadEnv` | [core-config](references/core-config.md) |
+| Features | `import.meta.glob`, asset queries (`?raw`, `?url`), `import.meta.env`, HMR API | [core-features](references/core-features.md) |
+| Plugin API | Vite-specific hooks, virtual modules, plugin ordering | [core-plugin-api](references/core-plugin-api.md) |
 
-## Features
-
-| Topic | Description | Reference |
-|-------|-------------|-----------|
-| CSS Handling | CSS modules, pre-processors, PostCSS, Lightning CSS | [features-css](references/features-css.md) |
-| Static Assets | Asset imports, public directory, URL handling | [features-assets](references/features-assets.md) |
-| Glob Import | import.meta.glob, dynamic imports, batch loading | [features-glob-import](references/features-glob-import.md) |
-| Environment Variables | .env files, modes, import.meta.env constants | [features-env](references/features-env.md) |
-| HMR API | Hot Module Replacement client API | [features-hmr](references/features-hmr.md) |
-| Web Workers | Worker imports and configuration | [features-workers](references/features-workers.md) |
-| Dependency Pre-Bundling | optimizeDeps, caching, monorepo setup | [features-dep-bundling](references/features-dep-bundling.md) |
-
-## Build
+## Build & SSR
 
 | Topic | Description | Reference |
 |-------|-------------|-----------|
-| Production Build | Build options, browser targets, multi-page apps | [build-production](references/build-production.md) |
-| Library Mode | Building libraries with proper package exports | [build-library](references/build-library.md) |
-| SSR | Server-side rendering setup and configuration | [build-ssr](references/build-ssr.md) |
+| Build & SSR | Library mode, SSR middleware mode, `ssrLoadModule`, JavaScript API | [build-and-ssr](references/build-and-ssr.md) |
 
 ## Advanced
 
 | Topic | Description | Reference |
 |-------|-------------|-----------|
-| JavaScript API | createServer, build, preview programmatic APIs | [advanced-api](references/advanced-api.md) |
-| Plugin API | Creating Vite plugins, hooks, virtual modules | [advanced-plugin-api](references/advanced-plugin-api.md) |
-| Performance | Optimization tips for dev server and builds | [advanced-performance](references/advanced-performance.md) |
-| Backend Integration | Integrating Vite with traditional backends | [advanced-backend](references/advanced-backend.md) |
+| Environment API | Vite 6+ multi-environment support, custom runtimes | [environment-api](references/environment-api.md) |
+| Rolldown Migration | Vite 8 changes: Rolldown bundler, Oxc transformer, config migration | [rolldown-migration](references/rolldown-migration.md) |
+
+## Quick Reference
+
+### CLI Commands
+
+```bash
+vite              # Start dev server
+vite build        # Production build
+vite preview      # Preview production build
+vite build --ssr  # SSR build
+```
+
+### Common Config
+
+```ts
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [],
+  resolve: { alias: { '@': '/src' } },
+  server: { port: 3000, proxy: { '/api': 'http://localhost:8080' } },
+  build: { target: 'esnext', outDir: 'dist' },
+})
+```
+
+### Official Plugins
+
+- `@vitejs/plugin-vue` - Vue 3 SFC support
+- `@vitejs/plugin-vue-jsx` - Vue 3 JSX
+- `@vitejs/plugin-react` - React with Oxc/Babel
+- `@vitejs/plugin-react-swc` - React with SWC
+- `@vitejs/plugin-legacy` - Legacy browser support

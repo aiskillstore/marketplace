@@ -1,5 +1,5 @@
 #!/bin/bash
-# Smoke test for Claude Bitbucket DevOps Skill
+# Smoke test for the Bitbucket DevOps Skill
 # Validates that the installation is complete and functional
 # Run this after install.sh to verify everything works
 
@@ -7,7 +7,7 @@ SKILL_DIR="${1:-$HOME/.claude/skills/bitbucket-devops}"
 PASSED=0
 FAILED=0
 
-echo "Smoke Testing Claude Bitbucket DevOps Skill"
+echo "Smoke Testing Bitbucket DevOps Skill"
 echo "Testing directory: $SKILL_DIR"
 echo ""
 

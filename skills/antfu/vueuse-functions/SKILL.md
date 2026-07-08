@@ -4,7 +4,7 @@ description: Apply VueUse composables where appropriate to build concise, mainta
 license: MIT
 metadata:
     author: SerKo <https://github.com/serkodev>
-    version: "1.1"
+    version: "1.0"
 compatibility: Requires Vue 3 (or above) or Nuxt 3 (or above) project
 ---
 
@@ -43,11 +43,11 @@ IMPORTANT: Each function entry includes a short `Description` and a detailed `Re
 | [`useDebouncedRefHistory`](references/useDebouncedRefHistory.md) | Shorthand for `useRefHistory` with debounced filter | AUTO |
 | [`useLastChanged`](references/useLastChanged.md) | Records the timestamp of the last change | AUTO |
 | [`useLocalStorage`](references/useLocalStorage.md) | Reactive [LocalStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) | AUTO |
-| [`useManualRefHistory`](references/useManualRefHistory.md) | Manually track the change history of a ref when the using calls `commit()` | AUTO |
+| [`useManualRefHistory`](references/useManualRefHistory.md) | Manually track the change history of a ref when the user calls `commit()` | AUTO |
 | [`useRefHistory`](references/useRefHistory.md) | Track the change history of a ref | AUTO |
 | [`useSessionStorage`](references/useSessionStorage.md) | Reactive [SessionStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/sessionStorage) | AUTO |
 | [`useStorage`](references/useStorage.md) | Create a reactive ref that can be used to access & modify [LocalStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/localStorage) or [SessionStorage](https://developer.mozilla.org/en-US/docs/Web/API/Window/sessionStorage) | AUTO |
-| [`useStorageAsync`](references/useStorageAsync.md) | Reactive Storage in with async support | AUTO |
+| [`useStorageAsync`](references/useStorageAsync.md) | Reactive Storage with async support | AUTO |
 | [`useThrottledRefHistory`](references/useThrottledRefHistory.md) | Shorthand for `useRefHistory` with throttled filter | AUTO |
 
 ### Elements
@@ -61,7 +61,7 @@ IMPORTANT: Each function entry includes a short `Description` and a detailed `Re
 | [`useElementBounding`](references/useElementBounding.md) | Reactive [bounding box](https://developer.mozilla.org/en-US/docs/Web/API/Element/getBoundingClientRect) of an HTML element | AUTO |
 | [`useElementSize`](references/useElementSize.md) | Reactive size of an HTML element | AUTO |
 | [`useElementVisibility`](references/useElementVisibility.md) | Tracks the visibility of an element within the viewport | AUTO |
-| [`useIntersectionObserver`](references/useIntersectionObserver.md) | Detects that a target element's visibility | AUTO |
+| [`useIntersectionObserver`](references/useIntersectionObserver.md) | Detects changes to a target element's visibility | AUTO |
 | [`useMouseInElement`](references/useMouseInElement.md) | Reactive mouse position related to an element | AUTO |
 | [`useMutationObserver`](references/useMutationObserver.md) | Watch for changes being made to the DOM tree | AUTO |
 | [`useParentElement`](references/useParentElement.md) | Get parent element of the given element | AUTO |
@@ -81,6 +81,7 @@ IMPORTANT: Each function entry includes a short `Description` and a detailed `Re
 | [`useClipboard`](references/useClipboard.md) | Reactive [Clipboard API](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API) | AUTO |
 | [`useClipboardItems`](references/useClipboardItems.md) | Reactive [Clipboard API](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API) | AUTO |
 | [`useColorMode`](references/useColorMode.md) | Reactive color mode (dark / light / customs) with auto data persistence | AUTO |
+| [`useCssSupports`](references/useCssSupports.md) | SSR compatible and reactive [`CSS.supports`](https://developer.mozilla.org/docs/Web/API/CSS/supports_static) | AUTO |
 | [`useCssVar`](references/useCssVar.md) | Manipulate CSS variables | AUTO |
 | [`useDark`](references/useDark.md) | Reactive dark mode with auto data persistence | AUTO |
 | [`useEventListener`](references/useEventListener.md) | Use EventListener with ease | AUTO |
@@ -124,7 +125,7 @@ IMPORTANT: Each function entry includes a short `Description` and a detailed `Re
 | Function | Description | Invocation |
 |----------|-------------|------------|
 | [`onClickOutside`](references/onClickOutside.md) | Listen for clicks outside of an element | AUTO |
-| [`onElementRemoval`](references/onElementRemoval.md) | Fires when the element or any element containing it is removed | AUTO |
+| [`onElementRemoval`](references/onElementRemoval.md) | Fires when the element or any element containing it is removed from the DOM | AUTO |
 | [`onKeyStroke`](references/onKeyStroke.md) | Listen for keyboard keystrokes | AUTO |
 | [`onLongPress`](references/onLongPress.md) | Listen for a long press on an element | AUTO |
 | [`onStartTyping`](references/onStartTyping.md) | Fires when users start typing on non-editable elements | AUTO |
@@ -137,7 +138,7 @@ IMPORTANT: Each function entry includes a short `Description` and a detailed `Re
 | [`useElementByPoint`](references/useElementByPoint.md) | Reactive element by point | AUTO |
 | [`useElementHover`](references/useElementHover.md) | Reactive element's hover state | AUTO |
 | [`useFocus`](references/useFocus.md) | Reactive utility to track or set the focus state of a DOM element | AUTO |
-| [`useFocusWithin`](references/useFocusWithin.md) | Reactive utility to track if an element or one of its decendants has focus | AUTO |
+| [`useFocusWithin`](references/useFocusWithin.md) | Reactive utility to track if an element or one of its descendants has focus | AUTO |
 | [`useFps`](references/useFps.md) | Reactive FPS (frames per second) | AUTO |
 | [`useGeolocation`](references/useGeolocation.md) | Reactive [Geolocation API](https://developer.mozilla.org/en-US/docs/Web/API/Geolocation_API) | AUTO |
 | [`useIdle`](references/useIdle.md) | Tracks whether the user is being inactive | AUTO |
@@ -175,11 +176,11 @@ IMPORTANT: Each function entry includes a short `Description` and a detailed `Re
 | Function | Description | Invocation |
 |----------|-------------|------------|
 | [`useAnimate`](references/useAnimate.md) | Reactive [Web Animations API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Animations_API) | AUTO |
-| [`useInterval`](references/useInterval.md) | Reactive counter increases on every interval | AUTO |
+| [`useInterval`](references/useInterval.md) | Reactive counter that increases on every interval | AUTO |
 | [`useIntervalFn`](references/useIntervalFn.md) | Wrapper for `setInterval` with controls | AUTO |
 | [`useNow`](references/useNow.md) | Reactive current Date instance | AUTO |
 | [`useRafFn`](references/useRafFn.md) | Call function on every `requestAnimationFrame` | AUTO |
-| [`useTimeout`](references/useTimeout.md) | Update value after a given time with controls | AUTO |
+| [`useTimeout`](references/useTimeout.md) | Reactive value that becomes `true` after a given time | AUTO |
 | [`useTimeoutFn`](references/useTimeoutFn.md) | Wrapper for `setTimeout` with controls | AUTO |
 | [`useTimestamp`](references/useTimestamp.md) | Reactive current timestamp | AUTO |
 | [`useTransition`](references/useTransition.md) | Transition between values | AUTO |
@@ -188,7 +189,7 @@ IMPORTANT: Each function entry includes a short `Description` and a detailed `Re
 
 | Function | Description | Invocation |
 |----------|-------------|------------|
-| [`computedInject`](references/computedInject.md) | Combine computed and inject | AUTO |
+| [`computedInject`](references/computedInject.md) | Combine `computed` and `inject` | AUTO |
 | [`createReusableTemplate`](references/createReusableTemplate.md) | Define and reuse template inside the component scope | AUTO |
 | [`createTemplatePromise`](references/createTemplatePromise.md) | Template as Promise | AUTO |
 | [`templateRef`](references/templateRef.md) | Shorthand for binding ref to template element | AUTO |
@@ -271,7 +272,7 @@ IMPORTANT: Each function entry includes a short `Description` and a detailed `Re
 
 | Function | Description | Invocation |
 |----------|-------------|------------|
-| [`useCountdown`](references/useCountdown.md) | Wrapper for `useIntervalFn` that provides a countdown timer | AUTO |
+| [`useCountdown`](references/useCountdown.md) | Reactive countdown timer in seconds | AUTO |
 | [`useDateFormat`](references/useDateFormat.md) | Get the formatted date according to the string of tokens passed in | AUTO |
 | [`useTimeAgo`](references/useTimeAgo.md) | Reactive time ago | AUTO |
 | [`useTimeAgoIntl`](references/useTimeAgoIntl.md) | Reactive time ago with i18n supported | AUTO |
@@ -280,6 +281,7 @@ IMPORTANT: Each function entry includes a short `Description` and a detailed `Re
 
 | Function | Description | Invocation |
 |----------|-------------|------------|
+| [`createDisposableDirective`](references/createDisposableDirective.md) | Utility for authoring disposable directives | AUTO |
 | [`createEventHook`](references/createEventHook.md) | Utility for creating event hooks | AUTO |
 | [`createUnrefFn`](references/createUnrefFn.md) | Make a plain function accepting ref and raw values as arguments | AUTO |
 | [`get`](references/get.md) | Shorthand for accessing `ref.value` | EXPLICIT_ONLY |
@@ -310,7 +312,7 @@ IMPORTANT: Each function entry includes a short `Description` and a detailed `Re
 
 | Function | Description | Invocation |
 |----------|-------------|------------|
-| [`useIpcRenderer`](references/useIpcRenderer.md) | Provides [ipcRenderer](https://www.electronjs.org/docs/api/ipc-renderer) and all of its APIs | EXTERNAL |
+| [`useIpcRenderer`](references/useIpcRenderer.md) | Provides [ipcRenderer](https://www.electronjs.org/docs/api/ipc-renderer) and all of its APIs with Vue reactivity | EXTERNAL |
 | [`useIpcRendererInvoke`](references/useIpcRendererInvoke.md) | Reactive [ipcRenderer.invoke API](https://www.electronjs.org/docs/api/ipc-renderer#ipcrendererinvokechannel-args) result | EXTERNAL |
 | [`useIpcRendererOn`](references/useIpcRendererOn.md) | Use [ipcRenderer.on](https://www.electronjs.org/docs/api/ipc-renderer#ipcrendereronchannel-listener) with ease and [ipcRenderer.removeListener](https://www.electronjs.org/docs/api/ipc-renderer#ipcrendererremovelistenerchannel-listener) automatically on unmounted | EXTERNAL |
 | [`useZoomFactor`](references/useZoomFactor.md) | Reactive [WebFrame](https://www.electronjs.org/docs/api/web-frame#webframe) zoom factor | EXTERNAL |

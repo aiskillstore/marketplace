@@ -61,8 +61,9 @@ await trigger() // logs (after 500 ms): The value is "1"
 ## Type Declarations
 
 ```ts
-export interface WatchTriggerableReturn<FnReturnT = void>
-  extends WatchIgnorableReturn {
+export interface WatchTriggerableReturn<
+  FnReturnT = void,
+> extends WatchIgnorableReturn {
   /** Execute `WatchCallback` immediately */
   trigger: () => FnReturnT
 }
@@ -72,6 +73,11 @@ export type WatchTriggerableCallback<V = any, OV = any, R = void> = (
   oldValue: OV,
   onCleanup: OnCleanup,
 ) => R
+export declare function watchTriggerable<T, FnReturnT>(
+  source: WatchSource<T>,
+  cb: WatchTriggerableCallback<T, T | undefined, FnReturnT>,
+  options?: WatchWithFilterOptions<boolean>,
+): WatchTriggerableReturn<FnReturnT>
 export declare function watchTriggerable<
   T extends Readonly<MultiWatchSources>,
   FnReturnT,
@@ -82,11 +88,6 @@ export declare function watchTriggerable<
     MapOldSources<T, true>,
     FnReturnT
   >,
-  options?: WatchWithFilterOptions<boolean>,
-): WatchTriggerableReturn<FnReturnT>
-export declare function watchTriggerable<T, FnReturnT>(
-  source: WatchSource<T>,
-  cb: WatchTriggerableCallback<T, T | undefined, FnReturnT>,
   options?: WatchWithFilterOptions<boolean>,
 ): WatchTriggerableReturn<FnReturnT>
 export declare function watchTriggerable<T extends object, FnReturnT>(

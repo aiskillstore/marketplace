@@ -78,7 +78,7 @@ await until(ref).not.toBeTruthy()
 ## Type Declarations
 
 ```ts
-export interface UntilToMatchOptions {
+export interface UntilToMatchOptions extends ConfigurableFlushSync {
   /**
    * Milliseconds timeout for promise to resolve/reject if the when condition does not meet.
    * 0 for never timed out
@@ -92,12 +92,6 @@ export interface UntilToMatchOptions {
    * @default false
    */
   throwOnTimeout?: boolean
-  /**
-   * `flush` option for internal watch
-   *
-   * @default 'sync'
-   */
-  flush?: WatchOptionFlush
   /**
    * `deep` option for internal watch
    *
@@ -118,8 +112,10 @@ export interface UntilBaseInstance<T, Not extends boolean = false> {
   changedTimes: (n?: number, options?: UntilToMatchOptions) => Promise<T>
 }
 type Falsy = false | void | null | undefined | 0 | 0n | ""
-export interface UntilValueInstance<T, Not extends boolean = false>
-  extends UntilBaseInstance<T, Not> {
+export interface UntilValueInstance<
+  T,
+  Not extends boolean = false,
+> extends UntilBaseInstance<T, Not> {
   readonly not: UntilValueInstance<T, Not extends true ? false : true>
   toBe: <P = T>(
     value: MaybeRefOrGetter<P>,

@@ -11,15 +11,20 @@ Reactive [Battery Status API](https://developer.mozilla.org/en-US/docs/Web/API/B
 ```ts
 import { useBattery } from '@vueuse/core'
 
-const { charging, chargingTime, dischargingTime, level } = useBattery()
+const { isSupported, charging, chargingTime, dischargingTime, level } = useBattery()
 ```
 
 | State           | Type      | Description                                                       |
 | --------------- | --------- | ----------------------------------------------------------------- |
+| isSupported     | `Boolean` | If the Battery Status API is supported in the current browser.    |
 | charging        | `Boolean` | If the device is currently charging.                              |
 | chargingTime    | `Number`  | The number of seconds until the device becomes fully charged.     |
 | dischargingTime | `Number`  | The number of seconds before the device becomes fully discharged. |
 | level           | `Number`  | A number between 0 and 1 representing the current charge level.   |
+
+::: warning Browser Support
+The Battery Status API has limited browser support. It is currently only available in Chromium-based browsers. Always check `isSupported` before using the values.
+:::
 
 ## Use-cases
 
@@ -34,8 +39,14 @@ Our applications normally are not empathetic to battery level, we can make a few
 
 ```vue
 <template>
-  <UseBattery v-slot="{ charging }">
-    Is Charging: {{ charging }}
+  <UseBattery v-slot="{ isSupported, charging, level }">
+    <div v-if="isSupported">
+      <p>Is Charging: {{ charging }}</p>
+      <p>Battery Level: {{ (level * 100).toFixed(0) }}%</p>
+    </div>
+    <div v-else>
+      Battery API not supported
+    </div>
   </UseBattery>
 </template>
 ```
@@ -43,6 +54,13 @@ Our applications normally are not empathetic to battery level, we can make a few
 ## Type Declarations
 
 ```ts
+export interface UseBatteryOptions extends ConfigurableNavigator {}
+export interface UseBatteryReturn extends Supportable {
+  charging: ShallowRef<boolean>
+  chargingTime: ShallowRef<number>
+  dischargingTime: ShallowRef<number>
+  level: ShallowRef<number>
+}
 export interface BatteryManager extends EventTarget {
   charging: boolean
   chargingTime: number
@@ -56,12 +74,7 @@ export interface BatteryManager extends EventTarget {
  *
  * @__NO_SIDE_EFFECTS__
  */
-export declare function useBattery(options?: ConfigurableNavigator): {
-  isSupported: ComputedRef<boolean>
-  charging: ShallowRef<boolean, boolean>
-  chargingTime: ShallowRef<number, number>
-  dischargingTime: ShallowRef<number, number>
-  level: ShallowRef<number, number>
-}
-export type UseBatteryReturn = ReturnType<typeof useBattery>
+export declare function useBattery(
+  options?: UseBatteryOptions,
+): UseBatteryReturn
 ```
