@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T01:43:24.579Z",
+    "generated_at": "2026-07-07T19:29:53.558Z",
     "slug": "artemisai-skill-creator",
     "source_url": "https://github.com/ArtemisAI/code-execution-with-MCP/tree/main/skills/skill-creator",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "d49d1a8c2cef9841614d3d64aff53265f05caa8438ccb32464b0b1a1fbf71bc5",
-    "tree_hash": "0796411fc8161a66e22e59a7cac37ca759769d30b922760d16813071c207a1c3",
+    "content_hash": "8c0ce23bb87be91f5b0853c2e9815617c3858b63acdddfe5da47d2c2d3a60816",
+    "tree_hash": "4cc6c16132217766c029dc3003d03831083a0e9c03a4dd4b7195919759ba4510",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,18 +23,18 @@
   },
   "skill": {
     "name": "skill-creator",
-    "description": "Guides users through creating, updating, validating, and packaging reusable AI skills with clear structure, examples, bundled resources, and helper scripts.",
-    "summary": "Create, validate, and package reusable AI skills for Claude, Codex, and Claude Code.",
+    "description": "Guides users through planning, creating, validating, and packaging reusable AI skills with structured instructions, examples, and helper scripts.",
+    "summary": "Create reusable Claude, Codex, and Claude Code skills with templates, validation, and packaging guidance.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "ArtemisAI",
     "license": "Complete terms in LICENSE.txt",
     "tags": [
-      "skill-authoring",
-      "claude",
-      "codex",
-      "workflow-design",
-      "packaging"
+      "skill creation",
+      "Claude skills",
+      "Codex skills",
+      "templates",
+      "validation"
     ],
     "supported_tools": [
       "claude",
@@ -48,15 +45,31 @@
       "external_commands",
       "filesystem"
     ],
-    "category": "productivity"
+    "category": "coding"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "All static external-command hits are Markdown code spans, code fences, or template prose rather than executable shell-backtick use. The archive and validation findings support local skill packaging and validation; no evidence of prompt injection, exfiltration, credential access, or malicious intent was found.",
-    "remediation": [],
+    "summary": "The static external-command and reconnaissance findings are false positives caused by Markdown backticks, examples, and normal validation control flow. The review did find real packaging and path-handling risks in the helper scripts that could expose files or write outside the intended output path.",
+    "remediation": [
+      {
+        "issue": "init_skill.py accepts skill names without enforcing the documented naming rules.",
+        "suggestion": "Validate skill_name against the hyphen-case pattern before constructing paths, and reject absolute paths or traversal segments.",
+        "severity": "medium"
+      },
+      {
+        "issue": "package_skill.py recursively packages all files under the selected folder.",
+        "suggestion": "Add default exclusions for hidden files, secrets, caches, and build output. Refuse symlinks that resolve outside the skill directory.",
+        "severity": "high"
+      },
+      {
+        "issue": "quick_validate.py performs only minimal structural checks.",
+        "suggestion": "Extend validation to detect unresolved TODO placeholders, oversized resources, unsafe symlinks, and sensitive filenames before packaging.",
+        "severity": "low"
+      }
+    ],
     "risk_factor_evidence": [
       {
         "factor": "external_commands",
@@ -565,341 +578,420 @@
       {
         "id": "external_commands:scripts/init_skill.py:73:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This line is inside a Python string that generates Markdown template text with backticked example file names. It is not Python code execution or shell backtick use."
+        "confidence": 0.96,
+        "reason": "This line is inside a template string that describes example filenames in generated documentation. It does not invoke a shell, subprocess, or Ruby-style backtick execution."
       },
       {
         "id": "external_commands:scripts/init_skill.py:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This line is inside a Python string that generates Markdown template text with backticked example file names. It is not Python code execution or shell backtick use."
+        "confidence": 0.96,
+        "reason": "This line is inside a template string that describes example filenames in generated documentation. It does not invoke a shell, subprocess, or Ruby-style backtick execution."
       },
       {
         "id": "external_commands:scripts/init_skill.py:84:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This line is inside a Python string that generates Markdown template text with backticked example file names. It is not Python code execution or shell backtick use."
+        "confidence": 0.96,
+        "reason": "This line is inside a template string that describes example filenames in generated documentation. It does not invoke a shell, subprocess, or Ruby-style backtick execution."
       },
       {
         "id": "filesystem:scripts/package_skill.py:14:python-archive-libraries",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The zipfile import supports local packaging of a skill after validation. It does not extract untrusted archives or execute archive contents."
+        "confidence": 0.92,
+        "reason": "The zipfile import supports the documented packaging feature. The code creates an archive and does not extract untrusted archive contents."
       },
       {
         "id": "filesystem:scripts/package_skill.py:68:python-archive-libraries",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "ZipFile is used to create a local distributable archive from the requested skill folder. The code does not execute files, extract paths, or send the archive anywhere."
+        "confidence": 0.88,
+        "reason": "ZipFile is opened in write mode to create a local distribution archive after validation. This is expected packaging behavior, not archive extraction or path traversal by itself."
       },
       {
         "id": "blocker:scripts/quick_validate.py:28:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The line returns a static validation error message for malformed frontmatter. It does not inspect host state or collect system information."
+        "confidence": 0.97,
+        "reason": "The line returns a validation error for malformed YAML frontmatter. It does not inspect host configuration, collect system details, or contact external services."
       },
       {
         "id": "blocker:scripts/quick_validate.py:65:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is the normal CLI exit code after local validation. It does not perform reconnaissance or expose environment details."
+        "confidence": 0.97,
+        "reason": "The line exits with a status code based on validation success. It does not perform reconnaissance or expose system information."
       },
       {
         "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is a Markdown code fence around a documented skill directory layout. It is documentation only, not executable shell or Ruby backtick syntax."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is a Markdown code fence around a documented skill directory layout. It is documentation only, not executable shell or Ruby backtick syntax."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:115:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:118:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:120:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:123:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:125:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:128:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:138:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The line describes a local helper script that creates a template skill directory. It references intended tooling but does not contain shell-backtick execution."
+        "confidence": 0.88,
+        "reason": "The inline code names the bundled init_skill.py helper as part of normal skill scaffolding guidance. SKILL.md itself does not execute the command or interpolate untrusted input into a shell."
       },
       {
         "id": "external_commands:SKILL.md:142:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This Markdown bash block documents how to invoke the local initializer script for skill creation. It is not shell-backtick execution and includes no hidden command chain."
+        "confidence": 0.9,
+        "reason": "The finding points to Markdown code fences or documented examples for running bundled helper scripts. The text is instructional documentation and is not executable code in SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:144:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This Markdown bash block documents how to invoke the local initializer script for skill creation. It is not shell-backtick execution and includes no hidden command chain."
+        "confidence": 0.9,
+        "reason": "The finding points to Markdown code fences or documented examples for running bundled helper scripts. The text is instructional documentation and is not executable code in SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:150:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:161:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:163:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark literal file, directory, or skill names in Markdown prose. No executable code is present at this location."
+        "confidence": 0.95,
+        "reason": "The finding is caused by Markdown inline code, filenames, or fenced documentation examples. There is no shell execution semantics in the SKILL.md text at this location."
       },
       {
         "id": "external_commands:SKILL.md:179:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This Markdown bash block documents the local packaging command. It is not shell-backtick execution and does not show exfiltration, privilege escalation, or chained commands."
+        "confidence": 0.9,
+        "reason": "The finding points to Markdown code fences or documented examples for running bundled helper scripts. The text is instructional documentation and is not executable code in SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:181:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This Markdown bash block documents the local packaging command. It is not shell-backtick execution and does not show exfiltration, privilege escalation, or chained commands."
+        "confidence": 0.9,
+        "reason": "The finding points to Markdown code fences or documented examples for running bundled helper scripts. The text is instructional documentation and is not executable code in SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:185:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This Markdown bash block documents the local packaging command. It is not shell-backtick execution and does not show exfiltration, privilege escalation, or chained commands."
+        "confidence": 0.9,
+        "reason": "The finding points to Markdown code fences or documented examples for running bundled helper scripts. The text is instructional documentation and is not executable code in SKILL.md."
       },
       {
         "id": "external_commands:SKILL.md:187:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This Markdown bash block documents the local packaging command. It is not shell-backtick execution and does not show exfiltration, privilege escalation, or chained commands."
+        "confidence": 0.9,
+        "reason": "The finding points to Markdown code fences or documented examples for running bundled helper scripts. The text is instructional documentation and is not executable code in SKILL.md."
       },
       {
         "id": "blocker:SKILL.md:66:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This is documentation guidance about avoiding duplicated content between SKILL.md and reference files. It does not ask to inspect the host or enumerate system data."
+        "confidence": 0.98,
+        "reason": "The line advises avoiding duplicated documentation between SKILL.md and reference files. It contains no reconnaissance instructions or system information collection."
       },
       {
         "id": "blocker:SKILL.md:104:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 1,
-        "reason": "This line advises asking users fewer questions during skill design. It does not perform or request system reconnaissance."
+        "confidence": 0.98,
+        "reason": "The line is user-experience guidance about asking fewer questions. It does not instruct the agent to inspect the host system or gather environmental data."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Unvalidated Skill Name Allows Path Traversal",
+        "description": "init_skill.py appends the user-supplied skill name to the output path without enforcing the documented hyphen-case rules. A name containing traversal segments or an absolute path could write generated files outside the intended directory.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/init_skill.py",
+            "line_start": 205,
+            "line_end": 216
+          },
+          {
+            "file": "scripts/init_skill.py",
+            "line_start": 287,
+            "line_end": 294
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The script documents strict name requirements but passes sys.argv[1] directly into path construction. The resulting directory is then created and populated with files."
+      },
+      {
+        "title": "Recursive Packaging Can Include Unintended Files",
+        "description": "package_skill.py recursively adds every file under the selected skill directory to the zip archive. Without exclusions or symlink checks, hidden files, local secrets, or linked files outside the skill can be included accidentally.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "scripts/package_skill.py",
+            "line_start": 70,
+            "line_end": 74
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The rglob loop writes each file it sees into the package with no ignore list, secret scan, or symlink guard. This is a common release-packaging data exposure risk."
+      }
+    ],
     "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [],
+    "high_findings": [
+      {
+        "title": "Recursive Packaging Can Include Unintended Files",
+        "description": "package_skill.py recursively adds every file under the selected skill directory to the zip archive. Without exclusions or symlink checks, hidden files, local secrets, or linked files outside the skill can be included accidentally.",
+        "locations": [
+          {
+            "file": "scripts/package_skill.py",
+            "line_start": 70,
+            "line_end": 74
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.82,
+        "confidence_reasoning": "The rglob loop writes each file it sees into the package with no ignore list, secret scan, or symlink guard. This is a common release-packaging data exposure risk."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "Unvalidated Skill Name Allows Path Traversal",
+        "description": "init_skill.py appends the user-supplied skill name to the output path without enforcing the documented hyphen-case rules. A name containing traversal segments or an absolute path could write generated files outside the intended directory.",
+        "locations": [
+          {
+            "file": "scripts/init_skill.py",
+            "line_start": 205,
+            "line_end": 216
+          },
+          {
+            "file": "scripts/init_skill.py",
+            "line_start": 287,
+            "line_end": 294
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The script documents strict name requirements but passes sys.argv[1] directly into path construction. The resulting directory is then created and populated with files."
+      }
+    ],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 5,
     "total_lines": 892,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T01:43:24.579Z",
-    "agent_auto_install_policy": "allowed",
+    "audited_at": "2026-07-07T19:29:53.558Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Create Reliable AI Skills",
-    "value_statement": "Teams often repeat the same AI workflow design work without a reusable package. This skill guides Claude, Codex, and Claude Code through skill structure, resources, validation, and packaging.",
+    "user_title": "Create AI Skills with Structured Guidance",
+    "value_statement": "Building reusable AI skills is hard when structure, examples, and packaging steps are unclear. This skill guides planning, scaffolding, editing, validation, and packaging for Claude, Codex, and Claude Code skills.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "AI skill creation",
+      "Claude skill creator",
+      "Codex skill creator",
+      "Claude Code skills",
+      "AI skill development",
+      "skill templates",
+      "SKILL.md guidance",
       "skill packaging",
-      "prompt engineering",
-      "workflow automation",
-      "SKILL.md",
-      "agent tools",
-      "Claude skills"
+      "Claude workflows",
+      "Codex marketplace skills",
+      "reusable AI tools"
     ],
     "actual_capabilities": [
-      "Explains the required SKILL.md frontmatter and instruction structure.",
-      "Guides discovery of user examples before writing reusable instructions.",
-      "Shows how to choose scripts, references, and assets for repeated workflows.",
-      "Provides commands for initializing a new skill directory.",
-      "Provides commands for validating and packaging a finished skill.",
-      "Defines writing style guidance for skill instructions."
+      "Explains the anatomy of a skill, including SKILL.md, scripts, references, and assets.",
+      "Guides users through concrete examples before choosing reusable skill resources.",
+      "Provides init_skill.py to scaffold a SKILL.md file and example resource directories.",
+      "Provides quick_validate.py for basic frontmatter and naming checks.",
+      "Provides package_skill.py to validate a skill and create a distributable zip file.",
+      "Recommends editing practices for concise, reusable AI instructions."
     ],
     "limitations": [
-      "It does not design domain content without user examples or source material.",
-      "It does not publish skills to any marketplace or registry.",
-      "It does not audit generated scripts for production security.",
-      "It assumes Python helper scripts can run in the local workspace."
+      "Generated templates still require project-specific content from the author.",
+      "The validator checks basic frontmatter and names only. It is not a full security audit.",
+      "Packaging includes files under the selected skill folder. Authors must remove secrets first.",
+      "The guidance is optimized for Claude-style skills and may need adaptation for other runtimes."
     ],
     "use_cases": [
       {
-        "title": "Build a Workflow Skill",
-        "description": "Turn a repeated planning or reporting workflow into a reusable skill with clear references and assets.",
-        "target_user": "Product manager"
+        "title": "Create a New Team Skill",
+        "description": "Plan a reusable workflow, scaffold the skill folder, and prepare it for review.",
+        "target_user": "Engineering lead"
       },
       {
-        "title": "Package Developer Tooling",
-        "description": "Create a technical helper skill that includes scripts, API references, and validation steps.",
-        "target_user": "Software developer"
+        "title": "Package a Skill for Sharing",
+        "description": "Validate required metadata and create a zip file for distribution.",
+        "target_user": "Developer tools maintainer"
       },
       {
-        "title": "Standardize Skill Authoring",
-        "description": "Create one skill authoring process for teams using Claude, Codex, and Claude Code.",
-        "target_user": "AI operations lead"
+        "title": "Improve an Existing Skill",
+        "description": "Review usage examples, move detailed material into resources, and refine SKILL.md instructions.",
+        "target_user": "AI workflow designer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a Basic Skill",
-        "scenario": "Beginner request for a new reusable workflow.",
-        "prompt": "Help me define a new skill for [workflow]. Ask for the minimum examples you need, then propose the SKILL.md outline."
+        "title": "Plan a Simple Skill",
+        "scenario": "Beginner planning",
+        "prompt": "Help me plan a new skill for [task]. Ask the few key questions needed, then suggest the SKILL.md structure."
       },
       {
-        "title": "Improve an Existing Skill",
-        "scenario": "Intermediate review of a draft skill folder.",
-        "prompt": "Review this skill folder and suggest focused improvements to SKILL.md, scripts, references, and assets before packaging."
+        "title": "Choose Skill Resources",
+        "scenario": "Intermediate design",
+        "prompt": "Review these example user requests for my skill: [examples]. Recommend which scripts, references, and assets should be included."
       },
       {
-        "title": "Plan Reusable Resources",
-        "scenario": "Advanced planning from several real user requests.",
-        "prompt": "Given these user requests, identify which instructions belong in SKILL.md and which resources should become scripts, references, or assets."
+        "title": "Scaffold and Edit a Skill",
+        "scenario": "Implementation workflow",
+        "prompt": "Create a skill named [skill-name] in [path], then help replace the template content with focused instructions and resources."
       },
       {
-        "title": "Prepare a Release Package",
-        "scenario": "Advanced validation and packaging before sharing.",
-        "prompt": "Validate this skill, explain any blocking issues, then package it only after the structure and metadata are ready."
+        "title": "Audit and Package a Skill",
+        "scenario": "Advanced release preparation",
+        "prompt": "Review my existing skill at [path], identify structural issues, suggest fixes, validate it, and prepare it for packaging."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a skill for weekly engineering status updates.",
-        "output": "A skill purpose statement, likely triggers, proposed reusable references, and a concise SKILL.md section plan."
+        "input": "Plan a skill that helps analysts summarize customer interviews.",
+        "output": "A proposed skill structure with workflow sections, reference files for interview rubrics, and asset suggestions for report templates."
       },
       {
-        "input": "Review my draft data analysis skill before packaging.",
-        "output": "A validation-focused review covering metadata, instruction clarity, resource placement, and packaging readiness."
+        "input": "Prepare my skill folder for sharing with another team.",
+        "output": "A validation summary, a list of required metadata fixes, and packaging steps for a distributable archive."
       },
       {
-        "input": "Plan resources for an API onboarding skill.",
-        "output": "A separation plan for core instructions, detailed API references, helper scripts, and reusable onboarding assets."
+        "input": "Improve this SKILL.md so another AI agent can use it reliably.",
+        "output": "A tighter instruction outline, clearer trigger guidance, and recommendations for moving long examples into reference files."
       }
     ],
     "best_practices": [
-      "Start with real user requests before writing reusable instructions.",
-      "Keep SKILL.md concise and move detailed material into references.",
-      "Delete placeholder resources that the final skill will not use."
+      "Start from real user requests before deciding the skill structure.",
+      "Keep SKILL.md concise and move detailed material into references when appropriate.",
+      "Validate and review all packaged files before sharing the skill."
     ],
     "anti_patterns": [
-      "Creating a skill from a vague domain name without concrete tasks.",
-      "Putting long reference material directly into SKILL.md.",
-      "Keeping sample scripts or assets that do not support the workflow."
+      "Do not include every possible detail in SKILL.md when references would work better.",
+      "Do not leave generated TODO placeholders in a published skill.",
+      "Do not package secrets, private data, or unnecessary example files."
     ],
     "faq": [
       {
-        "question": "What does this skill help create?",
-        "answer": "It helps create reusable AI skills with clear instructions, optional resources, validation, and packaging steps."
+        "question": "What does this skill help me create?",
+        "answer": "It helps create reusable AI skills with clear instructions, resource folders, validation, and packaging steps."
       },
       {
-        "question": "Does it create skills for Claude and Codex?",
-        "answer": "Yes. It supports skill authoring for Claude, Codex, and Claude Code workflows."
+        "question": "Does it generate a starter skill folder?",
+        "answer": "Yes. The included init script creates a SKILL.md template and example scripts, references, and assets folders."
       },
       {
-        "question": "Does it include helper scripts?",
-        "answer": "Yes. It includes scripts for initializing a skill, validating metadata, and creating a distributable archive."
+        "question": "Can it validate a finished skill?",
+        "answer": "It includes a basic validator for frontmatter, required fields, and naming rules. Manual review is still required."
       },
       {
-        "question": "Can it decide what resources a skill needs?",
-        "answer": "It guides that decision by comparing real user examples with scripts, references, and assets."
+        "question": "Can it package a skill for distribution?",
+        "answer": "Yes. The package script validates the skill, then creates a zip archive from the selected skill folder."
       },
       {
-        "question": "Does it replace security review?",
-        "answer": "No. Generated scripts and bundled resources still need normal security and quality review."
+        "question": "Does it work with Claude Code and Codex?",
+        "answer": "The guidance targets Claude-style skills and is listed for Claude, Codex, and Claude Code workflows."
       },
       {
-        "question": "When should I use it?",
-        "answer": "Use it when creating, updating, validating, or packaging a reusable AI skill."
+        "question": "What should I check before sharing a package?",
+        "answer": "Review all included files, remove secrets and unused examples, and confirm the instructions match real user needs."
       }
     ]
   },
   "file_structure": [
+    {
+      "name": "LICENSE.txt",
+      "type": "file",
+      "path": "LICENSE.txt",
+      "lines": 202
+    },
     {
       "name": "scripts",
       "type": "dir",
@@ -924,12 +1016,6 @@
           "lines": 65
         }
       ]
-    },
-    {
-      "name": "LICENSE.txt",
-      "type": "file",
-      "path": "LICENSE.txt",
-      "lines": 202
     },
     {
       "name": "SKILL.md",

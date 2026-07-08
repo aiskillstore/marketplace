@@ -1,5 +1,5 @@
 ---
-name: provider-management
+name: Provider Management
 description: Skill for managing model provider priorities with authentication (OAuth/Subscription/API), usage limits, and automatic fallback across all major AI providers
 version: 2.0.0
 ---

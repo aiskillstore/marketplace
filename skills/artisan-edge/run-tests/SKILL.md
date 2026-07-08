@@ -31,12 +31,20 @@ node --experimental-strip-types -e "import('.')"
 
 Integration tests require SAP credentials and connect to a live SAP system.
 
+### Credentials
+
+There are two ways credentials can be provided:
+
+1. **OS Keyring (recommended):** If `SAP_TEST_SYSTEM_ALIAS` is set in `.env` (e.g. `TKO-DS4`), the test helpers automatically read the password from the OS keyring where Catalyst-CLI stores it. No manual password entry needed.
+2. **Environment variable:** `SAP_PASSWORD` can be set directly or passed to `./test.bat <password>`.
+
+The keyring lookup uses the Catalyst-CLI service name and key format (`{alias}:basic:password`). If both are available, `SAP_PASSWORD` takes priority.
+
 ### Workflow
 
-1. Confirm environment variables are set (see below)
-2. Ask the user to run: `./test.bat <SAP_PASSWORD>`
-3. Wait for user confirmation that tests completed
-4. Read `test.output` to see results
+1. Confirm `.env` exists with system connection details (URL, client, username)
+2. Run `bun test` (credentials resolve from keyring) or `./test.bat <SAP_PASSWORD>`
+3. Read `test.output` for integration test results if using test.bat
 
 ### Environment Variables
 
@@ -45,7 +53,8 @@ Integration tests require SAP credentials and connect to a live SAP system.
 | `SAP_TEST_ADT_URL` | Yes | SAP ADT server URL |
 | `SAP_TEST_CLIENT` | Yes | SAP client number |
 | `SAP_TEST_USERNAME` | Yes | SAP username |
-| `SAP_PASSWORD` | Yes | Passed to test.bat |
+| `SAP_TEST_SYSTEM_ALIAS` | No | System alias for keyring credential lookup |
+| `SAP_PASSWORD` | No* | SAP password (not needed if keyring is configured) |
 | `SAP_TEST_PACKAGE` | No | Target package (default: `$TMP`) |
 | `SAP_TEST_TRANSPORT` | No | Transport request |
 

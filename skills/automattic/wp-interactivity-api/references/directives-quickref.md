@@ -5,6 +5,7 @@ Common directives to recognize in markup:
 - `data-wp-interactive`: declares an interactive region (and often a store namespace).
 - `data-wp-context`: provides server-rendered context/state.
 - `data-wp-on--event`: attaches event handlers (e.g. `click`, `submit`).
+- `data-wp-on-async--event`: async event handlers (preferred for most actions).
 - `data-wp-bind--attr`: binds DOM attributes to state.
 - `data-wp-class--name`: toggles CSS classes based on state.
 
