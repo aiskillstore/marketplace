@@ -25,18 +25,17 @@ When user provides a URL with `add <url>` (without `--manual`):
    → notebook-id
    ```
 
-2. **Invoke agent in discover mode**
+2. **Invoke agent to query notebook**
    ```
    Task({
      subagent_type: "notebooklm-connector:chrome-mcp-query",
-     prompt: "URL: {url}\nQuestion: What is the main topic and content of this notebook? List the document titles.\nmode: discover\nclearHistory: false"
+     prompt: "URL: {url}\nQuestion: What is the main topic and content of this notebook? List the document titles.\nclearHistory: false"
    })
    ```
 
 3. **Parse agent response**
-   - Extract notebook title from agent output
-   - Extract topics from `**Extracted Metadata**` section
-   - Extract description from response summary
+   - Extract notebook title from `**Notebook**` field in agent output
+   - Extract topics and description from `**Answer**` field
 
 4. **Generate ID from title**
    ```

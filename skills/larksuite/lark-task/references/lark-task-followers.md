@@ -8,19 +8,22 @@ Manage task followers. Add or remove followers from an existing task.
 
 ```bash
 # Add a follower
-lark-cli task +followers --task-id "t_xxx" --add "ou_aaa"
+lark-cli task +followers --task-id "<task_guid>" --add "ou_aaa"
+
+# Add an app follower
+lark-cli task +followers --task-id "<task_guid>" --add "cli_xxx"
 
 # Remove a follower
-lark-cli task +followers --task-id "t_xxx" --remove "ou_aaa"
+lark-cli task +followers --task-id "<task_guid>" --remove "ou_aaa"
 ```
 
 ## Parameters
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `--task-id <id>` | Yes | The ID of the task to modify. |
-| `--add <ids>` | No | Comma-separated list of user `open_id`s to add as followers. |
-| `--remove <ids>` | No | Comma-separated list of user `open_id`s to remove from followers. |
+| `--task-id <guid>` | Yes | The task GUID to modify. For Feishu task applinks, use the `guid` query parameter, not the `suite_entity_num` / display task ID like `t104121`. |
+| `--add <ids>` | No | Comma-separated follower IDs. Use user `open_id`s like `ou_xxx` for people, or app IDs like `cli_xxx` for apps. |
+| `--remove <ids>` | No | Comma-separated follower IDs. Use user `open_id`s like `ou_xxx` for people, or app IDs like `cli_xxx` for apps. |
 
 ## Workflow
 

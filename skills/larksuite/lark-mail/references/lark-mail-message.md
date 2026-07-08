@@ -4,6 +4,8 @@
 
 读取指定邮件的完整内容，包括邮件头、正文（纯文本 + 可选 HTML）以及统一的 `attachments` 列表（涵盖普通附件和内嵌图片）。
 
+`mail +message` 只适合读取一封邮件、一个 `message_id`。如果手上已有多个 `message_id`，请使用 `mail +messages --message-ids <id1>,<id2>,<id3>`；不要循环调用 `mail +message`。
+
 CLI 分两阶段构建最终 JSON：
 - 安全的邮件元数据字段直接透传
 - 正文、附件和辅助字段由 shortcut 派生
@@ -34,7 +36,7 @@ lark-cli mail +message --message-id <message-id> --dry-run
 
 | 参数 | 必填 | 默认值 | 说明 |
 |------|------|--------|------|
-| `--message-id <id>` | 是 | — | 邮件 ID |
+| `--message-id <id>` | 是 | — | 单个邮件 ID；多个 ID 使用 `mail +messages --message-ids` |
 | `--mailbox <email>` | 否 | 当前用户 | 邮箱地址（`user_mailbox_id`） |
 | `--html` | 否 | true | 是否返回 HTML 正文（`false` 仅返回纯文本，减少带宽） |
 | `--format <mode>` | 否 | json | 输出格式：`json`（默认）/ `pretty` / `table` / `ndjson` / `csv` |
@@ -154,11 +156,14 @@ lark-cli mail +message --message-id <message-id> --dry-run
 
 ## 注意事项
 
-- JSON 输出中 `body_html` 里的 `<` / `>` 可能显示为 `\u003c` / `\u003e`（JSON 安全转义，内容不变）。
+- **JSON 输出可直接使用** — 默认输出合法 UTF-8 JSON，可直接读取，无需额外编码转换。
+- **单封读取专用** — `mail +message` 只接收一个 `message_id`。多个 ID 使用 `mail +messages --message-ids <id1>,<id2>,<id3>`，避免逐封循环调用。
+- JSON 输出中 `body_html` 里的 `<` / `>` 可能显示为 `\u003c` / `\u003e`（JSON 安全转义，内容不变，`jq -r` 可还原）。
 - `mail +message` 默认不再获取附件/图片下载 URL。这样可以保持邮件详情读取更轻量，调用方可按需单独请求 URL。
 - 查看原始 HTML：
 
 ```bash
+# jq -r 自动处理 JSON 转义，输出原始 HTML
 lark-cli mail +message --message-id <id> --format json | jq -r '.data.body_html'
 ```
 
@@ -189,6 +194,35 @@ lark-cli mail user_mailbox.message.attachments download_url \
 ```
 
 普通附件和内嵌图片使用同一个 `user_mailbox.message.attachments download_url` 原生 API（无 shortcut 封装），传入 `attachments[].id` 即可。
+
+## 日程邀请邮件
+
+当邮件包含日程邀请（`text/calendar`）时，输出中会包含 `calendar_event` 对象：
+
+```json
+{
+  "calendar_event": {
+    "method": "REQUEST",
+    "uid": "abc123",
+    "summary": "产品评审",
+    "start": "2026-04-20T14:00:00+08:00",
+    "end": "2026-04-20T15:00:00+08:00",
+    "location": "5F-大会议室",
+    "organizer": "sender@example.com",
+    "attendees": ["alice@example.com", "bob@example.com"]
+  }
+}
+```
+
+字段说明：
+
+- `method`：ICS `METHOD`，通常为 `REQUEST` / `REPLY` / `CANCEL`。
+- `uid`：日程 UID。
+- `summary`：日程标题。
+- `start` / `end`：开始 / 结束时间（RFC 3339 UTC）。
+- `location`：地点（可能为空）。
+- `organizer`：组织者邮箱。
+- `attendees`：参会人邮箱列表。
 
 ## 相关命令
 
