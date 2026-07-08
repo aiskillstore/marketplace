@@ -1,3 +1,8 @@
+---
+name: evidence-verification
+description: Guides agents to collect executable proof from tests, builds, quality checks, and deployments before marking work complete.
+---
+
 # Evidence-Based Verification Skill
 
 **Version:** 1.0.0

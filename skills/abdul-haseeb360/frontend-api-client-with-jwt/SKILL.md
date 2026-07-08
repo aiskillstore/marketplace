@@ -1,5 +1,5 @@
 ---
-name: Frontend API Client with JWT
+name: frontend-api-client-with-jwt
 category: API Integration
 author: Claude
 version: 1.0.0

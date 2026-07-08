@@ -1,3 +1,9 @@
+---
+name: quality-gates
+description: Guide agents through complexity scoring, requirements validation, dependency checks, stuck detection, and evidence-based quality gates before task execution.
+license: MIT
+---
+
 # Quality Gates Skill
 
 **Version:** 1.0.0
