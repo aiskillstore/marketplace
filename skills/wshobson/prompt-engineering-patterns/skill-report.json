@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-01T00:17:21.143Z",
+    "generated_at": "2026-07-08T13:23:14.892Z",
     "slug": "wshobson-prompt-engineering-patterns",
     "source_url": "https://github.com/wshobson/agents/tree/main/plugins/llm-application-dev/skills/prompt-engineering-patterns",
     "source_ref": "main",
@@ -9,22 +9,35 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "d668f45ddecd0893ea61a31a55e466ea7074b0531962302ace2dfc8e07936dd0",
-    "tree_hash": "f6151e7eefafafb22252bbaa4973ea3e9bd398687042ab4ca821a09562368cd3"
+    "tree_hash": "0d5af25467f7d977e1b0bc380f01f67c831e0f1067e6c546e31f34d7b6f36b47",
+    "provenance": {
+      "model_requested": "gpt-5.5:high",
+      "model_effective": "codex:gpt-5.5:high",
+      "fallback_chain": [
+        {
+          "agent": "codex",
+          "model": "gpt-5.5",
+          "effort": "high",
+          "outcome": "success"
+        }
+      ],
+      "analysis_version": "3.0.0"
+    }
   },
   "skill": {
     "name": "prompt-engineering-patterns",
-    "description": "Improve LLM prompts with reusable templates, few-shot examples, chain-of-thought patterns, system prompt guidance, and optimization workflows.",
-    "summary": "Build clearer, testable prompts for production LLM workflows.",
+    "description": "Use advanced prompt engineering patterns to design, test, and refine reliable LLM prompts for production applications.",
+    "summary": "Design, evaluate, and optimize production LLM prompts with reusable patterns and templates.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "wshobson",
     "license": "MIT",
     "tags": [
       "prompt-engineering",
-      "llm",
-      "few-shot-learning",
       "prompt-templates",
-      "optimization"
+      "few-shot-learning",
+      "llm-evaluation",
+      "system-prompts"
     ],
     "supported_tools": [
       "claude",
@@ -32,268 +45,524 @@
       "claude-code"
     ],
     "risk_factors": [
-      "scripts",
-      "filesystem"
+      "filesystem",
+      "external_commands"
     ],
     "category": "productivity"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "safe",
     "is_blocked": false,
     "safe_to_publish": true,
-    "summary": "Static analysis reported many high-risk indicators, but review found the command, cryptography, reconnaissance, and sensitive-file alerts are documentation false positives. The real risks are moderate: template examples interpolate untrusted text and the sample optimizer can write result files, so publication is acceptable with a security warning.",
-    "risk_factor_evidence": [
+    "analysis_status": "ok",
+    "summary": "The audit found one real medium-risk filesystem issue: scripts/optimize-prompt.py writes optimization results to a caller-provided filename. The remaining static hits are false positives from documentation examples, JSON snippets, Python dictionary key access, and Markdown code fences. No evidence found of malicious prompt injection or data exfiltration intent in the reviewed files.",
+    "remediation": [
       {
-        "factor": "scripts",
-        "evidence": [
-          {
-            "file": "scripts/optimize-prompt.py",
-            "line_start": 1,
-            "line_end": 14
-          },
-          {
-            "file": "scripts/optimize-prompt.py",
-            "line_start": 233,
-            "line_end": 279
-          }
-        ]
+        "issue": "Unrestricted export path",
+        "suggestion": "Restrict export_results to a configured output directory, reject parent-directory traversal, and warn users not to pass untrusted filenames.",
+        "severity": "medium"
       },
+      {
+        "issue": "Scanner-noisy documentation examples",
+        "suggestion": "Clarify that documentation snippets are examples only, and avoid ellipsis sequences that resemble filesystem traversal when possible.",
+        "severity": "low"
+      }
+    ],
+    "risk_factor_evidence": [
       {
         "factor": "filesystem",
         "evidence": [
           {
+            "file": "references/prompt-optimization.md",
+            "line_start": 128,
+            "line_end": 128
+          },
+          {
             "file": "scripts/optimize-prompt.py",
-            "line_start": 227,
-            "line_end": 230
+            "line_start": 229,
+            "line_end": 229
           }
         ]
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [],
-    "medium_findings": [
-      {
-        "title": "Untrusted Prompt Template Interpolation Risk",
-        "description": "Several examples render user-supplied values directly into prompt templates with string formatting. This is useful for prompt systems, but applications must delimit and validate untrusted input to reduce prompt injection risk.",
-        "locations": [
-          {
-            "file": "references/prompt-templates.md",
-            "line_start": 12,
-            "line_end": 17
-          },
-          {
-            "file": "references/prompt-templates.md",
-            "line_start": 61,
-            "line_end": 62
-          },
-          {
-            "file": "scripts/optimize-prompt.py",
-            "line_start": 49,
-            "line_end": 53
-          }
-        ],
-        "severity": "medium",
-        "verdict": "TRUE_POSITIVE",
-        "confidence": 0.74,
-        "confidence_reasoning": "The interpolation behavior is directly shown in code examples and the script. The risk depends on how a downstream application uses these templates, so it is moderate rather than high."
       },
       {
-        "title": "Local Result Export Can Overwrite Caller-Specified Files",
-        "description": "The optimizer exposes an export function that writes JSON results to a filename supplied by the caller. This is legitimate functionality, but callers should avoid passing untrusted paths and should choose safe output locations.",
-        "locations": [
-          {
-            "file": "scripts/optimize-prompt.py",
-            "line_start": 227,
-            "line_end": 230
-          },
-          {
-            "file": "scripts/optimize-prompt.py",
-            "line_start": 263,
-            "line_end": 274
-          }
-        ],
-        "severity": "medium",
-        "verdict": "TRUE_POSITIVE",
-        "confidence": 0.72,
-        "confidence_reasoning": "The file write is explicit and unsandboxed, but the default main path is a local report file and there is no evidence of malicious overwrite intent."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Markdown Code Fences Misclassified as Shell Execution",
-        "description": "The many Ruby backtick execution alerts are false positives. The flagged locations are Markdown code fences and prompt examples, not Ruby code or shell command execution.",
-        "locations": [
-          {
-            "file": "assets/prompt-template-library.md",
-            "line_start": 6,
-            "line_end": 12
-          },
+        "factor": "external_commands",
+        "evidence": [
           {
             "file": "SKILL.md",
             "line_start": 59,
             "line_end": 82
           },
           {
-            "file": "references/chain-of-thought.md",
-            "line_start": 12,
-            "line_end": 29
+            "file": "SKILL.md",
+            "line_start": 82,
+            "line_end": 102
           },
           {
-            "file": "references/prompt-templates.md",
-            "line_start": 6,
-            "line_end": 30
+            "file": "SKILL.md",
+            "line_start": 102,
+            "line_end": 104
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 104,
+            "line_end": 134
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 134,
+            "line_end": 144
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 144,
+            "line_end": 147
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 147,
+            "line_end": 158
           }
-        ],
+        ]
+      }
+    ],
+    "static_findings": [
+      {
+        "id": "blocker:assets/few-shot-examples.json:103:system-reconnaissance",
+        "category": "blocker",
         "severity": "low",
-        "verdict": "FALSE_POSITIVE",
+        "pattern": "System reconnaissance",
+        "file": "assets/few-shot-examples.json",
+        "line_start": 103,
+        "line_end": 103,
+        "snippet": "\"output\": \"SELECT u.id, u.name, u.email, SUM(o.total) as total_spent\\nFROM users u\\nJOIN orders o ON"
+      },
+      {
+        "id": "blocker:references/chain-of-thought.md:170:network-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "Network reconnaissance",
+        "file": "references/chain-of-thought.md",
+        "line_start": 170,
+        "line_end": 171,
+        "snippet": "- Correctness"
+      },
+      {
+        "id": "blocker:references/chain-of-thought.md:391:network-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "Network reconnaissance",
+        "file": "references/chain-of-thought.md",
+        "line_start": 391,
+        "line_end": 392,
+        "snippet": "- Tasks requiring conciseness"
+      },
+      {
+        "id": "blocker:references/few-shot-learning.md:84:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/few-shot-learning.md",
+        "line_start": 84,
+        "line_end": 86,
+        "snippet": "self.error_patterns = error_patterns  # Common mistakes to avoid"
+      },
+      {
+        "id": "blocker:references/few-shot-learning.md:211:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/few-shot-learning.md",
+        "line_start": 211,
+        "line_end": 211,
+        "snippet": "# Invalid input"
+      },
+      {
+        "id": "blocker:references/few-shot-learning.md:212:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/few-shot-learning.md",
+        "line_start": 212,
+        "line_end": 212,
+        "snippet": "{\"input\": \"!@#$%\", \"output\": \"Invalid input format. Please provide valid text.\"}"
+      },
+      {
+        "id": "filesystem:references/prompt-optimization.md:128:path-traversal-sequence",
+        "category": "filesystem",
+        "severity": "high",
+        "pattern": "Path traversal sequence",
+        "file": "references/prompt-optimization.md",
+        "line_start": 128,
+        "line_end": 128,
+        "snippet": "('First, ...\\\\nThen, ...\\\\nFinally, ...', 'Steps: 1) ... 2) ... 3) ...'),"
+      },
+      {
+        "id": "sensitive:references/prompt-optimization.md:97:certificate-key-files",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Certificate/key files",
+        "file": "references/prompt-optimization.md",
+        "line_start": 97,
+        "line_end": 97,
+        "snippet": "for metric in results['A'].keys():"
+      },
+      {
+        "id": "sensitive:references/prompt-optimization.md:365:certificate-key-files",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Certificate/key files",
+        "file": "references/prompt-optimization.md",
+        "line_start": 365,
+        "line_end": 365,
+        "snippet": "for metric in set(v1['metrics'].keys()) | set(v2['metrics'].keys())"
+      },
+      {
+        "id": "blocker:references/prompt-optimization.md:176:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/prompt-optimization.md",
+        "line_start": 176,
+        "line_end": 176,
+        "snippet": "improvements.append(\"Output must be valid JSON with no additional text.\")"
+      },
+      {
+        "id": "blocker:references/prompt-optimization.md:349:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/prompt-optimization.md",
+        "line_start": 349,
+        "line_end": 349,
+        "snippet": "if version_id < len(self.versions):"
+      },
+      {
+        "id": "sensitive:references/prompt-templates.md:13:certificate-key-files",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Certificate/key files",
+        "file": "references/prompt-templates.md",
+        "line_start": 13,
+        "line_end": 13,
+        "snippet": "missing = set(self.variables) - set(kwargs.keys())"
+      },
+      {
+        "id": "blocker:references/prompt-templates.md:397:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/prompt-templates.md",
+        "line_start": 397,
+        "line_end": 397,
+        "snippet": "1. **Keep It DRY**: Use templates to avoid repetition"
+      },
+      {
+        "id": "blocker:references/system-prompts.md:165:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "references/system-prompts.md",
+        "line_start": 165,
+        "line_end": 166,
+        "snippet": "- **Over-Constraining**: Too many rules can make responses rigid"
+      },
+      {
+        "id": "blocker:references/system-prompts.md:93:network-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "Network reconnaissance",
+        "file": "references/system-prompts.md",
+        "line_start": 93,
+        "line_end": 94,
+        "snippet": "- Clarity and conciseness"
+      },
+      {
+        "id": "filesystem:scripts/optimize-prompt.py:229:python-file-write-append",
+        "category": "filesystem",
+        "severity": "medium",
+        "pattern": "Python file write/append",
+        "file": "scripts/optimize-prompt.py",
+        "line_start": 229,
+        "line_end": 229,
+        "snippet": "with open(filename, 'w') as f:"
+      },
+      {
+        "id": "blocker:scripts/optimize-prompt.py:115:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "scripts/optimize-prompt.py",
+        "line_start": 115,
+        "line_end": 115,
+        "snippet": "# Bolt Optimization: Avoid re-evaluating if we already have metrics from previous iteration"
+      },
+      {
+        "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 59,
+        "line_end": 82,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:82:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 82,
+        "line_end": 102,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:102:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 102,
+        "line_end": 104,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:104:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 104,
+        "line_end": 134,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 134,
+        "line_end": 144,
+        "snippet": "```python"
+      },
+      {
+        "id": "external_commands:SKILL.md:144:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 144,
+        "line_end": 147,
+        "snippet": "```"
+      },
+      {
+        "id": "external_commands:SKILL.md:147:ruby-shell-backtick-execution",
+        "category": "external_commands",
+        "severity": "medium",
+        "pattern": "Ruby/shell backtick execution",
+        "file": "SKILL.md",
+        "line_start": 147,
+        "line_end": 158,
+        "snippet": "```python"
+      },
+      {
+        "id": "blocker:SKILL.md:192:system-reconnaissance",
+        "category": "blocker",
+        "severity": "low",
+        "pattern": "System reconnaissance",
+        "file": "SKILL.md",
+        "line_start": 192,
+        "line_end": 192,
+        "snippet": "- **Success Rate**: Percentage of valid outputs"
+      }
+    ],
+    "finding_verdicts": [
+      {
+        "id": "blocker:assets/few-shot-examples.json:103:system-reconnaissance",
+        "verdict": "false_positive",
         "confidence": 0.96,
-        "confidence_reasoning": "The flagged syntax appears inside documentation code blocks. No Ruby files, shell invocations, subprocess calls, or command strings were found at those locations."
+        "reason": "The line is a SQL output example inside assets/few-shot-examples.json. It does not run commands or inspect the host system."
       },
       {
-        "title": "Weak Cryptography Alerts Are Keyword Collisions",
-        "description": "The weak cryptographic algorithm alerts are false positives. The flagged lines contain ordinary prompt-engineering prose, examples, or words that include short substrings, not cryptographic APIs or hash functions.",
-        "locations": [
-          {
-            "file": "assets/few-shot-examples.json",
-            "line_start": 12,
-            "line_end": 12
-          },
-          {
-            "file": "references/few-shot-learning.md",
-            "line_start": 78,
-            "line_end": 78
-          },
-          {
-            "file": "references/prompt-optimization.md",
-            "line_start": 341,
-            "line_end": 341
-          },
-          {
-            "file": "references/prompt-templates.md",
-            "line_start": 140,
-            "line_end": 142
-          }
-        ],
-        "severity": "low",
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.91,
-        "confidence_reasoning": "Targeted review found no MD5, SHA-1, DES, RC4, or related cryptographic implementation. The matches are context-free keyword detections in educational text."
+        "id": "blocker:references/chain-of-thought.md:170:network-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The flagged text is a scoring criterion in a chain-of-thought evaluation example. No network access or reconnaissance behavior is present."
       },
       {
-        "title": "Reconnaissance Alerts Are Benign Educational Text",
-        "description": "The system and network reconnaissance alerts are false positives. The reviewed locations are examples, evaluation terms, or general guidance and do not execute host or network discovery.",
-        "locations": [
-          {
-            "file": "assets/few-shot-examples.json",
-            "line_start": 103,
-            "line_end": 103
-          },
-          {
-            "file": "references/chain-of-thought.md",
-            "line_start": 170,
-            "line_end": 170
-          },
-          {
-            "file": "references/few-shot-learning.md",
-            "line_start": 211,
-            "line_end": 212
-          },
-          {
-            "file": "references/system-prompts.md",
-            "line_start": 93,
-            "line_end": 93
-          }
-        ],
-        "severity": "low",
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.88,
-        "confidence_reasoning": "The files are Markdown or JSON examples and contain no socket, subprocess, shell, host inventory, or network scanning logic. The scanner appears to have matched isolated words."
+        "id": "blocker:references/chain-of-thought.md:391:network-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The line lists tasks where chain-of-thought should be skipped. It is documentation guidance, not network probing or scanning."
       },
       {
-        "title": "Sensitive File Alerts Are Documentation Context",
-        "description": "Certificate and key file alerts are false positives in the reviewed documentation. No private key material, credential file reads, or secret exfiltration behavior was found.",
-        "locations": [
-          {
-            "file": "references/prompt-templates.md",
-            "line_start": 13,
-            "line_end": 13
-          },
-          {
-            "file": "references/prompt-optimization.md",
-            "line_start": 365,
-            "line_end": 365
-          },
-          {
-            "file": "references/prompt-optimization.md",
-            "line_start": 97,
-            "line_end": 97
-          }
-        ],
-        "severity": "low",
-        "verdict": "FALSE_POSITIVE",
-        "confidence": 0.86,
-        "confidence_reasoning": "The referenced lines are part of illustrative prompt or metrics examples. Review found no embedded secrets, certificate files, or credential access code."
+        "id": "blocker:references/few-shot-learning.md:84:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The code stores error pattern examples for few-shot selection. It does not query system details or perform reconnaissance."
+      },
+      {
+        "id": "blocker:references/few-shot-learning.md:211:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The flagged line is a comment labeling an invalid-input example. It is not an instruction to inspect system state."
+      },
+      {
+        "id": "blocker:references/few-shot-learning.md:212:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The string is a sample invalid input and expected response. It has no host access, command execution, or reconnaissance behavior."
+      },
+      {
+        "id": "filesystem:references/prompt-optimization.md:128:path-traversal-sequence",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The apparent traversal sequence is an ellipsis inside a token-reduction example string. It is not used as a path and does not access the filesystem."
+      },
+      {
+        "id": "sensitive:references/prompt-optimization.md:97:certificate-key-files",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The line iterates over dictionary metric keys in an A/B testing example. It does not reference certificate files or private keys."
+      },
+      {
+        "id": "sensitive:references/prompt-optimization.md:365:certificate-key-files",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The code compares metric key names from prompt versions. There is no secret material, certificate path, or key-file access."
+      },
+      {
+        "id": "blocker:references/prompt-optimization.md:176:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The line adds an output-format constraint for prompt optimization. It does not collect system information or instruct bypass behavior."
+      },
+      {
+        "id": "blocker:references/prompt-optimization.md:349:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The line is a bounds check in a prompt version rollback example. It is not system reconnaissance."
+      },
+      {
+        "id": "sensitive:references/prompt-templates.md:13:certificate-key-files",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The code compares required template variables with provided keyword names. It does not access certificate files, private keys, or secrets."
+      },
+      {
+        "id": "blocker:references/prompt-templates.md:397:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The flagged text is a template-design best practice about avoiding repetition. It has no reconnaissance or unsafe operational behavior."
+      },
+      {
+        "id": "blocker:references/system-prompts.md:165:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The line describes over-constraining as a system-prompt pitfall. It is benign documentation, not system inspection."
+      },
+      {
+        "id": "blocker:references/system-prompts.md:93:network-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The flagged text is an editing-focus bullet about clarity and conciseness. No network behavior or discovery intent exists."
+      },
+      {
+        "id": "filesystem:scripts/optimize-prompt.py:229:python-file-write-append",
+        "verdict": "confirmed",
+        "confidence": 0.76,
+        "severity": "medium",
+        "reason": "scripts/optimize-prompt.py writes optimization history to a caller-provided filename. If that filename comes from untrusted input, it could overwrite local files."
+      },
+      {
+        "id": "blocker:scripts/optimize-prompt.py:115:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The line is a comment about avoiding repeated metric evaluation. It does not inspect system configuration or host data."
+      },
+      {
+        "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The flagged range is a Markdown fenced Python example in SKILL.md. There is no Ruby backtick execution or shell command invocation."
+      },
+      {
+        "id": "external_commands:SKILL.md:82:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The finding points at a Markdown code-fence delimiter and surrounding prose. It is not executable shell syntax."
+      },
+      {
+        "id": "external_commands:SKILL.md:102:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The flagged line is a Markdown fence in documentation. It does not invoke a shell or evaluate backtick output."
+      },
+      {
+        "id": "external_commands:SKILL.md:104:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The flagged range contains a prompt-construction example inside a Markdown code block. No external command execution is present."
+      },
+      {
+        "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The flagged text is a fenced Python validation example in documentation. It does not use Ruby backticks or shell execution."
+      },
+      {
+        "id": "external_commands:SKILL.md:144:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The line is a Markdown fence marker after an example. It has no executable command context."
+      },
+      {
+        "id": "external_commands:SKILL.md:147:ruby-shell-backtick-execution",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The flagged range begins another fenced Python example in SKILL.md. It is documentation and contains no shell command invocation."
+      },
+      {
+        "id": "blocker:SKILL.md:192:system-reconnaissance",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The line defines a success-rate metric for prompt evaluation. It does not request system details or perform reconnaissance."
       }
     ],
-    "dangerous_patterns": [
+    "semantic_findings": [],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
       {
-        "title": "Untrusted Prompt Template Interpolation Risk",
-        "description": "Several examples render user-supplied values directly into prompt templates with string formatting. This is useful for prompt systems, but applications must delimit and validate untrusted input to reduce prompt injection risk.",
-        "locations": [
-          {
-            "file": "references/prompt-templates.md",
-            "line_start": 12,
-            "line_end": 17
-          },
-          {
-            "file": "references/prompt-templates.md",
-            "line_start": 61,
-            "line_end": 62
-          },
-          {
-            "file": "scripts/optimize-prompt.py",
-            "line_start": 49,
-            "line_end": 53
-          }
-        ],
-        "severity": "medium",
-        "verdict": "TRUE_POSITIVE",
-        "confidence": 0.74,
-        "confidence_reasoning": "The interpolation behavior is directly shown in code examples and the script. The risk depends on how a downstream application uses these templates, so it is moderate rather than high."
-      },
-      {
-        "title": "Local Result Export Can Overwrite Caller-Specified Files",
-        "description": "The optimizer exposes an export function that writes JSON results to a filename supplied by the caller. This is legitimate functionality, but callers should avoid passing untrusted paths and should choose safe output locations.",
+        "title": "Python file write/append",
+        "description": "with open(filename, 'w') as f:",
         "locations": [
           {
             "file": "scripts/optimize-prompt.py",
-            "line_start": 227,
-            "line_end": 230
-          },
-          {
-            "file": "scripts/optimize-prompt.py",
-            "line_start": 263,
-            "line_end": 274
+            "line_start": 229,
+            "line_end": 229
           }
         ],
-        "severity": "medium",
-        "verdict": "TRUE_POSITIVE",
-        "confidence": 0.72,
-        "confidence_reasoning": "The file write is explicit and unsandboxed, but the default main path is a local report file and there is no evidence of malicious overwrite intent."
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.76,
+        "confidence_reasoning": "scripts/optimize-prompt.py writes optimization history to a caller-provided filename. If that filename comes from untrusted input, it could overwrite local files."
       }
     ],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 9,
     "total_lines": 2682,
     "audit_model": "codex",
-    "audited_at": "2026-07-01T00:17:21.143Z",
-    "risk_factors": [
-      "scripts",
-      "filesystem"
-    ]
+    "audited_at": "2026-07-08T13:23:14.892Z",
+    "agent_auto_install_policy": "allowed",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Optimize Production LLM Prompts",
-    "value_statement": "LLM prompts often fail because instructions, examples, and evaluation criteria are unclear. This skill provides templates and workflows for improving prompts in Claude, Codex, Claude Code, and similar tools.",
+    "user_title": "Optimize Prompts With Proven Patterns",
+    "value_statement": "LLM prompts can fail through unclear instructions, weak examples, or missing evaluation. This skill provides templates, reasoning patterns, and optimization workflows for Claude, Codex, and Claude Code.",
     "seo_keywords": [
       "Claude",
       "Codex",
@@ -303,110 +572,110 @@
       "few-shot learning",
       "chain-of-thought prompting",
       "system prompts",
-      "LLM optimization",
-      "prompt evaluation"
+      "prompt optimization",
+      "LLM evaluation"
     ],
     "actual_capabilities": [
-      "Explains few-shot example selection strategies, including semantic similarity, diversity sampling, and difficulty-based selection.",
-      "Provides reusable prompt templates for classification, extraction, generation, transformation, analysis, question answering, SQL, regex, and API documentation.",
-      "Documents chain-of-thought, self-consistency, verification, and tree-of-thought prompting patterns.",
-      "Shows how to structure system prompts with role, expertise, guidelines, constraints, and output format sections.",
-      "Includes a Python prompt optimization script that compares prompt variants with accuracy, latency, token, and success metrics.",
-      "Supplies example datasets for sentiment analysis, entity extraction, data transformation, summarization, and SQL generation."
+      "Guides few-shot example selection using semantic similarity, diversity, difficulty, and error-based strategies.",
+      "Explains chain-of-thought, verification, and self-consistency patterns for complex reasoning tasks.",
+      "Provides reusable templates for classification, extraction, generation, transformation, analysis, and question answering.",
+      "Describes A/B testing, prompt versioning, and metrics for prompt optimization.",
+      "Includes a Python example script for evaluating prompt variants with a mock LLM client.",
+      "Shows system prompt structures for roles, constraints, output formats, and test cases."
     ],
     "limitations": [
-      "The included Python script uses a mock LLM client and requires adaptation for real providers.",
-      "Prompt examples are educational and do not guarantee model safety or factual accuracy.",
-      "The material does not include a complete production evaluation platform or monitoring service.",
-      "Some code samples are illustrative and may need validation before use in applications."
+      "The included script uses a mock client and simple text matching by default.",
+      "Users must adapt templates to their model, policy, data, and product context.",
+      "The skill does not provide live benchmark results or automated safety certification.",
+      "Some examples are illustrative and may need production hardening before reuse."
     ],
     "use_cases": [
       {
-        "title": "Standardize Product Prompts",
-        "target_user": "Product managers",
-        "description": "Create reusable prompt templates for support, classification, summarization, and structured generation workflows."
+        "title": "Design reliable LLM workflows",
+        "target_user": "LLM application developer",
+        "description": "Design reliable prompts for agents, RAG features, classification flows, and structured generation."
       },
       {
-        "title": "Improve LLM Application Quality",
-        "target_user": "AI engineers",
-        "description": "Test prompt variants with measurable accuracy, latency, token usage, and success rate metrics."
+        "title": "Plan prompt quality metrics",
+        "target_user": "Product manager",
+        "description": "Define prompt tests and success metrics before shipping model-backed workflows."
       },
       {
-        "title": "Teach Prompt Design Patterns",
-        "target_user": "Technical educators",
-        "description": "Use examples and reference guides to explain few-shot learning, reasoning prompts, and system prompt structure."
+        "title": "Standardize reusable templates",
+        "target_user": "Technical writer",
+        "description": "Turn reusable instructions into clear templates for documentation, support, and analysis tasks."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Clarify a Simple Prompt",
+        "title": "Create a Basic Prompt",
         "scenario": "Beginner prompt cleanup",
-        "prompt": "Improve this prompt for clarity and consistency. Keep the same goal, define the expected output, and list any missing information: {prompt}"
+        "prompt": "Use this skill to improve a prompt for {task}. Keep the output format simple. Explain the revised prompt and why each change helps."
       },
       {
-        "title": "Design a Few-Shot Prompt",
-        "scenario": "Intermediate task formatting",
-        "prompt": "Create a few-shot prompt for {task}. Include three examples, consistent input and output labels, and one edge case. Explain why each example was selected."
+        "title": "Add Few-Shot Examples",
+        "scenario": "Intermediate example design",
+        "prompt": "Use this skill to design three few-shot examples for {task}. Include typical inputs, edge cases, and the expected output style."
       },
       {
-        "title": "Build a System Prompt",
-        "scenario": "Advanced assistant behavior design",
-        "prompt": "Draft a system prompt for an assistant that handles {domain}. Include role, expertise, boundaries, output format, escalation rules, and safety constraints."
+        "title": "Build an Evaluation Plan",
+        "scenario": "Advanced prompt testing",
+        "prompt": "Use this skill to create an evaluation plan for {prompt_name}. Define metrics, test cases, failure categories, and an iteration process."
       },
       {
-        "title": "Create an Optimization Plan",
-        "scenario": "Production prompt evaluation",
-        "prompt": "Create an optimization plan for this prompt: {prompt}. Define test cases, metrics, prompt variants, failure analysis steps, and rollout criteria."
+        "title": "Design a Production Prompt System",
+        "scenario": "Advanced production workflow",
+        "prompt": "Use this skill to design a production prompt system for {application}. Include system prompt structure, template variables, validation rules, versioning, and rollback guidance."
       }
     ],
     "output_examples": [
       {
-        "input": "A vague support prompt for classifying customer messages.",
-        "output": "A clearer classification prompt with allowed labels, input boundaries, output format, and examples for billing, shipping, cancellation, and technical support."
+        "input": "Improve a sentiment classification prompt for support tickets.",
+        "output": "A refined instruction, three labeled examples, validation criteria, and notes on ambiguous tickets."
       },
       {
-        "input": "A system prompt for a data analyst assistant.",
-        "output": "A structured system prompt that defines analyst expertise, required assumptions, result format, uncertainty handling, and limits on unsupported claims."
+        "input": "Create a prompt testing plan for a RAG answer generator.",
+        "output": "A test matrix covering groundedness, citation quality, refusal behavior, latency, and failure tracking."
       },
       {
-        "input": "Two competing summarization prompts.",
-        "output": "An evaluation plan with representative test cases, scoring metrics, failure categories, and criteria for choosing the better prompt."
+        "input": "Design a system prompt for a data analyst assistant.",
+        "output": "A role definition, supported tasks, constraints, reporting format, and a checklist for validating responses."
       }
     ],
     "best_practices": [
-      "Start with a direct prompt, then add examples, constraints, and reasoning only when tests show a need.",
-      "Use representative test cases and measure accuracy, consistency, latency, token use, and failure modes.",
-      "Treat prompt templates as product assets with versioning, documentation, and rollback plans."
+      "Start with the simplest prompt that can meet the task, then add examples or reasoning only when tests show a need.",
+      "Version prompts and evaluate changes with stable test cases before production use.",
+      "Separate role, task, context, examples, and output format so each part can be reviewed."
     ],
     "anti_patterns": [
-      "Do not add many examples without checking relevance, token cost, and output consistency.",
-      "Do not rely on chain-of-thought prompts for simple tasks that need concise answers.",
-      "Do not interpolate untrusted user text into high-privilege prompt sections without clear boundaries."
+      "Adding long reasoning instructions to simple tasks that need direct answers.",
+      "Using examples that do not match the input distribution or expected output style.",
+      "Treating prompt templates as safe without testing edge cases, policy limits, and failure modes."
     ],
     "faq": [
       {
-        "question": "Does this skill run external services?",
-        "answer": "No external service is called by the skill materials. The sample script uses a mock LLM client unless a developer adapts it."
+        "question": "What does this skill help me build?",
+        "answer": "It helps you design, test, and refine prompts for LLM applications, agents, and structured generation workflows."
       },
       {
-        "question": "Can it help with Claude, Codex, and Claude Code?",
-        "answer": "Yes. The patterns are general prompt design methods that apply across Claude, Codex, Claude Code, and other LLM tools."
+        "question": "Can I use it with Claude, Codex, and Claude Code?",
+        "answer": "Yes. The guidance is model-agnostic and includes workflows relevant to Claude, Codex, and Claude Code."
       },
       {
-        "question": "Does it include ready-made prompt templates?",
-        "answer": "Yes. It includes templates for classification, extraction, generation, analysis, question answering, SQL, regex, and documentation tasks."
+        "question": "Does it run prompt optimization automatically?",
+        "answer": "It includes an example Python optimizer, but users must connect a real LLM client for production testing."
       },
       {
-        "question": "Does it include evaluation guidance?",
-        "answer": "Yes. It covers baseline testing, A/B testing, metrics, failure analysis, and prompt versioning workflows."
+        "question": "Is chain-of-thought always recommended?",
+        "answer": "No. The references recommend reasoning patterns for complex tasks and direct prompts for simple or latency-sensitive tasks."
       },
       {
-        "question": "Can I use the Python script as-is in production?",
-        "answer": "No. The script is a demonstration and should be reviewed, tested, and adapted before production use."
+        "question": "Can this replace safety review?",
+        "answer": "No. It improves prompt quality, but teams still need product safety, privacy, and abuse testing."
       },
       {
-        "question": "What is the main security caution?",
-        "answer": "Applications should not place untrusted user input into privileged prompt sections without delimiters, validation, and injection-resistant design."
+        "question": "Who should use this skill?",
+        "answer": "Developers, prompt designers, product teams, and documentation teams can use it to standardize prompt workflows."
       }
     ]
   },
