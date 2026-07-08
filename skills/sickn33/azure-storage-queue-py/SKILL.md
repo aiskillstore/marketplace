@@ -1,9 +1,9 @@
 ---
 name: azure-storage-queue-py
-description: |
-  Azure Queue Storage SDK for Python. Use for reliable message queuing, task distribution, and asynchronous processing.
-  Triggers: "queue storage", "QueueServiceClient", "QueueClient", "message queue", "dequeue".
-package: azure-storage-queue
+description: Azure Queue Storage SDK for Python. Use for reliable message queuing, task distribution, and asynchronous processing.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 # Azure Queue Storage SDK for Python
@@ -211,3 +211,11 @@ queue_client.send_message(b"Binary content")
 5. **Use `peek_messages`** for monitoring without affecting queue
 6. **Set `time_to_live`** to prevent stale messages
 7. **Consider Service Bus** for advanced features (sessions, topics)
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

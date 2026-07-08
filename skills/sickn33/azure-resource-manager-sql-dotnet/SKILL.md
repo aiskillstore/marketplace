@@ -1,8 +1,9 @@
 ---
 name: azure-resource-manager-sql-dotnet
-description: |
-  Azure Resource Manager SDK for Azure SQL in .NET. Use for MANAGEMENT PLANE operations: creating/managing SQL servers, databases, elastic pools, firewall rules, and failover groups via Azure Resource Manager. NOT for data plane operations (executing queries) - use Microsoft.Data.SqlClient for that. Triggers: "SQL server", "create SQL database", "manage SQL resources", "ARM SQL", "SqlServerResource", "provision Azure SQL", "elastic pool", "firewall rule".
-package: Azure.ResourceManager.Sql
+description: Azure Resource Manager SDK for Azure SQL in .NET.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 # Azure.ResourceManager.Sql (.NET)
@@ -71,6 +72,7 @@ ArmClient
 ### 1. Create SQL Server
 
 ```csharp
+using System;
 using Azure.ResourceManager.Sql;
 using Azure.ResourceManager.Sql.Models;
 
@@ -82,7 +84,7 @@ var resourceGroup = await subscription
 var serverData = new SqlServerData(AzureLocation.EastUS)
 {
     AdministratorLogin = "sqladmin",
-    AdministratorLoginPassword = "YourSecurePassword123!",
+    AdministratorLoginPassword = Environment.GetEnvironmentVariable("SQL_ADMIN_PASSWORD") ?? throw new InvalidOperationException("SQL_ADMIN_PASSWORD is required"),
     Version = "12.0",
     MinimalTlsVersion = SqlMinimalTlsVersion.Tls1_2,
     PublicNetworkAccess = ServerNetworkAccessFlag.Enabled
@@ -306,9 +308,9 @@ catch (RequestFailedException ex)
 
 | File | When to Read |
 |------|--------------|
-| [references/server-management.md](references/server-management.md) | Server CRUD, admin credentials, Azure AD auth, networking |
-| [references/database-operations.md](references/database-operations.md) | Database CRUD, scaling, backup, restore, copy |
-| [references/elastic-pools.md](references/elastic-pools.md) | Pool management, adding/removing databases, scaling |
+| references/server-management.md | Server CRUD, admin credentials, Azure AD auth, networking |
+| references/database-operations.md | Database CRUD, scaling, backup, restore, copy |
+| references/elastic-pools.md | Pool management, adding/removing databases, scaling |
 
 ## Related SDKs
 
@@ -317,3 +319,11 @@ catch (RequestFailedException ex)
 | `Microsoft.Data.SqlClient` | Data plane (execute queries, stored procedures) | `dotnet add package Microsoft.Data.SqlClient` |
 | `Azure.ResourceManager.Sql` | Management plane (this SDK) | `dotnet add package Azure.ResourceManager.Sql` |
 | `Microsoft.EntityFrameworkCore.SqlServer` | ORM for SQL Server | `dotnet add package Microsoft.EntityFrameworkCore.SqlServer` |
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

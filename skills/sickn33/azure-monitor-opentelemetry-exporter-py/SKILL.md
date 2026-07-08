@@ -1,9 +1,9 @@
 ---
 name: azure-monitor-opentelemetry-exporter-py
-description: |
-  Azure Monitor OpenTelemetry Exporter for Python. Use for low-level OpenTelemetry export to Application Insights.
-  Triggers: "azure-monitor-opentelemetry-exporter", "AzureMonitorTraceExporter", "AzureMonitorMetricExporter", "AzureMonitorLogExporter".
-package: azure-monitor-opentelemetry-exporter
+description: Azure Monitor OpenTelemetry Exporter for Python. Use for low-level OpenTelemetry export to Application Insights.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 # Azure Monitor OpenTelemetry Exporter for Python
@@ -23,7 +23,6 @@ APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=xxx;IngestionEndpoint=h
 ```
 
 ## When to Use
-
 | Scenario | Use |
 |----------|-----|
 | Quick setup, auto-instrumentation | `azure-monitor-opentelemetry` (distro) |
@@ -205,3 +204,8 @@ exporter = AzureMonitorTraceExporter(
 4. **Use AAD authentication** instead of instrumentation keys
 5. **Set export intervals** appropriate for your workload
 6. **Use the distro** (`azure-monitor-opentelemetry`) unless you need custom pipelines
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

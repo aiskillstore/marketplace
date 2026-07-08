@@ -1,9 +1,9 @@
 ---
 name: azure-cosmos-py
-description: |
-  Azure Cosmos DB SDK for Python (NoSQL API). Use for document CRUD, queries, containers, and globally distributed data.
-  Triggers: "cosmos db", "CosmosClient", "container", "document", "NoSQL", "partition key".
-package: azure-cosmos
+description: Azure Cosmos DB SDK for Python (NoSQL API). Use for document CRUD, queries, containers, and globally distributed data.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 # Azure Cosmos DB SDK for Python
@@ -275,6 +275,14 @@ except CosmosHttpResponseError as e:
 
 | File | Contents |
 |------|----------|
-| [references/partitioning.md](references/partitioning.md) | Partition key strategies, hierarchical keys, hot partition detection and mitigation |
-| [references/query-patterns.md](references/query-patterns.md) | Query optimization, aggregations, pagination, transactions, change feed |
-| [scripts/setup_cosmos_container.py](scripts/setup_cosmos_container.py) | CLI tool for creating containers with partitioning, throughput, and indexing |
+| references/partitioning.md | Partition key strategies, hierarchical keys, hot partition detection and mitigation |
+| references/query-patterns.md | Query optimization, aggregations, pagination, transactions, change feed |
+| scripts/setup_cosmos_container.py | CLI tool for creating containers with partitioning, throughput, and indexing |
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

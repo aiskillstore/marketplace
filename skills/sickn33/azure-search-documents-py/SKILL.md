@@ -1,9 +1,9 @@
 ---
 name: azure-search-documents-py
-description: |
-  Azure AI Search SDK for Python. Use for vector search, hybrid search, semantic ranking, indexing, and skillsets.
-  Triggers: "azure-search-documents", "SearchClient", "SearchIndexClient", "vector search", "hybrid search", "semantic search".
-package: azure-search-documents
+description: Azure AI Search SDK for Python. Use for vector search, hybrid search, semantic ranking, indexing, and skillsets.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 # Azure AI Search SDK for Python
@@ -309,26 +309,26 @@ indexer_client.create_or_update_indexer(indexer)
 
 | File | Contents |
 |------|----------|
-| [references/vector-search.md](references/vector-search.md) | HNSW configuration, integrated vectorization, multi-vector queries |
-| [references/semantic-ranking.md](references/semantic-ranking.md) | Semantic configuration, captions, answers, hybrid patterns |
-| [scripts/setup_vector_index.py](scripts/setup_vector_index.py) | CLI script to create vector-enabled search index |
+| references/vector-search.md | HNSW configuration, integrated vectorization, multi-vector queries |
+| references/semantic-ranking.md | Semantic configuration, captions, answers, hybrid patterns |
+| scripts/setup_vector_index.py | CLI script to create vector-enabled search index |
 
 
 ---
 
 ## Additional Azure AI Search Patterns
 
-# Azure AI Search Python SDK
+### Additional SDK Focus
 
 Write clean, idiomatic Python code for Azure AI Search using `azure-search-documents`.
 
-## Installation
+## Installation for Additional Patterns
 
 ```bash
 pip install azure-search-documents azure-identity
 ```
 
-## Environment Variables
+## Environment Variables for Additional Patterns
 
 ```bash
 AZURE_SEARCH_ENDPOINT=https://<search-service>.search.windows.net
@@ -337,7 +337,7 @@ AZURE_SEARCH_INDEX_NAME=<index-name>
 AZURE_SEARCH_API_KEY=<api-key>
 ```
 
-## Authentication
+## Authentication for Additional Patterns
 
 **DefaultAzureCredential (preferred)**:
 ```python
@@ -470,7 +470,7 @@ results = search_client.search(
 
 ## Agentic Retrieval (Knowledge Bases)
 
-For LLM-powered Q&A with answer synthesis, see [references/agentic-retrieval.md](references/agentic-retrieval.md).
+For LLM-powered Q&A with answer synthesis, see references/agentic-retrieval.md.
 
 Key concepts:
 - **Knowledge Source**: Points to a search index
@@ -488,7 +488,7 @@ async with SearchClient(endpoint, index_name, credential) as client:
         print(result["title"])
 ```
 
-## Best Practices
+## Best Practices for Additional Patterns
 
 1. **Use environment variables** for endpoints, keys, and deployment names
 2. **Prefer `DefaultAzureCredential`** over API keys for production
@@ -526,3 +526,11 @@ except ResourceNotFoundError:
 except HttpResponseError as e:
     print(f"Search error: {e.message}")
 ```
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

@@ -1,8 +1,9 @@
 ---
 name: azure-storage-blob-ts
-description: |
-  Azure Blob Storage JavaScript/TypeScript SDK (@azure/storage-blob) for blob operations. Use for uploading, downloading, listing, and managing blobs and containers. Supports block blobs, append blobs, page blobs, SAS tokens, and streaming. Triggers: "blob storage", "@azure/storage-blob", "BlobServiceClient", "ContainerClient", "upload blob", "download blob", "SAS token", "block blob".
-package: "@azure/storage-blob"
+description: Azure Blob Storage JavaScript/TypeScript SDK (@azure/storage-blob) for blob operations. Use for uploading, downloading, listing, and managing blobs and containers.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 # @azure/storage-blob (TypeScript/JavaScript)
@@ -480,3 +481,11 @@ import {
 | SAS generation | ✅ | ❌ |
 | DefaultAzureCredential | ✅ | ❌ |
 | Anonymous/SAS access | ✅ | ✅ |
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
