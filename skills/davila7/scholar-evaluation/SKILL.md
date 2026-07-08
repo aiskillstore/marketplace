@@ -1,3 +1,8 @@
+---
+name: scholar-evaluation
+description: Evaluate scholarly work with the ScholarEval framework, including structured criteria, scoring rubrics, and actionable academic feedback.
+---
+
 # Scholar Evaluation
 
 ## Overview
