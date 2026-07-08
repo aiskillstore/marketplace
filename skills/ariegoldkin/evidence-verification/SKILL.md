@@ -1,6 +1,7 @@
 ---
 name: evidence-verification
 description: Guides agents to collect test, build, lint, and deployment evidence before marking work complete.
+license: MIT
 ---
 
 # Evidence-Based Verification Skill
