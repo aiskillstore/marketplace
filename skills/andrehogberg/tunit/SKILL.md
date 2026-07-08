@@ -21,8 +21,8 @@ To prevent system overload when running Playwright tests, limit parallel test ex
 # Run with maximum 1 parallel test (sequential)
 dotnet run --project tests/SummitUI.Tests.Playwright -- --maximum-parallel-tests 1
 
-# Run with maximum 2 parallel tests
-dotnet run --project tests/SummitUI.Tests.Playwright -- --maximum-parallel-tests 2
+# Run with maximum 8 parallel tests
+dotnet run --project tests/SummitUI.Tests.Playwright -- --maximum-parallel-tests 8
 ```
 ## Run Tests with Filters
 

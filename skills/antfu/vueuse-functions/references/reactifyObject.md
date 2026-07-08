@@ -33,8 +33,9 @@ export type ReactifyObjectReturn<
   Keys extends keyof T,
   S extends boolean = true,
 > = ReactifyNested<T, Keys, S>
-export interface ReactifyObjectOptions<T extends boolean>
-  extends ReactifyOptions<T> {
+export interface ReactifyObjectOptions<
+  T extends boolean,
+> extends ReactifyOptions<T> {
   /**
    * Includes names from Object.getOwnPropertyNames
    *

@@ -1,14 +1,86 @@
 #!/bin/bash
-# Installation script for Claude Bitbucket DevOps Skill
-# Validates prerequisites, builds in source, then deploys to Claude Code skills directory
+# Installation script for the Bitbucket DevOps Skill
+# Validates prerequisites, builds in source, then deploys to the skill directory
+# for the selected agent runtime (--llm claude|agy|opencode, default: claude).
 
 set -e  # Exit on error
 
 SKILL_NAME="bitbucket-devops"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TARGET_DIR="$HOME/.claude/skills/$SKILL_NAME"
 
-echo "🚀 Installing Claude Bitbucket DevOps Skill..."
+# ========== ARGUMENT PARSING ==========
+
+LLM="claude"
+
+usage() {
+    echo "Usage: install.sh [--llm <provider>]"
+    echo ""
+    echo "  --llm <provider>   Agent runtime to install this skill for."
+    echo "                     Supported: claude (default), agy, opencode."
+    echo ""
+    echo "  TARGET_DIR         Env var override for the install directory,"
+    echo "                     e.g. TARGET_DIR=/custom/path install.sh --llm agy"
+    echo "                     Takes priority over --llm's computed default."
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --llm=*)
+            LLM="${1#--llm=}"
+            shift
+            ;;
+        --llm)
+            if [ -z "$2" ]; then
+                echo "❌ Error: --llm requires a value (claude, agy, opencode)"
+                exit 1
+            fi
+            LLM="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "❌ Error: Unknown argument: $1"
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+# Normalize to lowercase for case-insensitive matching (AGY, OpenCode, etc.)
+LLM="$(echo "$LLM" | tr '[:upper:]' '[:lower:]')"
+
+# Map the selected runtime to its skill-install convention. These mirror
+# apra-fleet's per-provider skillsDir layout (src/cli/config.ts,
+# getProviderInstallConfig()) for the providers this skill supports.
+case "$LLM" in
+    claude)
+        LLM_DISPLAY_NAME="Claude Code"
+        SKILLS_BASE_DIR="$HOME/.claude/skills"
+        RUNTIME_CONFIG_DIR="$HOME/.claude"
+        ;;
+    agy)
+        LLM_DISPLAY_NAME="AGY (Antigravity)"
+        SKILLS_BASE_DIR="$HOME/.gemini/antigravity-cli/skills"
+        RUNTIME_CONFIG_DIR="$HOME/.gemini/antigravity-cli"
+        ;;
+    opencode)
+        LLM_DISPLAY_NAME="OpenCode"
+        SKILLS_BASE_DIR="$HOME/.config/opencode/skills"
+        RUNTIME_CONFIG_DIR="$HOME/.config/opencode"
+        ;;
+    *)
+        echo "❌ Error: Unsupported --llm value: $LLM"
+        echo "   Supported: claude, agy, opencode"
+        exit 1
+        ;;
+esac
+
+TARGET_DIR="${TARGET_DIR:-$SKILLS_BASE_DIR/$SKILL_NAME}"
+
+echo "🚀 Installing Bitbucket DevOps Skill for $LLM_DISPLAY_NAME..."
 echo ""
 
 # ========== PREREQUISITE CHECKS ==========
@@ -41,10 +113,13 @@ if ! command -v npm &> /dev/null; then
 fi
 echo "✓ npm found: $(npm --version)"
 
-# Check if Claude Code is installed (look for .claude directory potential)
-if [ ! -d "$HOME/.claude" ]; then
-    echo "⚠️  Warning: Claude Code directory not found at ~/.claude"
-    echo "   This might mean Claude Code is not installed or not configured yet."
+# If deploying to the selected runtime's default convention, sanity-check
+# that its config directory exists first (skip this check entirely if
+# TARGET_DIR was overridden to a custom path).
+if [ "$TARGET_DIR" = "$SKILLS_BASE_DIR/$SKILL_NAME" ] && [ ! -d "$RUNTIME_CONFIG_DIR" ]; then
+    echo "⚠️  Warning: $LLM_DISPLAY_NAME directory not found at $RUNTIME_CONFIG_DIR"
+    echo "   This might mean $LLM_DISPLAY_NAME is not installed or not configured yet."
+    echo "   (Installing for a different runtime? Use --llm claude|agy|opencode, or set TARGET_DIR directly.)"
     read -p "   Continue anyway? (y/N): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -61,7 +136,7 @@ echo ""
 if [ ! -d "$SCRIPT_DIR/.git" ]; then
     echo "❌ Error: Not a git repository"
     echo "   Please clone the repository first:"
-    echo "   git clone https://github.com/Apra-Labs/claude-bitbucket-devops-skill.git"
+    echo "   git clone https://github.com/Apra-Labs/bitbucket-devops-skill.git"
     exit 1
 fi
 
@@ -177,13 +252,13 @@ else
         rm -rf "$TARGET_DIR"
     fi
 
-    echo "📦 Deploying built files to Claude Code skills directory..."
+    echo "📦 Deploying built files to the skill directory..."
 
     # Create skills directory if needed
     mkdir -p "$(dirname "$TARGET_DIR")"
     mkdir -p "$TARGET_DIR"
 
-    # Copy only files needed by Claude (selective copy)
+    # Copy only the files needed at runtime (selective copy)
     echo "   Copying SKILL.md..."
     cp "$SCRIPT_DIR/SKILL.md" "$TARGET_DIR/"
 
@@ -239,6 +314,21 @@ fi
 
 echo ""
 
+# ========== VERSION MARKER ==========
+# Records the installed commit so `check-for-updates`/`self-update` (see
+# lib/helpers.js) can tell whether this install is behind main -- needed
+# for file-copy deployments (no .git in TARGET_DIR to read HEAD from).
+
+INSTALLED_COMMIT=$(git -C "$SCRIPT_DIR" rev-parse HEAD 2>/dev/null || echo "unknown")
+cat > "$TARGET_DIR/.install-version.json" <<EOF
+{
+  "commit": "$INSTALLED_COMMIT",
+  "installedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+echo "✓ Recorded installed version ($INSTALLED_COMMIT) for self-update checks"
+echo ""
+
 # ========== COMPLETION ==========
 
 echo "✅ Installation complete!"
@@ -287,11 +377,16 @@ echo "    🔗 Get app password:"
 echo "    https://bitbucket.org/account/settings/app-passwords/"
 echo "    Required scopes: Repository (Read), Pipelines (Read, Write)"
 echo ""
-echo "2️⃣  Restart VSCode to load the skill"
+echo "2️⃣  Reload $LLM_DISPLAY_NAME to load the skill:"
+if [ "$LLM" = "claude" ]; then
+    echo "    - Close and reopen VSCode, or Ctrl+Shift+P -> \"Developer: Reload Window\""
+else
+    echo "    - Use $LLM_DISPLAY_NAME's own skill-reload mechanism"
+fi
 echo ""
 echo "3️⃣  Test the skill:"
-echo "    - Open a Bitbucket project in VSCode"
-echo "    - Ask Claude: \"What's the latest failed pipeline?\""
+echo "    - Open a Bitbucket project"
+echo "    - Ask your agent: \"What's the latest failed pipeline?\""
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

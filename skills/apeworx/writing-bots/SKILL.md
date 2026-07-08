@@ -13,6 +13,7 @@ They may provide additional context about technical constraints, or scenarios it
 ## Using This Skill
 
 **CRITICAL**: Before writing any Silverback bot code, you MUST:
+
 1. Use `web_fetch` to retrieve the latest documentation from https://docs.apeworx.io/silverback/stable
 2. Specifically fetch relevant pages like:
    - Development guide: https://docs.apeworx.io/silverback/stable/userguides/development
@@ -24,6 +25,7 @@ They may provide additional context about technical constraints, or scenarios it
 
 Before writing the bot, understand the types of actions you want to perform,
 and which on-chain or off-chain events you might want to monitor in order to trigger them
+
 - **New Block**: Do you want to perform an action on every block?
 - **Event Log**: Do you want to perform an action when a smart contract emits a particular event?
 - **Cron Job**: Do you want to perform an action on a time-based interval?
@@ -32,6 +34,7 @@ and which on-chain or off-chain events you might want to monitor in order to tri
 **CRITICAL**: Have a good understanding of the requirements first before proceeding to write any code.
 
 Then implement event handlers, which are callbacks implemented that trigger logic which might:
+
 - send a message on Telegram or Discord to a group or channel
 - send a social media post on X or Farcaster
 - send a POST request to another backend service
@@ -66,6 +69,40 @@ whether the `bot.signer` is configured, or based on other on-chain information l
 
 Also, you should suggest things like adding configurable limits (using environment variables via `os.environ`),
 emergency stop conditions (raising the `silverback.CircuitBreaker` exception), or others ways to effectively manage risk.
+
+### Folder Structure
+
+```
+[bot-name]/
+├── README.md           # Overview of bot, how to run it (with `silverback`) etc.
+├── pyproject.toml      # Any required Ape plugins, or other Python dependencies
+└── bot.py              # Main bot implementation
+```
+
+### Key Files
+
+**`bot.py`** - Main bot definition:
+
+```python
+from ape import Contract
+from silverback import SilverbackBot
+
+bot = SilverbackBot()
+
+# NOTE: Load any required types *after* `SilverbackBot()`
+contract = Contract(os.environ.get("<ENV_VAR_NAME>"))
+
+# NOTE: See https://docs.apeworx.io/silverback/stable/userguides/development to use `bot`
+```
+
+### Dependencies
+
+```toml
+dependencies = [
+    "silverback~=0.7",
+    ...  # Other required dependencies, SDKs, etc.
+]
+```
 
 ## Running the Bot
 

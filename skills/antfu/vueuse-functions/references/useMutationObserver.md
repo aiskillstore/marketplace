@@ -35,8 +35,11 @@ useMutationObserver(el, (mutations) => {
 
 ```ts
 export interface UseMutationObserverOptions
-  extends MutationObserverInit,
-    ConfigurableWindow {}
+  extends MutationObserverInit, ConfigurableWindow {}
+export interface UseMutationObserverReturn extends Supportable {
+  stop: () => void
+  takeRecords: () => MutationRecord[] | undefined
+}
 /**
  * Watch for changes being made to the DOM tree.
  *
@@ -53,10 +56,5 @@ export declare function useMutationObserver(
     | MaybeRefOrGetter<MaybeElement[]>,
   callback: MutationCallback,
   options?: UseMutationObserverOptions,
-): {
-  isSupported: ComputedRef<boolean>
-  stop: () => void
-  takeRecords: () => MutationRecord[] | undefined
-}
-export type UseMutationObserverReturn = ReturnType<typeof useMutationObserver>
+): UseMutationObserverReturn
 ```

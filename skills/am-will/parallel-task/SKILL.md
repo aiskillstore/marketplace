@@ -61,22 +61,32 @@ Validation:
 [Tests or verification from plan]
 
 ## Instructions
-1. Examine working plan and any relevant or dependent files
-2. Implement changes for all acceptance criteria
-3. Keep work **atomic and committable**
-4. For each file: read first, edit carefully, preserve formatting
-5. Run validation if feasible
-6. **ALWAYS mark completed tasks IN THE *-plan.md file AS SOON AS YOU COMPLETE IT!** and update with:
-    - Concise work log
-    - Files modified/created
-    - Errors or gotchas encountered
-7. Commit your work
-   - Note: There are other agents working in parallel to you, so only stage and commit the files you worked on. NEVER PUSH. ONLY COMMIT.
-8. Double Check that you updated the *-plan.md file and committed your work before yielding
+1. Read the working plan and fully understand this task before coding.
+2. Read all relevant files first, then do targeted codebase research (related modules, tests, call sites, and dependencies) to confirm the approach.
+3. Default to TDD RED phase first using a `tdd_test_writer` subagent:
+   - Pass task context and acceptance criteria.
+   - Require tests-only edits.
+   - Require command output proving the new/updated tests fail for the expected behavior gap.
+   - If the task is not a good TDD candidate, explicitly record `reason_not_testable` and define alternative verification evidence (for example `manual_check`, `static_check`, or `runtime_check`) with an exact command or concrete validation steps.
+4. Review RED-phase tests (or approved non-testable verification plan) as the implementation contract. Do not weaken or remove tests unless requirements changed.
+5. Implement production changes for all acceptance criteria.
+6. Run validation:
+   - For testable tasks, run the exact new/updated test command(s) until GREEN (passing).
+   - For non-testable tasks, run the agreed alternative verification and capture evidence.
+   - Run any additional validation steps from the plan if feasible.
+7. Commit your work.
+   - Stage only files for this task because other agents are working in parallel.
+   - NEVER PUSH. ONLY COMMIT.
+8. After the commit, update the `*-plan.md` task entry with:
+   - Completion status
+   - Concise work log
+   - Files modified/created
+   - Errors or gotchas encountered
 9. Return summary of:
    - Files modified/created
    - Changes made
    - How criteria are satisfied
+   - Verification evidence: RED -> GREEN or documented non-testable alternative
    - Validation performed or deferred
 
 ## Important
@@ -85,22 +95,22 @@ Validation:
 - Focus on this specific task
 ```
 
-Ensure that the agent marked its task complete before moving on to the next task or set of tasks.
+Ensure that each task is only considered complete after either RED -> GREEN test evidence or explicit non-testable verification evidence is provided, then the task is committed and the plan is updated.
 
 ### Step 4: Check and Validate.
 
 After subagents complete their work:
 1. Inspect their outputs for correctness and completeness.
 2. Validate the results against the expected outcomes.
-3. If the task is truly completed correctly, ENSURE THAT TASK WAS MARKED COMPLETE WITH LOGS.
+3. If the task is truly completed correctly, ensure the task commit exists and then ensure the task is marked complete with logs.
 4. If a task was not successful, have the agent retry or escalate the issue.
-5. Ensure that that wave of work has been committed to github before moving on to the next wave of tasks.
+5. Ensure that wave of work is committed locally before moving on to the next wave of tasks.
 
 ### Step 5: Repeat
 
 1. Review the plan again to see what new set of unblocked tasks are available.
 2. Continue launching unblocked tasks in parallel until plan is done.
-3. Repeat the process until *all** tasks are both complete, validated, and working without errors. 
+3. Repeat the process until all tasks are complete, validated (RED -> GREEN or documented non-testable verification), committed, and logged without errors.
 
 
 ## Error Handling

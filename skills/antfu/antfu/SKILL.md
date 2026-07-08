@@ -1,75 +1,85 @@
 ---
 name: antfu
-description: Anthony Fu's {Opinionated} preferences and best practices for web development
+description: Anthony Fu's opinionated tooling and conventions for JavaScript/TypeScript projects. Use when setting up new projects, configuring ESLint/Prettier alternatives, monorepos, library publishing, or when the user mentions Anthony Fu's preferences.
 metadata:
   author: Anthony Fu
-  version: "2026.1.28"
+  version: "2026.06.22"
 ---
 
-# Anthony Fu's Preferences
+## Coding Practices
 
-This skill covers Anthony Fu's preferred tooling, configurations, and best practices for web development. This skill is opinionated.
+### Code Organization
 
-## Quick Summary
+- **Single responsibility**: Each source file should have a clear, focused scope/purpose
+- **Split large files**: Break files when they become large or handle too many concerns
+- **Type separation**: Always separate types and interfaces into `types.ts` or `types/*.ts`
+- **Constants extraction**: Move constants to a dedicated `constants.ts` file
 
-| Category | Preference |
-|----------|------------|
-| Package Manager | pnpm |
-| Language | TypeScript (strict mode) |
-| Module System | ESM (`"type": "module"`) |
-| Linting & Formatting | @antfu/eslint-config (no Prettier) |
-| Testing | Vitest |
-| Git Hooks | simple-git-hooks + lint-staged |
-| Documentation | VitePress (in `docs/`) |
+### Runtime Environment
 
----
+- **Prefer isomorphic code**: Write runtime-agnostic code that works in Node, browser, and workers whenever possible
+- **Clear runtime indicators**: When code is environment-specific, add a comment at the top of the file:
 
-## Core Stack
-
-### Package Manager (pnpm)
-
-Use pnpm as the package manager.
-
-For monorepo setups, use pnpm workspaces:
-
-```yaml
-# pnpm-workspace.yaml
-packages:
-  - 'packages/*'
+```ts
+// @env node
+// @env browser
 ```
 
+### TypeScript
 
-Use pnpm named catalogs in `pnpm-workspace.yaml` to manage dependency versions:
+- **Explicit return types**: Declare return types explicitly when possible
+- **Avoid complex inline types**: Extract complex types into dedicated `type` or `interface` declarations
 
-| Catalog | Purpose |
-|---------|---------|
-| `prod` | Production dependencies |
-| `inlined` | Dependencies inlined by bundler |
-| `dev` | Development tools (linter, bundler, testing, dev-server) |
-| `frontend` | Frontend libraries bundled into frontend |
+### Explicitness
 
-Catalog names are not limited to the above and can be adjusted based on needs. Avoid using default catalog.
+Favor explicit, traceable code over implicit "magic". A reader (human or agent) should be able to follow where every name comes from without running tooling.
 
-#### @antfu/ni
+- **Explicit imports**: Prefer explicit `import` statements. Avoid auto-imports — when a framework provides them (e.g. Nuxt/Nitro), turn them off for new projects (see [app-development](references/app-development.md)).
+- **No path aliases by default**: Use relative imports (`./foo`, `../bar`). Only use path aliases (`@/`, `~/`, `#imports`, etc.) when they are *already* configured in the project; don't introduce new ones for greenfield code.
 
-Use `@antfu/ni` for unified package manager commands. It auto-detects the package manager (pnpm/npm/yarn/bun) based on lockfile.
+### Comments
+
+- **Avoid unnecessary comments**: Code should be self-explanatory
+- **Explain "why" not "how"**: Comments should describe the reasoning or intent, not what the code does
+
+### Testing (Vitest)
+
+- Test files: `foo.ts` → `foo.test.ts` (same directory)
+- Use `describe`/`it` API (not `test`)
+- Use `toMatchSnapshot` for complex outputs
+- Use `toMatchFileSnapshot` with explicit path for language-specific snapshots
+
+---
+
+## Tooling Choices
+
+### @antfu/ni Commands
 
 | Command | Description |
 |---------|-------------|
 | `ni` | Install dependencies |
-| `ni <pkg>` | Add dependency |
-| `ni -D <pkg>` | Add dev dependency |
+| `ni <pkg>` / `ni -D <pkg>` | Add dependency / dev dependency |
 | `nr <script>` | Run script |
 | `nu` | Upgrade dependencies |
 | `nun <pkg>` | Uninstall dependency |
-| `nci` | Clean install (like `pnpm i --frozen-lockfile`) |
-| `nlx <pkg>` | Execute package (like `npx`) |
+| `nci` | Clean install (`pnpm i --frozen-lockfile`) |
+| `nlx <pkg>` | Execute package (`npx`) |
 
-Install globally with `pnpm i -g @antfu/ni` if the commands are not found.
+### Checking npm Package Versions
 
-### TypeScript (Strict Mode)
+Use [`fast-npm-meta`](https://github.com/antfu/fast-npm-meta) to look up the latest version of a package — it queries a small metadata endpoint instead of downloading the full registry payload (which can be megabytes per package).
 
-Always use TypeScript with strict mode enabled.
+```bash
+nlx fast-npm-meta version vite              # 7.3.1
+nlx fast-npm-meta version "nuxt@^3.5"       # 3.5.22 — range-aware
+nlx fast-npm-meta version vite nuxt vue     # multiple at once
+nlx fast-npm-meta version vite --json       # JSON for scripting
+nlx fast-npm-meta full vite                 # full version list + dist-tags
+```
+
+Prefer this over `npm view <pkg> version` when you only need the latest version, and over reading `package.json` from the registry directly.
+
+### TypeScript Config
 
 ```json
 {
@@ -87,136 +97,55 @@ Always use TypeScript with strict mode enabled.
 }
 ```
 
-### ESM (ECMAScript Modules)
-
-Always work in ESM mode. Set `"type": "module"` in `package.json`.
-
----
-
-## Code Quality
-
-### ESLint (@antfu/eslint-config)
-
-Use `@antfu/eslint-config` for both formatting and linting. This eliminates the need for Prettier.
-
-Create `eslint.config.js` with `// @ts-check` comment:
+### ESLint Setup
 
 ```js
-// @ts-check
+// eslint.config.mjs
 import antfu from '@antfu/eslint-config'
 
 export default antfu()
 ```
 
-Add script to `package.json`:
 
-```json
-{
-  "scripts": {
-    "lint": "eslint ."
-  }
-}
-```
+When completing tasks, run `pnpm run lint --fix` to format the code and fix coding style.
 
-When getting linting errors, try to fix them with `nr lint --fix`. Don't add `lint:fix` script.
+For detailed configuration options: [antfu-eslint-config](references/antfu-eslint-config.md)
 
-### Git Hooks (simple-git-hooks + lint-staged)
-
-Use `simple-git-hooks` with `lint-staged` for pre-commit linting:
+### Git Hooks
 
 ```json
 {
   "simple-git-hooks": {
     "pre-commit": "pnpm i --frozen-lockfile --ignore-scripts --offline && npx lint-staged"
   },
-  "lint-staged": {
-    "*": "eslint --fix"
-  },
+  "lint-staged": { "*": "eslint --fix" },
   "scripts": {
     "prepare": "npx simple-git-hooks"
   }
 }
 ```
 
-### Unit Testing (Vitest)
+### pnpm Catalogs
 
-Use Vitest for unit testing.
+Use named catalogs in `pnpm-workspace.yaml` for version management:
 
-```json
-{
-  "scripts": {
-    "test": "vitest"
-  }
-}
-```
+| Catalog | Purpose |
+|---------|---------|
+| `prod` | Production dependencies |
+| `inlined` | Bundler-inlined dependencies |
+| `dev` | Dev tools (linter, bundler, testing) |
+| `frontend` | Frontend libraries |
 
-**Conventions:**
-
-- Place test files next to source files: `foo.ts` → `foo.test.ts` (same directory)
-- High-level tests go in `tests/` directory in each package
-- Use `describe` and `it` API (not `test`)
-- Use `expect` API for assertions
-- Use `assert` only for TypeScript null assertions
-- Use `toMatchSnapshot` for complex output assertions
-- Use `toMatchFileSnapshot` with explicit file path and extension for language-specific output (exclude those files from linting)
-
----
-
-## Project Setup
-
-### Publishing (Library Projects)
-
-For library projects, publish through GitHub Releases triggered by `bumpp`:
-
-```json
-{
-  "scripts": {
-    "release": "bumpp -r"
-  }
-}
-```
-
-### Documentation (VitePress)
-
-Use VitePress for documentation. Place docs under `docs/` directory.
-
-```
-docs/
-├── .vitepress/
-│   └── config.ts
-├── index.md
-└── guide/
-    └── getting-started.md
-```
-
-Add script to `package.json`:
-
-```json
-{
-  "scripts": {
-    "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs"
-  }
-}
-```
+Avoid the default catalog. Catalog names can be adjusted per project needs.
 
 ---
 
 ## References
 
-### Project Setup
-
 | Topic | Description | Reference |
 |-------|-------------|-----------|
-| @antfu/eslint-config | ESLint flat config for formatting and linting | [antfu-eslint-config](references/antfu-eslint-config.md) |
-| GitHub Actions | Preferred workflows using sxzz/workflows | [github-actions](references/github-actions.md) |
-| .gitignore | Preferred .gitignore for JS/TS projects | [gitignore](references/gitignore.md) |
-| VS Code Extensions | Recommended extensions for development | [vscode-extensions](references/vscode-extensions.md) |
-
-### Development
-
-| Topic | Description | Reference |
-|-------|-------------|-----------|
-| App Development | Preferences for Vue/Vite/Nuxt/UnoCSS web applications | [app-development](references/app-development.md) |
-| Library Development | Preferences for bundling and publishing TypeScript libraries | [library-development](references/library-development.md) |
+| ESLint Config | Framework support, formatters, rule overrides, VS Code settings | [antfu-eslint-config](references/antfu-eslint-config.md) |
+| Project Setup | .gitignore, GitHub Actions, VS Code extensions | [setting-up](references/setting-up.md) |
+| App Development | Vue/Nuxt/UnoCSS conventions, auto-import control, Storybook component testing | [app-development](references/app-development.md) |
+| Library Development | tsdown bundling, pure ESM publishing | [library-development](references/library-development.md) |
 | Monorepo | pnpm workspaces, centralized alias, Turborepo | [monorepo](references/monorepo.md) |

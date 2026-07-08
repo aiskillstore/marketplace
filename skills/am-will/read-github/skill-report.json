@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-06T04:05:58.206Z",
+    "generated_at": "2026-07-07T19:26:35.675Z",
     "slug": "am-will-read-github",
     "source_url": "https://github.com/am-will/codex-skills/tree/main/skills/read-github/",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "922b671a1383ed7619150d814bb29d0fb8201099128a293b4c0ebc564c3fc9eb",
-    "tree_hash": "7d77d976a2f6a3faa109241ed96f3757d89f7df2010e76c603fcc047b1c6b4f1",
+    "content_hash": "0fd103db57b1b202c17cf95186439bf5881cf33af8acf2ca0ad2825684a1277b",
+    "tree_hash": "aeaa0ee6a9fe4767a5ecf835f44dcc635c41fbeaa1f4613ce74fd2d9e5a3d3cb",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,18 +23,18 @@
   },
   "skill": {
     "name": "read-github",
-    "description": "Access GitHub repository documentation and code search through the gitmcp.io MCP service. Use it when an assistant needs repository context, documentation answers, or code references.",
-    "summary": "Fetch and search GitHub repository docs and code through GitMCP.",
+    "description": "Read GitHub repository documentation and code through GitMCP, with commands for fetching docs, searching docs, searching code, and retrieving referenced URLs.",
+    "summary": "Connect AI coding tools to GitMCP for repository documentation and code search.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "am-will",
     "license": "MIT",
     "tags": [
       "github",
-      "documentation",
+      "gitmcp",
       "mcp",
-      "code-search",
-      "repository-research"
+      "documentation",
+      "code-search"
     ],
     "supported_tools": [
       "claude",
@@ -55,26 +52,31 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The script intentionally runs `npx -y mcp-remote` and sends repository requests to gitmcp.io, so the meaningful risks are external command execution, third-party network routing, and weak URL validation. Most SKILL.md backtick findings are false positives from Markdown formatting, and I found no prompt-injection text in the reviewed files. Publication should require changes around package pinning, URL allowlisting, and clearer data-sharing disclosures.",
+    "summary": "The Python helper has two real high-risk subprocess uses: it runs npx -y mcp-remote against input-derived MCP URLs. Most markdown backtick detections are false positives from documentation formatting, but the skill also allows arbitrary remote MCP endpoints, direct tool calls, and generic URL fetching through GitMCP. No prompt injection attempt was found in the reviewed files.",
     "remediation": [
       {
-        "issue": "Unpinned npx execution",
-        "suggestion": "Pin mcp-remote to a reviewed version or vendor a wrapper. Require explicit confirmation before first npm package execution.",
+        "issue": "Input-derived npx mcp-remote execution",
+        "suggestion": "Pin the mcp-remote package version, remove -y auto-install, and require explicit user confirmation before starting remote MCP processes.",
         "severity": "high"
       },
       {
-        "issue": "Arbitrary MCP endpoint acceptance",
-        "suggestion": "Reject non-GitHub URLs and require a strict owner/repo or github.com allowlist before calling mcp-remote.",
+        "issue": "Arbitrary MCP endpoints",
+        "suggestion": "Validate repository input to GitHub owner/repo or GitHub URLs only, and reject other http or https endpoints.",
         "severity": "high"
       },
       {
-        "issue": "Unrestricted fetch-url command",
-        "suggestion": "Validate fetch-url targets, restrict schemes to https, and require user confirmation before fetching external URLs.",
+        "issue": "Direct tool and JSON argument forwarding",
+        "suggestion": "Remove the generic call command, or restrict it to known GitMCP tool names derived from the selected repository.",
+        "severity": "high"
+      },
+      {
+        "issue": "Generic URL fetching",
+        "suggestion": "Limit fetch-url to documented safe schemes and show the destination host before any fetch.",
         "severity": "medium"
       },
       {
-        "issue": "Third-party data sharing",
-        "suggestion": "Document that repository names, search queries, and requested URLs are sent to gitmcp.io.",
+        "issue": "Third-party network disclosure",
+        "suggestion": "Document that repository identifiers and queries are sent to gitmcp.io, and advise users not to use private repository names.",
         "severity": "low"
       }
     ],
@@ -516,180 +518,180 @@
       {
         "id": "external_commands:scripts/gitmcp.py:53:python-subprocess-popen",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This line is a type annotation for a process object passed into send_jsonrpc, not a process launch. The actual subprocess calls occur elsewhere."
+        "confidence": 0.96,
+        "reason": "Line 53 only uses subprocess.Popen as a Python type annotation for an existing process object. It does not spawn a process or accept command input."
       },
       {
         "id": "external_commands:scripts/gitmcp.py:76:python-subprocess-popen",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "high",
-        "reason": "This launches `npx -y mcp-remote` and may auto-install code from npm before connecting to a remote MCP endpoint. The arguments are array-based, so shell injection is limited, but external execution and supply-chain risk remain."
+        "confidence": 0.91,
+        "reason": "list_tools starts npx -y mcp-remote with an MCP URL derived from user repository input. Using argv avoids shell injection, but it still launches a networked external process and can auto-download npm code.",
+        "severity": "high"
       },
       {
         "id": "external_commands:scripts/gitmcp.py:107:python-subprocess-popen",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "high",
-        "reason": "This launches `npx -y mcp-remote` for tool calls, creating the same package execution and remote MCP trust risk. It is not shell injection, but it is still real external command execution."
+        "confidence": 0.91,
+        "reason": "call_tool starts npx -y mcp-remote with an input-derived MCP URL before forwarding tool calls. This is real external process execution with remote MCP interaction.",
+        "severity": "high"
       },
       {
         "id": "network:scripts/gitmcp.py:29:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "This constructs a gitmcp.io URL from user-provided owner/repo input, which is later passed to mcp-remote. The network use is disclosed, but repository targets are still sent to a third-party service."
+        "confidence": 0.82,
+        "reason": "The code constructs a gitmcp.io URL from owner/repo input, so repository identifiers are routed to a third-party service. This is expected behavior but still a real external network dependency.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/gitmcp.py:30:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.74,
-        "severity": "low",
-        "reason": "This fallback constructs a gitmcp.io URL for user-provided input and participates in external service routing. It is expected behavior, but it is still a real outbound network dependency."
+        "confidence": 0.78,
+        "reason": "The fallback owner/repo conversion also targets gitmcp.io. It is part of the intended design, but it confirms external service use rather than a harmless local constant.",
+        "severity": "low"
       },
       {
         "id": "network:scripts/gitmcp.py:37:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This is a comment explaining URL parsing, not executable network behavior. No request or endpoint construction occurs on this line."
+        "confidence": 0.97,
+        "reason": "This line is a comment describing the expected gitmcp.io URL pattern. It does not perform a request or configure a live endpoint."
       },
       {
         "id": "network:scripts/gitmcp.py:147:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This appears only inside argparse help text as an example GitHub URL. It does not initiate a network request."
+        "confidence": 0.95,
+        "reason": "This URL appears only in argparse help text as an example GitHub repository. It is not a hidden network destination or automatic request."
       },
       {
         "id": "network:scripts/gitmcp.py:159:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is an argparse example showing user-supplied URL syntax. The help string itself is not network execution; actual URL-fetch behavior is covered separately."
+        "confidence": 0.95,
+        "reason": "https://example.com/doc is a documentation example in CLI help text. The concrete URL is not contacted unless a user supplies a URL to the fetch command."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Markdown inline code shows a URL conversion example; it is not Ruby or shell backtick execution. No command is run by this line."
+        "confidence": 0.97,
+        "reason": "The backticks are Markdown formatting in documentation, not Ruby or shell execution. No runtime code executes from this line."
       },
       {
         "id": "external_commands:SKILL.md:21:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Markdown inline code shows a GitHub-to-GitMCP URL example. The backticks are formatting, not executable shell syntax."
+        "confidence": 0.97,
+        "reason": "The backticks are Markdown formatting in documentation, not Ruby or shell execution. No runtime code executes from this line."
       },
       {
         "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The backticks format the script path in prose. This line does not execute the script."
+        "confidence": 0.95,
+        "reason": "The file path is enclosed in Markdown inline code formatting. It names the helper script but does not execute it."
       },
       {
         "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The snippet is a fenced Markdown bash example for users. It documents CLI usage but is not executed by the skill file itself."
+        "confidence": 0.88,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a closing Markdown code fence, not shell execution. The analyzer matched backticks used for formatting."
+        "confidence": 0.9,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The snippet is a fenced Markdown bash example for fetching docs. It is documentation, not code that runs automatically."
+        "confidence": 0.88,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a closing Markdown code fence. The backticks do not invoke Ruby or a shell."
+        "confidence": 0.9,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The snippet opens a fenced Markdown bash example for search-docs. It is not executable content in SKILL.md."
+        "confidence": 0.88,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a closing Markdown code fence. The analyzer matched formatting backticks, not runtime shell execution."
+        "confidence": 0.9,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The snippet opens a fenced Markdown bash example for search-code. It documents a command but does not execute it."
+        "confidence": 0.88,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a closing Markdown code fence. There is no Ruby or shell backtick execution on this line."
+        "confidence": 0.9,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The snippet opens a fenced Markdown bash example for fetch-url. The executable behavior is in the Python script, not this Markdown fence."
+        "confidence": 0.88,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a closing Markdown code fence. The backticks are only Markdown formatting."
+        "confidence": 0.9,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The snippet opens a fenced Markdown bash example for a direct MCP tool call. It is not run by the skill file itself."
+        "confidence": 0.88,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a closing Markdown code fence. It is not a command execution primitive."
+        "confidence": 0.9,
+        "reason": "This is a fenced documentation example for using the CLI. It is not executable skill code; real subprocess behavior is assessed in scripts/gitmcp.py."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Markdown inline code shows an example repository and generated tool name. It does not execute any command."
+        "confidence": 0.97,
+        "reason": "The backticks are Markdown formatting in documentation, not Ruby or shell execution. No runtime code executes from this line."
       },
       {
         "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Markdown inline code shows an example repository and generated tool name. The backticks are formatting only."
+        "confidence": 0.97,
+        "reason": "The backticks are Markdown formatting in documentation, not Ruby or shell execution. No runtime code executes from this line."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Markdown inline code shows an example repository and generated tool name. It is not shell execution."
+        "confidence": 0.97,
+        "reason": "The backticks are Markdown formatting in documentation, not Ruby or shell execution. No runtime code executes from this line."
       },
       {
         "id": "network:SKILL.md:21:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a documentation example showing conversion from GitHub to GitMCP. The URL itself is not fetched from the skill file."
+        "confidence": 0.94,
+        "reason": "The URL is a documentation example showing how a GitHub URL maps to GitMCP. It does not create an additional network destination beyond the declared service."
       },
       {
         "id": "network:SKILL.md:62:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "This URL appears in a CLI example inside Markdown, not in executable code. The actual arbitrary URL fetch path is captured in semantic findings."
+        "confidence": 0.93,
+        "reason": "The URL is the reserved example.com placeholder in a usage sample. Generic URL fetching is addressed separately as a capability risk."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Arbitrary MCP Server URL Accepted",
-        "description": "convert_github_to_gitmcp returns non-GitHub HTTP input unchanged, and main passes the result into mcp-remote. A malicious prompt could make the assistant connect to an untrusted MCP server instead of gitmcp.io.",
+        "title": "Arbitrary Remote MCP Endpoint Allowed",
+        "description": "Non-GitHub http inputs are returned unchanged by URL conversion and then passed to mcp-remote. A user or injected workflow could connect the helper to an arbitrary remote MCP server.",
         "severity": "high",
         "locations": [
           {
@@ -705,22 +707,51 @@
           {
             "file": "scripts/gitmcp.py",
             "line_start": 76,
-            "line_end": 78
+            "line_end": 83
           },
           {
             "file": "scripts/gitmcp.py",
             "line_start": 107,
-            "line_end": 109
+            "line_end": 114
           }
         ],
-        "confidence": 0.84,
-        "confidence_reasoning": "The code explicitly preserves arbitrary HTTP URLs and launches mcp-remote with the derived value. The intended interface says GitHub repos, so this bypass is a clear context-level risk."
+        "confidence": 0.9,
+        "confidence_reasoning": "The conversion function only rewrites GitHub-style inputs and otherwise returns the original URL. Both subprocess call sites then pass that URL to mcp-remote."
       },
       {
-        "title": "Unrestricted External URL Fetch Tool",
-        "description": "The fetch-url command accepts a user-provided URL and passes it to fetch_generic_url_content. This can retrieve arbitrary external content through the GitMCP service.",
+        "title": "Unrestricted Direct MCP Tool Invocation",
+        "description": "The direct call command accepts an arbitrary tool name and JSON arguments, then forwards them to the selected MCP server. This broadens the skill beyond read-only repository helpers.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 65,
+            "line_end": 71
+          },
+          {
+            "file": "scripts/gitmcp.py",
+            "line_start": 191,
+            "line_end": 195
+          },
+          {
+            "file": "scripts/gitmcp.py",
+            "line_start": 274,
+            "line_end": 276
+          }
+        ],
+        "confidence": 0.87,
+        "confidence_reasoning": "The documentation advertises direct tool calls, and the CLI forwards user-provided tool names and parsed arguments without allowlisting."
+      },
+      {
+        "title": "Generic URL Fetch Capability",
+        "description": "The skill exposes a fetch-url command that forwards user-supplied URLs to fetch_generic_url_content. This can retrieve arbitrary external content through GitMCP if the assistant follows untrusted documentation links.",
         "severity": "medium",
         "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 63
+          },
           {
             "file": "scripts/gitmcp.py",
             "line_start": 186,
@@ -730,15 +761,10 @@
             "file": "scripts/gitmcp.py",
             "line_start": 261,
             "line_end": 262
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 57,
-            "line_end": 63
           }
         ],
-        "confidence": 0.76,
-        "confidence_reasoning": "The command-line parser accepts any URL string and forwards it to the remote tool without local allowlisting. The impact is bounded by remote service policies, so confidence and severity are medium."
+        "confidence": 0.84,
+        "confidence_reasoning": "Both the skill instructions and CLI implementation expose a URL argument and pass it directly to GitMCP generic URL fetching."
       }
     ],
     "critical_findings": [],
@@ -756,8 +782,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "This launches `npx -y mcp-remote` and may auto-install code from npm before connecting to a remote MCP endpoint. The arguments are array-based, so shell injection is limited, but external execution and supply-chain risk remain."
+        "confidence": 0.91,
+        "confidence_reasoning": "list_tools starts npx -y mcp-remote with an MCP URL derived from user repository input. Using argv avoids shell injection, but it still launches a networked external process and can auto-download npm code."
       },
       {
         "title": "Python subprocess.Popen",
@@ -772,12 +798,12 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "This launches `npx -y mcp-remote` for tool calls, creating the same package execution and remote MCP trust risk. It is not shell injection, but it is still real external command execution."
+        "confidence": 0.91,
+        "confidence_reasoning": "call_tool starts npx -y mcp-remote with an input-derived MCP URL before forwarding tool calls. This is real external process execution with remote MCP interaction."
       },
       {
-        "title": "Arbitrary MCP Server URL Accepted",
-        "description": "convert_github_to_gitmcp returns non-GitHub HTTP input unchanged, and main passes the result into mcp-remote. A malicious prompt could make the assistant connect to an untrusted MCP server instead of gitmcp.io.",
+        "title": "Arbitrary Remote MCP Endpoint Allowed",
+        "description": "Non-GitHub http inputs are returned unchanged by URL conversion and then passed to mcp-remote. A user or injected workflow could connect the helper to an arbitrary remote MCP server.",
         "locations": [
           {
             "file": "scripts/gitmcp.py",
@@ -792,26 +818,57 @@
           {
             "file": "scripts/gitmcp.py",
             "line_start": 76,
-            "line_end": 78
+            "line_end": 83
           },
           {
             "file": "scripts/gitmcp.py",
             "line_start": 107,
-            "line_end": 109
+            "line_end": 114
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The code explicitly preserves arbitrary HTTP URLs and launches mcp-remote with the derived value. The intended interface says GitHub repos, so this bypass is a clear context-level risk."
+        "confidence": 0.9,
+        "confidence_reasoning": "The conversion function only rewrites GitHub-style inputs and otherwise returns the original URL. Both subprocess call sites then pass that URL to mcp-remote."
+      },
+      {
+        "title": "Unrestricted Direct MCP Tool Invocation",
+        "description": "The direct call command accepts an arbitrary tool name and JSON arguments, then forwards them to the selected MCP server. This broadens the skill beyond read-only repository helpers.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 65,
+            "line_end": 71
+          },
+          {
+            "file": "scripts/gitmcp.py",
+            "line_start": 191,
+            "line_end": 195
+          },
+          {
+            "file": "scripts/gitmcp.py",
+            "line_start": 274,
+            "line_end": 276
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.87,
+        "confidence_reasoning": "The documentation advertises direct tool calls, and the CLI forwards user-provided tool names and parsed arguments without allowlisting."
       }
     ],
     "medium_findings": [
       {
-        "title": "Unrestricted External URL Fetch Tool",
-        "description": "The fetch-url command accepts a user-provided URL and passes it to fetch_generic_url_content. This can retrieve arbitrary external content through the GitMCP service.",
+        "title": "Generic URL Fetch Capability",
+        "description": "The skill exposes a fetch-url command that forwards user-supplied URLs to fetch_generic_url_content. This can retrieve arbitrary external content through GitMCP if the assistant follows untrusted documentation links.",
         "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 63
+          },
           {
             "file": "scripts/gitmcp.py",
             "line_start": 186,
@@ -821,18 +878,13 @@
             "file": "scripts/gitmcp.py",
             "line_start": 261,
             "line_end": 262
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 57,
-            "line_end": 63
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The command-line parser accepts any URL string and forwards it to the remote tool without local allowlisting. The impact is bounded by remote service policies, so confidence and severity are medium."
+        "confidence": 0.84,
+        "confidence_reasoning": "Both the skill instructions and CLI implementation expose a URL argument and pass it directly to GitMCP generic URL fetching."
       }
     ],
     "low_findings": [
@@ -849,8 +901,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "This constructs a gitmcp.io URL from user-provided owner/repo input, which is later passed to mcp-remote. The network use is disclosed, but repository targets are still sent to a third-party service."
+        "confidence": 0.82,
+        "confidence_reasoning": "The code constructs a gitmcp.io URL from owner/repo input, so repository identifiers are routed to a third-party service. This is expected behavior but still a real external network dependency."
       },
       {
         "title": "Hardcoded URL",
@@ -865,134 +917,134 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.74,
-        "confidence_reasoning": "This fallback constructs a gitmcp.io URL for user-provided input and participates in external service routing. It is expected behavior, but it is still a real outbound network dependency."
+        "confidence": 0.78,
+        "confidence_reasoning": "The fallback owner/repo conversion also targets gitmcp.io. It is part of the intended design, but it confirms external service use rather than a harmless local constant."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 381,
     "audit_model": "codex",
-    "audited_at": "2026-07-06T04:05:58.206Z",
+    "audited_at": "2026-07-07T19:26:35.675Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Read GitHub Docs with GitMCP",
-    "value_statement": "Repository documentation can be slow to inspect from an AI chat. This skill uses GitMCP to fetch docs, search docs, and search code.",
+    "user_title": "Read GitHub Repositories with GitMCP",
+    "value_statement": "Teams need quick answers from repository docs and code without manual browsing. This skill connects Claude, Codex, and Claude Code to GitMCP repository search.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "GitHub documentation",
+      "MCP",
       "GitMCP",
       "repository search",
       "code search",
-      "MCP server",
-      "developer research",
+      "developer documentation",
       "AI coding assistant"
     ],
     "actual_capabilities": [
-      "Converts GitHub URLs and owner/repo paths to GitMCP endpoints.",
-      "Lists available GitMCP tools for a repository.",
-      "Fetches repository documentation through the GitMCP MCP service.",
-      "Searches repository documentation with semantic queries.",
-      "Searches repository code for exact strings through GitHub search.",
-      "Fetches referenced URL content through GitMCP when requested."
+      "Converts GitHub URLs and owner/repo paths into GitMCP repository endpoints.",
+      "Lists available MCP tools for a selected repository.",
+      "Fetches repository documentation through GitMCP.",
+      "Searches repository documentation semantically for a user query.",
+      "Searches repository code using the GitMCP code search tool.",
+      "Fetches referenced URL content through the GitMCP generic URL tool."
     ],
     "limitations": [
-      "Requires network access to gitmcp.io and npm tooling for mcp-remote.",
-      "Private repository access is not described by the skill.",
-      "Fetched URLs must be accepted by GitMCP and remote site policies.",
-      "Tool names depend on repository names and may fail for unusual names."
+      "Requires network access and local execution of npx with mcp-remote.",
+      "Depends on gitmcp.io availability and the data it can access.",
+      "Does not include built-in authentication for private repositories.",
+      "Tool names depend on repository names generated by the GitMCP service."
     ],
     "use_cases": [
       {
-        "title": "Evaluate a New Library",
-        "description": "Review repository documentation before deciding whether a dependency fits a project.",
-        "target_user": "Application developers"
+        "title": "Understand a New Repository",
+        "description": "Fetch the README and documentation for a repository, then summarize the project purpose and setup steps.",
+        "target_user": "Software developer"
       },
       {
-        "title": "Answer Repository Questions",
-        "description": "Find setup steps, features, and usage guidance without browsing files manually.",
-        "target_user": "Technical writers"
+        "title": "Find Documentation Details",
+        "description": "Search project documentation for installation, configuration, API behavior, or migration guidance.",
+        "target_user": "Technical writer"
       },
       {
-        "title": "Trace API Usage",
-        "description": "Search documentation and code for functions, classes, or configuration names.",
-        "target_user": "Maintainers and reviewers"
+        "title": "Locate Code References",
+        "description": "Search source code for exact names and connect implementation details back to documented behavior.",
+        "target_user": "Support engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Summarize a Repository",
-        "scenario": "Beginner repository overview",
-        "prompt": "Read the documentation for owner/repo and summarize what the project does, who uses it, and the main setup steps."
+        "title": "Fetch Repository Overview",
+        "scenario": "Initial repository review",
+        "prompt": "Read the documentation for {owner}/{repo} and summarize the project purpose, installation steps, and first useful commands."
       },
       {
-        "title": "Find Setup Instructions",
-        "scenario": "Basic implementation planning",
-        "prompt": "Search the docs for owner/repo and identify installation, configuration, and first-run guidance. Include any version requirements you find."
+        "title": "Search Documentation",
+        "scenario": "Focused documentation question",
+        "prompt": "Search the documentation for {owner}/{repo} about {topic}. Return the most relevant sections and explain how they answer the question."
+      },
+      {
+        "title": "Trace Code Usage",
+        "scenario": "Implementation lookup",
+        "prompt": "Search code in {owner}/{repo} for {term}. Explain where it appears and how it relates to the documented feature."
       },
       {
         "title": "Compare Docs and Code",
-        "scenario": "Intermediate technical validation",
-        "prompt": "Fetch the docs for owner/repo, then search code for the main API names. Explain whether the documentation matches the implementation."
-      },
-      {
-        "title": "Investigate a Feature Path",
-        "scenario": "Advanced repository research",
-        "prompt": "Use documentation search and code search in owner/repo to trace how a named feature works. Report key files, concepts, and open questions."
+        "scenario": "Advanced repository analysis",
+        "prompt": "Fetch docs for {owner}/{repo}, search documentation for {topic}, then search code for related symbols. Report mismatches and open questions."
       }
     ],
     "output_examples": [
       {
-        "input": "Read the docs for facebook/react and explain the main setup path.",
-        "output": "A concise project overview, setup summary, and pointers to the most relevant documentation sections."
+        "input": "Read facebook/react documentation and identify the best starting point for a new contributor.",
+        "output": "A concise overview of the project, key documentation pages, setup notes, and suggested next files to inspect."
       },
       {
-        "input": "Search owner/repo for authentication configuration guidance.",
-        "output": "A short list of matching documentation topics, with plain-language notes about each relevant result."
+        "input": "Search repository documentation for authentication configuration.",
+        "output": "A short list of relevant documentation matches, with explanations of each match and follow-up search terms."
       },
       {
-        "input": "Find where a feature is documented and implemented in a repository.",
-        "output": "A combined documentation and code summary that names likely files and explains how the feature is connected."
+        "input": "Find where the retry behavior is implemented.",
+        "output": "A summary of matching code locations, likely implementation files, and the relationship to documented behavior."
       }
     ],
     "best_practices": [
-      "Start with fetch-docs before using narrower searches.",
-      "Use specific search terms from the repository documentation.",
-      "Confirm important answers against code search when accuracy matters."
+      "Start with documentation fetch before targeted searches.",
+      "Use owner/repo paths or canonical GitHub URLs for repository input.",
+      "Review external URL destinations before using fetch-url."
     ],
     "anti_patterns": [
-      "Do not use it for private repositories unless access and data handling are clear.",
-      "Do not fetch unrelated external URLs from repository content.",
-      "Do not treat search results as complete without checking the main documentation."
+      "Do not use private repository names unless gitmcp.io use is approved.",
+      "Do not pass arbitrary MCP server URLs as repository input.",
+      "Do not use direct tool calls unless the tool name and arguments are trusted."
     ],
     "faq": [
       {
-        "question": "What does this skill connect to?",
-        "answer": "It connects to the gitmcp.io MCP service through the mcp-remote command."
-      },
-      {
-        "question": "Can it search code as well as docs?",
-        "answer": "Yes. The script includes documentation search and exact code search commands."
+        "question": "Does this skill read private repositories?",
+        "answer": "It has no built-in authentication flow. Access depends on what GitMCP can reach and your local environment."
       },
       {
         "question": "Does it require network access?",
-        "answer": "Yes. It needs network access for gitmcp.io, npm package resolution, and remote repository data."
+        "answer": "Yes. The helper connects to gitmcp.io through mcp-remote and uses external repository services."
       },
       {
-        "question": "Is it suitable for private repositories?",
-        "answer": "The skill does not describe private repository authentication or data controls."
+        "question": "Can it search repository code?",
+        "answer": "Yes. It can call the GitMCP code search tool for exact-match code searches."
       },
       {
-        "question": "Which assistants can use this skill?",
-        "answer": "The report lists support for Claude, Codex, and Claude Code."
+        "question": "Which AI tools are supported?",
+        "answer": "The skill declares support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "What should users verify?",
-        "answer": "Users should verify that repository names, search queries, and fetched URLs are safe to send to GitMCP."
+        "question": "Does it install anything when used?",
+        "answer": "The helper runs npx -y mcp-remote, which may download the mcp-remote package if it is not already available."
+      },
+      {
+        "question": "Can it fetch any URL?",
+        "answer": "It exposes fetch-url through GitMCP. Use it only for trusted URLs that are relevant to the repository task."
       }
     ]
   },

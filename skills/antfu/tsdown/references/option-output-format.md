@@ -99,7 +99,7 @@ export default defineConfig({
 })
 ```
 
-Output: `dist/index.global.js` (IIFE with global `MyLib`)
+Output: `dist/index.iife.js` (IIFE with global `MyLib`)
 
 ### Universal Library (UMD)
 
@@ -132,7 +132,9 @@ export default defineConfig({
 export default defineConfig({
   entry: ['src/index.tsx'],
   format: ['esm', 'cjs'],
-  external: ['react', 'react-dom'], // Don't bundle dependencies
+  deps: {
+    neverBundle: ['react', 'react-dom'], // Don't bundle dependencies
+  },
   dts: true,
 })
 ```
@@ -145,8 +147,10 @@ export default defineConfig({
 |--------|-----------|
 | ESM | `.mjs` or `.js` (with `"type": "module"`) |
 | CJS | `.cjs` or `.js` (without `"type": "module"`) |
-| IIFE | `.global.js` |
+| IIFE | `.iife.js` |
 | UMD | `.umd.js` |
+
+For custom IIFE filenames, set `outputOptions.entryFileNames`. `outExtensions` customizes extensions or suffixes but does not remove `.iife` or `.umd`.
 
 ### Customize Extensions
 

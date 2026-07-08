@@ -1,5 +1,5 @@
 # Sync Info
 
 - **Source:** `vendor/vuejs-ai/skills/vue-testing-best-practices`
-- **Git SHA:** `de5bc1149695e7d82125bf69202fa37b6d111541`
-- **Synced:** 2026-01-31
+- **Git SHA:** `f3dd1bf4d3ac78331bdc903e4519d561c538ca6a`
+- **Synced:** 2026-03-16

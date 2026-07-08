@@ -119,11 +119,24 @@ const count = useExtractedObservable(
 )
 ```
 
+## Options
+
+| Option         | Type                 | Description                              |
+| -------------- | -------------------- | ---------------------------------------- |
+| `initialValue` | `T`                  | Value to use before the Observable emits |
+| `onError`      | `(err: any) => void` | Error handler for Observable errors      |
+| `onComplete`   | `() => void`         | Called when the Observable completes     |
+
+## Return Value
+
+Returns a readonly `ShallowRef` containing the latest value emitted by the extracted Observable.
+
 ## Type Declarations
 
 ```ts
-export interface UseExtractedObservableOptions<E>
-  extends UseObservableOptions<E> {
+export interface UseExtractedObservableOptions<
+  E,
+> extends UseObservableOptions<E> {
   onComplete?: () => void
 }
 export declare function useExtractedObservable<
@@ -139,7 +152,7 @@ export declare function useExtractedObservable<
   >,
   options?: UseExtractedObservableOptions<E>,
   watchOptions?: WatchOptions<Immediate>,
-): Readonly<ShallowRef<E>>
+): DeepReadonly<ShallowRef<E>>
 export declare function useExtractedObservable<
   T extends Readonly<MultiWatchSources>,
   E,
@@ -153,7 +166,7 @@ export declare function useExtractedObservable<
   >,
   options?: UseExtractedObservableOptions<E>,
   watchOptions?: WatchOptions<Immediate>,
-): Readonly<ShallowRef<E>>
+): DeepReadonly<ShallowRef<E>>
 export declare function useExtractedObservable<
   T,
   E,
@@ -167,7 +180,7 @@ export declare function useExtractedObservable<
   >,
   options?: UseExtractedObservableOptions<E>,
   watchOptions?: WatchOptions<Immediate>,
-): Readonly<ShallowRef<E>>
+): DeepReadonly<ShallowRef<E>>
 export declare function useExtractedObservable<
   T extends object,
   E,
@@ -181,5 +194,5 @@ export declare function useExtractedObservable<
   >,
   options?: UseExtractedObservableOptions<E>,
   watchOptions?: WatchOptions<Immediate>,
-): Readonly<ShallowRef<E>>
+): DeepReadonly<ShallowRef<E>>
 ```

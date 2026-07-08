@@ -163,12 +163,20 @@ tsdown --no-treeshake
 
 ## Dependencies
 
-### `--external <module>`
+### `--deps.never-bundle <module>`
 
 Mark module as external (not bundled):
 
 ```bash
-tsdown --external react --external react-dom
+tsdown --deps.never-bundle react --deps.never-bundle react-dom
+```
+
+### `--deps.skip-node-modules-bundle`
+
+Skip resolving and bundling all node_modules:
+
+```bash
+tsdown --deps.skip-node-modules-bundle
 ```
 
 ### `--shims`
@@ -246,11 +254,29 @@ tsdown --copy public
 tsdown --copy assets --copy static
 ```
 
+## Executable
+
+### `--exe`
+
+**[experimental]** Bundle as a standalone executable using [Node.js Single Executable Applications](https://nodejs.org/api/single-executable-applications.html). Requires Node.js >= 25.5.0, not supported in Bun or Deno. Cross-platform builds supported via `@tsdown/exe`.
+
+```bash
+tsdown --exe
+```
+
+When enabled:
+- Default format changes to `cjs` (unless Node.js >= 25.7.0)
+- Declaration file generation (`dts`) is disabled by default
+- Code splitting is disabled
+- Only single entry points are supported
+
+See [Executable](option-exe.md) for advanced configuration and cross-platform builds.
+
 ## Package Management
 
 ### `--exports`
 
-Auto-generate package.json exports field:
+Generate the `exports` field in package.json:
 
 ```bash
 tsdown --exports
@@ -320,6 +346,51 @@ tsdown --from-vite         # Use vite.config.*
 tsdown --from-vite vitest  # Use vitest.config.*
 ```
 
+## Workspace / Monorepo
+
+### `--workspace, -W [dir]`
+
+Enable workspace mode for building multiple packages:
+
+```bash
+tsdown -W
+tsdown -W packages/
+```
+
+### `--filter, -F <pattern>`
+
+Filter configs by name or working directory. Supports regex:
+
+```bash
+tsdown -W -F my-package
+tsdown -W -F /^pkg-/
+```
+
+### `--unbundle`
+
+Enable unbundle (bundleless) mode:
+
+```bash
+tsdown --unbundle
+```
+
+### `--root <dir>`
+
+Specify the root directory of input files (similar to TypeScript's `rootDir`). Controls the output directory structure by determining how entry file paths map to output paths. Defaults to the common base directory of all entry files.
+
+```bash
+tsdown --root src
+tsdown --root .
+```
+
+### `--fail-on-warn`
+
+Fail on warnings (enabled by default):
+
+```bash
+tsdown --no-fail-on-warn  # Disable
+```
+
 ## Common Usage Patterns
 
 ### Basic Build
@@ -356,6 +427,12 @@ tsdown --format iife --platform browser --minify
 
 ```bash
 tsdown --format esm --platform node --shims
+```
+
+### Standalone Executable
+
+```bash
+tsdown src/cli.ts --exe
 ```
 
 ### Monorepo Package

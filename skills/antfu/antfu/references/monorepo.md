@@ -1,11 +1,9 @@
 ---
 name: monorepo
-description: Anthony Fu's monorepo setup conventions using pnpm workspaces
+description: Monorepo setup with pnpm workspaces, centralized aliases, and Turborepo. Use when creating or managing multi-package repositories.
 ---
 
 # Monorepo Setup
-
-Conventions for setting up and managing monorepos.
 
 ## pnpm Workspaces
 
@@ -63,6 +61,8 @@ For monorepos with many packages or long build times, use Turborepo for task orc
 See the dedicated Turborepo skill for detailed configuration.
 
 ## Centralized Alias
+
+Path aliases should be explicit and centralized — this is the deliberate "already set up" case. Outside of these configured aliases, prefer relative imports; don't sprinkle ad-hoc aliases across the codebase.
 
 For better DX across Vite, Nuxt, Vitest configs, create a centralized `alias.ts` at project root:
 

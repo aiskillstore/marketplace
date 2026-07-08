@@ -39,7 +39,9 @@ const { now, pause, resume } = useNow({ controls: true })
 ## Type Declarations
 
 ```ts
-export interface UseNowOptions<Controls extends boolean> {
+export interface UseNowOptions<
+  Controls extends boolean,
+> extends ConfigurableScheduler {
   /**
    * Expose more controls
    *
@@ -49,16 +51,23 @@ export interface UseNowOptions<Controls extends boolean> {
   /**
    * Start the clock immediately
    *
+   * @deprecated Please use `scheduler` option instead
    * @default true
    */
   immediate?: boolean
   /**
    * Update interval in milliseconds, or use requestAnimationFrame
    *
+   * @deprecated Please use `scheduler` option instead
    * @default requestAnimationFrame
    */
   interval?: "requestAnimationFrame" | number
 }
+export type UseNowReturn<Controls extends boolean> = Controls extends true
+  ? {
+      now: ShallowRef<Date>
+    } & Pausable
+  : ShallowRef<Date>
 /**
  * Reactive current Date instance.
  *
@@ -67,9 +76,8 @@ export interface UseNowOptions<Controls extends boolean> {
  *
  * @__NO_SIDE_EFFECTS__
  */
-export declare function useNow(options?: UseNowOptions<false>): Ref<Date>
+export declare function useNow(options?: UseNowOptions<false>): ShallowRef<Date>
 export declare function useNow(options: UseNowOptions<true>): {
-  now: Ref<Date>
+  now: ShallowRef<Date>
 } & Pausable
-export type UseNowReturn = ReturnType<typeof useNow>
 ```

@@ -1,4 +1,4 @@
-# Contributing to Claude Bitbucket DevOps Skill
+# Contributing to Bitbucket DevOps Skill
 
 Thank you for your interest in contributing! This document provides guidelines for contributing to this project.
 
@@ -12,7 +12,7 @@ Found a bug? Please create an issue on GitHub with:
 2. **Steps to reproduce** the problem
 3. **Expected behavior** vs **actual behavior**
 4. **Environment details**:
-   - Claude Code version
+   - Agent runtime and version (Claude Code, AGY, OpenCode, etc.)
    - bitbucket-mcp version
    - Operating system
 5. **Logs or screenshots** if applicable
@@ -34,8 +34,8 @@ We welcome pull requests! Here's the process:
 
 ```bash
 # Fork the repo on GitHub, then:
-git clone https://github.com/YOUR_USERNAME/claude-bitbucket-devops-skill.git
-cd claude-bitbucket-devops-skill
+git clone https://github.com/YOUR_USERNAME/bitbucket-devops-skill.git
+cd bitbucket-devops-skill
 ```
 
 #### 2. Create a Branch
@@ -63,7 +63,7 @@ git checkout -b fix/your-bug-fix
 
 **Manual testing:**
 
-1. Install the modified skill in your local Claude Code:
+1. Install the modified skill in your local agent runtime (paths below are Claude Code's convention; substitute your runtime's equivalent for AGY/OpenCode):
    ```bash
    # Windows
    copy SKILL.md %USERPROFILE%\.claude\skills\bitbucket-devops\
@@ -72,7 +72,7 @@ git checkout -b fix/your-bug-fix
    cp SKILL.md ~/.claude/skills/bitbucket-devops/
    ```
 
-2. Restart VSCode/Claude Code
+2. Reload your agent runtime (Claude Code: restart VSCode; AGY/OpenCode: use that runtime's reload mechanism)
 
 3. Test the new functionality:
    - Ask questions that should trigger your feature
@@ -200,15 +200,15 @@ All contributors will be recognized in the project. By contributing, you agree:
 
 ## Questions?
 
-- **General questions**: [GitHub Discussions](https://github.com/Apra-Labs/claude-bitbucket-devops-skill/discussions)
-- **Bug reports**: [GitHub Issues](https://github.com/Apra-Labs/claude-bitbucket-devops-skill/issues)
+- **General questions**: [GitHub Discussions](https://github.com/Apra-Labs/bitbucket-devops-skill/discussions)
+- **Bug reports**: [GitHub Issues](https://github.com/Apra-Labs/bitbucket-devops-skill/issues)
 - **Security issues**: Email security@apralabs.com (if applicable)
 
 ## Development Setup
 
 ### Prerequisites
 
-- Claude Code VSCode extension
+- An agent runtime: Claude Code (VSCode extension), AGY, OpenCode, or another runtime with a Bash-equivalent tool
 - Node.js 16+ (for bitbucket-mcp)
 - Bitbucket account with app password
 - Git
@@ -218,7 +218,7 @@ All contributors will be recognized in the project. By contributing, you agree:
 1. Clone both repositories:
    ```bash
    git clone https://github.com/MatanYemini/bitbucket-mcp.git
-   git clone https://github.com/Apra-Labs/claude-bitbucket-devops-skill.git
+   git clone https://github.com/Apra-Labs/bitbucket-devops-skill.git
    ```
 
 2. Setup bitbucket-mcp:
@@ -234,10 +234,10 @@ All contributors will be recognized in the project. By contributing, you agree:
    ```bash
    # Link to skills directory
    # Windows:
-   mklink /D %USERPROFILE%\.claude\skills\bitbucket-devops claude-bitbucket-devops-skill
+   mklink /D %USERPROFILE%\.claude\skills\bitbucket-devops bitbucket-devops-skill
 
    # macOS/Linux:
-   ln -s $(pwd)/claude-bitbucket-devops-skill ~/.claude/skills/bitbucket-devops
+   ln -s $(pwd)/bitbucket-devops-skill ~/.claude/skills/bitbucket-devops
    ```
 
 5. Restart VSCode

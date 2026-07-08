@@ -38,7 +38,7 @@ Expected output: All tests should pass (green checkmarks).
 Run this check to ensure no sensitive information:
 
 ```bash
-cd /c/ak/claude-bitbucket-devops-skill
+cd /c/ak/bitbucket-devops-skill
 
 # Search for potential credentials
 grep -r "ATATT" .
@@ -69,7 +69,7 @@ Simulate a new user installing the skill:
 
 2. **Install from this repo**:
    ```bash
-   cp /c/ak/claude-bitbucket-devops-skill/SKILL.md ~/.claude/skills/bitbucket-devops/
+   cp /c/ak/bitbucket-devops-skill/SKILL.md ~/.claude/skills/bitbucket-devops/
    ```
 
 3. **Restart VSCode**:
@@ -79,7 +79,7 @@ Simulate a new user installing the skill:
 
 4. **Verify installation**:
    ```
-   Ask Claude: "Can you help with Bitbucket pipelines?"
+   Ask your agent: "Can you help with Bitbucket pipelines?"
    Expected: Skill should activate
    ```
 
@@ -310,21 +310,21 @@ Once all tests pass:
 
 1. **Create repo on GitHub**:
    - Organization: Apra-Labs
-   - Name: claude-bitbucket-devops-skill
-   - Description: "A Claude Code skill for comprehensive Bitbucket DevOps automation"
+   - Name: bitbucket-devops-skill
+   - Description: "An agent-runtime-agnostic skill for comprehensive Bitbucket DevOps automation (Claude Code, AGY, OC, and others)"
    - Public
    - Don't initialize with README (we have our own)
 
 2. **Push to GitHub**:
    ```bash
-   cd /c/ak/claude-bitbucket-devops-skill
-   git remote add origin git@github.com:Apra-Labs/claude-bitbucket-devops-skill.git
+   cd /c/ak/bitbucket-devops-skill
+   git remote add origin git@github.com:Apra-Labs/bitbucket-devops-skill.git
    git push -u origin master
    ```
 
 3. **Create initial release**:
    - Tag: v1.0.0
-   - Title: "Initial Release - Claude Bitbucket DevOps Skill"
+   - Title: "Initial Release - Bitbucket DevOps Skill"
    - Copy CHANGELOG.md content to release notes
 
 ## Test Results Log
@@ -360,4 +360,4 @@ Document your test results:
 ---
 
 **Testing Coordinator**: Akhil Kumar (akhil@apralabs.com)
-**Repository**: /c/ak/claude-bitbucket-devops-skill
+**Repository**: /c/ak/bitbucket-devops-skill

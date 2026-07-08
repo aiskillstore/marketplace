@@ -1,5 +1,5 @@
 # Sync Info
 
-- **Source:** `vendor/vue-best-practices/skills/vue-best-practices`
-- **Git SHA:** `ee0ceda40b7fabeb0713caf8b4db5ea438069fb5`
-- **Synced:** 2026-01-28
+- **Source:** `vendor/vuejs-ai/skills/vue-best-practices`
+- **Git SHA:** `f3dd1bf4d3ac78331bdc903e4519d561c538ca6a`
+- **Synced:** 2026-03-16

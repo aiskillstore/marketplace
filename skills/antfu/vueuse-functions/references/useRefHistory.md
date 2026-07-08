@@ -206,7 +206,7 @@ Another option is to avoid mutating the original ref value using `arr.value = [.
 
 ```ts
 export interface UseRefHistoryOptions<Raw, Serialized = Raw>
-  extends ConfigurableEventFilter {
+  extends ConfigurableEventFilter, ConfigurableFlush {
   /**
    * Watch for deep changes, default to false
    *
@@ -215,15 +215,6 @@ export interface UseRefHistoryOptions<Raw, Serialized = Raw>
    * @default false
    */
   deep?: boolean
-  /**
-   * The flush option allows for greater control over the timing of a history point, default to 'pre'
-   *
-   * Possible values: 'pre', 'post', 'sync'
-   * It works in the same way as the flush option in watch and watch effect in vue reactivity
-   *
-   * @default 'pre'
-   */
-  flush?: WatchOptionFlush
   /**
    * Maximum number of history to be kept. Default to unlimited.
    */
@@ -251,8 +242,10 @@ export interface UseRefHistoryOptions<Raw, Serialized = Raw>
    */
   shouldCommit?: (oldValue: Raw | undefined, newValue: Raw) => boolean
 }
-export interface UseRefHistoryReturn<Raw, Serialized>
-  extends UseManualRefHistoryReturn<Raw, Serialized> {
+export interface UseRefHistoryReturn<
+  Raw,
+  Serialized,
+> extends UseManualRefHistoryReturn<Raw, Serialized> {
   /**
    * A ref representing if the tracking is enabled
    */
