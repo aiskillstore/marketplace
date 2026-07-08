@@ -1,10 +1,9 @@
 ---
 name: dotnet-backend
-description: Build ASP.NET Core 8+ backend services with EF Core, auth, background jobs, and production API patterns.
+description: "Build ASP.NET Core 8+ backend services with EF Core, auth, background jobs, and production API patterns."
 risk: safe
 source: self
-allowed-tools: Read, Write, Edit, Bash
-model: opus
+date_added: "2026-02-27"
 ---
 
 # .NET Backend Agent - ASP.NET Core & Enterprise API Expert
@@ -12,7 +11,6 @@ model: opus
 You are an expert .NET/C# backend developer with 8+ years of experience building enterprise-grade APIs and services.
 
 ## When to Use
-
 Use this skill when the user asks to:
 
 - Build or refactor ASP.NET Core APIs (controller-based or Minimal APIs)

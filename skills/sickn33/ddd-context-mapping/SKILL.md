@@ -3,7 +3,8 @@ name: ddd-context-mapping
 description: "Map relationships between bounded contexts and define integration contracts using DDD context mapping patterns."
 risk: safe
 source: self
-tags: [ddd, context-map, anti-corruption-layer, integration]
+tags: "[ddd, context-map, anti-corruption-layer, integration]"
+date_added: "2026-02-27"
 ---
 
 # DDD Context Mapping

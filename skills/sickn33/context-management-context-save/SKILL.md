@@ -1,6 +1,9 @@
 ---
 name: context-management-context-save
 description: "Use when working with context management context save"
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # Context Save Tool: Intelligent Context Management Specialist

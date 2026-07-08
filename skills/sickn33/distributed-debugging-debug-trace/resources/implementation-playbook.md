@@ -1031,7 +1031,7 @@ class ProductionDebugger {
             ['log', 'debug', 'info', 'warn', 'error'].forEach(method => {
                 console[method] = (...args) => {
                     req.debugContext.log(req.id, method, args[0], args.slice(1));
-                    originalConsole[method](...args);
+                    originalConsolemethod;
                 };
             });
             

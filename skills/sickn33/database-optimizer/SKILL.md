@@ -1,13 +1,9 @@
 ---
 name: database-optimizer
-description: Expert database optimizer specializing in modern performance
-  tuning, query optimization, and scalable architectures. Masters advanced
-  indexing, N+1 resolution, multi-tier caching, partitioning strategies, and
-  cloud database optimization. Handles complex query analysis, migration
-  strategies, and performance monitoring. Use PROACTIVELY for database
-  optimization, performance issues, or scalability challenges.
-metadata:
-  model: inherit
+description: Expert database optimizer specializing in modern performance tuning, query optimization, and scalable architectures.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 ## Use this skill when
@@ -165,3 +161,8 @@ Expert database optimizer with comprehensive knowledge of modern database perfor
 - "Design zero-downtime database migration strategy for large production table"
 - "Create performance monitoring and alerting system for database optimization"
 - "Implement database sharding strategy for horizontally scaling write-heavy workload"
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

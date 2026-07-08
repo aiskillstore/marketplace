@@ -1,23 +1,10 @@
 ---
 name: crypto-bd-agent
-description: >
-  Autonomous crypto business development patterns — multi-chain token discovery,
-  100-point scoring with wallet forensics, x402 micropayments, ERC-8004 on-chain
-  identity, LLM cascade routing, and pipeline automation for CEX/DEX listing
-  acquisition. Use when building AI agents for crypto BD, token evaluation,
-  exchange listing outreach, or autonomous commerce with payment protocols.
+description: "Production-tested patterns for building AI agents that autonomously discover, > evaluate, and acquire token listings for cryptocurrency exchanges."
 risk: safe
 source: community
-tags:
-  - crypto
-  - business-development
-  - token-scanning
-  - x402
-  - erc-8004
-  - autonomous-agent
-  - solana
-  - ethereum
-  - wallet-forensics
+tags: null
+date_added: '2026-02-27'
 ---
 
 # Crypto BD Agent — Autonomous Business Development for Exchanges
@@ -246,3 +233,8 @@ Buzz BD Agent (SolCex Exchange):
 - 24/7 live stream: retake.tv/BuzzBD
 - Verify: 8004scan.io
 - GitHub: https://github.com/buzzbysolcex/buzz-bd-agent
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

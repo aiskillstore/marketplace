@@ -1,9 +1,9 @@
 ---
 name: docx-official
-description: "Comprehensive document creation, editing, and analysis with support for tracked changes, comments, formatting preservation, and text extraction. When Claude needs to work with professional document..."
-license: Proprietary. LICENSE.txt has complete terms
+description: "A user may ask you to create, edit, or analyze the contents of a .docx file. A .docx file is essentially a ZIP archive containing XML files and other resources that you can read or edit. You have different tools and workflows available for different tasks."
 risk: unknown
 source: community
+date_added: "2026-02-27"
 ---
 
 # DOCX creation, editing, and analysis
@@ -200,3 +200,8 @@ Required dependencies (install if not available):
 
 ## When to Use
 This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

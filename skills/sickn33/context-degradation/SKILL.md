@@ -1,21 +1,15 @@
 ---
 name: context-degradation
-description: "Recognize patterns of context failure: lost-in-middle, poisoning, distraction, and clash"
-source: "https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering/tree/main/skills/context-degradation"
-risk: safe
+description: "Language models exhibit predictable degradation patterns as context length increases. Understanding these patterns is essential for diagnosing failures and designing resilient systems."
+risk: unknown
+source: community
 ---
 
-## When to Use This Skill
-
-Recognize patterns of context failure: lost-in-middle, poisoning, distraction, and clash
-
-Use this skill when working with recognize patterns of context failure: lost-in-middle, poisoning, distraction, and clash.
 # Context Degradation Patterns
 
 Language models exhibit predictable degradation patterns as context length increases. Understanding these patterns is essential for diagnosing failures and designing resilient systems. Context degradation is not a binary state but a continuum of performance degradation that manifests in several distinct ways.
 
-## When to Activate
-
+## When to Use
 Activate this skill when:
 - Agent performance degrades unexpectedly during long conversations
 - Debugging cases where agents produce incorrect or irrelevant outputs
@@ -216,7 +210,7 @@ This skill builds on context-fundamentals and should be studied after understand
 ## References
 
 Internal reference:
-- [Degradation Patterns Reference](./references/patterns.md) - Detailed technical reference
+- Degradation Patterns Reference - Detailed technical reference
 
 Related skills in this collection:
 - context-fundamentals - Context basics
@@ -236,3 +230,8 @@ External resources:
 **Last Updated**: 2025-12-20
 **Author**: Agent Skills for Context Engineering Contributors
 **Version**: 1.0.0
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

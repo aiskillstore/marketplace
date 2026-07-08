@@ -1,6 +1,9 @@
 ---
 name: distributed-tracing
-description: Implement distributed tracing with Jaeger and Tempo to track requests across microservices and identify performance bottlenecks. Use when debugging microservices, analyzing request flows, or implementing observability for distributed systems.
+description: "Implement distributed tracing with Jaeger and Tempo for request flow visibility across microservices."
+risk: critical
+source: community
+date_added: "2026-02-27"
 ---
 
 # Distributed Tracing
@@ -448,3 +451,8 @@ def process_request():
 - `prometheus-configuration` - For metrics
 - `grafana-dashboards` - For visualization
 - `slo-implementation` - For latency SLOs
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
