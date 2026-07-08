@@ -55,6 +55,7 @@ Analyze workspace to identify components, technologies, and dependencies.
 - Use `azd init --from-code -e <environment-name>` instead of manual azure.yaml creation
 - The `--from-code` flag automatically detects the AppHost and generates appropriate configuration
 - The `-e` flag is **required** for non-interactive environments (agents, CI/CD)
+- ⚠️ **CRITICAL:** If the AppHost contains `AddAzureFunctionsProject`, you **MUST** add `.WithEnvironment("AzureWebJobsSecretStorageType", "Files")` to the Functions builder chain BEFORE deployment. Without this, Functions will fail at startup with `Secret initialization from Blob storage failed`. See [aspire.md](aspire.md) Step 4b for the complete detection and fix procedure.
 - See [aspire.md](aspire.md) for detailed Aspire-specific guidance
 
 ## Output

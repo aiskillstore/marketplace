@@ -1,4 +1,15 @@
-# Functions Terraform Patterns
+# Functions Terraform Patterns — REFERENCE ONLY
+
+> ⛔ **DO NOT COPY THIS CODE DIRECTLY**
+>
+> This file contains **reference patterns** for understanding Azure Functions Terraform structure.
+> **You MUST use the composition algorithm** to generate infrastructure:
+>
+> 1. Load `templates/selection.md` to choose the correct base template
+> 2. Follow `templates/recipes/composition.md` for the exact algorithm
+> 3. Use `functions_template_get` MCP tool (with `infrastructure: "terraform"`) to list and fetch templates and write `functionFiles[]` + `projectFiles[]` directly — NEVER hand-write Bicep/Terraform and use `azd init -t <template>`/`func init`/`func new` as fallback when composing multiple recipes and required templates are not found
+>
+> Hand-writing Terraform from these patterns will result in missing RBAC, incorrect managed identity configuration, and security vulnerabilities.
 
 ## Flex Consumption (Recommended)
 
@@ -97,9 +108,9 @@ resource "azurerm_linux_function_app" "function_app" {
   }
 
   app_settings = {
-    "AzureWebJobsStorage__accountName"  = azurerm_storage_account.function_storage.name
-    "FUNCTIONS_EXTENSION_VERSION"       = "~4"
-    "FUNCTIONS_WORKER_RUNTIME"          = "python"
+    "AzureWebJobsStorage__blobServiceUri"  = azurerm_storage_account.function_storage.primary_blob_endpoint
+    "FUNCTIONS_EXTENSION_VERSION"          = "~4"
+    "FUNCTIONS_WORKER_RUNTIME"             = "python"
   }
 }
 
@@ -112,7 +123,7 @@ resource "azurerm_role_assignment" "function_storage_access" {
 ```
 
 > 💡 **Key Points:**
-> - Use `AzureWebJobsStorage__accountName` instead of connection string
+> - Use `AzureWebJobsStorage__blobServiceUri` instead of connection string
 > - Set `shared_access_key_enabled = false` for enhanced security
 > - Use `storage_uses_managed_identity = true` for deployment authentication
 > - Grant `Storage Blob Data Owner` role for full access to blobs, queues, and tables
@@ -148,9 +159,9 @@ module "function_app" {
   }
 
   app_settings = {
-    "AzureWebJobsStorage__accountName" = azurerm_storage_account.function_storage.name
-    "FUNCTIONS_EXTENSION_VERSION"      = "~4"
-    "FUNCTIONS_WORKER_RUNTIME"         = "python"
+    "AzureWebJobsStorage__blobServiceUri" = azurerm_storage_account.function_storage.primary_blob_endpoint
+    "FUNCTIONS_EXTENSION_VERSION"         = "~4"
+    "FUNCTIONS_WORKER_RUNTIME"            = "python"
   }
 
   identity = {
@@ -163,7 +174,19 @@ module "function_app" {
 
 ## Consumption Plan (Legacy)
 
+> ⛔ **DO NOT USE** — Y1/Dynamic SKU is deprecated for new deployments.
+> **ALWAYS use Flex Consumption (FC1)** for all new Azure Functions.
+> The Y1 example below is only for reference when migrating legacy apps.
+
 **⚠️ Not recommended for new deployments. Use Flex Consumption instead.**
+
+> 💡 **OS and Slots Matter for Consumption:**
+> - **Linux Consumption** (`os_type = "Linux"`): Does **not** support deployment slots.
+> - **Windows Consumption** (`os_type = "Windows"`): Supports **1 staging slot** (2 total including production).
+>   If a user specifically needs Windows Consumption with a slot, that is supported — use the Windows pattern below.
+>   For new apps needing slots, prefer **Elastic Premium (EP1)** for better performance and no cold-start issues.
+
+### Linux Consumption (no slot support)
 
 ```hcl
 resource "azurerm_storage_account" "function_storage" {
@@ -211,6 +234,77 @@ resource "azurerm_linux_function_app" "function_app" {
 }
 ```
 
+### Windows Consumption (supports 1 staging slot)
+
+> ⚠️ **Windows Consumption is not recommended for new projects** — consider Flex Consumption or Elastic Premium.
+> Use this pattern only for existing Windows apps or when Windows-specific features are required.
+
+```hcl
+resource "azurerm_service_plan" "function_plan" {
+  name                = "${var.resource_prefix}-funcplan-${var.unique_hash}"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.main.name
+  os_type             = "Windows"
+  sku_name            = "Y1"
+}
+
+resource "azurerm_windows_function_app" "function_app" {
+  name                = "${var.resource_prefix}-${var.service_name}-${var.unique_hash}"
+  location            = var.location
+  resource_group_name = azurerm_resource_group.main.name
+  service_plan_id     = azurerm_service_plan.function_plan.id
+  https_only          = true
+
+  storage_account_name       = azurerm_storage_account.function_storage.name
+  storage_account_access_key = azurerm_storage_account.function_storage.primary_access_key
+
+  site_config {
+    application_insights_connection_string = azurerm_application_insights.function_insights.connection_string
+    application_stack {
+      node_version = "~20"
+    }
+  }
+
+  app_settings = {
+    "FUNCTIONS_EXTENSION_VERSION"             = "~4"
+    "FUNCTIONS_WORKER_RUNTIME"                = "node"
+    "WEBSITE_CONTENTSHARE"                    = "${lower(var.service_name)}-prod"  # must differ per slot; Azure Files share names are lowercase
+    "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING" = azurerm_storage_account.function_storage.primary_connection_string
+  }
+
+  sticky_settings {
+    app_setting_names = ["WEBSITE_CONTENTSHARE", "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING"]
+  }
+
+  identity {
+    type = "SystemAssigned"
+  }
+}
+
+# 1 staging slot is supported on Windows Consumption
+resource "azurerm_windows_function_app_slot" "staging" {
+  name            = "staging"
+  function_app_id = azurerm_windows_function_app.function_app.id
+
+  storage_account_name       = azurerm_storage_account.function_storage.name
+  storage_account_access_key = azurerm_storage_account.function_storage.primary_access_key
+
+  site_config {
+    application_insights_connection_string = azurerm_application_insights.function_insights.connection_string
+    application_stack {
+      node_version = "~20"
+    }
+  }
+
+  app_settings = {
+    "FUNCTIONS_EXTENSION_VERSION"             = "~4"
+    "FUNCTIONS_WORKER_RUNTIME"                = "node"
+    "WEBSITE_CONTENTSHARE"                    = "${var.service_name}-staging"  # MUST differ from production
+    "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING" = azurerm_storage_account.function_storage.primary_connection_string
+  }
+}
+```
+
 ## Service Bus Integration (Managed Identity)
 
 ```hcl
@@ -224,7 +318,7 @@ resource "azurerm_linux_function_app" "function_app" {
   
   app_settings = {
     # Storage with managed identity
-    "AzureWebJobsStorage__accountName" = azurerm_storage_account.function_storage.name
+    "AzureWebJobsStorage__blobServiceUri" = azurerm_storage_account.function_storage.primary_blob_endpoint
     
     # Service Bus with managed identity
     "SERVICEBUS__fullyQualifiedNamespace" = "${data.azurerm_servicebus_namespace.example.name}.servicebus.windows.net"

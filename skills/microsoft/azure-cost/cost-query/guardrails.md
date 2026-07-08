@@ -84,11 +84,11 @@ When the user requests a cost breakdown by resource at a billing account or mana
 
 | Rule | Details |
 |------|---------|
-| `And` operator | Must have 2 or more child expressions. |
-| `Or` operator | Must have 2 or more child expressions. |
-| `Not` operator | Must have exactly 1 child expression. |
+| `and` operator | Must have 2 or more child expressions. |
+| `or` operator | Must have 2 or more child expressions. |
+| `not` operator | Must have exactly 1 child expression. |
 
-> ⚠️ **Warning:** A filter with a single child in `And` or `Or` will fail validation. Wrap single-condition filters directly without a logical operator, or use `Not` for negation.
+> ⚠️ **Warning:** A filter with a single child in `and` or `or` will fail validation. Wrap single-condition filters directly without a logical operator, or use `not` for negation.
 
 ## Scope & Dimension Compatibility
 
@@ -118,19 +118,19 @@ Dimensions must be valid for the intersection of the agreement type **and** scop
 
 ```json
 {
-  "And": [
+  "and": [
     {
-      "Dimensions": {
-        "Name": "SubscriptionId",
-        "Operator": "In",
-        "Values": ["<subscription-id>"]
+      "dimensions": {
+        "name": "SubscriptionId",
+        "operator": "In",
+        "values": ["<subscription-id>"]
       }
     },
     {
-      "Dimensions": {
-        "Name": "SubscriptionName",
-        "Operator": "In",
-        "Values": ["My Subscription"]
+      "dimensions": {
+        "name": "SubscriptionName",
+        "operator": "In",
+        "values": ["My Subscription"]
       }
     }
   ]
@@ -138,6 +138,17 @@ Dimensions must be valid for the intersection of the agreement type **and** scop
 ```
 
 ## Rate Limiting
+
+### Rate Limit Thresholds
+
+| Limit | Value |
+|-------|-------|
+| Per User | 20 requests per minute |
+| Per Scope | 4 requests per minute |
+| Per Tenant | 12 requests per 10 seconds, 60 requests per minute, 600 requests per hour |
+| Per Client Type | 2,000 requests per minute |
+
+> ⚠️ **Warning:** The **per-scope limit (4 requests/minute)** is the most restrictive. Sequential queries to the same subscription, resource group, or billing account share this limit.
 
 ### QPU-Based Throttling
 
@@ -151,8 +162,14 @@ Dimensions must be valid for the intersection of the agreement type **and** scop
 | Header | Description |
 |--------|-------------|
 | `x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after` | Seconds to wait before retrying (QPU limit). |
-| `x-ms-ratelimit-microsoft.costmanagement-entity-retry-after` | Seconds to wait before retrying (entity limit). |
+| `x-ms-ratelimit-microsoft.costmanagement-entity-retry-after` | Seconds to wait before retrying (entity/scope limit). |
 | `x-ms-ratelimit-microsoft.costmanagement-tenant-retry-after` | Seconds to wait before retrying (tenant limit). |
+
+### Handling 429 Responses
+
+On a 429 response, check **all** retry-after headers present in the response. Multiple headers may be returned simultaneously. Take the **maximum** value and **do NOT send any further requests to the same scope until that duration has fully elapsed.**
+
+> ⚠️ **Warning:** Do not retry before the retry-after duration has elapsed. Premature retries will be rejected and may extend the throttling period.
 
 ### Pagination
 

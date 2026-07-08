@@ -1,9 +1,10 @@
 ---
 name: azure-resource-visualizer
-description: >-
-  Analyze Azure resource groups and generate detailed Mermaid architecture diagrams showing the relationships between individual resources.
-  USE FOR: create architecture diagram, visualize Azure resources, show resource relationships, generate Mermaid diagram, analyze resource group, diagram my resources, architecture visualization, resource topology, map Azure infrastructure
-  DO NOT USE FOR: creating/modifying resources (use azure-deploy), security scanning (use azure-security), performance troubleshooting (use azure-diagnostics), code generation (use relevant service skill)
+description: "Analyze Azure resource groups and generate detailed Mermaid architecture diagrams showing the relationships between individual resources. WHEN: create architecture diagram, visualize Azure resources, show resource relationships, generate Mermaid diagram, analyze resource group, diagram my resources, architecture visualization, resource topology, map Azure infrastructure."
+license: MIT
+metadata:
+  author: Microsoft
+  version: "0.0.0-placeholder"
 ---
 
 # Azure Resource Visualizer - Architecture Diagram Generator
@@ -53,6 +54,8 @@ Once you have the resource group:
    - **Identity**: Managed identities connecting to resources
    - **Configuration**: App Settings pointing to Key Vaults, connection strings
    - **Dependencies**: Parent-child relationships, required resources
+
+> **Important**: You must only use placeholder names to represent secret values, such as keys, connection strings, Key Vault secrets, etc. Use meaningful placeholder names to represent each secret in the diagram. Never put secret values in the resource diagram.
 
 ### Step 3: Diagram Construction
 

@@ -35,7 +35,7 @@ Generate two diagrams:
 
 > ⚠️ **MANDATORY**: Use these exact section headings in every assessment report. Do NOT rename, reorder, or omit sections.
 
-The report MUST be saved as `migration-assessment-report.md` inside the output directory (`<aws-folder>-azure/`).
+The report MUST be saved as `migration-assessment-report.md` inside the output directory (`<workspace-root-basename>-azure/`).
 
 ```markdown
 # Migration Assessment Report
@@ -151,4 +151,4 @@ The report MUST be saved as `migration-assessment-report.md` inside the output d
 - [ ] Hand off to azure-prepare for IaC generation
 ```
 
-> 💡 **Tip:** Use `mcp_azure_mcp_get_bestpractices` tool to learn Azure Functions project structure best practices for the comparison.
+> 💡 **Tip:** Use `mcp_azure_mcp_get_azure_bestpractices` tool to learn Azure Functions project structure best practices for the comparison.

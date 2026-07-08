@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T20:05:36.680Z",
+    "generated_at": "2026-07-08T06:39:48.843Z",
     "slug": "mattpocock-qa",
     "source_url": "https://github.com/mattpocock/skills/tree/main/skills/deprecated/qa/",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "b25ef4a28da753687f82dfaeeb1ad38ddba1560c9d9a49a13be061e4dac12afe",
-    "tree_hash": "f75a2f9b4285ef8b86871ec48c8955d55d24a534360dd8269dc805b61d34532e",
+    "content_hash": "d9727aac6503981bf69bdd8b37e0d85b32b8fbd353a57528c252dac1337ab761",
+    "tree_hash": "63904632bd58c119f0e850503fe7ec9d5b70dd01b8b9d4d8e33f13827e9d0fbc",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,10 +23,10 @@
   },
   "skill": {
     "name": "qa",
-    "description": "Run an interactive QA session that turns user-reported bugs into focused GitHub issues. The skill clarifies reports, explores project context, and writes durable issue descriptions.",
-    "summary": "Turns conversational QA reports into clear, user-focused GitHub issues.",
+    "description": "Runs an interactive QA session that turns conversational bug reports into durable GitHub issues using project domain language.",
+    "summary": "Guides QA conversations and files actionable GitHub issues.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "mattpocock",
     "license": "MIT",
     "category": "coding",
@@ -37,6 +34,7 @@
       "qa",
       "bug-reporting",
       "github-issues",
+      "issue-triage",
       "developer-workflow"
     ],
     "supported_tools": [
@@ -53,17 +51,12 @@
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "I confirmed one real risk: the skill tells the agent to create GitHub issues with `gh issue create` without user review. The other static findings are Markdown issue templates inside code fences, not executable commands. No evidence found of prompt injection, credential theft, or data exfiltration intent.",
+    "summary": "The skill intentionally uses gh issue create to file GitHub issues, which is a real external side effect. The Markdown issue templates are false positives for shell execution, but the instruction to skip user review creates a publication and data disclosure risk.",
     "remediation": [
       {
         "issue": "Unreviewed GitHub issue creation",
-        "suggestion": "Require explicit user confirmation of the issue title and body before running `gh issue create`.",
+        "suggestion": "Require explicit user confirmation before running gh issue create, and warn that issue content may be visible to repository collaborators or the public.",
         "severity": "medium"
-      },
-      {
-        "issue": "External CLI side effects",
-        "suggestion": "State that the GitHub CLI must be authenticated and scoped to the intended repository before filing issues.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -139,33 +132,33 @@
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "Line 49 explicitly instructs the agent to create GitHub issues with `gh issue create` without user review. This is an external command with repository side effects, even though it matches the skill purpose.",
+        "confidence": 0.82,
+        "reason": "Line 49 instructs the agent to run gh issue create, which is a state-changing external CLI command. It is not Ruby backtick execution, but the external command behavior is real and skips user review.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "Lines 57-75 are a fenced Markdown template for an issue body. They contain placeholders and headings, not executable shell syntax."
+        "confidence": 0.97,
+        "reason": "Line 57 starts a Markdown code fence for an issue body template. It does not execute shell code or define a command to run."
       },
       {
         "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "Lines 75-83 are Markdown fence boundaries and nearby prose about issue ordering. They do not contain a command invocation or command interpolation."
+        "confidence": 0.96,
+        "reason": "Line 75 closes a Markdown issue template block and is documentation text only. No shell backtick execution or command invocation is present there."
       },
       {
         "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "Lines 83-109 are a fenced Markdown template for multi-issue reports. The content is issue text with placeholders, not executable code."
+        "confidence": 0.97,
+        "reason": "Line 83 starts another Markdown code fence for a sub-issue template. The fenced content is issue text, not executable shell code."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unreviewed GitHub Issue Creation",
-        "description": "The skill instructs the agent to file GitHub issues without asking the user to review first. This can publish inaccurate or sensitive issue details.",
+        "title": "Unreviewed External Issue Publication",
+        "description": "The skill tells the agent to create GitHub issues with gh issue create and not ask for user review first. This can publish sensitive bug details or customer information before the user approves the final issue text.",
         "severity": "medium",
         "locations": [
           {
@@ -174,8 +167,8 @@
             "line_end": 49
           }
         ],
-        "confidence": 0.85,
-        "confidence_reasoning": "The instruction is explicit and appears in the issue filing step. The risk is limited to repositories where the agent has GitHub CLI permissions."
+        "confidence": 0.93,
+        "confidence_reasoning": "Line 49 directly combines a state-changing external CLI command with an instruction to skip user review. The risk is clear even though the command is part of the skill's intended workflow."
       }
     ],
     "critical_findings": [],
@@ -194,12 +187,12 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "Line 49 explicitly instructs the agent to create GitHub issues with `gh issue create` without user review. This is an external command with repository side effects, even though it matches the skill purpose."
+        "confidence": 0.82,
+        "confidence_reasoning": "Line 49 instructs the agent to run gh issue create, which is a state-changing external CLI command. It is not Ruby backtick execution, but the external command behavior is real and skips user review."
       },
       {
-        "title": "Unreviewed GitHub Issue Creation",
-        "description": "The skill instructs the agent to file GitHub issues without asking the user to review first. This can publish inaccurate or sensitive issue details.",
+        "title": "Unreviewed External Issue Publication",
+        "description": "The skill tells the agent to create GitHub issues with gh issue create and not ask for user review first. This can publish sensitive bug details or customer information before the user approves the final issue text.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -210,8 +203,8 @@
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.85,
-        "confidence_reasoning": "The instruction is explicit and appears in the issue filing step. The risk is limited to repositories where the agent has GitHub CLI permissions."
+        "confidence": 0.93,
+        "confidence_reasoning": "Line 49 directly combines a state-changing external CLI command with an instruction to skip user review. The risk is clear even though the command is part of the skill's intended workflow."
       }
     ],
     "low_findings": [],
@@ -219,124 +212,125 @@
     "files_scanned": 1,
     "total_lines": 131,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T20:05:36.680Z",
+    "audited_at": "2026-07-08T06:39:48.843Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Run Conversational QA Issue Filing",
-    "value_statement": "Bug reports often miss clear reproduction steps and user impact. This skill turns QA conversations into focused GitHub issues with concise context.",
+    "user_title": "Run Conversational QA Sessions",
+    "value_statement": "Bug reports can lose context when users describe issues informally. This skill guides a QA conversation, explores project language, and files durable GitHub issues.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "QA issue filing",
-      "GitHub issues",
+      "QA session",
       "bug reporting",
-      "software QA",
+      "GitHub issues",
+      "issue triage",
       "developer workflow",
-      "reproduction steps"
+      "codebase exploration",
+      "software QA"
     ],
     "actual_capabilities": [
-      "Guides short clarification questions for bug reports.",
-      "Explores repository context to use accurate product language.",
-      "Decides whether one report should become one issue or several issues.",
-      "Drafts concise GitHub issue bodies with expected behavior and reproduction steps.",
-      "Uses GitHub CLI issue creation when the environment allows it."
+      "Guides short clarification questions about expected and actual behavior.",
+      "Explores the codebase for domain language and feature context.",
+      "Decides whether a report should be one issue or several issues.",
+      "Drafts issue bodies with required reproduction steps and additional context.",
+      "Creates GitHub issues with gh issue create and returns issue URLs."
     ],
     "limitations": [
-      "It requires GitHub CLI access to file issues automatically.",
-      "It does not diagnose root causes or implement fixes.",
-      "It depends on the user for accurate reproduction details.",
-      "It may expose sensitive report details if issues are filed without review."
+      "Requires GitHub CLI authentication and repository access to create issues.",
+      "Does not implement fixes or change application code.",
+      "Depends on user-provided reproduction details for accurate issues.",
+      "May expose report content through GitHub issues if used without review."
     ],
     "use_cases": [
       {
-        "title": "Triage User-Reported Bugs",
-        "description": "Convert a support conversation into a focused GitHub issue with expected behavior and reproduction steps.",
-        "target_user": "Product support engineer"
-      },
-      {
-        "title": "Run Manual QA Sessions",
-        "description": "Capture defects found during exploratory testing and split broad reports into actionable issues.",
+        "title": "Turn testing notes into issues",
+        "description": "Capture exploratory QA findings as clear GitHub issues with reproduction steps.",
         "target_user": "QA tester"
       },
       {
-        "title": "Prepare Developer Backlogs",
-        "description": "Create durable issues that describe user-facing behavior without stale file paths or internal implementation details.",
-        "target_user": "Engineering lead"
+        "title": "Convert user complaints into backlog items",
+        "description": "Translate informal product feedback into developer-ready issue reports.",
+        "target_user": "Product manager"
+      },
+      {
+        "title": "Break large reports into parallel work",
+        "description": "Split multi-symptom bugs into focused issues with honest blocking relationships.",
+        "target_user": "Repository maintainer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Start a QA Session",
-        "scenario": "Beginner bug report capture",
-        "prompt": "Start a QA session for this repository. I will describe one bug, and you should ask only essential clarifying questions."
+        "title": "Start a QA session",
+        "scenario": "A tester wants guided bug reporting.",
+        "prompt": "Start a QA session for this repository. Ask concise questions, then file each clear bug as a GitHub issue."
       },
       {
-        "title": "File One Clear Bug",
-        "scenario": "Single issue creation",
-        "prompt": "Help me turn this report into one GitHub issue: [describe what happened, what you expected, and any steps you know]."
+        "title": "Report one reproducible bug",
+        "scenario": "A user has one clear behavior problem.",
+        "prompt": "I found a bug: [describe behavior]. Expected: [expected behavior]. Steps: [steps]. Use project language and file one GitHub issue."
       },
       {
-        "title": "Break Down a Broad Report",
-        "scenario": "Multiple related failures",
-        "prompt": "Review this QA report and decide whether it should become several issues. Create separate issues only for independently fixable behaviors."
+        "title": "Break down a complex bug",
+        "scenario": "A report includes several independent symptoms.",
+        "prompt": "Help me turn this multi-part QA report into separate GitHub issues. Identify independent concerns, blockers, and reproduction steps."
       },
       {
-        "title": "Use Project Language",
-        "scenario": "Advanced backlog preparation",
-        "prompt": "Explore the repository context, then write GitHub issues using the project domain language. Avoid file paths, line numbers, and implementation details."
+        "title": "Run ongoing triage",
+        "scenario": "A team wants to file several issues in one session.",
+        "prompt": "During this session, I will report several issues. For each one, clarify only missing reproduction details, explore context, and share issue URLs."
       }
     ],
     "output_examples": [
       {
-        "input": "The checkout page accepts an expired coupon but then fails at payment.",
-        "output": "A GitHub issue describing the checkout behavior, expected coupon rejection, reproduction steps, and payment impact."
+        "input": "The export button says success, but no CSV appears.",
+        "output": "Created a GitHub issue covering the missing CSV download, expected behavior, reproduction steps, and user-visible context."
       },
       {
-        "input": "The import flow has validation errors, missing progress feedback, and a confusing success state.",
-        "output": "Several focused issues ordered by dependency, each with a clear scope, expected behavior, and testing notes."
+        "input": "Checkout validation fails, the success message is wrong, and the redirect lands on the wrong page.",
+        "output": "Opened separate issues for validation, success copy, and redirect behavior, with blocking relationships summarized."
       },
       {
-        "input": "A user says the sync failed, but they do not know which action caused it.",
-        "output": "A short clarification request for reproduction details before filing, followed by a concise issue when enough evidence exists."
+        "input": "Users report that sync fails only when Docker mode is enabled.",
+        "output": "Filed one issue focused on Docker-mode sync failure, with concise reproduction steps and domain-specific context."
       }
     ],
     "best_practices": [
-      "Confirm sensitive details before filing issues in public repositories.",
-      "Provide exact steps, expected behavior, and actual behavior when possible.",
-      "Keep each filed issue focused on one user-facing behavior."
+      "Provide expected behavior, actual behavior, and reproduction steps before filing.",
+      "Confirm whether the issue happens consistently or only under specific conditions.",
+      "Review issue content before publishing reports that include customer data or secrets."
     ],
     "anti_patterns": [
-      "Do not use it to file issues without repository permission.",
-      "Do not include secrets, customer data, or private logs in issue bodies.",
-      "Do not ask it to diagnose or fix the bug during the QA session."
+      "Using it to publish vague reports without reproduction steps.",
+      "Putting secrets, tokens, or private customer data in issue descriptions.",
+      "Treating the generated issue as a root-cause analysis or implementation plan."
     ],
     "faq": [
       {
-        "question": "Does this skill fix bugs?",
-        "answer": "No. It captures QA reports and files GitHub issues. It does not implement code changes."
+        "question": "Can this skill fix the bugs it finds?",
+        "answer": "No. It focuses on QA conversation, issue drafting, and GitHub issue creation."
       },
       {
-        "question": "Does it need GitHub CLI access?",
-        "answer": "Yes, automatic filing requires `gh issue create` with access to the target repository."
+        "question": "Does it require the GitHub CLI?",
+        "answer": "Yes. Issue creation depends on gh issue create, repository access, and an authenticated GitHub CLI session."
       },
       {
-        "question": "Can it create multiple issues from one report?",
-        "answer": "Yes. It splits reports when problems are independently fixable or have separate symptoms."
+        "question": "Will it create one issue or many?",
+        "answer": "It decides based on scope. Independent problems become separate issues with blocking relationships when needed."
       },
       {
-        "question": "Will it include file paths or line numbers?",
-        "answer": "No. The skill instructs the agent to describe user-facing behavior instead of internal implementation details."
+        "question": "Does it include source file paths in issues?",
+        "answer": "No. The skill asks for durable, user-focused issues without file paths or line numbers."
       },
       {
-        "question": "Is it suitable for public repositories?",
-        "answer": "Yes, but review sensitive details before filing because issue bodies may become public."
+        "question": "Can I use it with Claude, Codex, and Claude Code?",
+        "answer": "Yes. The report lists support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "Can Claude, Codex, and Claude Code use it?",
-        "answer": "Yes. The report marks the skill as compatible with Claude, Codex, and Claude Code."
+        "question": "Is it safe for private information?",
+        "answer": "Use caution. Remove secrets and private customer data before creating GitHub issues."
       }
     ]
   },

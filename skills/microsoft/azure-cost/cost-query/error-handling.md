@@ -10,7 +10,7 @@ Detailed error handling reference for the Cost Management Query API.
 | 401 | `Unauthorized` | Missing or expired authentication token. | Re-authenticate with `az login` or refresh the bearer token. |
 | 403 | `Forbidden` | Insufficient permissions on the target scope. User lacks Cost Management Reader or equivalent role. | Assign `Cost Management Reader` or `Cost Management Contributor` role on the scope. |
 | 404 | `NotFound` | Scope does not exist, subscription not found, or resource group does not exist. | Verify the scope URL. Confirm the subscription ID and resource group name are correct. |
-| 429 | `TooManyRequests` | Rate limit exceeded. QPU, entity, or tenant throttling triggered. | Retry after the duration specified in the `x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after` header. |
+| 429 | `TooManyRequests` | Rate limit exceeded. QPU, entity, or tenant throttling triggered. | Check all `x-ms-ratelimit-microsoft.costmanagement-*-retry-after` headers (`qpu`, `entity`, `tenant`). Wait for the **longest** value before retrying. |
 | 503 | `ServiceUnavailable` | Cost Management service is temporarily unavailable. | Check [Azure Status](https://status.azure.com) for service health. |
 
 ## Common Error Scenarios
@@ -23,7 +23,7 @@ Detailed error handling reference for the Cost Management Query API.
 | Date range exceeds granularity limit | `Daily` range > 31 days or `Monthly`/`None` range > 12 months. | System auto-truncates `from` date. To avoid silent truncation, ensure range is within limits. |
 | Date range exceeds absolute limit (37 months) | `from` to `to` spans more than 37 months. | Reduce the date range to 37 months or less. Split into multiple queries if needed. |
 | "Request body is null or invalid" | Missing or malformed JSON in the request body. | Validate JSON syntax. Ensure `type`, `timeframe`, and `dataset` fields are present. |
-| Invalid filter structure | `And`/`Or` has fewer than 2 child expressions, or `Not` has more than 1. | Ensure `And`/`Or` contain 2+ children. Use `Not` with exactly 1 child. For single conditions, use the filter directly without a logical wrapper. |
+| Invalid filter structure | `and`/`or` has fewer than 2 child expressions, or `not` has more than 1. | Ensure `and`/`or` contain 2+ children. Use `not` with exactly 1 child. For single conditions, use the filter directly without a logical wrapper. |
 | "The query usage is not supported for the scope" | The query type (e.g., `AmortizedCost`) is not supported at the given scope. | Try a different scope or query type. Not all scopes support all report types. |
 | `BillingSubscriptionNotFound` | The subscription ID in the scope URL is invalid or not associated with the billing account. | Verify the subscription ID exists and is active. Check that it belongs to the expected billing account. |
 
@@ -31,7 +31,7 @@ Detailed error handling reference for the Cost Management Query API.
 
 | Status | Retry? | Strategy |
 |--------|--------|----------|
-| 429 | ✅ Yes | Wait for the duration specified in the `x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after` response header, then retry. **Maximum 3 retries.** |
+| 429 | ✅ Yes | Check the response for all `x-ms-ratelimit-microsoft.costmanagement-*-retry-after` headers (`qpu-retry-after`, `entity-retry-after`, `tenant-retry-after`). Take the **longest** value and **do NOT retry until that duration has fully elapsed.** Maximum 3 retries. |
 | 400 | ❌ No | Fix the request. Review error message for specific field or validation issue. |
 | 401 | ❌ No | Re-authenticate. Token has expired or is missing. |
 | 403 | ❌ No | Fix permissions. Request appropriate RBAC role assignment on the scope. |

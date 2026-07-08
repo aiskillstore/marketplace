@@ -57,7 +57,15 @@ azure__get_azure_bestpractices({
 
 Wait for user response before proceeding.
 
-## Step 1.7: AKS-Specific Analysis (Conditional)
+## Step 1.7: Storage-Specific Analysis (Conditional)
+
+**If the user requests Storage cost optimization**, load: [Azure Storage Cost Optimization](./services/storage/azure-storage.md)
+
+**Triggers:** "storage account cost", "blob storage savings", "LRS/GRS/ZRS downgrade", "storage lifecycle savings", "reduce storage spending".
+
+For Storage-only requests, follow the Storage reference. For general optimization that includes storage, continue to Step 2.
+
+## Step 1.8: AKS-Specific Analysis (Conditional)
 
 **If the user specifically requests AKS cost optimization**, use the specialized AKS reference files:
 
@@ -76,7 +84,7 @@ Wait for user response before proceeding.
 
 > **Note**: For general subscription-wide cost optimization (including AKS resource groups), continue with Step 2. For AKS-focused analysis, follow the instructions in the relevant reference file above.
 
-## Step 1.8: Choose Analysis Scope (for AKS-specific analysis)
+## Step 1.9: Choose Analysis Scope (for AKS-specific analysis)
 
 **If performing AKS cost optimization**, ask the user to select their analysis scope:
 
@@ -147,9 +155,11 @@ Get actual cost data from Azure Cost Management API (last 30 days). Use the [Cos
 
 > **Action Required**: Calculate `<START_DATE>` (30 days ago) and `<END_DATE>` (today) in ISO 8601 format.
 
-**Execute and save results to `output/cost-query-result<timestamp>.json`.**
+**Execute and save results to `output/cost-query-result<timestamp>.json`.** Always include the `--headers "ClientType=GitHubCopilotForAzure"` header in all Cost Management API requests.
 
 > 💡 **Tip:** Also run a cost-by-service query (grouping by `ServiceName`) to present the total bill breakdown alongside optimization recommendations. See [examples.md](../cost-query/examples.md).
+
+> ⚠️ **Warning:** Sequential queries to the same scope share the per-scope rate limit (4 requests/minute). If a 429 response is received, check all `x-ms-ratelimit-microsoft.costmanagement-*-retry-after` headers and do not send further requests until the longest retry-after duration has elapsed.
 
 ## Step 5: Validate Pricing
 
