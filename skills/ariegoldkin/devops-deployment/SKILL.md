@@ -1,5 +1,5 @@
 ---
-name: devops-deployment
+name: DevOps & Deployment
 description: CI/CD pipelines, containerization, Kubernetes, and infrastructure as code patterns
 version: 1.0.0
 category: Infrastructure & Deployment

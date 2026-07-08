@@ -1,6 +1,6 @@
 ---
 name: wp-interactivity-api
-description: "Use when building or debugging WordPress Interactivity API features (data-wp-* directives, @wordpress/interactivity store/state/actions, block viewScriptModule integration) including performance, hydration, and directive behavior."
+description: "Use when building or debugging WordPress Interactivity API features (data-wp-* directives, @wordpress/interactivity store/state/actions, block viewScriptModule integration, wp_interactivity_*()) including performance, hydration, and directive behavior."
 compatibility: "Targets WordPress 6.9+ (PHP 7.2.24+). Filesystem-based agent with bash + node. Some workflows require WP-CLI."
 ---
 
@@ -49,7 +49,69 @@ Locate store definitions and confirm:
 - actions (mutations),
 - callbacks/event handlers used by `data-wp-on--*`.
 
-### 3) Implement or change directives safely
+### 3) Server-side rendering (best practice)
+
+**Pre-render HTML on the server** before outputting to ensure:
+
+- Correct initial state in the HTML before JavaScript loads (no layout shift).
+- SEO benefits and faster perceived load time.
+- Seamless hydration when the client-side JavaScript takes over.
+
+#### Enable server directive processing
+
+For components using `block.json`, add `supports.interactivity`:
+
+```json
+{
+  "supports": {
+    "interactivity": true
+  }
+}
+```
+
+For themes/plugins without `block.json`, use `wp_interactivity_process_directives()` to process directives.
+
+#### Initialize state/context in PHP
+
+Use `wp_interactivity_state()` to define initial global state:
+
+```php
+wp_interactivity_state( 'myPlugin', array(
+  'items'    => array( 'Apple', 'Banana', 'Cherry' ),
+  'hasItems' => true,
+));
+```
+
+For local context, use `wp_interactivity_data_wp_context()`:
+
+```php
+<?php
+$context = array( 'isOpen' => false );
+?>
+<div <?php echo wp_interactivity_data_wp_context( $context ); ?>>
+  ...
+</div>
+```
+
+#### Define derived state in PHP
+
+When derived state affects initial HTML rendering, replicate the logic in PHP:
+
+```php
+wp_interactivity_state( 'myPlugin', array(
+  'items'    => array( 'Apple', 'Banana' ),
+  'hasItems' => function() {
+    $state = wp_interactivity_state();
+    return count( $state['items'] ) > 0;
+  }
+));
+```
+
+This ensures directives like `data-wp-bind--hidden="!state.hasItems"` render correctly on first load.
+
+For detailed examples and patterns, see `references/server-side-rendering.md`.
+
+### 4) Implement or change directives safely
 
 When touching markup directives:
 
@@ -65,14 +127,14 @@ When touching markup directives:
 
 For quick directive reminders, see `references/directives-quickref.md`.
 
-### 4) Build/tooling alignment
+### 5) Build/tooling alignment
 
 Verify the repo supports the required module build path:
 
 - if it uses `@wordpress/scripts`, prefer its conventions.
 - if it uses custom bundling, confirm module output is supported.
 
-### 5) Debug common failure modes
+### 6) Debug common failure modes
 
 If “nothing happens” on interaction:
 
@@ -95,6 +157,13 @@ See `references/debugging.md`.
   - view script not loading, wrong module entrypoint, or missing `data-wp-interactive`.
 - Hydration mismatch / flicker:
   - server markup differs from client expectations; simplify or align initial state.
+  - derived state not defined in PHP: use `wp_interactivity_state()` with closures.
+- Initial content missing or wrong:
+  - `supports.interactivity` not set in `block.json` (for blocks).
+  - `wp_interactivity_process_directives()` not called (for themes/plugins).
+  - state/context not initialized in PHP before render.
+- Layout shift on load:
+  - derived state like `state.hasItems` missing on server, causing `hidden` attribute to be absent.
 - Performance regressions:
   - overly broad interactive roots; scope interactivity to smaller subtrees.
 - Client-side navigation issues (WordPress 6.9):
@@ -103,7 +172,8 @@ See `references/debugging.md`.
 
 ## Escalation
 
-- If repo build constraints are unclear, ask: “Is this using `@wordpress/scripts` or a custom bundler (webpack/vite)?”
+- If repo build constraints are unclear, ask: "Is this using `@wordpress/scripts` or a custom bundler (webpack/vite)?"
 - Consult:
+  - `references/server-side-rendering.md`
   - `references/directives-quickref.md`
   - `references/debugging.md`

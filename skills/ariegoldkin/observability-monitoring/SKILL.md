@@ -1,5 +1,5 @@
 ---
-name: observability-monitoring
+name: Observability & Monitoring
 description: Structured logging, metrics, distributed tracing, and alerting strategies
 version: 1.0.0
 category: Operations & Reliability

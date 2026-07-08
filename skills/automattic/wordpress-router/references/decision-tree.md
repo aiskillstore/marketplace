@@ -34,13 +34,15 @@ Route by intent even if repo kind is broad (like `wp-site`):
 - **Plugins / hooks / activation hook / uninstall / Settings API / admin pages**
   - Route → `wp-plugin-development`.
 - **REST endpoint / register_rest_route / permission_callback**
-  - Route → `wp-rest-api` (planned).
+  - Route → `wp-rest-api`.
 - **WP-CLI / wp-cli.yml / commands**
   - Route → `wp-wpcli-and-ops`.
 - **Build tooling / @wordpress/scripts / webpack / Vite / npm scripts**
   - Route → `wp-build-tooling` (planned).
 - **Testing / PHPUnit / wp-env / Playwright**
   - Route → `wp-testing` (planned).
+- **PHPStan / static analysis / phpstan.neon / phpstan-baseline.neon**
+  - Route → `wp-phpstan`.
 - **Performance / caching / query profiling / editor slowness**
   - Route → `wp-performance`.
 - **Security / nonces / capabilities / sanitization/escaping / uploads**
