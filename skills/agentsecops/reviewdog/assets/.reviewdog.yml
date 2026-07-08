@@ -1,0 +1,108 @@
+# Reviewdog configuration file
+# Place this file in the root of your repository
+# Run with: reviewdog -conf=.reviewdog.yml -reporter=github-pr-review
+
+runner:
+  # Python SAST with Bandit
+  bandit:
+    cmd: bandit -r . -f json 2>/dev/null
+    format: bandit
+    name: Bandit Python Security
+    level: error
+    fail-on-error: true
+
+  # Multi-language SAST with Semgrep - Critical
+  semgrep-critical:
+    cmd: semgrep --config=auto --severity=ERROR --json --quiet 2>/dev/null
+    format: semgrep
+    name: Semgrep Critical Findings
+    level: error
+    fail-on-error: true
+
+  # Multi-language SAST with Semgrep - Warnings
+  semgrep-warnings:
+    cmd: semgrep --config=auto --severity=WARNING --json --quiet 2>/dev/null
+    format: semgrep
+    name: Semgrep Security Warnings
+    level: warning
+    fail-on-error: false
+
+  # OWASP Top 10 specific checks
+  semgrep-owasp:
+    cmd: semgrep --config "p/owasp-top-ten" --json --quiet 2>/dev/null
+    format: semgrep
+    name: OWASP Top 10 Vulnerabilities
+    level: error
+    fail-on-error: true
+
+  # Secret detection with Gitleaks
+  gitleaks:
+    cmd: |
+      gitleaks detect --report-format json --report-path /tmp/gitleaks.json --no-git 2>/dev/null || true
+      cat /tmp/gitleaks.json 2>/dev/null || echo '{"findings":[]}'
+    format: gitleaks
+    name: Secret Detection
+    level: error
+    fail-on-error: true
+
+  # Dockerfile linting with Hadolint
+  hadolint:
+    cmd: |
+      find . -type f -name "Dockerfile*" -exec hadolint --format json {} \; 2>/dev/null
+    format: hadolint
+    name: Dockerfile Security
+    level: warning
+    fail-on-error: false
+
+  # IaC security with Checkov
+  checkov:
+    cmd: checkov -d . --quiet --compact -o json 2>/dev/null
+    format: checkov
+    name: Infrastructure as Code Security
+    level: warning
+    fail-on-error: false
+
+  # Shell script analysis with ShellCheck
+  shellcheck:
+    cmd: |
+      find . -type f -name "*.sh" -exec shellcheck -f json {} \; 2>/dev/null
+    format: shellcheck
+    name: Shell Script Security
+    level: info
+    fail-on-error: false
+
+  # Custom security patterns with grep
+  dangerous-functions:
+    cmd: |
+      grep -nH -R -E "(eval|exec|system|shell_exec|passthru|popen|proc_open)\s*\(" \
+        --include="*.py" --include="*.php" --include="*.js" . 2>/dev/null || true
+    errorformat:
+      - "%f:%l:%m"
+    name: Dangerous Function Usage
+    level: warning
+
+  # Hardcoded IP addresses
+  hardcoded-ips:
+    cmd: |
+      grep -nH -R -E "\b([0-9]{1,3}\.){3}[0-9]{1,3}\b" \
+        --include="*.py" --include="*.js" --include="*.java" \
+        --exclude-dir=node_modules --exclude-dir=.git . 2>/dev/null || true
+    errorformat:
+      - "%f:%l:%m"
+    name: Hardcoded IP Addresses
+    level: info
+
+# Global configuration
+# Uncomment and modify as needed
+
+# Filter mode for all runners (can be overridden per runner)
+# filter-mode: added  # added, diff_context, file, nofilter
+
+# Default reporter
+# reporter: local  # local, github-pr-review, gitlab-mr-discussion, etc.
+
+# Fail level (any findings at this level or higher will cause failure)
+# fail-level: error  # error, warning, info
+
+# Diff options
+# diff: "git diff FETCH_HEAD"

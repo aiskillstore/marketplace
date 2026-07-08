@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T02:24:35.498Z",
+    "generated_at": "2026-07-07T23:30:18.322Z",
     "slug": "agentspace-so-gpt-image-2",
     "source_url": "https://github.com/agentspace-so/agent-skills/tree/main/gpt-image-2/",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "e7a7710062c03b4f8516fe059127ce4c819d8fcb7b89f44542e33edfe747dd57",
-    "tree_hash": "1c69808e89368afaa5eb9bd18f365841be0aae464459e987991a4185ca4ce3c8",
+    "content_hash": "8cfdf901253aa93c680b705af7eaba6611c3b65d2f4a433fc53277e05833cedf",
+    "tree_hash": "7db7683612de5c6963d4c5b6ac2a366fa573564ad3097157068f2b8d49bfbc24",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,18 +23,18 @@
   },
   "skill": {
     "name": "gpt-image-2",
-    "description": "Generate and edit images with GPT Image 2 through a local Codex CLI login. The skill supports text prompts, reference images, style transfer, and multi-reference composition.",
-    "summary": "Generate GPT Image 2 visuals through a local Codex CLI workflow.",
+    "description": "Generate and edit images with GPT Image 2 through the local Codex CLI, using an existing ChatGPT Plus or Pro account.",
+    "summary": "Generate and edit GPT Image 2 images through Codex CLI and an existing ChatGPT plan.",
     "icon": "🪞",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "agentspace-so",
     "license": "MIT",
     "tags": [
       "image-generation",
       "gpt-image-2",
       "codex-cli",
-      "style-transfer",
-      "reference-images"
+      "image-editing",
+      "creative-assets"
     ],
     "supported_tools": [
       "claude",
@@ -52,30 +49,25 @@
     "category": "design"
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The skill intentionally executes the local Codex CLI and parses newly created Codex session JSONL files to recover generated image payloads. I confirmed the hidden .codex session access and the actual external CLI invocation as the main risks; most markdown backticks, documentation URLs, device redirects, and temporary files are false positives. No prompt injection text or credential exfiltration intent was found.",
+    "summary": "Most command and network findings are Markdown, comments, fixed CLI checks, or temporary-file handling. The confirmed risk is intentional access to hidden Codex session rollout files, plus a semantic risk where concurrent Codex sessions could be mixed into extraction. No evidence found of prompt injection attempts or unauthorized third-party exfiltration in the reviewed files.",
     "remediation": [
       {
-        "issue": "The workflow reads hidden Codex session rollout files from the user home directory.",
-        "suggestion": "Use an official Codex image output path or session identifier when available. Until then, warn users clearly and restrict parsing to a verified session file.",
+        "issue": "Hidden Codex session file access",
+        "suggestion": "Prefer an official Codex image output path or bind extraction to an exact session identifier instead of scanning ~/.codex/sessions.",
         "severity": "high"
       },
       {
-        "issue": "The session diff can include rollout files from unrelated concurrent Codex runs.",
-        "suggestion": "Add a lock around the invocation or match a unique session marker before extracting image data. Fail closed if more than the expected session appears.",
-        "severity": "high"
-      },
-      {
-        "issue": "The skill launches a local external CLI and sends user prompts and reference images through that login.",
-        "suggestion": "Keep the read-only sandbox, document the data transfer path, validate timeout values, and pin the supported Codex CLI behavior.",
+        "issue": "Concurrent rollout selection ambiguity",
+        "suggestion": "Add a per-invocation lock or capture the exact rollout created by the Codex command before scanning for image payloads.",
         "severity": "medium"
       },
       {
-        "issue": "Bundled gallery images are binary assets with embedded provenance metadata.",
-        "suggestion": "Publish checksums and keep source prompts or provenance notes. Strip nonessential metadata if marketplace policy requires minimal binary assets.",
+        "issue": "Failure logs may expose local context",
+        "suggestion": "Avoid printing raw stderr tails by default. Provide concise failure reasons and keep verbose logs behind an explicit debug flag.",
         "severity": "low"
       }
     ],
@@ -1103,21 +1095,21 @@
         "snippet": "[unscanned: binary]"
       },
       {
-        "id": "metadata:gallery/c2-tshirt.png:1:unscanned-file-binary-manual-review-required",
-        "category": "metadata",
-        "severity": "low",
-        "pattern": "Unscanned file (binary) — manual review required",
-        "file": "gallery/c2-tshirt.png",
-        "line_start": 1,
-        "line_end": 1,
-        "snippet": "[unscanned: binary]"
-      },
-      {
         "id": "metadata:gallery/a-poster.png:1:unscanned-file-binary-manual-review-required",
         "category": "metadata",
         "severity": "low",
         "pattern": "Unscanned file (binary) — manual review required",
         "file": "gallery/a-poster.png",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": "[unscanned: binary]"
+      },
+      {
+        "id": "metadata:gallery/c2-tshirt.png:1:unscanned-file-binary-manual-review-required",
+        "category": "metadata",
+        "severity": "low",
+        "pattern": "Unscanned file (binary) — manual review required",
+        "file": "gallery/c2-tshirt.png",
         "line_start": 1,
         "line_end": 1,
         "snippet": "[unscanned: binary]"
@@ -1137,501 +1129,468 @@
       {
         "id": "obfuscation:scripts/extract_image.py:111:python-base64-decode",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The base64 decode is used to convert an image payload found by magic-header checks into image bytes. It is not used to hide or execute code."
+        "confidence": 0.91,
+        "reason": "The base64 decode is used to turn an image payload from a Codex rollout into image bytes. The code first searches for PNG, JPEG, or WebP magic prefixes, so this is not obfuscation or hidden code loading."
       },
       {
         "id": "blocker:scripts/extract_image.py:95:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line only prints a validation error for a rejected output path. It does not inspect the host or reveal system details beyond the supplied path error."
+        "confidence": 0.94,
+        "reason": "This line prints a validation error for an invalid output path. It does not inspect the host or collect system information."
       },
       {
         "id": "external_commands:scripts/gen.sh:5:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks occur in comments that describe commands or flags. They are not shell execution points."
+        "confidence": 0.94,
+        "reason": "The flagged backticks are inside comments that explain Codex CLI behavior. They are not shell execution sites."
       },
       {
         "id": "external_commands:scripts/gen.sh:9:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks occur in comments that describe commands or flags. They are not shell execution points."
+        "confidence": 0.94,
+        "reason": "The flagged backticks are inside comments that explain Codex CLI behavior. They are not shell execution sites."
       },
       {
         "id": "external_commands:scripts/gen.sh:10:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks occur in comments that describe commands or flags. They are not shell execution points."
+        "confidence": 0.94,
+        "reason": "The flagged backticks are inside comments that explain Codex CLI behavior. They are not shell execution sites."
       },
       {
         "id": "external_commands:scripts/gen.sh:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks occur in comments that describe commands or flags. They are not shell execution points."
+        "confidence": 0.94,
+        "reason": "The flagged backticks are inside comments that explain Codex CLI behavior. They are not shell execution sites."
       },
       {
         "id": "external_commands:scripts/gen.sh:105:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks occur in comments that describe commands or flags. They are not shell execution points."
+        "confidence": 0.94,
+        "reason": "The flagged backticks are inside comments that explain Codex CLI behavior. They are not shell execution sites."
       },
       {
         "id": "external_commands:scripts/gen.sh:27:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The command substitution resolves the script directory using quoted paths. It does not include user input or create a command injection path."
+        "confidence": 0.86,
+        "reason": "The command substitution resolves the script directory using quoted shell variables. It does not include user-controlled command text or an injection vector."
       },
       {
         "id": "external_commands:scripts/gen.sh:57:shell-command-substitution",
         "verdict": "false_positive",
         "confidence": 0.88,
-        "reason": "The substitution only calls mktemp to allocate temporary files. User input is not interpolated into a shell command."
+        "reason": "The command substitution stores mktemp output in variables for temporary files. The command name is fixed and cleanup is registered with a trap."
       },
       {
         "id": "external_commands:scripts/gen.sh:58:shell-command-substitution",
         "verdict": "false_positive",
         "confidence": 0.88,
-        "reason": "The substitution only calls mktemp to allocate temporary files. User input is not interpolated into a shell command."
+        "reason": "The command substitution stores mktemp output in variables for temporary files. The command name is fixed and cleanup is registered with a trap."
       },
       {
         "id": "external_commands:scripts/gen.sh:108:shell-command-substitution",
         "verdict": "false_positive",
         "confidence": 0.88,
-        "reason": "The substitution only calls mktemp to allocate temporary files. User input is not interpolated into a shell command."
+        "reason": "The command substitution stores mktemp output in variables for temporary files. The command name is fixed and cleanup is registered with a trap."
       },
       {
         "id": "external_commands:scripts/gen.sh:10:template-literal-with-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The broad range is triggered by comments and prompt construction, but the prompt is passed through stdin and command arguments are array-quoted. No shell template execution of user input is evident."
+        "confidence": 0.96,
+        "reason": "The flagged text is inside a comment about the --ephemeral flag. It does not perform command substitution or execute code."
       },
       {
         "id": "filesystem:scripts/gen.sh:7:hidden-file-in-home-directory",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The comment accurately describes the design of reading Codex rollout JSONL files under ~/.codex/sessions. Those files can contain user prompts and generated content.",
-        "severity": "high"
+        "confidence": 0.78,
+        "severity": "high",
+        "reason": "The comment documents that the wrapper reads Codex rollout files under ~/.codex/sessions. That hidden home directory can contain sensitive session data, so the access is security-relevant even though it is intentional."
       },
       {
         "id": "filesystem:scripts/gen.sh:7:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The comment accurately describes the design of reading Codex rollout JSONL files under ~/.codex/sessions. Those files can contain user prompts and generated content.",
-        "severity": "medium"
+        "confidence": 0.78,
+        "severity": "medium",
+        "reason": "The comment describes reading persisted Codex session files from a hidden home directory. The behavior is disclosed, but it still relies on sensitive local session storage."
       },
       {
         "id": "filesystem:scripts/gen.sh:54:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "reason": "The script sets SESSIONS_ROOT to $HOME/.codex/sessions and later scans that hidden directory. Codex session logs can contain sensitive prompt and tool-output data.",
-        "severity": "high"
+        "confidence": 0.9,
+        "severity": "medium",
+        "reason": "The script sets SESSIONS_ROOT to $HOME/.codex/sessions and later scans that tree for rollout files. This is intentional hidden directory access to potentially sensitive Codex session data."
       },
       {
         "id": "filesystem:scripts/gen.sh:48:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The matched access is a standard /dev/null redirect used for command existence checks or find error suppression. It does not read or write sensitive device data."
+        "confidence": 0.93,
+        "reason": "The standard device access is stderr redirection to /dev/null while checking commands or finding files. This is normal shell hygiene and does not read sensitive device data."
       },
       {
         "id": "filesystem:scripts/gen.sh:52:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The matched access is a standard /dev/null redirect used for command existence checks or find error suppression. It does not read or write sensitive device data."
+        "confidence": 0.93,
+        "reason": "The standard device access is stderr redirection to /dev/null while checking commands or finding files. This is normal shell hygiene and does not read sensitive device data."
       },
       {
         "id": "filesystem:scripts/gen.sh:61:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The matched access is a standard /dev/null redirect used for command existence checks or find error suppression. It does not read or write sensitive device data."
+        "confidence": 0.93,
+        "reason": "The standard device access is stderr redirection to /dev/null while checking commands or finding files. This is normal shell hygiene and does not read sensitive device data."
       },
       {
         "id": "filesystem:scripts/gen.sh:84:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The matched access is a standard /dev/null redirect used for command existence checks or find error suppression. It does not read or write sensitive device data."
+        "confidence": 0.93,
+        "reason": "The standard device access is stderr redirection to /dev/null while checking commands or finding files. This is normal shell hygiene and does not read sensitive device data."
       },
       {
         "id": "filesystem:scripts/gen.sh:85:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The matched access is a standard /dev/null redirect used for command existence checks or find error suppression. It does not read or write sensitive device data."
+        "confidence": 0.93,
+        "reason": "The standard device access is stderr redirection to /dev/null while checking commands or finding files. This is normal shell hygiene and does not read sensitive device data."
       },
       {
         "id": "filesystem:scripts/gen.sh:103:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The matched access is a standard /dev/null redirect used for command existence checks or find error suppression. It does not read or write sensitive device data."
+        "confidence": 0.93,
+        "reason": "The standard device access is stderr redirection to /dev/null while checking commands or finding files. This is normal shell hygiene and does not read sensitive device data."
       },
       {
         "id": "filesystem:scripts/gen.sh:57:temp-file-creation",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The script creates temporary files with mktemp and removes them through an EXIT trap. This is a normal safe pattern for short-lived logs and file lists."
+        "confidence": 0.9,
+        "reason": "The temporary files are created with mktemp and removed through an EXIT trap. This is standard temporary log handling, not unsafe predictable file creation."
       },
       {
         "id": "filesystem:scripts/gen.sh:58:temp-file-creation",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The script creates temporary files with mktemp and removes them through an EXIT trap. This is a normal safe pattern for short-lived logs and file lists."
+        "confidence": 0.9,
+        "reason": "The temporary files are created with mktemp and removed through an EXIT trap. This is standard temporary log handling, not unsafe predictable file creation."
       },
       {
         "id": "filesystem:scripts/gen.sh:108:temp-file-creation",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The script creates temporary files with mktemp and removes them through an EXIT trap. This is a normal safe pattern for short-lived logs and file lists."
+        "confidence": 0.9,
+        "reason": "The temporary files are created with mktemp and removed through an EXIT trap. This is standard temporary log handling, not unsafe predictable file creation."
       },
       {
         "id": "blocker:scripts/gen.sh:23:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.92,
-        "reason": "The matched text is an exit-code comment or user-facing error message. It does not perform system reconnaissance."
+        "reason": "The text describes an image-generation failure path and prints a short stderr tail. It does not perform reconnaissance or enumerate host details."
       },
       {
         "id": "blocker:scripts/gen.sh:127:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.92,
-        "reason": "The matched text is an exit-code comment or user-facing error message. It does not perform system reconnaissance."
+        "reason": "The text describes an image-generation failure path and prints a short stderr tail. It does not perform reconnaissance or enumerate host details."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:84:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:96:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:98:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:106:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:109:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:110:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:111:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:115:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:116:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:122:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:123:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "external_commands:SKILL.md:124:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The match is markdown inline code or a fenced example in documentation. It does not execute by itself, and the actual CLI execution is tracked separately as a semantic finding."
+        "reason": "This is Markdown documentation or inline code showing how the skill is used. It is not executable by itself; the actual script behavior is assessed separately."
       },
       {
         "id": "network:SKILL.md:13:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The hardcoded URL appears in documentation links or a gallery image reference. The skill code does not call these endpoints at runtime."
+        "confidence": 0.84,
+        "reason": "The URL appears in documentation, homepage metadata, or a gallery image link. There is no code path that sends user data to that URL."
       },
       {
         "id": "network:SKILL.md:19:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The hardcoded URL appears in documentation links or a gallery image reference. The skill code does not call these endpoints at runtime."
+        "confidence": 0.84,
+        "reason": "The URL appears in documentation, homepage metadata, or a gallery image link. There is no code path that sends user data to that URL."
       },
       {
         "id": "network:SKILL.md:27:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The hardcoded URL appears in documentation links or a gallery image reference. The skill code does not call these endpoints at runtime."
+        "confidence": 0.84,
+        "reason": "The URL appears in documentation, homepage metadata, or a gallery image link. There is no code path that sends user data to that URL."
       },
       {
         "id": "network:SKILL.md:28:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The hardcoded URL appears in documentation links or a gallery image reference. The skill code does not call these endpoints at runtime."
+        "confidence": 0.84,
+        "reason": "The URL appears in documentation, homepage metadata, or a gallery image link. There is no code path that sends user data to that URL."
       },
       {
         "id": "network:SKILL.md:32:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The hardcoded URL appears in documentation links or a gallery image reference. The skill code does not call these endpoints at runtime."
+        "confidence": 0.84,
+        "reason": "The URL appears in documentation, homepage metadata, or a gallery image link. There is no code path that sends user data to that URL."
       },
       {
         "id": "network:SKILL.md:84:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The hardcoded URL appears in documentation links or a gallery image reference. The skill code does not call these endpoints at runtime."
+        "confidence": 0.84,
+        "reason": "The URL appears in documentation, homepage metadata, or a gallery image link. There is no code path that sends user data to that URL."
       },
       {
         "id": "filesystem:SKILL.md:108:hidden-file-in-home-directory",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The documentation states that the workflow snapshots ~/.codex/sessions before the run. This confirms intentional access to hidden Codex session files.",
-        "severity": "high"
+        "confidence": 0.86,
+        "severity": "high",
+        "reason": "The documentation states that the workflow snapshots ~/.codex/sessions before the run. This confirms the skill depends on hidden home directory session data."
       },
       {
         "id": "filesystem:SKILL.md:122:hidden-file-in-home-directory",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The documentation states that the workflow reads session rollout files under the hidden Codex sessions directory. Even when scoped to new files, these logs can contain sensitive data.",
-        "severity": "high"
+        "confidence": 0.88,
+        "severity": "high",
+        "reason": "The data handling section states that the script reads Codex session rollout files from ~/.codex/sessions. The scope is limited to new files, but the source is still sensitive hidden session storage."
       },
       {
         "id": "filesystem:SKILL.md:124:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "This line is a negative data-handling statement saying no other ~/.codex paths are accessed. The actual hidden session access is already covered by the script and earlier documentation findings."
+        "confidence": 0.74,
+        "reason": "This prose states a boundary that no other paths under ~/.codex are accessed. The actual sensitive access is captured by the separate ~/.codex/sessions findings."
       },
       {
         "id": "filesystem:SKILL.md:108:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The documentation states that the workflow snapshots ~/.codex/sessions before the run. This confirms intentional access to hidden Codex session files.",
-        "severity": "medium"
+        "confidence": 0.86,
+        "severity": "medium",
+        "reason": "The documentation confirms direct access to ~/.codex/sessions as part of normal operation. Hidden session files may contain private prompts or generated payloads."
       },
       {
         "id": "filesystem:SKILL.md:122:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The documentation states that the workflow reads session rollout files under the hidden Codex sessions directory. Even when scoped to new files, these logs can contain sensitive data.",
-        "severity": "medium"
+        "confidence": 0.88,
+        "severity": "medium",
+        "reason": "The documentation confirms that newly created Codex rollout files are read after each invocation. This is intentional, but it is sensitive hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:124:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "This line is a negative data-handling statement saying no other ~/.codex paths are accessed. The actual hidden session access is already covered by the script and earlier documentation findings."
+        "confidence": 0.74,
+        "reason": "This prose limits the scope of hidden-file access rather than adding a new access path. The executable hidden-directory behavior is covered by the script findings."
       },
       {
         "id": "filesystem:SKILL.md:123:temp-file-creation",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The line describes short-lived mktemp logs that are auto-deleted. That is a standard temporary-file handling pattern, not a persistent data exposure by itself."
+        "confidence": 0.9,
+        "reason": "The temporary files are created with mktemp and removed through an EXIT trap. This is standard temporary log handling, not unsafe predictable file creation."
       },
       {
         "id": "blocker:SKILL.md:44:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched line is a usage constraint or troubleshooting text in documentation. It does not perform reconnaissance or instruct host inspection."
+        "confidence": 0.91,
+        "reason": "This is usage guidance, prerequisites, or an exit-code description in Markdown. It does not collect system information or instruct reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:78:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched line is a usage constraint or troubleshooting text in documentation. It does not perform reconnaissance or instruct host inspection."
+        "confidence": 0.91,
+        "reason": "This is usage guidance, prerequisites, or an exit-code description in Markdown. It does not collect system information or instruct reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:80:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched line is a usage constraint or troubleshooting text in documentation. It does not perform reconnaissance or instruct host inspection."
+        "confidence": 0.91,
+        "reason": "This is usage guidance, prerequisites, or an exit-code description in Markdown. It does not collect system information or instruct reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:100:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched line is a usage constraint or troubleshooting text in documentation. It does not perform reconnaissance or instruct host inspection."
+        "confidence": 0.91,
+        "reason": "This is usage guidance, prerequisites, or an exit-code description in Markdown. It does not collect system information or instruct reconnaissance."
       },
       {
         "id": "metadata:gallery/d-ukiyoe.png:1:unscanned-file-binary-manual-review-required",
-        "verdict": "confirmed",
-        "confidence": 0.6,
-        "reason": "Manual review showed this is a valid PNG image, but it is still an opaque binary asset with C2PA metadata that text static analysis cannot fully inspect. Keeping it as a low-severity manual-review item is appropriate.",
-        "severity": "low"
-      },
-      {
-        "id": "metadata:gallery/c2-tshirt.png:1:unscanned-file-binary-manual-review-required",
-        "verdict": "confirmed",
-        "confidence": 0.6,
-        "reason": "Manual review showed this is a valid PNG image, but it is still an opaque binary asset with C2PA metadata that text static analysis cannot fully inspect. Keeping it as a low-severity manual-review item is appropriate.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.8,
+        "reason": "Manual review identified this as a standard PNG gallery asset used for examples. No executable loader or code path uses it as anything other than an image."
       },
       {
         "id": "metadata:gallery/a-poster.png:1:unscanned-file-binary-manual-review-required",
-        "verdict": "confirmed",
-        "confidence": 0.6,
-        "reason": "Manual review showed this is a valid PNG image, but it is still an opaque binary asset with C2PA metadata that text static analysis cannot fully inspect. Keeping it as a low-severity manual-review item is appropriate.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.8,
+        "reason": "Manual review identified this as a standard PNG gallery asset used for examples. No executable loader or code path uses it as anything other than an image."
+      },
+      {
+        "id": "metadata:gallery/c2-tshirt.png:1:unscanned-file-binary-manual-review-required",
+        "verdict": "false_positive",
+        "confidence": 0.8,
+        "reason": "Manual review identified this as a standard PNG gallery asset used for examples. No executable loader or code path uses it as anything other than an image."
       },
       {
         "id": "metadata:gallery/c1-logo.png:1:unscanned-file-binary-manual-review-required",
-        "verdict": "confirmed",
-        "confidence": 0.6,
-        "reason": "Manual review showed this is a valid PNG image, but it is still an opaque binary asset with C2PA metadata that text static analysis cannot fully inspect. Keeping it as a low-severity manual-review item is appropriate.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.8,
+        "reason": "Manual review identified this as a standard PNG gallery asset used for examples. No executable loader or code path uses it as anything other than an image."
       }
     ],
     "semantic_findings": [
       {
-        "title": "External Codex CLI Execution With User Content",
-        "description": "The script invokes the local Codex CLI with image generation enabled and sends the user prompt through stdin. Arguments are quoted, but the workflow can transmit prompts and reference images through the user's Codex login.",
+        "title": "Concurrent Session Rollout Mixing",
+        "description": "scripts/gen.sh finds output by diffing rollout files before and after codex exec. If another Codex process creates a rollout in that window, scripts/extract_image.py can scan that unrelated session and select its largest image payload.",
         "severity": "medium",
         "locations": [
           {
             "file": "scripts/gen.sh",
-            "line_start": 63,
-            "line_end": 64
-          },
-          {
-            "file": "scripts/gen.sh",
-            "line_start": 88,
-            "line_end": 93
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 106,
-            "line_end": 109
-          }
-        ],
-        "confidence": 0.92,
-        "confidence_reasoning": "The execution path is explicit: the script builds codex exec arguments and runs codex with image_generation enabled. The documentation also states that Codex reuses the logged-in ChatGPT session."
-      },
-      {
-        "title": "Codex Session Log Diff Race",
-        "description": "The script snapshots the whole Codex sessions directory, runs Codex, then scans every new rollout file. If another Codex session writes during that window, this skill can parse a session file it did not create.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "scripts/gen.sh",
             "line_start": 61,
-            "line_end": 64
-          },
-          {
-            "file": "scripts/gen.sh",
-            "line_start": 103,
             "line_end": 110
           },
           {
-            "file": "scripts/gen.sh",
-            "line_start": 118,
-            "line_end": 121
+            "file": "scripts/extract_image.py",
+            "line_start": 25,
+            "line_end": 36
           }
         ],
-        "confidence": 0.84,
-        "confidence_reasoning": "The code uses a before and after diff of ~/.codex/sessions rather than a session identifier returned by Codex. The race depends on concurrent Codex activity, so confidence is high but not absolute."
+        "confidence": 0.74,
+        "confidence_reasoning": "The code snapshots and diffs a shared ~/.codex/sessions tree, then scans every listed new session. No lock or exact session identifier binding is visible in the reviewed files."
       }
     ],
     "critical_findings": [],
@@ -1649,24 +1608,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "The comment accurately describes the design of reading Codex rollout JSONL files under ~/.codex/sessions. Those files can contain user prompts and generated content."
-      },
-      {
-        "title": "Hidden file access",
-        "description": "SESSIONS_ROOT=\"$HOME/.codex/sessions\"",
-        "locations": [
-          {
-            "file": "scripts/gen.sh",
-            "line_start": 54,
-            "line_end": 54
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.92,
-        "confidence_reasoning": "The script sets SESSIONS_ROOT to $HOME/.codex/sessions and later scans that hidden directory. Codex session logs can contain sensitive prompt and tool-output data."
+        "confidence": 0.78,
+        "confidence_reasoning": "The comment documents that the wrapper reads Codex rollout files under ~/.codex/sessions. That hidden home directory can contain sensitive session data, so the access is security-relevant even though it is intentional."
       },
       {
         "title": "Hidden file in home directory",
@@ -1681,8 +1624,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The documentation states that the workflow snapshots ~/.codex/sessions before the run. This confirms intentional access to hidden Codex session files."
+        "confidence": 0.86,
+        "confidence_reasoning": "The documentation states that the workflow snapshots ~/.codex/sessions before the run. This confirms the skill depends on hidden home directory session data."
       },
       {
         "title": "Hidden file in home directory",
@@ -1697,34 +1640,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The documentation states that the workflow reads session rollout files under the hidden Codex sessions directory. Even when scoped to new files, these logs can contain sensitive data."
-      },
-      {
-        "title": "Codex Session Log Diff Race",
-        "description": "The script snapshots the whole Codex sessions directory, runs Codex, then scans every new rollout file. If another Codex session writes during that window, this skill can parse a session file it did not create.",
-        "locations": [
-          {
-            "file": "scripts/gen.sh",
-            "line_start": 61,
-            "line_end": 64
-          },
-          {
-            "file": "scripts/gen.sh",
-            "line_start": 103,
-            "line_end": 110
-          },
-          {
-            "file": "scripts/gen.sh",
-            "line_start": 118,
-            "line_end": 121
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The code uses a before and after diff of ~/.codex/sessions rather than a session identifier returned by Codex. The race depends on concurrent Codex activity, so confidence is high but not absolute."
+        "confidence": 0.88,
+        "confidence_reasoning": "The data handling section states that the script reads Codex session rollout files from ~/.codex/sessions. The scope is limited to new files, but the source is still sensitive hidden session storage."
       }
     ],
     "medium_findings": [
@@ -1741,8 +1658,24 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The comment accurately describes the design of reading Codex rollout JSONL files under ~/.codex/sessions. Those files can contain user prompts and generated content."
+        "confidence": 0.78,
+        "confidence_reasoning": "The comment describes reading persisted Codex session files from a hidden home directory. The behavior is disclosed, but it still relies on sensitive local session storage."
+      },
+      {
+        "title": "Hidden file access",
+        "description": "SESSIONS_ROOT=\"$HOME/.codex/sessions\"",
+        "locations": [
+          {
+            "file": "scripts/gen.sh",
+            "line_start": 54,
+            "line_end": 54
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.9,
+        "confidence_reasoning": "The script sets SESSIONS_ROOT to $HOME/.codex/sessions and later scans that tree for rollout files. This is intentional hidden directory access to potentially sensitive Codex session data."
       },
       {
         "title": "Hidden file access",
@@ -1757,8 +1690,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The documentation states that the workflow snapshots ~/.codex/sessions before the run. This confirms intentional access to hidden Codex session files."
+        "confidence": 0.86,
+        "confidence_reasoning": "The documentation confirms direct access to ~/.codex/sessions as part of normal operation. Hidden session files may contain private prompts or generated payloads."
       },
       {
         "title": "Hidden file access",
@@ -1773,34 +1706,29 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The documentation states that the workflow reads session rollout files under the hidden Codex sessions directory. Even when scoped to new files, these logs can contain sensitive data."
+        "confidence": 0.88,
+        "confidence_reasoning": "The documentation confirms that newly created Codex rollout files are read after each invocation. This is intentional, but it is sensitive hidden-file access."
       },
       {
-        "title": "External Codex CLI Execution With User Content",
-        "description": "The script invokes the local Codex CLI with image generation enabled and sends the user prompt through stdin. Arguments are quoted, but the workflow can transmit prompts and reference images through the user's Codex login.",
+        "title": "Concurrent Session Rollout Mixing",
+        "description": "scripts/gen.sh finds output by diffing rollout files before and after codex exec. If another Codex process creates a rollout in that window, scripts/extract_image.py can scan that unrelated session and select its largest image payload.",
         "locations": [
           {
             "file": "scripts/gen.sh",
-            "line_start": 63,
-            "line_end": 64
+            "line_start": 61,
+            "line_end": 110
           },
           {
-            "file": "scripts/gen.sh",
-            "line_start": 88,
-            "line_end": 93
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 106,
-            "line_end": 109
+            "file": "scripts/extract_image.py",
+            "line_start": 25,
+            "line_end": 36
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.92,
-        "confidence_reasoning": "The execution path is explicit: the script builds codex exec arguments and runs codex with image_generation enabled. The documentation also states that Codex reuses the logged-in ChatGPT session."
+        "confidence": 0.74,
+        "confidence_reasoning": "The code snapshots and diffs a shared ~/.codex/sessions tree, then scans every listed new session. No lock or exact session identifier binding is visible in the reviewed files."
       }
     ],
     "low_findings": [
@@ -1817,24 +1745,8 @@
         "review_kind": "security",
         "source_category": "metadata",
         "source_severity": "low",
-        "confidence": 0.6,
-        "confidence_reasoning": "Manual review showed this is a valid PNG image, but it is still an opaque binary asset with C2PA metadata that text static analysis cannot fully inspect. Keeping it as a low-severity manual-review item is appropriate."
-      },
-      {
-        "title": "Unscanned file (binary) — manual review required",
-        "description": "[unscanned: binary]",
-        "locations": [
-          {
-            "file": "gallery/c2-tshirt.png",
-            "line_start": 1,
-            "line_end": 1
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "metadata",
-        "source_severity": "low",
-        "confidence": 0.6,
-        "confidence_reasoning": "Manual review showed this is a valid PNG image, but it is still an opaque binary asset with C2PA metadata that text static analysis cannot fully inspect. Keeping it as a low-severity manual-review item is appropriate."
+        "confidence": 1,
+        "confidence_reasoning": "Force-confirmed metadata/low static finding; AI false-positive verdict rejected."
       },
       {
         "title": "Unscanned file (binary) — manual review required",
@@ -1849,8 +1761,24 @@
         "review_kind": "security",
         "source_category": "metadata",
         "source_severity": "low",
-        "confidence": 0.6,
-        "confidence_reasoning": "Manual review showed this is a valid PNG image, but it is still an opaque binary asset with C2PA metadata that text static analysis cannot fully inspect. Keeping it as a low-severity manual-review item is appropriate."
+        "confidence": 1,
+        "confidence_reasoning": "Force-confirmed metadata/low static finding; AI false-positive verdict rejected."
+      },
+      {
+        "title": "Unscanned file (binary) — manual review required",
+        "description": "[unscanned: binary]",
+        "locations": [
+          {
+            "file": "gallery/c2-tshirt.png",
+            "line_start": 1,
+            "line_end": 1
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "metadata",
+        "source_severity": "low",
+        "confidence": 1,
+        "confidence_reasoning": "Force-confirmed metadata/low static finding; AI false-positive verdict rejected."
       },
       {
         "title": "Unscanned file (binary) — manual review required",
@@ -1865,133 +1793,136 @@
         "review_kind": "security",
         "source_category": "metadata",
         "source_severity": "low",
-        "confidence": 0.6,
-        "confidence_reasoning": "Manual review showed this is a valid PNG image, but it is still an opaque binary asset with C2PA metadata that text static analysis cannot fully inspect. Keeping it as a low-severity manual-review item is appropriate."
+        "confidence": 1,
+        "confidence_reasoning": "Force-confirmed metadata/low static finding; AI false-positive verdict rejected."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 381,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T02:24:35.498Z",
+    "audited_at": "2026-07-07T23:30:18.322Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Generate GPT Image 2 Visuals",
-    "value_statement": "Agents often need image generation without separate API setup. This skill routes prompts and reference images through a local Codex login to save generated files.",
+    "user_title": "Generate GPT Image 2 Assets with Codex",
+    "value_statement": "Teams need fast image generation without separate image API accounts. This skill routes explicit GPT Image 2 requests through Codex CLI and an existing ChatGPT plan.",
     "seo_keywords": [
-      "GPT Image 2",
-      "ChatGPT Images 2.0",
       "Claude",
       "Codex",
       "Claude Code",
-      "image generation skill",
-      "image editing",
+      "GPT Image 2",
+      "ChatGPT Images 2.0",
+      "Codex CLI imagegen",
+      "AI image generation",
+      "image-to-image editing",
       "style transfer",
-      "reference image workflow",
-      "AI design assets"
+      "multi-reference composition"
     ],
     "actual_capabilities": [
-      "Generates images from text prompts through local Codex CLI image generation.",
-      "Edits or restyles one or more reference images using repeatable reference inputs.",
-      "Saves generated output as PNG, JPEG, or WebP after output path validation.",
-      "Extracts generated image payloads from newly created Codex rollout files.",
-      "Reports clear failure layers for missing tools, authentication issues, or missing image payloads."
+      "Generates images from text prompts through the Codex CLI imagegen tool.",
+      "Edits or restyles images using one or more local reference files.",
+      "Supports multi-reference composition by passing each reference image to Codex.",
+      "Extracts generated image payloads from new Codex session rollout files.",
+      "Writes PNG, JPEG, JPG, or WebP files to the requested output path."
     ],
     "limitations": [
-      "Requires a local Codex CLI login with a ChatGPT plan that includes image generation.",
-      "Does not provide direct OpenAI API access, separate billing, or extra quota.",
-      "Reads local Codex session rollout files to recover the generated image payload.",
-      "Depends on Codex CLI image-generation behavior that may change across versions."
+      "Requires Codex CLI, a local login, and a ChatGPT plan with image generation access.",
+      "Does not provide direct OpenAI API access or a separate billing path.",
+      "Reads new Codex session rollout files under the local home directory.",
+      "Concurrent Codex sessions can make image extraction ambiguous."
     ],
     "use_cases": [
       {
-        "title": "Create Campaign Art",
-        "description": "Generate social graphics, posters, and concept images from concise text prompts.",
+        "title": "Create Concept Art",
+        "description": "Designers can turn short briefs into image drafts while staying inside Claude Code or Codex.",
+        "target_user": "Designers"
+      },
+      {
+        "title": "Restyle Brand Assets",
+        "description": "Marketing teams can apply a new style to approved reference images.",
         "target_user": "Marketing teams"
       },
       {
-        "title": "Restyle Product Concepts",
-        "description": "Use reference images to explore new materials, lighting, formats, or visual styles.",
-        "target_user": "Product designers"
-      },
-      {
-        "title": "Produce Editorial Visuals",
-        "description": "Create illustrations, diagrams, or text-heavy visuals for articles and documentation.",
-        "target_user": "Writers and educators"
+        "title": "Prototype App Visuals",
+        "description": "Developers can generate placeholders, icons, and mock product images during implementation.",
+        "target_user": "Application developers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Image Prompt",
+        "title": "Create a Basic Image",
         "scenario": "Beginner text-to-image request",
         "prompt": "Use GPT Image 2 to create a square image of [subject] in [style]. Save it as [file name]."
       },
       {
-        "title": "Reference Restyle",
-        "scenario": "Edit one existing image",
-        "prompt": "Use GPT Image 2 with this reference image. Keep the main composition and restyle it as [desired style]."
+        "title": "Edit a Reference Image",
+        "scenario": "Intermediate image-to-image edit",
+        "prompt": "Use GPT Image 2 with the attached reference. Keep the main composition, but change [specific elements] to [new direction]."
       },
       {
-        "title": "Multi-Reference Composition",
-        "scenario": "Combine several visual references",
-        "prompt": "Use GPT Image 2 with these reference images. Combine the product shape, color palette, and background mood into one polished concept."
+        "title": "Create a Style Variant",
+        "scenario": "Intermediate creative iteration",
+        "prompt": "Use GPT Image 2 to make three visual directions for [asset]. Keep [brand constraints] and vary lighting, palette, and layout."
       },
       {
-        "title": "Production Asset Brief",
-        "scenario": "Advanced controlled output",
-        "prompt": "Use GPT Image 2 to create [asset type] for [audience]. Include [required text], avoid [constraints], and save the final file at [path]."
+        "title": "Compose Multiple References",
+        "scenario": "Advanced multi-reference workflow",
+        "prompt": "Use GPT Image 2 with these references. Combine the subject from image one, the color system from image two, and the layout from image three."
       }
     ],
     "output_examples": [
       {
-        "input": "Use GPT Image 2 to create a product poster for a reusable water bottle in a clean studio style.",
-        "output": "A saved poster image with the requested product focus, lighting, and composition, plus the final file path."
+        "input": "Use GPT Image 2 to create a poster for a product launch in a minimal editorial style.",
+        "output": "A finished poster image is saved to the requested file path, ready for review or iteration."
       },
       {
-        "input": "Use this logo reference and repaint it as a vintage travel badge while keeping the silhouette readable.",
-        "output": "A restyled image that preserves the logo shape and applies the requested vintage badge treatment."
+        "input": "Use this logo reference and repaint it as a vintage travel sticker.",
+        "output": "A restyled image keeps the original logo shape while changing texture, color, and presentation."
       },
       {
-        "input": "Use two references to create a launch graphic that combines the first image color palette with the second image layout.",
-        "output": "A composed launch graphic that follows both references and is saved in the requested image format."
+        "input": "Create a product mockup from these two references.",
+        "output": [
+          "A generated product mockup combines the selected subject and style cues.",
+          "The assistant reports the saved image location after extraction succeeds."
+        ]
       }
     ],
     "best_practices": [
-      "Confirm the user wants the GPT Image 2 route before invoking the local script.",
-      "Use explicit output paths and image formats so generated files are easy to find.",
-      "Warn users that prompts and reference images pass through their local Codex login."
+      "Use this skill only when the user explicitly asks for GPT Image 2 or ChatGPT Images 2.0.",
+      "Provide clear output paths and keep reference images in accessible local locations.",
+      "Review generated images before publishing, especially when prompts include text or logos."
     ],
     "anti_patterns": [
-      "Do not substitute another image model when the user requested GPT Image 2.",
-      "Do not rewrite the user prompt unless the user asks for prompt improvement.",
-      "Do not run the workflow without checking that Codex CLI and Python are available."
+      "Do not use this skill as a silent fallback for general image requests.",
+      "Do not pass confidential reference images unless the user accepts Codex and ChatGPT processing.",
+      "Do not run it during other Codex image sessions when exact session separation matters."
     ],
     "faq": [
       {
-        "question": "Does this skill include GPT Image 2 access?",
-        "answer": "No. It uses the user's existing Codex CLI login and ChatGPT image-generation entitlement."
+        "question": "Does this skill include image generation access?",
+        "answer": "No. It requires an existing ChatGPT plan and a working Codex CLI login."
       },
       {
-        "question": "Can it edit an existing image?",
-        "answer": "Yes. It supports one or more reference images for restyling, editing, or visual composition."
+        "question": "Can it edit existing images?",
+        "answer": "Yes. The script accepts one or more local reference images for restyling or image-to-image edits."
       },
       {
         "question": "Does it call the OpenAI API directly?",
-        "answer": "No. It runs the local Codex CLI, which uses the user's logged-in ChatGPT session."
+        "answer": "No. It uses Codex CLI and the user's existing logged-in ChatGPT session."
       },
       {
-        "question": "Where are generated images saved?",
-        "answer": "The script writes the decoded image to the output path selected by the caller."
+        "question": "Where are images saved?",
+        "answer": "The caller chooses the output path. The extractor only allows PNG, JPEG, JPG, or WebP extensions."
       },
       {
-        "question": "What local files does it read?",
-        "answer": "It reads newly created Codex rollout files under the local .codex sessions directory."
+        "question": "Why does it read Codex session files?",
+        "answer": "Codex stores image payloads in new rollout files. The script extracts the generated image from those files."
       },
       {
-        "question": "What tools must be installed?",
-        "answer": "The workflow requires the Codex CLI and Python 3 on the local PATH."
+        "question": "Can it work without Claude Code?",
+        "answer": "Yes. It can run through Codex-compatible workflows, but the skill instructions target Claude Code and Codex."
       }
     ]
   },
@@ -2004,22 +1935,26 @@
         {
           "name": "a-poster.png",
           "type": "file",
-          "path": "gallery/a-poster.png"
+          "path": "gallery/a-poster.png",
+          "lines": 1100
         },
         {
           "name": "c1-logo.png",
           "type": "file",
-          "path": "gallery/c1-logo.png"
+          "path": "gallery/c1-logo.png",
+          "lines": 1003
         },
         {
           "name": "c2-tshirt.png",
           "type": "file",
-          "path": "gallery/c2-tshirt.png"
+          "path": "gallery/c2-tshirt.png",
+          "lines": 7597
         },
         {
           "name": "d-ukiyoe.png",
           "type": "file",
-          "path": "gallery/d-ukiyoe.png"
+          "path": "gallery/d-ukiyoe.png",
+          "lines": 8286
         }
       ]
     },
