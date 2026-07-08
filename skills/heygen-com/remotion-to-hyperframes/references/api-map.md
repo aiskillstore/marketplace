@@ -79,11 +79,11 @@ See [transitions.md](transitions.md).
 
 See [lottie.md](lottie.md).
 
-| Remotion                        | HyperFrames                                                                                               |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `<Lottie animationData={data}>` | `<div id="lottie-N">` + `<script>lottie.loadAnimation(...).then(a => window.__hfLottie.push(a))</script>` |
-| `loop` / `playbackRate` props   | translate to `loop` / lottie playback options; HF adapter seeks via `goToAndStop`                         |
-| `@remotion/lottie` runtime      | `lottie-web` from CDN — drop the React wrapper                                                            |
+| Remotion                        | HyperFrames                                                                                                       |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `<Lottie animationData={data}>` | `<div id="lottie-N">` + `<script>const anim = lottie.loadAnimation({...}); window.__hfLottie.push(anim)</script>` |
+| `loop` / `playbackRate` props   | translate only after checking player seek behavior; HF adapter seeks absolute time via `goToAndStop`              |
+| `@remotion/lottie` runtime      | `lottie-web` from CDN — drop the React wrapper                                                                    |
 
 ## Fonts
 

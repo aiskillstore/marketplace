@@ -30,3 +30,5 @@ If `Failed to decode response. Body: <html>...captcha-delivery...` appears, the 
 ## Cost
 
 `higgsfield generate cost <jst> ...` returns credit estimate without submitting. Useful when the user asks "how much will this cost?".
+
+For workflows, use `higgsfield generate cost workflow <workflow_name> ...`, for example `higgsfield generate cost workflow reframe --duration 7.1 --resolution 1080p`. Do not use `higgsfield generate workflow cost ...`.

@@ -19,8 +19,11 @@ those decisions are already made by Quanta. UX rules below are expressed in Quan
 vocabulary on purpose.
 
 Before coding, read `app/packages/quanta/ai/AGENTS.md`. That package guide is the
-canonical Quanta API/token reference. This skill explains how this template must
-compose Quanta into generated fnf-SDK app UIs.
+canonical Quanta API/token reference — RELY ON IT for component props, variants,
+and tokens; do NOT open or grep the component `.tsx` source to re-derive prop
+names (it's already documented there, and re-deriving it wastes time). This
+skill explains how this template must compose Quanta into generated fnf-SDK app
+UIs.
 
 ---
 
@@ -38,7 +41,7 @@ one — never a splash, never a marketing hero.
 
 | Product type                              | Surface shape                                                                                                       | Base recipe                                                        |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| Generator / console (image, video, audio) | Prompt box on center in main page + settings pane in prompt box, results screen after first generation with gallery | Studio-app layout (`references/app-layouts.md`) |
+| Generator / console (image, video, audio) | Prompt box on center in main page + settings pane in prompt box, results screen after first generation with gallery | Studio layout — `app/src/layouts/studio.tsx` (`references/app-layouts.md`) |
 | Feed / gallery / history                  | Filterable grid or list, item overlay/inspector                                                                     | App shell + grid section                                            |
 | Editor / notes / project tool             | List sidebar, work canvas, optional inspector                                                                       | Split editor/tool                                                   |
 | Board / pipeline                          | Horizontal scroll columns inside fixed shell                                                                        | App shell, `overflow-x-auto` region                                 |
@@ -140,30 +143,35 @@ error with retry. Never render a bare axis frame.
 Apps render INSIDE Higgsfield — they must be indistinguishable from Higgsfield's
 own products.
 
-1. **NEVER customize Quanta styles.** No className overrides that change a
-   component's look, no color/size/font overrides on quanta components, no
-   re-theming. Compose, don't restyle.
+1. **NEVER customize Quanta styles, and NEVER modify Quanta itself.** No
+   className overrides that change a component's look, no color/size/font
+   overrides on quanta components, no re-theming, and never edit the vendored
+   `@higgsfield/quanta` package. Compose, don't restyle. If a Quanta component
+   doesn't fit without customization (a variant/behavior it doesn't offer), do
+   NOT bend it — build a small custom component from Quanta primitives instead
+   (rule 5).
 2. **NO app header.** Apps render inside Higgsfield, whose chrome already
    provides the global header, credits/balance, and account controls — never
    add a top header/app bar, brand/logo row, or nav bar inside the app, and
    never render credits/balance or sign-out controls. In-app navigation lives
-   in a Quanta `Sidebar` (see the studio-app reference layout) or inline controls
+   in a Quanta `Sidebar` (see the Studio layout, `app/src/layouts/studio.tsx`) or inline controls
    (tabs, steppers); a page title is just a heading inside the work area.
-3. **When a piece of UI you want doesn't exist in Quanta, rebuild it inside the
-   app with Quanta primitives and zero customization** — never import
-   third-party UI or hand-roll a different visual language.
+3. **When a piece of UI you want doesn't exist in Quanta, build it inside the
+   app from Quanta primitives with zero customization** — never import a
+   third-party UI library or hand-roll a different visual language (see rule 5).
 4. **Always dark.** The template pins `data-theme="default-dark"` (+
    `color-scheme: dark`) on `<html>` — apps are permanently dark like every
    Higgsfield product. Never add a theme toggle or a light mode, never use
    `dark:`-conditional styling (there is no light state), and never wire
    quanta's bootstrapScript/ThemeController theme switching.
-5. **Astryx is the fallback for components Quanta lacks** (date picker,
-   calendar, sortable data table, multiselect autocomplete, color picker, …).
-   `@astryxdesign/core` (Meta's open-source React + StyleX DS) is preinstalled
-   and themed to the brand — see `references/astryx-fallback.md` for the exact
-   recipe. Never use Astryx
-   where a Quanta component exists, and never restyle it beyond the
-   Higgsfield Astryx theme.
+5. **Fill gaps with your OWN components, built from Quanta primitives + `q-`
+   tokens, in the app's own `app/src/components/`** (date picker, calendar,
+   sortable data table, multiselect autocomplete, color picker, …). Compose
+   Quanta primitives (`Button`, `Input`, `Dropdown`, `Popover`, `Modal`, …) and
+   `q-` utility classes into the piece you need, matching Quanta's tokens and
+   spacing so it's indistinguishable from a built-in. There is NO fallback
+   design system: never add a third-party UI dependency (no shadcn, no MUI, no
+   Radix, etc.), and never restyle a Quanta component to force a fit.
 
 ## Template Wiring
 
@@ -310,21 +318,19 @@ Generated app UIs must look designed, not like raw low-level layouts.
 
 ## Layout Recipes
 
-### Reference layouts (preferred starting points)
+### Code layouts (preferred starting points)
 
-There are no prebuilt layout scaffolds. Start from one of the four reference
-layouts — each a screenshot of a real Higgsfield app — pick the closest, VIEW
-its image, and build it from Quanta. See `references/app-layouts.md` +
-`app/src/layouts/AGENTS.md` for the full anatomy.
+The template ships **three** layout screens as REAL CODE in
+`app/src/layouts/` — start from the closest one, copy it into your route, and
+adapt it from the code (and the reusable pieces in `app/src/components`), never
+from a screenshot. See `references/app-layouts.md` + `app/src/layouts/AGENTS.md`
+for each one's full anatomy.
 
-| Product shape                                                                | Reference layout (VIEW the image)          |
-| ---------------------------------------------------------------------------- | ------------------------------------------- |
-| One-shot tool — a few inputs, one primary action, big result panel            | `.../layout-references/simple-app.png`      |
-| Pick-a-style-then-generate — preset/template gallery + a creation rail        | `.../layout-references/preset-app.png`      |
-| Single-asset editor — a work canvas + a dense controls sidebar                | `.../layout-references/complex-app.png`     |
-| Full workspace — projects sidebar + prompt composer + generations feed        | `.../layout-references/studio-app.png`      |
-
-(Base: `https://static.higgsfield.ai/website-builder/layout-references/`.)
+| Product shape                                                                | Code layout (copy + adapt)      |
+| ---------------------------------------------------------------------------- | ------------------------------- |
+| Full workspace — projects sidebar + prompt composer + generations feed        | `app/src/layouts/studio.tsx`     |
+| Pick-a-style-then-generate — preset/template gallery + a creation rail        | `app/src/layouts/preset.tsx`     |
+| Single tool's landing/detail page — two-column generator hero + how-it-works  | `app/src/layouts/app-detail.tsx` |
 
 When none fits and the user asks for a custom shell, compose one of the generic
 shapes below.
