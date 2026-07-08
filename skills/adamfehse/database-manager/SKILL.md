@@ -1,5 +1,5 @@
 ---
-name: Database Manager
+name: database-manager
 description: Manages Supabase database schema, migrations, and queries for CookMode V2. Use this when the user needs to create/modify tables, write migrations, update RLS policies, or troubleshoot database issues.
 ---
 
