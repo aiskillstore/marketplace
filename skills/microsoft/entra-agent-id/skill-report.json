@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T22:52:16.096Z",
+    "generated_at": "2026-07-08T05:24:34.608Z",
     "slug": "microsoft-entra-agent-id",
     "source_url": "https://github.com/microsoft/azure-skills/tree/main/.github/plugins/azure-skills/skills/entra-agent-id/",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "be4fb42c5071fddfff6f6247a8da5793278e6b4a403bba3c993c8dcbad455a2c",
-    "tree_hash": "48edcf169ff551349698494129afcd9751dfab1e069ad20089c6514ead1d55fa",
+    "content_hash": "a21b4ddbcaea5c2655ea1ba7593fe3268d07ab9f6a0ca98209f07282f3636cb7",
+    "tree_hash": "051feea99719e293c0798e8a3646691656394ca2081e847982e1ec47adaeaab1",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,18 +23,18 @@
   },
   "skill": {
     "name": "entra-agent-id",
-    "description": "Guides Microsoft Entra Agent Identity setup for blueprints, BlueprintPrincipals, per-agent identities, OAuth token exchange, OBO flows, and the AgentID sidecar.",
-    "summary": "Implement Microsoft Entra Agent Identity provisioning and runtime token exchange.",
+    "description": "Provision Microsoft Entra Agent Identity Blueprints, BlueprintPrincipals, and per-instance Agent Identities with Microsoft Graph. Configure OAuth 2.0 fmi_path, on-behalf-of flows, cross-tenant token exchange, and the Microsoft Entra SDK for AgentID sidecar.",
+    "summary": "Create Entra Agent ID identities, grants, token exchanges, and sidecar configurations for AI agents.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "microsoft",
     "license": "MIT",
     "tags": [
       "microsoft-entra",
       "agent-identity",
-      "oauth2",
       "microsoft-graph",
-      "identity-security"
+      "oauth2",
+      "workload-identity"
     ],
     "supported_tools": [
       "claude",
@@ -53,21 +50,31 @@
     "category": "security"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "high",
     "is_blocked": false,
-    "safe_to_publish": true,
+    "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The static findings are mostly false positives from Markdown examples, OAuth scope strings, Microsoft Graph URLs, and localhost sidecar samples. No prompt injection or malicious exfiltration intent was found. Two semantic concerns remain: long-lived delegated grants in examples and reliance on strict sidecar network isolation.",
+    "summary": "No prompt injection, concealed exfiltration, or obfuscated execution was found. Most static hits are markdown formatting, official Microsoft Graph or Entra endpoints, localhost sidecar calls, or OAuth scope strings. Confirmed risks involve Azure client secret handling, privileged Graph mutations, admin consent, bearer token forwarding, and broad delegated grants.",
     "remediation": [
       {
-        "issue": "Long-lived AllPrincipals delegated grants in examples",
-        "suggestion": "Use least-privilege scopes, shorter expiry periods, and an approval review before running delegated grant examples.",
+        "issue": "Client secret examples use AZURE_CLIENT_SECRET and Graph addPassword flows.",
+        "suggestion": "Keep client secret guidance clearly limited to local development and prefer Workload Identity Federation or managed identity for production.",
+        "severity": "high"
+      },
+      {
+        "issue": "Permission grant examples include broad scopes, AllPrincipals consent, and long expiry.",
+        "suggestion": "Add stronger least-privilege guidance, shorter grant lifetimes, and examples that scope grants per agent role.",
         "severity": "medium"
       },
       {
-        "issue": "AgentID sidecar token endpoints depend on network isolation",
-        "suggestion": "Keep the sidecar bound to loopback or pod-local networks, block ingress exposure, and require network policy controls.",
+        "issue": "The AgentID sidecar exposes unauthenticated token helper endpoints when reachable.",
+        "suggestion": "Require localhost or private pod-network binding, avoid public ingress, and document network policies for production deployments.",
         "severity": "medium"
+      },
+      {
+        "issue": "Admin consent commands can approve tenant-wide permissions.",
+        "suggestion": "Tell users to review requested app roles and delegated scopes with a tenant administrator before running consent commands.",
+        "severity": "high"
       }
     ],
     "risk_factor_evidence": [
@@ -2758,1319 +2765,1778 @@
       {
         "id": "external_commands:references/known-limitations.md:28:powershell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented PowerShell or Graph setup reference, not hidden command execution by the skill. It requires explicit user action."
+        "confidence": 0.9,
+        "reason": "The match is a heading, prose reference, or documented operator setup path. It is transparent user-facing guidance, not concealed PowerShell execution."
       },
       {
         "id": "filesystem:references/known-limitations.md:11:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "blocker:references/known-limitations.md:47:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented object ID, YAML key, or limitation text. It does not perform host or tenant reconnaissance."
+        "confidence": 0.9,
+        "reason": "The line describes a setup limitation or static identifier, not reconnaissance behavior."
       },
       {
         "id": "external_commands:references/oauth2-token-flow.md:101:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "reason": "The surrounding PowerShell example calls addPassword on a Blueprint application and returns a secret. It is explicit documentation, but executing it creates credential material.",
+        "severity": "high"
       },
       {
         "id": "external_commands:references/oauth2-token-flow.md:90:powershell-invocation",
-        "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented PowerShell or Graph setup reference, not hidden command execution by the skill. It requires explicit user action."
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "This section introduces a PowerShell flow that adds a password credential through Microsoft Graph. It is legitimate, but the operation creates sensitive credential material.",
+        "severity": "high"
       },
       {
         "id": "external_commands:references/oauth2-token-flow.md:92:powershell-invocation",
-        "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented PowerShell or Graph setup reference, not hidden command execution by the skill. It requires explicit user action."
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "This PowerShell code block contains an addPassword Graph request for local development credentials. Running it changes credential state and requires tenant review.",
+        "severity": "high"
       },
       {
         "id": "network:references/oauth2-token-flow.md:21:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.7,
+        "reason": "This PATCH changes identifierUris on the Blueprint application. It is part of setup, but it mutates OAuth audience configuration in the tenant.",
+        "severity": "medium"
       },
       {
         "id": "network:references/oauth2-token-flow.md:39:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "reason": "This POST creates a federated identity credential on the Blueprint. Incorrect FIC subjects or issuers can allow unintended workload token exchange.",
+        "severity": "medium"
       },
       {
         "id": "network:references/oauth2-token-flow.md:111:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "This POST adds a password credential to the Blueprint and returns secretText. Client secret creation is security-sensitive even when limited to local development.",
+        "severity": "high"
       },
       {
         "id": "network:references/oauth2-token-flow.md:35:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:references/oauth2-token-flow.md:63:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:references/oauth2-token-flow.md:72:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:references/oauth2-token-flow.md:101:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "filesystem:references/oauth2-token-flow.md:78:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown ellipsis in a typed Microsoft Graph path, not ../ traversal or file access. No filesystem operation appears."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "filesystem:references/oauth2-token-flow.md:52:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "sensitive:references/oauth2-token-flow.md:69:certificate-key-files",
         "verdict": "false_positive",
         "confidence": 0.93,
-        "reason": "The code uses signing_key.key as an in-memory JWK property for token verification. It does not read certificate or key files from disk."
+        "reason": "The code uses a JWT library key object for token validation, not a certificate or private key file. No local key material is accessed."
       },
       {
         "id": "network:references/obo-blueprint-setup.md:41:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "This PATCH configures OAuth2 scopes and pre-authorized applications on the Blueprint. It is intended setup, but it changes consent and token behavior.",
+        "severity": "medium"
       },
       {
         "id": "network:references/obo-blueprint-setup.md:63:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.84,
+        "reason": "This POST creates oauth2PermissionGrants for each Agent Identity. A broad or long-lived grant can over-authorize agent access on behalf of users.",
+        "severity": "high"
       },
       {
         "id": "network:references/obo-blueprint-setup.md:84:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The URL is a loopback or pod-local sidecar endpoint used for local authentication. It is explicit configuration, not covert network access."
+        "confidence": 0.9,
+        "reason": "The URL is a local sidecar endpoint used in the documented deployment. The reference also warns to keep the sidecar private, so this is not hidden external exfiltration."
       },
       {
         "id": "filesystem:references/obo-blueprint-setup.md:111:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "blocker:references/obo-blueprint-setup.md:10:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The code generates a UUID for an OAuth scope ID. It does not inspect the system or tenant."
+        "confidence": 0.9,
+        "reason": "The code generates a UUID for an OAuth scope identifier. This is not host reconnaissance or environment probing."
       },
       {
         "id": "blocker:references/obo-blueprint-setup.md:12:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The code generates a UUID for an OAuth scope ID. It does not inspect the system or tenant."
+        "confidence": 0.9,
+        "reason": "The code generates a UUID for an OAuth scope identifier. This is not host reconnaissance or environment probing."
       },
       {
         "id": "network:references/runtime-token-exchange.md:17:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "confidence": 0.9,
+        "reason": "The network reference supports the declared Microsoft Entra Agent ID workflow. I did not find an unexpected external destination."
       },
       {
         "id": "network:references/runtime-token-exchange.md:36:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens.",
+        "severity": "medium"
       },
       {
         "id": "network:references/runtime-token-exchange.md:40:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens.",
+        "severity": "medium"
       },
       {
         "id": "network:references/runtime-token-exchange.md:91:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens.",
+        "severity": "medium"
       },
       {
         "id": "network:references/runtime-token-exchange.md:95:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens.",
+        "severity": "medium"
       },
       {
         "id": "network:references/runtime-token-exchange.md:120:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens.",
+        "severity": "medium"
       },
       {
         "id": "network:references/runtime-token-exchange.md:124:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens.",
+        "severity": "medium"
       },
       {
         "id": "network:references/runtime-token-exchange.md:9:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:references/runtime-token-exchange.md:19:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:references/runtime-token-exchange.md:88:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:references/runtime-token-exchange.md:117:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "filesystem:references/runtime-token-exchange.md:32:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "filesystem:references/runtime-token-exchange.md:64:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "filesystem:references/runtime-token-exchange.md:71:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "filesystem:references/runtime-token-exchange.md:88:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "filesystem:references/runtime-token-exchange.md:117:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "filesystem:references/runtime-token-exchange.md:157:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "external_commands:references/sdk-sidecar-deployment.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:references/sdk-sidecar-deployment.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:56:fetch-api-call",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The fetch call targets the configured AgentID sidecar URL as part of documented token acquisition. It is not hidden exfiltration."
+        "confidence": 0.9,
+        "reason": "The call targets the documented localhost sidecar or a named SDK endpoint. I did not find evidence of covert network access."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:18:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "confidence": 0.9,
+        "reason": "The call targets the documented localhost sidecar or a named SDK endpoint. I did not find evidence of covert network access."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:24:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.64,
+        "reason": "The helper sends an acquired authorization header to a caller-supplied endpoint. It is a sample pattern, but an untrusted endpoint would receive the bearer token.",
+        "severity": "medium"
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:34:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "confidence": 0.9,
+        "reason": "The call targets the documented localhost sidecar or a named SDK endpoint. I did not find evidence of covert network access."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:72:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "confidence": 0.9,
+        "reason": "The call targets the documented localhost sidecar or a named SDK endpoint. I did not find evidence of covert network access."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:85:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "confidence": 0.9,
+        "reason": "The call targets the documented localhost sidecar or a named SDK endpoint. I did not find evidence of covert network access."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:13:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The URL is a loopback or pod-local sidecar endpoint used for local authentication. It is explicit configuration, not covert network access."
+        "confidence": 0.9,
+        "reason": "The URL is a local sidecar endpoint used in the documented deployment. The reference also warns to keep the sidecar private, so this is not hidden external exfiltration."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:46:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The URL is a loopback or pod-local sidecar endpoint used for local authentication. It is explicit configuration, not covert network access."
+        "confidence": 0.9,
+        "reason": "The URL is a local sidecar endpoint used in the documented deployment. The reference also warns to keep the sidecar private, so this is not hidden external exfiltration."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:107:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:112:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:113:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:115:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The URL is a loopback or pod-local sidecar endpoint used for local authentication. It is explicit configuration, not covert network access."
+        "confidence": 0.9,
+        "reason": "The network reference supports the declared Microsoft Entra Agent ID workflow. I did not find an unexpected external destination."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:122:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The URL is a loopback or pod-local sidecar endpoint used for local authentication. It is explicit configuration, not covert network access."
+        "confidence": 0.9,
+        "reason": "The URL is a local sidecar endpoint used in the documented deployment. The reference also warns to keep the sidecar private, so this is not hidden external exfiltration."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:149:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The URL is a loopback or pod-local sidecar endpoint used for local authentication. It is explicit configuration, not covert network access."
+        "confidence": 0.9,
+        "reason": "The URL is a local sidecar endpoint used in the documented deployment. The reference also warns to keep the sidecar private, so this is not hidden external exfiltration."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:168:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The URL is a loopback or pod-local sidecar endpoint used for local authentication. It is explicit configuration, not covert network access."
+        "confidence": 0.9,
+        "reason": "The URL is a local sidecar endpoint used in the documented deployment. The reference also warns to keep the sidecar private, so this is not hidden external exfiltration."
       },
       {
         "id": "network:references/sdk-sidecar-deployment.md:168:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The address is 127.0.0.1, used to bind the sidecar to loopback. This is defensive isolation, not suspicious infrastructure."
+        "confidence": 0.9,
+        "reason": "The URL is a local sidecar endpoint used in the documented deployment. The reference also warns to keep the sidecar private, so this is not hidden external exfiltration."
       },
       {
         "id": "filesystem:references/sdk-sidecar-deployment.md:113:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "env_access:references/sdk-sidecar-deployment.md:46:environment-variable-access-dot-notation",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The sample reads named configuration variables for sidecar URL or agent ID. There is no broad environment enumeration or leakage."
+        "confidence": 0.9,
+        "reason": "The example reads a local sidecar URL or Agent client ID from environment variables. These are configuration values, not credential secrets."
       },
       {
         "id": "env_access:references/sdk-sidecar-deployment.md:47:environment-variable-access-dot-notation",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The sample reads named configuration variables for sidecar URL or agent ID. There is no broad environment enumeration or leakage."
+        "confidence": 0.9,
+        "reason": "The example reads a local sidecar URL or Agent client ID from environment variables. These are configuration values, not credential secrets."
       },
       {
         "id": "env_access:references/sdk-sidecar-deployment.md:46:environment-variable-object",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The sample reads named configuration variables for sidecar URL or agent ID. There is no broad environment enumeration or leakage."
+        "confidence": 0.9,
+        "reason": "The example reads a local sidecar URL or Agent client ID from environment variables. These are configuration values, not credential secrets."
       },
       {
         "id": "env_access:references/sdk-sidecar-deployment.md:47:environment-variable-object",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The sample reads named configuration variables for sidecar URL or agent ID. There is no broad environment enumeration or leakage."
+        "confidence": 0.9,
+        "reason": "The example reads a local sidecar URL or Agent client ID from environment variables. These are configuration values, not credential secrets."
       },
       {
         "id": "env_access:references/sdk-sidecar-deployment.md:13:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The sample reads named configuration variables for sidecar URL or agent ID. There is no broad environment enumeration or leakage."
+        "confidence": 0.9,
+        "reason": "The example reads a local sidecar URL or Agent client ID from environment variables. These are configuration values, not credential secrets."
       },
       {
         "id": "env_access:references/sdk-sidecar-deployment.md:14:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The sample reads named configuration variables for sidecar URL or agent ID. There is no broad environment enumeration or leakage."
+        "confidence": 0.9,
+        "reason": "The example reads a local sidecar URL or Agent client ID from environment variables. These are configuration values, not credential secrets."
       },
       {
         "id": "sensitive:references/sdk-sidecar-deployment.md:46:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The match is process.env configuration access, not reading an environment file. It uses named variables and no file path."
+        "confidence": 0.9,
+        "reason": "The match is process.env or a non-secret identifier in a documentation sample. It does not read an environment file or expose secret material by itself."
       },
       {
         "id": "sensitive:references/sdk-sidecar-deployment.md:47:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The match is process.env configuration access, not reading an environment file. It uses named variables and no file path."
+        "confidence": 0.9,
+        "reason": "The match is process.env or a non-secret identifier in a documentation sample. It does not read an environment file or expose secret material by itself."
       },
       {
         "id": "blocker:references/sdk-sidecar-deployment.md:159:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented object ID, YAML key, or limitation text. It does not perform host or tenant reconnaissance."
+        "confidence": 0.9,
+        "reason": "The Kubernetes keys identify configuration entries for tenant and client IDs. They are not system reconnaissance."
       },
       {
         "id": "blocker:references/sdk-sidecar-deployment.md:164:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented object ID, YAML key, or limitation text. It does not perform host or tenant reconnaissance."
+        "confidence": 0.9,
+        "reason": "The Kubernetes keys identify configuration entries for tenant and client IDs. They are not system reconnaissance."
       },
       {
         "id": "network:references/sdk-sidecar.md:50:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:references/sdk-sidecar.md:83:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:references/sdk-sidecar.md:85:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "filesystem:references/sdk-sidecar.md:85:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "external_commands:SKILL.md:136:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The sample runs az with fixed arguments to read the signed-in user ID for a sponsor field. It has no user-controlled shell string."
+        "confidence": 0.9,
+        "reason": "The subprocess example runs az with fixed arguments to retrieve the signed-in user ID. There is no user-controlled shell string or command injection vector."
       },
       {
         "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:87:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:103:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:107:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:124:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:130:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:132:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:156:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:161:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:163:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:170:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:178:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:193:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:205:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:215:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:223:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:240:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:244:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:260:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:262:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:266:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:268:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:276:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:277:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:278:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:279:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:280:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:281:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:282:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:283:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:284:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:286:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:292:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:293:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:294:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:295:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:296:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:297:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:298:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:299:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:303:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "This bash block contains the az admin-consent command on the following line. The command is explicit but can approve privileged permissions tenant-wide.",
+        "severity": "high"
       },
       {
         "id": "external_commands:SKILL.md:305:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.96,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:312:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:313:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:314:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:316:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:317:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:318:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:319:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:329:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:330:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:331:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:332:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:333:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:334:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:335:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:336:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown inline code, a table cell, or a fenced example, not Ruby backtick execution. No shell executes it automatically."
+        "confidence": 0.9,
+        "reason": "This is markdown inline-code or a code-fence delimiter, not Ruby backtick shell execution. The surrounding text is documentation rather than executable skill code."
       },
       {
         "id": "external_commands:SKILL.md:43:powershell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented PowerShell or Graph setup reference, not hidden command execution by the skill. It requires explicit user action."
+        "confidence": 0.9,
+        "reason": "The match is a heading, prose reference, or documented operator setup path. It is transparent user-facing guidance, not concealed PowerShell execution."
       },
       {
         "id": "external_commands:SKILL.md:76:powershell-invocation",
-        "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented PowerShell or Graph setup reference, not hidden command execution by the skill. It requires explicit user action."
+        "verdict": "confirmed",
+        "confidence": 0.62,
+        "reason": "This PowerShell setup path is documented for interactive operator use. It is not hidden execution, but it asks users to install modules or authenticate with privileged Graph scopes.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:78:powershell-invocation",
-        "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented PowerShell or Graph setup reference, not hidden command execution by the skill. It requires explicit user action."
+        "verdict": "confirmed",
+        "confidence": 0.62,
+        "reason": "This PowerShell setup path is documented for interactive operator use. It is not hidden execution, but it asks users to install modules or authenticate with privileged Graph scopes.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:79:powershell-invocation",
-        "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented PowerShell or Graph setup reference, not hidden command execution by the skill. It requires explicit user action."
+        "verdict": "confirmed",
+        "confidence": 0.62,
+        "reason": "This PowerShell setup path is documented for interactive operator use. It is not hidden execution, but it asks users to install modules or authenticate with privileged Graph scopes.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:93:powershell-invocation",
-        "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented PowerShell or Graph setup reference, not hidden command execution by the skill. It requires explicit user action."
+        "verdict": "confirmed",
+        "confidence": 0.62,
+        "reason": "This PowerShell setup path is documented for interactive operator use. It is not hidden execution, but it asks users to install modules or authenticate with privileged Graph scopes.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:95:powershell-invocation",
-        "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented PowerShell or Graph setup reference, not hidden command execution by the skill. It requires explicit user action."
+        "verdict": "confirmed",
+        "confidence": 0.62,
+        "reason": "This PowerShell setup path is documented for interactive operator use. It is not hidden execution, but it asks users to install modules or authenticate with privileged Graph scopes.",
+        "severity": "medium"
       },
       {
         "id": "network:SKILL.md:147:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "This POST creates an Agent Identity Blueprint in Microsoft Graph. The call is explicit and intended, but it mutates tenant identity configuration.",
+        "severity": "medium"
       },
       {
         "id": "network:SKILL.md:165:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "This POST creates the BlueprintPrincipal service principal in Microsoft Graph. The call is expected, but it changes tenant identity state.",
+        "severity": "medium"
       },
       {
         "id": "network:SKILL.md:186:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "This POST creates an Agent Identity service principal. It is an intended Graph operation, but it provisions a new tenant identity.",
+        "severity": "medium"
       },
       {
         "id": "network:SKILL.md:224:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "confidence": 0.9,
+        "reason": "The call targets the documented localhost sidecar or a named SDK endpoint. I did not find evidence of covert network access."
       },
       {
         "id": "network:SKILL.md:231:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.84,
+        "reason": "This POST grants an application role assignment to an Agent Identity. Mis-scoped app roles can give agents excessive Graph access.",
+        "severity": "high"
       },
       {
         "id": "network:SKILL.md:249:python-http-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "These are documented HTTP client examples for Microsoft Graph, Entra token endpoints, or the local AgentID sidecar. No unexpected endpoint appears."
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "reason": "This POST creates delegated OAuth permission grants with broad sample scopes. Incorrect grants can authorize agents to act on behalf of users beyond their need.",
+        "severity": "high"
       },
       {
         "id": "network:SKILL.md:19:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:SKILL.md:116:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:SKILL.md:118:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:SKILL.md:144:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:SKILL.md:183:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:SKILL.md:286:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL targets official Microsoft Graph or Entra token endpoints for the declared Agent ID workflow. It is transparent service usage, not an unknown destination."
       },
       {
         "id": "network:SKILL.md:353:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL is an external documentation link to Microsoft Learn or the Microsoft Identity Web repository. It is not runtime data exfiltration."
       },
       {
         "id": "network:SKILL.md:354:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL is an external documentation link to Microsoft Learn or the Microsoft Identity Web repository. It is not runtime data exfiltration."
       },
       {
         "id": "network:SKILL.md:355:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL is an external documentation link to Microsoft Learn or the Microsoft Identity Web repository. It is not runtime data exfiltration."
       },
       {
         "id": "network:SKILL.md:356:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The URL points to Microsoft Graph, Microsoft Entra, Microsoft Learn, GitHub documentation, or an OAuth audience. It is expected identity plumbing."
+        "reason": "The URL is an external documentation link to Microsoft Learn or the Microsoft Identity Web repository. It is not runtime data exfiltration."
       },
       {
         "id": "filesystem:SKILL.md:116:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "filesystem:SKILL.md:319:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "filesystem:SKILL.md:332:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The match is an OAuth /.default scope or api:// URI in documentation, not hidden filesystem access. No file operation is present."
+        "confidence": 0.95,
+        "reason": "This is an OAuth scope, Graph endpoint path, or markdown path fragment such as /.default or api://. It does not read or write local files."
       },
       {
         "id": "env_access:SKILL.md:112:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The sample reads named Azure credential variables to construct an Azure SDK credential. It does not print or leak the secret."
+        "confidence": 0.9,
+        "reason": "The example reads tenant and client identifiers needed for Azure authentication. These values are not secrets by themselves and are used transparently."
       },
       {
         "id": "env_access:SKILL.md:113:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The sample reads named Azure credential variables to construct an Azure SDK credential. It does not print or leak the secret."
+        "confidence": 0.9,
+        "reason": "The example reads tenant and client identifiers needed for Azure authentication. These values are not secrets by themselves and are used transparently."
       },
       {
         "id": "env_access:SKILL.md:114:python-environment-access",
-        "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The sample reads named Azure credential variables to construct an Azure SDK credential. It does not print or leak the secret."
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "reason": "The example reads AZURE_CLIENT_SECRET from the environment for ClientSecretCredential. This is legitimate setup, but it handles a high-value tenant credential that must stay protected.",
+        "severity": "high"
       },
       {
         "id": "env_access:SKILL.md:112:azure-credential-environment-variables",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The variables are documented Azure SDK credential inputs for token acquisition. The sample does not expose them outside the intended OAuth flow."
+        "confidence": 0.9,
+        "reason": "The example reads tenant and client identifiers needed for Azure authentication. These values are not secrets by themselves and are used transparently."
       },
       {
         "id": "env_access:SKILL.md:113:azure-credential-environment-variables",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The variables are documented Azure SDK credential inputs for token acquisition. The sample does not expose them outside the intended OAuth flow."
+        "confidence": 0.9,
+        "reason": "The example reads tenant and client identifiers needed for Azure authentication. These values are not secrets by themselves and are used transparently."
       },
       {
         "id": "env_access:SKILL.md:114:azure-credential-environment-variables",
-        "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The variables are documented Azure SDK credential inputs for token acquisition. The sample does not expose them outside the intended OAuth flow."
+        "verdict": "confirmed",
+        "confidence": 0.9,
+        "reason": "The example directly consumes AZURE_CLIENT_SECRET to acquire Microsoft Graph access. Exposure or reuse of this secret could compromise the Blueprint application.",
+        "severity": "high"
       },
       {
         "id": "blocker:SKILL.md:2:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented object ID, YAML key, or limitation text. It does not perform host or tenant reconnaissance."
+        "confidence": 0.9,
+        "reason": "The line describes a setup limitation or static identifier, not reconnaissance behavior."
       },
       {
         "id": "blocker:SKILL.md:136:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented object ID, YAML key, or limitation text. It does not perform host or tenant reconnaissance."
+        "confidence": 0.9,
+        "reason": "The subprocess call uses fixed az arguments to get the signed-in user ID for a sponsor field. It is not broad system reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:154:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented object ID, YAML key, or limitation text. It does not perform host or tenant reconnaissance."
+        "confidence": 0.9,
+        "reason": "The value is a Microsoft Graph object identifier returned by a documented provisioning call. It is not local system reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:155:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented object ID, YAML key, or limitation text. It does not perform host or tenant reconnaissance."
+        "confidence": 0.9,
+        "reason": "The value is a Microsoft Graph object identifier returned by a documented provisioning call. It is not local system reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:192:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a documented object ID, YAML key, or limitation text. It does not perform host or tenant reconnaissance."
+        "confidence": 0.9,
+        "reason": "The value is a Microsoft Graph object identifier returned by a documented provisioning call. It is not local system reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:304:system-reconnaissance",
-        "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This is an explicit Azure CLI helper in setup guidance, not hidden reconnaissance or broad host enumeration."
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "reason": "The line contains an az admin-consent command, not reconnaissance, but executing it can grant tenant-wide consent to app permissions. This requires administrator review.",
+        "severity": "high"
       }
     ],
     "semantic_findings": [
       {
-        "title": "Long-Lived Delegated Permission Grant Example",
-        "description": "The OBO examples create AllPrincipals delegated grants with a 3650-day expiry. Copying this pattern can leave broad access active too long.",
+        "title": "Broad Long-Lived Delegated Grants",
+        "description": "The examples show tenant-wide delegated grants with multi-year expiry and broad Graph scopes. This is valid for some agents, but it can over-authorize agents if copied without least-privilege review.",
         "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 247,
-            "line_end": 257
+            "line_end": 259
           },
           {
             "file": "references/obo-blueprint-setup.md",
             "line_start": 61,
-            "line_end": 71
-          }
-        ],
-        "confidence": 0.88,
-        "confidence_reasoning": "Both cited examples set a ten-year expiry and AllPrincipals consent for delegated Graph scopes, which is a clear least-privilege concern."
-      },
-      {
-        "title": "Unauthenticated Sidecar Endpoint Requires Isolation",
-        "description": "The sidecar exposes unauthenticated token acquisition endpoints. The skill warns to keep it local, but public exposure could allow token theft.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "references/sdk-sidecar.md",
-            "line_start": 106,
-            "line_end": 112
-          },
-          {
-            "file": "references/sdk-sidecar-deployment.md",
-            "line_start": 180,
-            "line_end": 185
+            "line_end": 72
           }
         ],
         "confidence": 0.86,
-        "confidence_reasoning": "The endpoint table lists unauthenticated token acquisition paths and the deployment guide confirms local-only exposure is required."
+        "confidence_reasoning": "Both cited examples set long expiry times and create oauth2PermissionGrants for all principals. The risk is contextual but directly evidenced by the documented grant patterns."
       }
     ],
     "critical_findings": [],
-    "high_findings": [],
+    "high_findings": [
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "-Uri \"https://graph.microsoft.com/v1.0/applications/<BLUEPRINT_OBJECT_ID>/addPassword\" `",
+        "locations": [
+          {
+            "file": "references/oauth2-token-flow.md",
+            "line_start": 101,
+            "line_end": 102
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "The surrounding PowerShell example calls addPassword on a Blueprint application and returns a secret. It is explicit documentation, but executing it creates credential material."
+      },
+      {
+        "title": "PowerShell invocation",
+        "description": "PowerShell:",
+        "locations": [
+          {
+            "file": "references/oauth2-token-flow.md",
+            "line_start": 90,
+            "line_end": 90
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.72,
+        "confidence_reasoning": "This section introduces a PowerShell flow that adds a password credential through Microsoft Graph. It is legitimate, but the operation creates sensitive credential material."
+      },
+      {
+        "title": "PowerShell invocation",
+        "description": "```powershell",
+        "locations": [
+          {
+            "file": "references/oauth2-token-flow.md",
+            "line_start": 92,
+            "line_end": 92
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.72,
+        "confidence_reasoning": "This PowerShell code block contains an addPassword Graph request for local development credentials. Running it changes credential state and requires tenant review."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "resp = requests.post(",
+        "locations": [
+          {
+            "file": "references/oauth2-token-flow.md",
+            "line_start": 111,
+            "line_end": 111
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.82,
+        "confidence_reasoning": "This POST adds a password credential to the Blueprint and returns secretText. Client secret creation is security-sensitive even when limited to local development."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "requests.post(",
+        "locations": [
+          {
+            "file": "references/obo-blueprint-setup.md",
+            "line_start": 63,
+            "line_end": 63
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.84,
+        "confidence_reasoning": "This POST creates oauth2PermissionGrants for each Agent Identity. A broad or long-lived grant can over-authorize agent access on behalf of users."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 303,
+            "line_end": 305
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "This bash block contains the az admin-consent command on the following line. The command is explicit but can approve privileged permissions tenant-wide."
+      },
+      {
+        "title": "PowerShell invocation",
+        "description": "### PowerShell (interactive setup)",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 76,
+            "line_end": 76
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.62,
+        "confidence_reasoning": "This PowerShell setup path is documented for interactive operator use. It is not hidden execution, but it asks users to install modules or authenticate with privileged Graph scopes."
+      },
+      {
+        "title": "PowerShell invocation",
+        "description": "```powershell",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 78,
+            "line_end": 78
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.62,
+        "confidence_reasoning": "This PowerShell setup path is documented for interactive operator use. It is not hidden execution, but it asks users to install modules or authenticate with privileged Graph scopes."
+      },
+      {
+        "title": "PowerShell invocation",
+        "description": "# PowerShell 7+",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 79,
+            "line_end": 79
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.62,
+        "confidence_reasoning": "This PowerShell setup path is documented for interactive operator use. It is not hidden execution, but it asks users to install modules or authenticate with privileged Graph scopes."
+      },
+      {
+        "title": "PowerShell invocation",
+        "description": "### PowerShell (delegated)",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 93,
+            "line_end": 93
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.62,
+        "confidence_reasoning": "This PowerShell setup path is documented for interactive operator use. It is not hidden execution, but it asks users to install modules or authenticate with privileged Graph scopes."
+      },
+      {
+        "title": "PowerShell invocation",
+        "description": "```powershell",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 95,
+            "line_end": 95
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.62,
+        "confidence_reasoning": "This PowerShell setup path is documented for interactive operator use. It is not hidden execution, but it asks users to install modules or authenticate with privileged Graph scopes."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "requests.post(",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 231,
+            "line_end": 231
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.84,
+        "confidence_reasoning": "This POST grants an application role assignment to an Agent Identity. Mis-scoped app roles can give agents excessive Graph access."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "requests.post(",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 249,
+            "line_end": 249
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.86,
+        "confidence_reasoning": "This POST creates delegated OAuth permission grants with broad sample scopes. Incorrect grants can authorize agents to act on behalf of users beyond their need."
+      },
+      {
+        "title": "Python environment access",
+        "description": "client_secret=os.environ[\"AZURE_CLIENT_SECRET\"],",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 114,
+            "line_end": 114
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "low",
+        "confidence": 0.86,
+        "confidence_reasoning": "The example reads AZURE_CLIENT_SECRET from the environment for ClientSecretCredential. This is legitimate setup, but it handles a high-value tenant credential that must stay protected."
+      },
+      {
+        "title": "Azure credential environment variables",
+        "description": "client_secret=os.environ[\"AZURE_CLIENT_SECRET\"],",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 114,
+            "line_end": 114
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "high",
+        "confidence": 0.9,
+        "confidence_reasoning": "The example directly consumes AZURE_CLIENT_SECRET to acquire Microsoft Graph access. Exposure or reuse of this secret could compromise the Blueprint application."
+      },
+      {
+        "title": "System reconnaissance",
+        "description": "az ad app permission admin-consent --id <client-id>",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 304,
+            "line_end": 304
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "blocker",
+        "source_severity": "low",
+        "confidence": 0.78,
+        "confidence_reasoning": "The line contains an az admin-consent command, not reconnaissance, but executing it can grant tenant-wide consent to app permissions. This requires administrator review."
+      }
+    ],
     "medium_findings": [
       {
-        "title": "Long-Lived Delegated Permission Grant Example",
-        "description": "The OBO examples create AllPrincipals delegated grants with a 3650-day expiry. Copying this pattern can leave broad access active too long.",
+        "title": "Python HTTP libraries",
+        "description": "requests.patch(",
+        "locations": [
+          {
+            "file": "references/oauth2-token-flow.md",
+            "line_start": 21,
+            "line_end": 21
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.7,
+        "confidence_reasoning": "This PATCH changes identifierUris on the Blueprint application. It is part of setup, but it mutates OAuth audience configuration in the tenant."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "requests.post(",
+        "locations": [
+          {
+            "file": "references/oauth2-token-flow.md",
+            "line_start": 39,
+            "line_end": 39
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.78,
+        "confidence_reasoning": "This POST creates a federated identity credential on the Blueprint. Incorrect FIC subjects or issuers can allow unintended workload token exchange."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "requests.patch(",
+        "locations": [
+          {
+            "file": "references/obo-blueprint-setup.md",
+            "line_start": 41,
+            "line_end": 41
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.72,
+        "confidence_reasoning": "This PATCH configures OAuth2 scopes and pre-authorized applications on the Blueprint. It is intended setup, but it changes consent and token behavior."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "req = urllib.request.Request(",
+        "locations": [
+          {
+            "file": "references/runtime-token-exchange.md",
+            "line_start": 36,
+            "line_end": 36
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "with urllib.request.urlopen(req, timeout=10) as resp:",
+        "locations": [
+          {
+            "file": "references/runtime-token-exchange.md",
+            "line_start": 40,
+            "line_end": 40
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "req = urllib.request.Request(",
+        "locations": [
+          {
+            "file": "references/runtime-token-exchange.md",
+            "line_start": 91,
+            "line_end": 91
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "with urllib.request.urlopen(req, timeout=10) as resp:",
+        "locations": [
+          {
+            "file": "references/runtime-token-exchange.md",
+            "line_start": 95,
+            "line_end": 95
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "req = urllib.request.Request(",
+        "locations": [
+          {
+            "file": "references/runtime-token-exchange.md",
+            "line_start": 120,
+            "line_end": 120
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "with urllib.request.urlopen(req, timeout=10) as resp:",
+        "locations": [
+          {
+            "file": "references/runtime-token-exchange.md",
+            "line_start": 124,
+            "line_end": 124
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.68,
+        "confidence_reasoning": "The example submits client secrets, parent tokens, or user assertions to the Entra token endpoint. This is legitimate OAuth flow documentation, but mishandling these values can expose credentials or bearer tokens."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "resp = requests.get(endpoint, headers={\"Authorization\": token}, timeout=10)",
+        "locations": [
+          {
+            "file": "references/sdk-sidecar-deployment.md",
+            "line_start": 24,
+            "line_end": 24
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.64,
+        "confidence_reasoning": "The helper sends an acquired authorization header to a caller-supplied endpoint. It is a sample pattern, but an untrusted endpoint would receive the bearer token."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "resp = requests.post(",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 147,
+            "line_end": 147
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.72,
+        "confidence_reasoning": "This POST creates an Agent Identity Blueprint in Microsoft Graph. The call is explicit and intended, but it mutates tenant identity configuration."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "resp = requests.post(",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 165,
+            "line_end": 165
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.72,
+        "confidence_reasoning": "This POST creates the BlueprintPrincipal service principal in Microsoft Graph. The call is expected, but it changes tenant identity state."
+      },
+      {
+        "title": "Python HTTP libraries",
+        "description": "resp = requests.post(",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 186,
+            "line_end": 186
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.72,
+        "confidence_reasoning": "This POST creates an Agent Identity service principal. It is an intended Graph operation, but it provisions a new tenant identity."
+      },
+      {
+        "title": "Broad Long-Lived Delegated Grants",
+        "description": "The examples show tenant-wide delegated grants with multi-year expiry and broad Graph scopes. This is valid for some agents, but it can over-authorize agents if copied without least-privilege review.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 247,
-            "line_end": 257
+            "line_end": 259
           },
           {
             "file": "references/obo-blueprint-setup.md",
             "line_start": 61,
-            "line_end": 71
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "Both cited examples set a ten-year expiry and AllPrincipals consent for delegated Graph scopes, which is a clear least-privilege concern."
-      },
-      {
-        "title": "Unauthenticated Sidecar Endpoint Requires Isolation",
-        "description": "The sidecar exposes unauthenticated token acquisition endpoints. The skill warns to keep it local, but public exposure could allow token theft.",
-        "locations": [
-          {
-            "file": "references/sdk-sidecar.md",
-            "line_start": 106,
-            "line_end": 112
-          },
-          {
-            "file": "references/sdk-sidecar-deployment.md",
-            "line_start": 180,
-            "line_end": 185
+            "line_end": 72
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
         "confidence": 0.86,
-        "confidence_reasoning": "The endpoint table lists unauthenticated token acquisition paths and the deployment guide confirms local-only exposure is required."
+        "confidence_reasoning": "Both cited examples set long expiry times and create oauth2PermissionGrants for all principals. The risk is contextual but directly evidenced by the documented grant patterns."
       }
     ],
     "low_findings": [],
-    "dangerous_patterns": [],
+    "dangerous_patterns": [
+      {
+        "title": "System reconnaissance",
+        "description": "az ad app permission admin-consent --id <client-id>",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 304,
+            "line_end": 304
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "blocker",
+        "source_severity": "low",
+        "confidence": 0.78,
+        "confidence_reasoning": "The line contains an az admin-consent command, not reconnaissance, but executing it can grant tenant-wide consent to app permissions. This requires administrator review."
+      }
+    ],
     "files_scanned": 7,
     "total_lines": 1153,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T22:52:16.096Z",
-    "agent_auto_install_policy": "allowed",
+    "audited_at": "2026-07-08T05:24:34.608Z",
+    "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Implement Entra Agent Identity",
-    "value_statement": "Agent identity setup requires precise Graph objects, credentials, and token exchange rules. This skill gives structured guidance for Microsoft Entra Agent ID provisioning, OBO flows, and sidecar deployment.",
+    "user_title": "Provision Entra Agent Identities",
+    "value_statement": "Agent teams need distinct identities, grants, and audit trails for each AI agent instance. This skill guides Blueprint, Agent Identity, token exchange, and sidecar setup with Microsoft Graph.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "Microsoft Entra Agent ID",
       "Agent Identity Blueprint",
-      "Microsoft Graph",
-      "OAuth 2.0 token exchange",
-      "fmi_path",
-      "OBO authentication",
+      "Microsoft Graph OAuth",
+      "fmi_path token exchange",
+      "on-behalf-of flow",
+      "workload identity federation",
       "AgentID sidecar"
     ],
     "actual_capabilities": [
-      "Explains the Blueprint, BlueprintPrincipal, and Agent Identity object model.",
-      "Provides Microsoft Graph workflows for creating blueprints and per-agent identities.",
-      "Guides autonomous and OBO fmi_path token exchange flows.",
-      "Documents permission grants for app-only and delegated Microsoft Graph access.",
-      "Covers the Microsoft Entra SDK for AgentID sidecar configuration and deployment.",
-      "Lists common Agent ID errors and practical troubleshooting steps."
+      "Explains when to create Agent Identity Blueprints, BlueprintPrincipals, and per-instance Agent Identities.",
+      "Provides Microsoft Graph request patterns for provisioning identities and assigning Graph permissions.",
+      "Guides OAuth 2.0 fmi_path token exchange for autonomous and on-behalf-of agent flows.",
+      "Documents Workload Identity Federation, client secret, and managed identity credential options.",
+      "Shows sidecar deployment patterns for Python, TypeScript, Docker Compose, and Kubernetes.",
+      "Lists common Agent ID errors and operational fixes for setup and token exchange issues."
     ],
     "limitations": [
-      "Does not replace Microsoft Graph permissions, tenant roles, or administrator approval.",
-      "Uses sample code that must be adapted and reviewed before production use.",
-      "Requires current Microsoft documentation checks because Agent ID APIs may change.",
-      "Does not manage standard app registration, Azure RBAC, or Foundry agent authoring."
+      "It does not verify live Microsoft Graph API behavior without current documentation lookup.",
+      "It does not replace tenant administrator review for roles, consent, and permission grants.",
+      "It assumes the user has valid Entra roles and prepared app registrations or managed identities.",
+      "It provides examples, not a complete production identity governance program."
     ],
     "use_cases": [
       {
-        "title": "Provision Per-Agent Identities",
-        "target_user": "Identity engineer",
-        "description": "Create a Blueprint, BlueprintPrincipal, and separate Agent Identities for auditable agent instances."
+        "title": "Create Agent Identities",
+        "description": "Plan and provision a Blueprint, BlueprintPrincipal, and separate Agent Identity for each deployed agent instance.",
+        "target_user": "Identity platform engineer"
       },
       {
-        "title": "Design Agent Token Exchange",
-        "target_user": "Application developer",
-        "description": "Implement autonomous or on-behalf-of Graph access with fmi_path and per-agent permission boundaries."
+        "title": "Configure Agent Token Exchange",
+        "description": "Build autonomous or on-behalf-of token flows that give each agent its own Graph token and audit trail.",
+        "target_user": "Application security engineer"
       },
       {
-        "title": "Deploy AgentID Sidecar Authentication",
-        "target_user": "Platform engineer",
-        "description": "Configure the Microsoft Entra SDK for AgentID sidecar for polyglot agents in Docker or Kubernetes."
+        "title": "Deploy AgentID Sidecar",
+        "description": "Configure the Microsoft Entra SDK for AgentID sidecar for polyglot agents running in containers.",
+        "target_user": "DevOps engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Explain The Object Model",
-        "scenario": "Beginner orientation",
-        "prompt": "Explain how Agent Identity Blueprints, BlueprintPrincipals, and Agent Identities relate to each other. Include when each object is created."
+        "title": "Plan a Blueprint Setup",
+        "scenario": "Beginner setup planning",
+        "prompt": "Help me plan a Microsoft Entra Agent ID Blueprint for one agent type. List prerequisites, roles, and the creation order."
       },
       {
-        "title": "Plan A New Agent Identity Setup",
-        "scenario": "Basic implementation planning",
-        "prompt": "Help me plan a Microsoft Entra Agent ID setup for three agent instances. Include required Graph permissions, sponsors, and safe credential choices."
+        "title": "Create Agent Identities",
+        "scenario": "Provisioning workflow",
+        "prompt": "Guide me through creating a BlueprintPrincipal and three Agent Identities with least-privilege Microsoft Graph grants."
       },
       {
-        "title": "Debug A Token Exchange Failure",
-        "scenario": "Intermediate troubleshooting",
-        "prompt": "I am getting AADSTS700211 during fmi_path token exchange. Walk me through tenant, FIC, audience, scope, and Agent Identity checks."
+        "title": "Design Token Exchange",
+        "scenario": "Runtime authentication",
+        "prompt": "Design an fmi_path token exchange flow for autonomous agents using Workload Identity Federation in Azure."
       },
       {
-        "title": "Review A Production Sidecar Deployment",
-        "scenario": "Advanced security review",
-        "prompt": "Review my AgentID sidecar deployment design for production. Focus on localhost binding, workload identity, secret handling, and permission grants."
+        "title": "Review Sidecar Deployment",
+        "scenario": "Advanced production review",
+        "prompt": "Review my AgentID sidecar deployment plan for Kubernetes. Focus on localhost binding, secrets, workload identity, and permission boundaries."
       }
     ],
     "output_examples": [
       {
-        "input": "Plan a new Entra Agent ID deployment for a customer support agent.",
-        "output": [
-          "A step-by-step provisioning plan for the Blueprint, BlueprintPrincipal, and agent instances.",
-          "A list of required Graph permissions and consent steps.",
-          "Credential guidance that prefers workload identity for production."
-        ]
+        "input": "I need an Agent ID setup for a support agent and a billing agent.",
+        "output": "A role and object plan that separates the two agents, creates one Blueprint, and grants only needed Graph permissions per identity."
       },
       {
-        "input": "Troubleshoot why my OBO exchange returns AADSTS50013.",
-        "output": [
-          "A short diagnosis that checks the user token audience first.",
-          "Required Blueprint API configuration items for access_as_user.",
-          "Next checks for granted delegated scopes and token exchange parameters."
-        ]
+        "input": "My OBO exchange fails with AADSTS50013.",
+        "output": "A troubleshooting checklist that verifies the user token audience, Blueprint API scope, optional claims, and per-agent delegated grants."
       },
       {
-        "input": "Assess my sidecar deployment before release.",
-        "output": [
-          "A security checklist for local-only sidecar exposure.",
-          "Recommendations for workload identity and secret separation.",
-          "Operational checks for health probes, logs, and permission propagation delays."
-        ]
+        "input": "I want to run the AgentID sidecar in AKS.",
+        "output": "A deployment review covering workload identity, sidecar localhost binding, health probes, configuration separation, and public exposure risks."
       }
     ],
     "best_practices": [
-      "Verify Microsoft Graph endpoints and request shapes against current Microsoft Learn documentation before running commands.",
-      "Use workload identity or federated identity credentials for production instead of client secrets.",
-      "Grant permissions per Agent Identity and keep the AgentID sidecar reachable only from trusted local workloads."
+      "Verify current Microsoft Learn guidance before running Graph requests because Agent ID API shapes can change.",
+      "Use Workload Identity Federation or managed identity for production instead of client secrets.",
+      "Grant permissions per Agent Identity and review every admin consent action before execution."
     ],
     "anti_patterns": [
-      "Do not expose unauthenticated sidecar endpoints through public ingress, load balancers, or shared networks.",
-      "Do not grant broad Graph scopes to every Agent Identity without a per-agent access review.",
-      "Do not paste generated client secrets into source control, chat logs, or container manifests."
+      "Do not expose the AgentID sidecar through a public LoadBalancer, Ingress, or shared network path.",
+      "Do not grant broad Graph scopes to every agent when each identity needs a narrower permission set.",
+      "Do not use Azure CLI tokens or DefaultAzureCredential for Agent ID APIs when the flow rejects those tokens."
     ],
     "faq": [
       {
-        "question": "Is this skill for normal Entra app registration?",
-        "answer": "No. It is focused on Entra Agent Identity Blueprints, BlueprintPrincipals, Agent Identities, and related token flows."
+        "question": "What is Microsoft Entra Agent ID?",
+        "answer": "It is an Entra identity model for AI agents, with separate identities and audit trails per agent instance."
       },
       {
-        "question": "Can it create resources automatically?",
-        "answer": "No. It provides guidance and sample requests. A user or automation must run commands with appropriate tenant permissions."
+        "question": "Does this skill create standard app registrations?",
+        "answer": "No. It focuses on Agent Identity Blueprints, BlueprintPrincipals, Agent Identities, and related token exchange flows."
       },
       {
-        "question": "Why does this skill need careful review?",
-        "answer": "It covers privileged identity, token, secret, and permission workflows. Review every generated request before running it."
+        "question": "Can I use this with Claude, Codex, and Claude Code?",
+        "answer": "Yes. The skill content is compatible with Claude, Codex, and Claude Code workflows."
       },
       {
-        "question": "Does it support OBO authentication?",
-        "answer": "Yes. It explains Blueprint API setup, delegated grants, user token audience requirements, and the OBO token exchange path."
+        "question": "Does it support on-behalf-of authentication?",
+        "answer": "Yes. It explains Blueprint API setup, delegated grants, and the OBO exchange path for user-delegated agent access."
       },
       {
-        "question": "Can it help with non-.NET agents?",
-        "answer": "Yes. It covers the Microsoft Entra SDK for AgentID sidecar for Python, Node, Go, Java, and other runtimes."
+        "question": "Should I use client secrets in production?",
+        "answer": "No. Use Workload Identity Federation or managed identity for production deployments whenever possible."
       },
       {
-        "question": "What should I verify before production use?",
-        "answer": "Verify current Microsoft documentation, least-privilege Graph grants, secure credential storage, and local-only sidecar exposure."
+        "question": "Does the sidecar need public network access?",
+        "answer": "No. Keep the AgentID sidecar on localhost or the same private container network."
       }
     ]
   },

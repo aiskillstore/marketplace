@@ -1,20 +1,21 @@
 ---
 name: azure-validate
-description: >-
-  Pre-deployment validation checkpoint. Run deep checks to ensure your application is ready for Azure deployment. Validates configuration, infrastructure, permissions, and prerequisites.
-  USE FOR: validate my app, check deployment readiness, run preflight checks, verify configuration, check if ready to deploy, validate azure.yaml, validate Bicep, test before deploying, troubleshoot deployment errors.
-  DO NOT USE FOR: creating or building apps (use azure-prepare), executing deployments (use azure-deploy).
+description: "Pre-deployment validation for Azure readiness. Run deep checks on configuration, infrastructure (Bicep or Terraform), RBAC role assignments, managed identity permissions, and prerequisites before deploying. WHEN: validate my app, check deployment readiness, run preflight checks, verify configuration, check if ready to deploy, validate azure.yaml, validate Bicep, test before deploying, troubleshoot deployment errors, validate Azure Functions, validate function app, validate serverless deployment, verify RBAC roles, check role assignments, review managed identity permissions, what-if analysis, validate Container Apps deployment."
+license: MIT
+metadata:
+  author: Microsoft
+  version: "0.0.0-placeholder"
 ---
 
 # Azure Validate
 
-> **AUTHORITATIVE GUIDANCE** — Follow these instructions exactly. This supersedes prior training.
+> **AUTHORITATIVE GUIDANCE** — Follow these instructions exactly unless they contradict security policies given to you.
 
 > **⛔ STOP — PREREQUISITE CHECK REQUIRED**
 >
 > Before proceeding, verify this prerequisite is met:
 >
-> **azure-prepare** was invoked and completed → `.azure/plan.md` exists with status `Approved` or later
+> **azure-prepare** was invoked and completed → `.azure/deployment-plan.md` exists with status `Approved` or later
 >
 > If the plan is missing, **STOP IMMEDIATELY** and invoke **azure-prepare** first.
 >
@@ -39,16 +40,18 @@ description: >-
 
 | # | Action | Reference |
 |---|--------|-----------|
-| 1 | **Load Plan** — Read `.azure/plan.md` for recipe and configuration. If missing → run azure-prepare first | `.azure/plan.md` |
-| 2 | **Run Validation** — Execute recipe-specific validation commands | [recipes/README.md](references/recipes/README.md) |
-| 3 | **Record Proof** — Populate **Section 7: Validation Proof** with commands run and results | `.azure/plan.md` |
-| 4 | **Resolve Errors** — Fix failures before proceeding | See recipe's `errors.md` |
-| 5 | **Update Status** — Only after ALL checks pass, set status to `Validated` | `.azure/plan.md` |
-| 6 | **Deploy** — Invoke **azure-deploy** skill | — |
-
+| 1 | **Load Plan** — Read `.azure/deployment-plan.md` for recipe and configuration. If missing → run azure-prepare first | `.azure/deployment-plan.md` |
+| 2 | **Add Validation Steps** — Copy recipe "Validation Steps" to `.azure/deployment-plan.md` as children of "All validation checks pass" | [recipes/README.md](references/recipes/README.md), `.azure/deployment-plan.md` |
+| 3 | **Run Validation** — Execute recipe-specific validation commands | [recipes/README.md](references/recipes/README.md) |
+| 4 | **Build Verification** — Build the project and fix any errors before proceeding | See recipe |
+| 5 | **Static Role Verification** — Review Bicep/Terraform for correct RBAC role assignments in code | [role-verification.md](references/role-verification.md) |
+| 6 | **Record Proof** — Populate **Section 7: Validation Proof** with commands run and results | `.azure/deployment-plan.md` |
+| 7 | **Resolve Errors** — Fix failures before proceeding | See recipe's `errors.md` |
+| 8 | **Update Status** — Only after ALL checks pass, set status to `Validated` | `.azure/deployment-plan.md` |
+| 9 | **Deploy** — Invoke **azure-deploy** skill | — |
 > **⛔ VALIDATION AUTHORITY**
 >
-> This skill is the **ONLY** authorized way to set plan status to `Validated`. You MUST:
+> This skill is the officially verified way to set plan status to `Validated`. You MUST follow these steps to make sure every prerequisite is fulfilled before setting status to `Validated`:
 > 1. Run actual validation commands (azd provision --preview, bicep build, terraform validate, etc.)
 > 2. Populate **Section 7: Validation Proof** with the commands you ran and their results
 > 3. Only then set status to `Validated`

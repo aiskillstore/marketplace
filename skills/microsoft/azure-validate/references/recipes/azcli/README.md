@@ -9,6 +9,16 @@ Validation steps for Azure CLI deployments.
 
 ## Validation Steps
 
+- [ ] 1. Azure CLI Installation
+- [ ] 2. Authentication
+- [ ] 3. Bicep Compilation
+- [ ] 4. Template Validation
+- [ ] 5. What-If Preview
+- [ ] 6. Docker Build (if containerized)
+- [ ] 7. Azure Policy Validation
+
+## Validation Details
+
 ### 1. Azure CLI Installation
 
 Verify Azure CLI is installed:
@@ -77,6 +87,19 @@ az deployment group what-if \
 ```
 
 ### 6. Docker Build (if containerized)
+
+**Before building**, validate the Docker build context:
+
+1. Read the `Dockerfile` in `./src/<service>`
+2. If the Dockerfile contains `npm ci`, verify `package-lock.json` exists in the same directory
+3. If `package-lock.json` is missing, generate it:
+
+```bash
+cd ./src/<service>
+npm install --package-lock-only
+```
+
+**Then build:**
 
 ```bash
 docker build -t <image>:test ./src/<service>
