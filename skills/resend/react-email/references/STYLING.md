@@ -7,7 +7,7 @@ Comprehensive styling reference for React Email templates.
 Use the `Tailwind` component for styling if the project uses Tailwind CSS. Otherwise, use inline styles.
 
 ```tsx
-import { Tailwind, pixelBasedPreset } from '@react-email/components';
+import { Tailwind, pixelBasedPreset } from 'react-email';
 
 <Tailwind
   config={{
@@ -30,7 +30,7 @@ import { Tailwind, pixelBasedPreset } from '@react-email/components';
 Email clients don't support `rem` units. Always use `pixelBasedPreset` in your Tailwind configuration to convert rem-based utilities to pixels:
 
 ```tsx
-import { pixelBasedPreset } from '@react-email/components';
+import { pixelBasedPreset } from 'react-email';
 
 <Tailwind config={{ presets: [pixelBasedPreset] }}>
 ```
@@ -153,13 +153,21 @@ Use consistent spacing that respects content hierarchy. Larger margins for headi
 - Never distort user-provided images
 - Never create SVG images
 - Always use absolute URLs
-- Include `alt` text for accessibility
+- Set descriptive `alt` text on meaningful images; pass an explicit `alt=""` on decorative images so screen readers skip them — never omit the attribute
 
 ```tsx
+{/* Meaningful image — describe purpose and details */}
 <Img
-  src="https://example.com/image.png"
-  alt="Description"
+  src="https://example.com/hero.png"
+  alt="A team of engineers reviewing code on a laptop"
   className="w-full h-auto"
+/>
+
+{/* Decorative image — always pass an empty alt string so screen readers skip it */}
+<Img
+  src="https://example.com/divider.png"
+  alt=""
+  className="w-full"
 />
 ```
 
@@ -228,7 +236,7 @@ Create a centralized Tailwind config file that all email templates import. Using
 
 ```tsx
 // emails/tailwind.config.ts
-import { pixelBasedPreset, type TailwindConfig } from '@react-email/components';
+import { pixelBasedPreset, type TailwindConfig } from 'react-email';
 
 export default {
   presets: [pixelBasedPreset],

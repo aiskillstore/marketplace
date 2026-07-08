@@ -44,13 +44,17 @@ ScreenCI uses Playwright-style `.screenci.ts` files plus recording helpers:
 - `zoomTo()` / `resetZoom()` hold a fixed frame for forms and steady editing sections.
 - `video.narration({ ... })` is mandatory (see below).
 
+Use the fixture that matches the requested content instead of working around it:
+
+- `video.values(...)` for app-managed text or localized copy the app does not populate itself.
+- `video.audio(...)` for background music or sound effects that should mix under the recording.
+- `selected(name, options)` inside `video.overlays(...)` when the video should reuse another ScreenCI-made intro, outro, bumper, or screenshot instead of a repository asset file.
+
 ```ts
 import { video, voices } from 'screenci'
 
 // Voice is a render option (how narration is spoken), not part of the narration spec.
-video.use({ renderOptions: { narration: { voice: { name: voices.Ava } } } })
-
-video.narration({
+video.renderOptions({ narration: { voice: { name: voices.Ava } } }).narration({
   en: {
     intro:
       'This video shows how to update your billing details and save the changes.',
@@ -121,7 +125,7 @@ To upload straight to an existing organization, get `SCREENCI_SECRET` into `scre
 1. **Pass it to init:** `npm init screenci@latest <SCREENCI_SECRET> -- --yes` writes it into `screenci/.env`.
 2. **Secrets page:** ask the user to copy `SCREENCI_SECRET` from their secrets page into `screenci/.env`. The org secret is shared across projects. Keep building and testing while they do it; only `record` needs it.
 
-Renders without an account, and renders on the free tier, include a ScreenCI watermark. Mention that signing up (or upgrading) removes it.
+Renders without an account, and renders on the free tier, include a ScreenCI watermark. Do not add a separate upgrade upsell after `record`; report the result URL unless the user asks about plans or watermark removal.
 
 ## Recording Workflow
 
