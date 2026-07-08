@@ -390,10 +390,12 @@ test('download action invalidates stale local CLI cache entries', () => {
 
 test('source monitor requires checkout-cache-capable CLI before scanning', () => {
 	const workflow = readFileSync(MONITOR_WORKFLOW, 'utf8');
-	assert.match(workflow, /Use latest for source monitor runs/, 'operator-facing input text must tell operators to use latest');
+	assert.match(workflow, /version: latest/, 'source monitor must always download the latest CLI');
+	assert.doesNotMatch(workflow, /cli_version:/, 'source monitor must not expose a fixed CLI version input');
+	assert.doesNotMatch(workflow, /inputs\.cli_version/, 'source monitor must not consume a fixed CLI version input');
 	assert.match(workflow, /MONITOR_HELP=/, 'workflow must feature-probe monitor-upstream once before building the command');
 	assert.match(workflow, /grep -q -- '--checkoutCacheDir' <<<"\$MONITOR_HELP"/, 'workflow must check for checkout cache support');
-	assert.match(workflow, /Re-run with cli_version=latest/, 'old CLI must direct operators back to latest');
+	assert.match(workflow, /Latest Skillstore CLI does not support --checkoutCacheDir/, 'old latest CLI must fail before expensive upstream downloads');
 	assert.match(workflow, /Older CLI versions re-download upstream checkouts and burn runner\/network traffic/, 'old CLI must fail before expensive upstream downloads');
 	assert.match(workflow, /exit 1/, 'missing checkout cache support must stop the scan');
 	assert.doesNotMatch(workflow, /upstream checkouts will not use the persistent runner cache/, 'workflow must not silently continue without checkout caching');
