@@ -89,6 +89,8 @@ tail -f /tmp/session.log
 
 **Note:** See `OBSERVING_SESSIONS.md` for comprehensive guide on monitoring serial sessions.
 
+See [examples.md](examples.md) for full worked attack walkthroughs: basic connection/enumeration, U-Boot bootloader exploitation, login-auth bypass, privilege escalation from a limited user, and firmware extraction.
+
 ### Monitor Mode (Passive Listening)
 
 **NEW FEATURE**: Monitor mode is designed for passive UART monitoring where the device outputs logs without prompts or interaction.

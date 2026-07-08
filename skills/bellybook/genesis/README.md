@@ -71,7 +71,7 @@ Claude：请选择初始化模式...
 你：A
 
 Claude：[复制模板 → uv sync → 启动服务]
-        项目已创建，运行 ./local-run.sh 启动
+        项目已创建，运行 ./deploy/local-run.sh 启动
 ```
 
 ### 创建 Go 后端

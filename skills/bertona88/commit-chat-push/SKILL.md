@@ -26,14 +26,29 @@ The helper script exports a transcript from local Codex JSONL sessions. Prefer t
 3. Export the Codex transcript.
    - Use an existing repo convention for transcripts if one exists, such as `docs/codex-sessions/`, `codex-sessions/`, `.codex/chats/`, or `devlog/`.
    - Otherwise use `docs/codex-sessions/`.
-   - Run:
+   - Before exporting, create a fresh marker with a tiny completed command:
+
+```bash
+python3 - <<'PY'
+import datetime as dt
+import secrets
+
+print(f"codex-session-anchor: {dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}")
+PY
+```
+
+   - Copy the printed marker exactly, then run:
 
 ```bash
 python3 "${CODEX_HOME:-$HOME/.codex}/skills/commit-chat-push/scripts/export_codex_session.py" \
   --repo "$(pwd)" \
+  --anchor 'PASTE_PRINTED_MARKER_HERE' \
+  --require-anchor \
   --output-dir docs/codex-sessions \
   --tool-output none
 ```
+
+   - If `--require-anchor` fails, wait briefly and rerun with the same marker. If it still fails, inspect candidate sessions manually and rerun with `--session /path/to/rollout-....jsonl`.
 
 4. Review the exported transcript before staging.
    - Read enough of the file to confirm it is the intended session.
@@ -68,7 +83,9 @@ Includes Codex session transcript: docs/codex-sessions/2026-05-03-commit-transcr
 
 ## Selecting A Session
 
-By default, `export_codex_session.py` selects the newest Codex JSONL session whose `session_meta.cwd` matches the current repository. If that is wrong, rerun it with `--session /path/to/rollout-....jsonl`.
+Prefer anchor-based selection. The marker command above finishes before export, so the JSONL for the current session should contain the marker in a tool record even when multiple sessions share the same repo cwd. `--anchor` prefers sessions containing the exact marker; `--require-anchor` prevents silently exporting a merely-newest repo session when the marker is missing.
+
+Without an anchor, `export_codex_session.py` selects the newest Codex JSONL session whose `session_meta.cwd` matches the current repository. If that is wrong, rerun it with `--session /path/to/rollout-....jsonl`.
 
 Useful options:
 
@@ -79,6 +96,8 @@ python3 "${CODEX_HOME:-$HOME/.codex}/skills/commit-chat-push/scripts/export_code
 - `--output-dir PATH`: write a generated Markdown filename in `PATH`.
 - `--output PATH`: write to an exact Markdown path.
 - `--session PATH`: export a specific JSONL session.
+- `--anchor TEXT`: prefer a session JSONL containing exact marker text.
+- `--require-anchor`: fail unless the selected session contains `--anchor`.
 - `--tool-output none|brief|full`: control command output included in the transcript. Default is `none`; use `brief` only after considering whether prior commands printed secrets or raw session JSON.
 - `--include-local-paths`: include full local source paths in metadata. By default, home paths are shortened to `~`.
 

@@ -2,6 +2,7 @@
 name: project-scaffolder
 description: "Creates plan.md, task.md, persona.md, project-context.md, and CLAUDE.md for new self-learning resource projects. Use when: (1) /init command is invoked, (2) setting up a new tutorial/guide/documentation project, (3) structure-designer agent needs templates for learning resource structure design. Provides hierarchical Part/Chapter/Section templates with page allocation."
 allowed-tools: Read, Write, Bash, Glob
+user-invocable: false
 ---
 
 # Project Scaffolder Skill

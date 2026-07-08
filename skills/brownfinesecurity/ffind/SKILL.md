@@ -63,6 +63,7 @@ sudo ffind /path/to/firmware.bin -e -d /tmp/my-extraction
 
 ## Important Notes
 
+- **Name collision**: The Sleuth Kit also ships a `ffind` (it finds file names for a given inode and takes a disk image plus an inode number). If `which ffind` points at `/usr/bin/ffind` or `/usr/local/bin/ffind`, the iothackbot flags below (`-e`, `-d <dir>`, `-a`, `--format`) will be misread by the wrong binary. Confirm with `ffind --help` (the iothackbot tool shows `--extract`/`--format`); if it shows `image inode` usage, invoke the iothackbot tool by its full path in the repo `bin/` directory instead.
 - Extraction requires root/sudo privileges
 - Requires external tools: e2fsprogs, f2fs-tools, util-linux
 - Identifies "artifact" file types relevant to security analysis by default

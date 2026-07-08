@@ -2,6 +2,7 @@
 name: project-interview
 description: "Resources for conversational interviews to create learner profiles. Used by project-interviewer agent during /init."
 allowed-tools: Read, Write, AskUserQuestion
+user-invocable: false
 ---
 
 # Project Interview Skill

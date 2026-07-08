@@ -1,6 +1,8 @@
 ---
 name: tikzjax-diagramming
 description: Create TikZ diagrams in Obsidian using TikZJax plugin. Use when visualizing geometric shapes, coordinate systems, game scenes, circuit diagrams, chemical structures, or complex technical drawings that require precise positioning.
+context: fork
+user-invocable: false
 ---
 
 # TikZJax Diagramming for Obsidian

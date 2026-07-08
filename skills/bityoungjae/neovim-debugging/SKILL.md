@@ -2,6 +2,7 @@
 name: neovim-debugging
 description: "Debug Neovim/LazyVim configuration issues. Use when: user reports Neovim errors, keymaps not working, plugins failing, or config problems. Provides systematic diagnosis through hypothesis testing, not just checklists. Think like a detective narrowing down possibilities."
 allowed-tools: Read, Bash, Grep, Glob, AskUserQuestion
+user-invocable: false
 ---
 
 # Neovim/LazyVim Debugging Skill

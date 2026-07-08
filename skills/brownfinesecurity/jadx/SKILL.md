@@ -119,11 +119,10 @@ jadx --deobf app.apk -d output
 
 **Deobfuscation map output:**
 ```bash
-jadx --deobf --deobf-rewrite-cfg --deobf-use-sourcename app.apk -d output
+jadx --deobf --deobf-use-sourcename app.apk -d output
 ```
 - More aggressive deobfuscation
-- Uses source file names as hints
-- Rewrites control flow graphs
+- Uses source file names as hints for renamed identifiers
 
 #### C. Output Control
 
@@ -458,15 +457,7 @@ jadx --no-res app.apk -d output
 
 ### 4. Search Systematically
 
-Create a search checklist:
-- [ ] API keys and secrets
-- [ ] Hardcoded credentials
-- [ ] URLs and endpoints
-- [ ] Crypto implementations
-- [ ] Insecure storage
-- [ ] WebView vulnerabilities
-- [ ] Debug/logging code
-- [ ] Commented-out sensitive code
+Work through the Security Analysis Checklist at the end of this skill rather than grepping ad hoc.
 
 ### 5. Use GUI for Deep Analysis
 
@@ -502,16 +493,12 @@ jadx --deobf app.apk -d output
 
 ### Problem: Out of memory error
 
-**Solution**: Increase Java heap size:
+**Solution**: Increase Java heap size via the JVM options the jadx launcher reads (`JAVA_OPTS` or `JADX_OPTS`):
 ```bash
 export JAVA_OPTS="-Xmx4096m"
 jadx app.apk -d output
 ```
-
-Or use the built-in option:
-```bash
-jadx -Xmx4096m app.apk -d output
-```
+(jadx has no `-Xmx` argument of its own; the heap size must be passed to the JVM, not to jadx.)
 
 ### Problem: Decompilation is very slow
 

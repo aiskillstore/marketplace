@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-06T05:28:35.350Z",
+    "generated_at": "2026-07-07T21:14:35.097Z",
     "slug": "bohuyeshan-apb-document-generation",
     "source_url": "https://github.com/BOHUYESHAN-APB/N-T-AI/tree/main/backend/app/skills/common/document_skill",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "451afd5e9b9f4d3dd5ff586a021b581646838af431d30005ea11f7fdb7bc8fea",
-    "tree_hash": "9ae6355bf110810993c058a2ed623cb56c2d95579a88c1500df4596b8273a0b0",
+    "content_hash": "7c2237eab69c376860c9d25e27aeae4d6ef0e9882815222a6ef63771e749bedd",
+    "tree_hash": "13cdc7822aa7b3fe582609a15105976e0d6f971ee27efa98a843a238a1c91f62",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,10 +23,10 @@
   },
   "skill": {
     "name": "document-generation",
-    "description": "Generate Word, PowerPoint, Excel, and PDF documents from structured content and simple HTML inputs.",
-    "summary": "Creates common Office documents and extracts PDF text for document automation workflows.",
+    "description": "Generate and process Word, PowerPoint, Excel, and PDF documents from structured content.",
+    "summary": "Creates common office documents and extracts PDF text for document workflows.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "BOHUYESHAN-APB",
     "license": "MIT",
     "tags": [
@@ -56,21 +53,21 @@
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most static findings are false positives from Markdown code fences, CSS text, comments, or routine output directory handling. The real risks are unvalidated remote image downloads in Word and PowerPoint generation, plus unsanitized output filenames that can escape intended output directories.",
+    "summary": "Most static findings are false positives from Markdown code fences, CSS, comments, or expected temporary-file cleanup. The real issues are caller-controlled remote image fetching in Word and PowerPoint generation, plus unsanitized output filenames that can escape intended output directories.",
     "remediation": [
       {
-        "issue": "Remote image URLs are fetched during Word and PowerPoint generation without network policy controls.",
-        "suggestion": "Restrict image fetching to approved schemes and hosts, block private network ranges, enforce timeouts, verify content type, and cap response size.",
+        "issue": "Caller-controlled remote image fetching",
+        "suggestion": "Allow only approved http and https hosts, block private and link-local addresses, set timeouts, validate content type, and cap response size before embedding images.",
+        "severity": "low"
+      },
+      {
+        "issue": "Unsanitized output filenames",
+        "suggestion": "Normalize filenames to a safe basename, reject absolute paths and parent directory segments, and verify resolved output paths remain inside the configured output directory.",
         "severity": "medium"
       },
       {
-        "issue": "Output filenames can escape the configured output directory.",
-        "suggestion": "Accept only safe basenames, reject absolute paths and parent directory segments, and verify resolved paths remain under the output directory before writing.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Temporary image files may remain on disk after PowerPoint image handling errors.",
-        "suggestion": "Use a try/finally cleanup block or a temporary directory context so downloaded image files are removed after any failure.",
+        "issue": "Temporary image cleanup can be skipped after insertion errors",
+        "suggestion": "Use a try-finally block or NamedTemporaryFile lifecycle that removes temporary files even when slide image insertion fails.",
         "severity": "low"
       }
     ],
@@ -277,119 +274,151 @@
       {
         "id": "filesystem:scripts/excel_generator.py:15:python-os-file-operations",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This creates the configured reports output directory when it does not exist. The line does not read sensitive files, execute commands, or use user-controlled paths directly."
+        "confidence": 0.88,
+        "reason": "The os.makedirs call only creates the configured Excel output directory before writing generated files. This is expected filesystem setup for a document generator, not unauthorized file access."
       },
       {
         "id": "blocker:scripts/pdf_generator.py:55:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The flagged text is a CSS style rule for an h2 element inside generated HTML. It performs no system inspection or environment discovery."
+        "reason": "The flagged line is static CSS for h2 styling inside generated HTML. It performs no system inspection or reconnaissance."
       },
       {
         "id": "network:scripts/ppt_generator.py:268:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "PowerPoint image generation fetches the supplied image URL with requests.get and only a timeout. There is no scheme, host, content type, or size validation, so attacker-controlled HTML can trigger SSRF or resource abuse."
+        "confidence": 0.84,
+        "severity": "low",
+        "reason": "The PowerPoint generator fetches caller-provided image URLs with requests.get. This is a legitimate feature, but it enables outbound network access without URL allowlists, private-address blocking, or response size checks."
       },
       {
         "id": "filesystem:scripts/ppt_generator.py:20:temp-file-creation",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This line only imports the tempfile module. Importing the library is not a security issue without unsafe temporary file use."
+        "confidence": 0.9,
+        "reason": "The tempfile import supports temporary image handling in the PowerPoint generator. Importing the module alone does not create files or expose user data."
       },
       {
         "id": "filesystem:scripts/ppt_generator.py:270:temp-file-creation",
-        "verdict": "confirmed",
-        "confidence": 0.61,
-        "severity": "low",
-        "reason": "The code writes downloaded image bytes into a delete=False temporary file and removes it only after add_picture succeeds. Failures between creation and cleanup can leave untrusted remote content on disk."
+        "verdict": "false_positive",
+        "confidence": 0.76,
+        "reason": "The temporary file stores a downloaded image before insertion into a slide and is later removed by the same helper. It is expected transient document-generation behavior, although cleanup should be hardened."
       },
       {
         "id": "filesystem:scripts/ppt_generator.py:278:python-os-file-operations",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The os.remove call deletes the temporary file path created by NamedTemporaryFile in the same function. It is not deleting an arbitrary user-supplied path."
+        "confidence": 0.87,
+        "reason": "The os.remove call deletes the temporary image file path created by NamedTemporaryFile in the same function. It is cleanup for a local temp artifact, not arbitrary file deletion."
       },
       {
         "id": "blocker:scripts/ppt_generator.py:204:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The flagged line is a comment about recursive HTML parsing with BeautifulSoup. It does not access system metadata or run reconnaissance commands."
+        "reason": "The flagged line is a comment about recursive HTML parsing. It performs no host, environment, or network reconnaissance."
       },
       {
         "id": "blocker:scripts/ppt_generator.py:372:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The flagged line is a layout comment about placing tables in a slide column. It has no system inspection behavior."
+        "reason": "The flagged line is a layout comment about placing tables in the left column. It has no system inspection behavior."
       },
       {
         "id": "network:scripts/word_generator.py:246:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "medium",
-        "reason": "Word generation fetches any http image source found in the input HTML without a timeout, allowlist, or response size limit. This can be abused for SSRF, tracking, or memory exhaustion."
+        "confidence": 0.86,
+        "severity": "low",
+        "reason": "The Word generator fetches caller-provided image URLs and embeds successful responses. The request has no timeout, allowlist, private-address blocking, or response size validation."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The backticks mark an inline directory name in Markdown documentation. They do not represent shell execution or runtime command invocation."
+        "reason": "The flagged text is Markdown documentation that names the scripts directory using inline code formatting. It does not invoke a shell or instruct command execution."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The flagged text begins a Markdown Python code fence showing API usage. It is documentation, not Ruby backtick execution or an external command call."
+        "confidence": 0.95,
+        "reason": "The flagged block is a fenced Python usage example in SKILL.md. It documents imports and method calls, not shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The flagged text closes a Markdown code fence. It has no execution semantics in the skill runtime."
+        "confidence": 0.96,
+        "reason": "The flagged line closes a Markdown code fence. It is documentation syntax and has no executable behavior."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The backticks mark documented folder names in Markdown. This is not command execution and does not launch a shell."
+        "reason": "The flagged text is a directory listing in Markdown with inline code formatting. It does not run Ruby, shell, or any external command."
       }
     ],
     "semantic_findings": [
       {
         "title": "Unsanitized Output Filename Path Traversal",
-        "description": "Document generators append trusted extensions and then join caller-provided filenames with output directories without basename checks or resolved-path containment checks. A filename containing parent directory segments or an absolute path can write outside the intended generated document folder.",
+        "description": "Generator methods append file extensions and join caller-provided filenames into output paths without rejecting absolute paths or parent directory segments. A crafted filename could write generated documents outside the intended output directory.",
         "severity": "medium",
         "locations": [
           {
             "file": "scripts/excel_generator.py",
-            "line_start": 32,
-            "line_end": 35
+            "line_start": 22,
+            "line_end": 32
           },
           {
             "file": "scripts/word_generator.py",
-            "line_start": 40,
+            "line_start": 36,
             "line_end": 43
           },
           {
             "file": "scripts/pdf_generator.py",
-            "line_start": 36,
+            "line_start": 32,
             "line_end": 39
           },
           {
             "file": "scripts/ppt_generator.py",
-            "line_start": 299,
+            "line_start": 295,
             "line_end": 302
           }
         ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The code directly combines caller-controlled filenames with output directories in multiple generators. No sanitization or containment check is visible at the cited locations."
+        "confidence": 0.86,
+        "confidence_reasoning": "Each generator accepts a filename argument and combines it with the output directory without basename normalization or traversal checks. The evidence is direct path construction before saving generated files."
       }
     ],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [
+      {
+        "title": "Unsanitized Output Filename Path Traversal",
+        "description": "Generator methods append file extensions and join caller-provided filenames into output paths without rejecting absolute paths or parent directory segments. A crafted filename could write generated documents outside the intended output directory.",
+        "locations": [
+          {
+            "file": "scripts/excel_generator.py",
+            "line_start": 22,
+            "line_end": 32
+          },
+          {
+            "file": "scripts/word_generator.py",
+            "line_start": 36,
+            "line_end": 43
+          },
+          {
+            "file": "scripts/pdf_generator.py",
+            "line_start": 32,
+            "line_end": 39
+          },
+          {
+            "file": "scripts/ppt_generator.py",
+            "line_start": 295,
+            "line_end": 302
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "Each generator accepts a filename argument and combines it with the output directory without basename normalization or traversal checks. The evidence is direct path construction before saving generated files."
+      }
+    ],
+    "low_findings": [
       {
         "title": "Python HTTP libraries",
         "description": "response = requests.get(url, timeout=10)",
@@ -403,8 +432,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "PowerPoint image generation fetches the supplied image URL with requests.get and only a timeout. There is no scheme, host, content type, or size validation, so attacker-controlled HTML can trigger SSRF or resource abuse."
+        "confidence": 0.84,
+        "confidence_reasoning": "The PowerPoint generator fetches caller-provided image URLs with requests.get. This is a legitimate feature, but it enables outbound network access without URL allowlists, private-address blocking, or response size checks."
       },
       {
         "title": "Python HTTP libraries",
@@ -419,182 +448,134 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "Word generation fetches any http image source found in the input HTML without a timeout, allowlist, or response size limit. This can be abused for SSRF, tracking, or memory exhaustion."
-      },
-      {
-        "title": "Unsanitized Output Filename Path Traversal",
-        "description": "Document generators append trusted extensions and then join caller-provided filenames with output directories without basename checks or resolved-path containment checks. A filename containing parent directory segments or an absolute path can write outside the intended generated document folder.",
-        "locations": [
-          {
-            "file": "scripts/excel_generator.py",
-            "line_start": 32,
-            "line_end": 35
-          },
-          {
-            "file": "scripts/word_generator.py",
-            "line_start": 40,
-            "line_end": 43
-          },
-          {
-            "file": "scripts/pdf_generator.py",
-            "line_start": 36,
-            "line_end": 39
-          },
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 299,
-            "line_end": 302
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The code directly combines caller-controlled filenames with output directories in multiple generators. No sanitization or containment check is visible at the cited locations."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Temp file creation",
-        "description": "with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(url)[1] or \".jpg\") as tmp:",
-        "locations": [
-          {
-            "file": "scripts/ppt_generator.py",
-            "line_start": 270,
-            "line_end": 270
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "low",
-        "confidence": 0.61,
-        "confidence_reasoning": "The code writes downloaded image bytes into a delete=False temporary file and removes it only after add_picture succeeds. Failures between creation and cleanup can leave untrusted remote content on disk."
+        "confidence": 0.86,
+        "confidence_reasoning": "The Word generator fetches caller-provided image URLs and embeds successful responses. The request has no timeout, allowlist, private-address blocking, or response size validation."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 7,
     "total_lines": 1031,
     "audit_model": "codex",
-    "audited_at": "2026-07-06T05:28:35.350Z",
+    "audited_at": "2026-07-07T21:14:35.097Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Generate Office Documents from Structured Content",
-    "value_statement": "Teams often need repeatable Word, PowerPoint, Excel, and PDF files from structured content. This skill provides Python document generators for Claude, Codex, and Claude Code workflows.",
+    "user_title": "Generate Office Documents From Structured Content",
+    "value_statement": "Teams often need Word, PowerPoint, Excel, and PDF files without switching tools. This skill helps Claude, Codex, and Claude Code create and process common office documents from structured content.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "document generation",
       "office automation",
-      "Word generator",
-      "PowerPoint generator",
-      "Excel export",
-      "PDF generation",
+      "Word reports",
+      "PowerPoint presentations",
+      "Excel spreadsheets",
+      "PDF reports",
       "document processing"
     ],
     "actual_capabilities": [
-      "Generates DOCX documents from HTML with headings, paragraphs, lists, tables, inline styles, and images.",
-      "Creates PPTX presentations from slide-oriented HTML with titles, text blocks, tables, charts, and images.",
-      "Exports spreadsheet rows from a list of dictionaries into XLSX files.",
-      "Renders HTML or plain text content into PDF documents using WeasyPrint.",
-      "Extracts text from PDF files and converts Markdown into HTML for downstream generation."
+      "Generate DOCX reports from HTML with headings, paragraphs, lists, tables, and images.",
+      "Generate PPTX slide decks from HTML sections with themes, tables, charts, and images.",
+      "Generate XLSX spreadsheets from row-based data using pandas and openpyxl.",
+      "Generate PDF files from HTML or plain text using WeasyPrint.",
+      "Extract text from PDF files with pdfplumber.",
+      "Convert Markdown content to HTML for document generation workflows."
     ],
     "limitations": [
-      "PDF extraction is implemented, but Word, PowerPoint, and Excel extraction are not implemented in the scripts.",
-      "Remote image fetching needs network safety controls before use with untrusted HTML.",
-      "Generated layouts are basic and may need manual review for complex branding or dense content.",
-      "Filename inputs should be sanitized by the caller until the skill enforces path containment."
+      "Filename safety depends on the caller until path validation is added.",
+      "Remote images in Word and PowerPoint content may trigger outbound network requests.",
+      "PDF extraction focuses on text and may not preserve exact layout or images.",
+      "Complex Office layouts may need manual review after generation."
     ],
     "use_cases": [
       {
-        "title": "Generate Client Reports",
-        "description": "Create Word or PDF reports from prepared HTML sections, tables, and summary text.",
-        "target_user": "Consultants and analysts"
+        "title": "Create Client Reports",
+        "description": "Generate Word or PDF reports from prepared analysis, tables, and narrative sections.",
+        "target_user": "Consultants and account teams"
       },
       {
         "title": "Build Presentation Drafts",
-        "description": "Turn structured slide content into a PowerPoint deck with titles, text, tables, charts, and images.",
-        "target_user": "Product and sales teams"
+        "description": "Turn structured HTML slide content into a PowerPoint deck with titles, visuals, tables, and charts.",
+        "target_user": "Product managers and strategy teams"
       },
       {
-        "title": "Export Operational Data",
-        "description": "Convert row-based business data into an Excel workbook for review, handoff, or reporting.",
-        "target_user": "Operations teams"
+        "title": "Prepare Spreadsheet Exports",
+        "description": "Create Excel files from row-based data for sharing, review, or downstream reporting.",
+        "target_user": "Operations and data analysts"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a Basic Document",
-        "scenario": "Beginner request for a simple Word or PDF output.",
-        "prompt": "Create a Word document from this content. Use clear headings, short paragraphs, and a simple table for any structured data I provide."
+        "title": "Generate a Basic Report",
+        "scenario": "Beginner report creation",
+        "prompt": "Create a short Word report from this outline. Include headings, paragraphs, and a summary table."
       },
       {
-        "title": "Draft a Slide Deck",
-        "scenario": "Intermediate request for a presentation from an outline.",
-        "prompt": "Convert this outline into a PowerPoint deck. Use one main idea per slide, concise bullet points, and tables only where they improve comparison."
+        "title": "Create a Slide Deck",
+        "scenario": "Intermediate presentation drafting",
+        "prompt": "Turn this meeting brief into a five-slide PowerPoint deck with clear titles, bullet points, and one table."
       },
       {
-        "title": "Export Data to Excel",
-        "scenario": "Intermediate request for spreadsheet generation.",
-        "prompt": "Create an Excel file from these rows. Preserve the column names, keep values readable, and use a filename that contains only letters, numbers, hyphens, and underscores."
+        "title": "Produce Multi-Format Outputs",
+        "scenario": "Advanced document package",
+        "prompt": "Generate a Word report, a PDF version, and an Excel appendix from this project data. Use safe filenames without path separators."
       },
       {
-        "title": "Produce a Report Package",
-        "scenario": "Advanced request combining multiple output formats.",
-        "prompt": "Generate a report package with a DOCX narrative, a PDF copy, a PPTX executive summary, and an XLSX data appendix from the supplied source material."
+        "title": "Process and Rebuild Content",
+        "scenario": "Advanced extraction and generation workflow",
+        "prompt": "Extract the key text from this PDF, convert it into structured HTML, then create a Word summary and a PowerPoint briefing."
       }
     ],
     "output_examples": [
       {
-        "input": "A project status outline with milestones, risks, owners, and next steps.",
-        "output": "A Word report with section headings, a risk table, owner assignments, and a concise action summary."
+        "input": "A project brief with milestones, risks, and budget rows.",
+        "output": "A Word report with section headings, narrative paragraphs, a risk list, and a milestone table."
       },
       {
-        "input": "A sales briefing with three product messages, market data, and a comparison table.",
-        "output": "A PowerPoint deck with title slides, message slides, a data chart, and a comparison table formatted for review."
+        "input": "HTML sections for a quarterly business review.",
+        "output": "A PowerPoint deck with one slide per section, themed titles, bullets, charts, and embedded images."
       },
       {
-        "input": "A list of monthly support metrics with categories, counts, and notes.",
-        "output": "An Excel workbook containing the provided rows as columns and records for analysis or sharing."
+        "input": "Rows of sales metrics and a short executive summary.",
+        "output": "An Excel workbook for the metrics and a PDF summary for distribution."
       }
     ],
     "best_practices": [
-      "Provide structured source content with clear headings, tables, and image references before generation.",
-      "Use safe filenames without path separators, parent directory segments, or user-specific secrets.",
-      "Review generated documents for layout quality, brand fit, and external image references before sharing."
+      "Use simple, safe filenames that contain no path separators.",
+      "Review generated documents when source content has complex tables, charts, or images.",
+      "Use trusted local images or approved image URLs for Word and PowerPoint generation."
     ],
     "anti_patterns": [
-      "Do not pass untrusted HTML that contains arbitrary remote image URLs without network controls.",
-      "Do not use this skill as a secure file conversion sandbox for unknown documents.",
-      "Do not rely on the README extraction claims for Word, PowerPoint, or Excel files without adding those processors."
+      "Do not pass absolute paths or parent directory segments as output filenames.",
+      "Do not embed untrusted remote image URLs in document content.",
+      "Do not expect perfect layout preservation when extracting PDF text."
     ],
     "faq": [
       {
         "question": "Which document formats can this skill generate?",
-        "answer": "It can generate DOCX, PPTX, XLSX, and PDF files through Python scripts."
+        "answer": "It can generate Word, PowerPoint, Excel, and PDF files using the included Python scripts."
       },
       {
-        "question": "Can it extract text from uploaded documents?",
-        "answer": "It includes PDF text extraction. The current scripts do not implement extraction for Word, PowerPoint, or Excel files."
+        "question": "Can it extract content from existing files?",
+        "answer": "It includes PDF text extraction and Markdown-to-HTML conversion for generation workflows."
       },
       {
         "question": "Does it work with Claude, Codex, and Claude Code?",
-        "answer": "Yes. The report declares support for Claude, Codex, and Claude Code workflows."
+        "answer": "Yes. The report marks compatibility with Claude, Codex, and Claude Code."
       },
       {
-        "question": "Can it include images in generated documents?",
-        "answer": "Yes. Word and PowerPoint generation can add local images and remote image URLs, but remote URLs need safety controls."
+        "question": "Can it create charts in presentations?",
+        "answer": "Yes. The PowerPoint generator can create chart slides from supported table-like content."
       },
       {
-        "question": "What inputs produce the best results?",
-        "answer": "Simple HTML, Markdown converted to HTML, structured rows, and concise outlines produce the most reliable output."
+        "question": "Does it fetch images from the internet?",
+        "answer": "Word and PowerPoint generation can fetch image URLs when source content includes remote images."
       },
       {
-        "question": "Is it safe to use with untrusted content?",
-        "answer": "Use caution. Validate filenames and restrict remote URL fetching before processing untrusted content."
+        "question": "What should users check before publishing generated files?",
+        "answer": "Users should review layout, image sources, filenames, and extracted text accuracy before sharing files."
       }
     ]
   },

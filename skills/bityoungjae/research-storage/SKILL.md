@@ -2,6 +2,7 @@
 name: research-storage
 description: "Research file storage conventions and templates for dokhak agents. Use when: (1) saving research results from research-collector or researcher agents, (2) reading cached research files, (3) checking if research exists for a section. Provides directory structure, file format templates, and naming conventions."
 allowed-tools: Read, Write, Glob
+user-invocable: false
 ---
 
 # Research Storage Skill

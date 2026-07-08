@@ -2,6 +2,7 @@
 name: domain-profiles
 description: "Domain-specific configuration profiles for learning resource creation. Defines search strategies, special fields, terminology policies, and content structures for different academic domains: technology, history, science, arts, and general. Use when researcher or writer agents need domain-adapted behavior."
 allowed-tools: Read, WebSearch, WebFetch
+user-invocable: false
 ---
 
 # Domain Profiles Skill
