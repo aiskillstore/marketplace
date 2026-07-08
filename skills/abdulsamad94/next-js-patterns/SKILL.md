@@ -1,5 +1,5 @@
 ---
-name: Next.js Patterns
+name: next-js-patterns
 description: Best practices and patterns for Next.js App Router, Server Actions, and Routing in this project.
 ---
 

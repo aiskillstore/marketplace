@@ -1,5 +1,5 @@
 ---
-name: ClickUp Integration Expert
+name: clickup-integration-expert
 description: When the user asks about ClickUp synchronization or syncing roadmaps with ClickUp
 ---
 
