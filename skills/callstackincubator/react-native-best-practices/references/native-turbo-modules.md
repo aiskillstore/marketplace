@@ -69,73 +69,7 @@ For local modules:
 npx create-react-native-library@latest awesome-library --local
 ```
 
-### 2. Enable Swift in iOS Module
-
-Update `awesome-library.podspec`:
-
-```diff
-- s.source_files = "ios/**/*.{h,m,mm,cpp}"
-+ s.source_files = "ios/**/*.{h,m,mm,cpp,swift}"
-```
-
-Create Swift file in Xcode (accept bridging header prompt).
-
-Update header file for Swift compatibility:
-
-```objc
-// AwesomeLibrary.h
-#import <Foundation/Foundation.h>
-
-#if __cplusplus
-#import "ReactCodegen/RNAwesomeLibrarySpec/RNAwesomeLibrarySpec.h"
-#endif
-
-@interface AwesomeLibrary : NSObject
-#if __cplusplus
-<NativeAwesomeLibrarySpec>
-#endif
-@end
-```
-
-Import header in bridging header:
-
-```objc
-// AwesomeLibrary-Bridging-Header.h
-#import "AwesomeLibrary.h"
-```
-
-Implement in Swift:
-
-```swift
-// AwesomeLibrary.swift
-import Foundation
-
-extension AwesomeLibrary {
-    @objc func multiply(_ a: Double, b: Double) -> NSNumber {
-        return (a * b) as NSNumber
-    }
-}
-```
-
-Bridge in Obj-C++:
-
-```objc
-// AwesomeLibrary.mm
-#import "AwesomeLibrary.h"
-
-#if __has_include("awesome_library/awesome_library-Swift.h")
-#import "awesome_library/awesome_library-Swift.h"
-#else
-#import "awesome_library-Swift.h"
-#endif
-
-@implementation AwesomeLibrary
-RCT_EXPORT_MODULE()
-RCT_EXTERN_METHOD(multiply:(double)a b:(double)b);
-@end
-```
-
-### 3. Run on Background Thread (iOS)
+### 2. Run on Background Thread (iOS)
 
 ```swift
 @objc func heavyOperation(
@@ -151,7 +85,7 @@ RCT_EXTERN_METHOD(multiply:(double)a b:(double)b);
 }
 ```
 
-### 4. Run on Background Thread (Android)
+### 3. Run on Background Thread (Android)
 
 ```kotlin
 class AwesomeLibraryModule(reactContext: ReactApplicationContext) :
@@ -174,7 +108,9 @@ class AwesomeLibraryModule(reactContext: ReactApplicationContext) :
 }
 ```
 
-### 5. Use C++ for Cross-Platform Code
+Use structured concurrency: keep a module-owned `CoroutineScope`, cancel it in `invalidate()`, avoid `GlobalScope.launch`, use `SupervisorJob` so one failed operation does not cancel unrelated in-flight work, and choose `Dispatchers.Default` for CPU work or `Dispatchers.IO` for disk/network/database work.
+
+### 4. Use C++ for Cross-Platform Code
 
 Create C++ Turbo Module for shared logic:
 
@@ -196,25 +132,7 @@ public:
 } // namespace facebook::react
 ```
 
-Register for iOS auto-linking:
-
-```objc
-// MyCppModuleRegistration.mm
-#include <ReactCommon/CxxTurboModuleUtils.h>
-
-@implementation MyCppModuleRegistration
-
-+ (void)load {
-    facebook::react::registerCxxModuleToGlobalModuleMap(
-        std::string(facebook::react::MyCppModule::kModuleName),
-        [&](std::shared_ptr<facebook::react::CallInvoker> jsInvoker) {
-            return std::make_shared<facebook::react::MyCppModule>(jsInvoker);
-        }
-    );
-}
-
-@end
-```
+Follow the registration mechanism documented for the React Native version you target. Avoid copying old `+load` registration workarounds unless current RN docs or template output still require them.
 
 ## Threading Summary
 
@@ -228,10 +146,10 @@ Register for iOS auto-linking:
 
 | Interface | Overhead | Notes |
 |-----------|----------|-------|
-| Obj-C ↔ C++ | ~0 | Compile-time |
-| Swift ↔ C++ | ~0 | Swift 5.9+ interop |
-| Kotlin ↔ C++ (JNI) | Medium | Per-call lookup |
-| C++ Turbo Module | Low | JSI direct access |
+| Obj-C / Obj-C++ ↔ C++ | Low | Common iOS interop path |
+| Swift ↔ C++ | Version-dependent | Verify supported Swift/Xcode/RN setup |
+| Kotlin ↔ C++ (JNI) | Higher | Batch calls and avoid per-item crossings |
+| C++ Turbo Module | Low | JSI direct access when correctly registered |
 
 **Tip**: C++ Turbo Modules skip JNI at runtime since JS holds direct C++ function references via JSI.
 
@@ -281,7 +199,7 @@ override fun heavyOperation(input: Double, promise: Promise?) {
 
 ## Common Pitfalls
 
-- **Sync methods that block**: Keep under 16ms or make async
+- **Sync methods that block**: Keep sync methods trivial and deterministic; make anything that can block, allocate heavily, perform I/O, or wait on locks async/background work
 - **Forgetting to cancel coroutine scope**: Causes memory leaks
 - **Not handling errors in async**: Always try/catch with reject
 - **Accessing UI from background**: Dispatch to main thread

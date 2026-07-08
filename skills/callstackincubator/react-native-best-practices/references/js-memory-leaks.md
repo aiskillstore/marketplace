@@ -6,7 +6,7 @@ tags: memory, leaks, profiling, cleanup
 
 # Skill: Hunt JS Memory Leaks
 
-Find and fix JavaScript memory leaks using React Native DevTools memory profiling.
+Find and fix JavaScript memory leaks using the React Native DevTools Memory tab, with `agent-device react-devtools` for related component context.
 
 ## Quick Pattern
 
@@ -37,16 +37,20 @@ useEffect(() => {
 
 ## Prerequisites
 
-- React Native DevTools accessible
+- React Native DevTools Memory tab or exported memory profile available
+- `agent-device react-devtools` for related component ownership/render debugging
 - App running in development mode
 
 ## Step-by-Step Instructions
 
+React Native DevTools supports heap snapshots, allocation instrumentation on timeline, and allocation sampling. Use allocation timeline to isolate leaks; use allocation sampling for lower-overhead long-running allocation profiling. Use `agent-device react-devtools` when you need token-efficient component tree, props, state, hooks, ownership, or render-cause context while investigating the leak.
+
+`agent-device react-devtools` does not replace the Memory tab. Use it only for related component context; heap snapshots and allocation timelines require the React Native DevTools Memory UI or an exported memory profile.
+
 ### 1. Open Memory Profiler
 
-1. Launch React Native DevTools (press `j` in Metro)
-2. Go to **Memory** tab
-3. Select **"Allocation instrumentation on timeline"**
+1. Open the React Native DevTools Memory tab or load an exported memory profile
+2. Select **"Allocation instrumentation on timeline"**
 
 ### 2. Record Memory Allocations
 
@@ -72,7 +76,7 @@ The Memory tab shows:
 
 **Key columns:**
 - **Constructor**: Object type (e.g., `JSObject`, `Function`, `(string)`)
-- **Count**: Number of instances (×85000 = 85,000 objects)
+- **Count**: Number of instances
 - **Shallow Size**: Memory of the object itself
 - **Retained Size**: Memory freed if object is deleted (including references)
 
@@ -87,7 +91,7 @@ The Memory tab shows:
 
 ### 5. Verify the Fix
 
-After fixing, re-profile. All bars should turn gray (except the most recent).
+After fixing, re-profile the same flow. Memory should return to a stable baseline after GC and repeated interactions; some recent allocations can remain live legitimately.
 
 ## Code Examples
 
@@ -141,48 +145,7 @@ const GoodTimerComponent = () => {
 };
 ```
 
-**3. Closures Capturing Large Objects:**
-
-```jsx
-// BAD: Closure captures entire array
-class BadClosureExample {
-  private largeData = new Array(1000000).fill('data');
-  
-  createLeakyFunction() {
-    return () => this.largeData.length; // Captures this.largeData
-  }
-}
-
-// GOOD: Only capture what's needed
-class GoodClosureExample {
-  private largeData = new Array(1000000).fill('data');
-  
-  createEfficientFunction() {
-    const length = this.largeData.length; // Extract value
-    return () => length; // Only captures primitive
-  }
-}
-```
-
-**4. Global Arrays Growing:**
-
-```jsx
-// BAD: Global array never cleared
-let leakyClosures = [];
-
-const createLeak = () => {
-  const data = generateLargeData();
-  leakyClosures.push(() => data); // Keeps growing!
-};
-
-// GOOD: Clear when done or use WeakRef
-const createNoLeak = () => {
-  const data = generateLargeData();
-  const closure = () => data;
-  // Use it and let it be garbage collected
-  return closure;
-};
-```
+Other common sources are closures that retain large objects and module-level arrays/maps that only grow. Confirm these through retained-size paths before refactoring them.
 
 ## Memory Profiler Metrics
 
@@ -196,7 +159,7 @@ const createNoLeak = () => {
 ## Common Pitfalls
 
 - **Not forcing GC**: GC runs periodically. Allocate something else to trigger collection before concluding there's a leak.
-- **Ignoring gray bars**: Gray = properly collected. Only blue bars that persist are leaks.
+- **Over-reading allocation colors**: Persisting allocations are suspects, not proof. Confirm with retained objects and repeated flows.
 - **Missing useEffect cleanup**: Most common React Native leak source.
 
 ## Related Skills

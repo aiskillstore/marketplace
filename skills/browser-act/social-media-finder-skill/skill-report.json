@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T04:58:46.016Z",
+    "generated_at": "2026-07-07T21:26:13.786Z",
     "slug": "browser-act-social-media-finder-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/lead-generation/social-media-finder-skill",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "f86741919384b42a2fe6569cd461f2b998e692f4fb1fe2aa3bb0264300b78dda",
-    "tree_hash": "9891ddd0eea892ce33b39b6402a6dbf0407f334ad4709a2071545b1dac826f62",
+    "content_hash": "cc2014178a3dec22a43fb095a84340e530e5fad1fa76fdea5d29cda94c601793",
+    "tree_hash": "c6068a081e304f485af7c405c7f72cf3c7bf031f46f4c5ab9f38b36d6c1016a2",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,17 +23,17 @@
   },
   "skill": {
     "name": "social-media-finder-skill",
-    "description": "Find public social media profiles for a supplied person, brand, or business through BrowserAct. It creates a BrowserAct workflow task, polls for completion, and returns profile data or a CSV link.",
-    "summary": "Runs a BrowserAct workflow to find public social media profiles and return profile details.",
+    "description": "Find public social media profiles for people, brands, or businesses using a BrowserAct workflow. The skill submits a search target, monitors the task, and returns profile details and CSV output.",
+    "summary": "Find public social media profiles and profile metadata through BrowserAct.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
     "tags": [
       "social-media",
       "profile-discovery",
       "lead-generation",
-      "osint",
+      "public-research",
       "browseract"
     ],
     "supported_tools": [
@@ -56,26 +53,26 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The core network behavior is real: the script sends a supplied name and BrowserAct API key to BrowserAct, then polls for results. Most Markdown backtick and system-reconnaissance alerts are false positives, but credential handling guidance and people-profiling use cases create privacy and abuse risk.",
+    "summary": "The skill performs expected BrowserAct workflow calls, but it reads BROWSERACT_API_KEY and sends it as bearer authentication to BrowserAct. Most Markdown backtick detections are false positives, yet the skill does instruct the agent to run a Python script and includes unsafe guidance to ask users for API keys in chat. The people-profile discovery use case creates privacy and abuse risk that should be documented and constrained.",
     "remediation": [
       {
-        "issue": "Unsafe API key handling guidance",
-        "suggestion": "Instruct users to set BROWSERACT_API_KEY in an environment variable or secret store. Do not ask users to paste the key into chat.",
+        "issue": "API key disclosure guidance",
+        "suggestion": "Do not ask users to paste API keys into chat. Require BROWSERACT_API_KEY through environment variables or a secure secret store.",
         "severity": "high"
       },
       {
-        "issue": "Privacy-invasive people search use cases",
-        "suggestion": "Remove prompts for candidates, old friends, identity verification, and contact database collection. Add consent and legitimate-purpose limits.",
-        "severity": "high"
-      },
-      {
-        "issue": "External data disclosure",
-        "suggestion": "Clearly disclose that names, task ids, and profile results are processed by BrowserAct. Require confirmation before each run.",
+        "issue": "Third-party processing of search targets",
+        "suggestion": "Document that names, brands, and task data are sent to BrowserAct. Ask for user confirmation before each search.",
         "severity": "medium"
       },
       {
-        "issue": "Automatic execution guidance",
-        "suggestion": "Avoid proactive execution for people searches. Ask users to confirm the target, scope, and lawful basis first.",
+        "issue": "People lookup and contact database abuse risk",
+        "suggestion": "Add clear lawful-use, consent, and public-data restrictions before enabling searches about private individuals.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Community script execution",
+        "suggestion": "Show the exact script command and BrowserAct endpoint before execution, and require confirmation for first use.",
         "severity": "medium"
       }
     ],
@@ -662,260 +659,262 @@
       {
         "id": "network:scripts/social_media_finder.py:34:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.94,
-        "reason": "The script posts a task request to the BrowserAct API with the user supplied search target. This is expected behavior, but it is real outbound network disclosure.",
-        "severity": "low"
+        "confidence": 0.86,
+        "severity": "low",
+        "reason": "The script sends a workflow payload, including the target name, to the BrowserAct API. This outbound request is expected, but it exposes user search targets to a third party."
       },
       {
         "id": "network:scripts/social_media_finder.py:61:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.93,
-        "reason": "The script polls the BrowserAct API with the task id and authorization header. This is expected behavior, but it is real external network activity.",
-        "severity": "low"
+        "confidence": 0.82,
+        "severity": "low",
+        "reason": "The script polls the BrowserAct API with the task ID and authorization header. This is normal workflow monitoring, but it is still repeated external network activity."
       },
       {
         "id": "network:scripts/social_media_finder.py:89:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.93,
-        "reason": "The script retrieves task results from the BrowserAct API. This is expected behavior, but returned profile data and task metadata cross a third party boundary.",
-        "severity": "low"
+        "confidence": 0.84,
+        "severity": "low",
+        "reason": "The script retrieves completed task data from BrowserAct over the network. This is expected behavior, but it transfers task results through an external service."
       },
       {
         "id": "network:scripts/social_media_finder.py:15:hardcoded-url",
         "verdict": "confirmed",
         "confidence": 0.88,
-        "reason": "The code hardcodes the BrowserAct workflow API endpoint. A fixed third party endpoint is intentional here, but users should know data leaves the local environment.",
-        "severity": "low"
+        "severity": "low",
+        "reason": "The hardcoded URL fixes the workflow destination to BrowserAct. A fixed third-party endpoint is expected here, but users cannot configure or avoid that destination."
       },
       {
         "id": "network:scripts/social_media_finder.py:47:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This URL is printed as an account upgrade help link after a concurrency error. It is not fetched and does not create additional network behavior."
+        "confidence": 0.9,
+        "reason": "This URL appears only in an error message that points users to the BrowserAct upgrade page. The line does not perform a network request or transmit data."
       },
       {
         "id": "network:scripts/social_media_finder.py:116:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This URL is printed to help users find the BrowserAct console. It is not fetched and does not transmit data."
+        "confidence": 0.9,
+        "reason": "This URL is printed as setup guidance for obtaining a BrowserAct API key. It is not used as a request target in the script."
       },
       {
         "id": "env_access:scripts/social_media_finder.py:107:python-getenv-function",
         "verdict": "confirmed",
-        "confidence": 0.95,
-        "reason": "The script reads BROWSERACT_API_KEY from the process environment. This is a real secret access path, although it is declared and expected.",
-        "severity": "low"
+        "confidence": 0.9,
+        "severity": "low",
+        "reason": "The script reads BROWSERACT_API_KEY from the environment. Accessing an API key is a real secret-handling behavior, even though it is expected for this integration."
       },
       {
         "id": "env_access:scripts/social_media_finder.py:107:getenv-function-call",
         "verdict": "confirmed",
-        "confidence": 0.95,
-        "reason": "The getenv call reads BROWSERACT_API_KEY for API authentication. This is expected, but it still accesses sensitive credential material.",
-        "severity": "low"
+        "confidence": 0.9,
+        "severity": "low",
+        "reason": "The getenv call reads the BrowserAct API key for authentication. This is legitimate configuration access, but it gives the skill access to a sensitive credential."
       },
       {
         "id": "env_access:scripts/social_media_finder.py:18:generic-api-secret-keys",
-        "verdict": "false_positive",
+        "verdict": "confirmed",
         "confidence": 0.78,
-        "reason": "This line only names an api_key function parameter and does not contain a hardcoded secret. The actual credential use is covered by later findings."
+        "severity": "high",
+        "reason": "The function accepts an api_key parameter that is later used as bearer authentication. This confirms the script handles a sensitive credential for a third-party API."
       },
       {
         "id": "env_access:scripts/social_media_finder.py:23:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.91,
-        "reason": "The script builds a Bearer Authorization header from the API key. This is required for BrowserAct, but mishandling this value can expose the credential.",
-        "severity": "high"
+        "confidence": 0.92,
+        "severity": "high",
+        "reason": "The code constructs an Authorization bearer header from the API key. The credential is intentionally sent to BrowserAct, which is real credential exposure to a third party."
       },
       {
         "id": "env_access:scripts/social_media_finder.py:107:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.94,
-        "reason": "The code reads BROWSERACT_API_KEY from the environment. It is a declared requirement, but it is still direct access to a sensitive API credential.",
-        "severity": "high"
+        "confidence": 0.9,
+        "severity": "high",
+        "reason": "The script reads the named BrowserAct API key from the environment for subsequent external API calls. This is expected, but it is direct access to a secret."
       },
       {
         "id": "env_access:scripts/social_media_finder.py:113:generic-api-secret-keys",
         "verdict": "false_positive",
         "confidence": 0.82,
-        "reason": "This line only checks whether the api_key variable is present. The check is not a separate secret exposure or hardcoded credential."
+        "reason": "This line only checks whether the API key is missing. It does not read, print, or transmit the secret; the risky key flow is captured by nearby findings."
       },
       {
         "id": "env_access:scripts/social_media_finder.py:118:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The script tells users they can provide the API key to the agent. That guidance can lead to credential exposure in chat or logs.",
-        "severity": "high"
+        "confidence": 0.93,
+        "severity": "high",
+        "reason": "The script tells the user to provide the API key to the agent or set it as an environment variable. Asking users to provide secrets in chat can expose credentials."
       },
       {
         "id": "env_access:scripts/social_media_finder.py:123:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The API key is passed into the function that performs external requests. This is intended, but it extends the sensitive credential into the network workflow.",
-        "severity": "high"
+        "confidence": 0.85,
+        "severity": "high",
+        "reason": "The API key is passed into the task runner that builds the Authorization header. This confirms the credential flow from local environment access into network authentication."
       },
       {
         "id": "blocker:scripts/social_media_finder.py:44:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line checks for an invalid authorization error from BrowserAct. It is routine API error handling, not system reconnaissance."
+        "confidence": 0.9,
+        "reason": "The line checks for an Invalid authorization response from BrowserAct. It is API error handling, not host or network reconnaissance."
       },
       {
         "id": "blocker:scripts/social_media_finder.py:45:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line prints a credential error message to the user. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.9,
+        "reason": "The line prints a user-facing invalid API key error. It does not inspect system state or gather reconnaissance data."
       },
       {
         "id": "blocker:scripts/social_media_finder.py:52:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line stores a BrowserAct task id from the API response. It is workflow state handling, not reconnaissance."
+        "confidence": 0.87,
+        "reason": "The task ID is read from the BrowserAct API response so the script can poll task status. This is application workflow state, not system reconnaissance."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticks mark an environment variable name in Markdown. There is no shell execution on this line."
+        "confidence": 0.88,
+        "reason": "The backticks format the BROWSERACT_API_KEY environment variable name in Markdown. There is no shell or Ruby command execution on this line."
       },
       {
         "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the word string in Markdown. This is documentation, not command execution."
+        "confidence": 0.98,
+        "reason": "The backticks format the word string in Markdown. This is parameter documentation, not executable code."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the plus sign in Markdown. This is input guidance, not shell execution."
+        "confidence": 0.97,
+        "reason": "The backticks format a plus sign used in the search input. The line does not instruct shell execution."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The backticks format example search values in Markdown. They are not commands and are not executed."
+        "confidence": 0.97,
+        "reason": "The backticks surround example search values. They are not command substitutions or executable instructions."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the default search value in Markdown. This is not shell execution."
+        "confidence": 0.97,
+        "reason": "The backticks mark a default input value in Markdown. This is documentation, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:37:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "The fenced block instructs the agent to run the bundled Python script. The command is fixed, but it still executes local code that contacts an external API.",
-        "severity": "medium"
+        "confidence": 0.82,
+        "severity": "medium",
+        "reason": "The Markdown block instructs the agent to run the community Python script. That command is expected, but it executes local code that performs network operations."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line is the closing Markdown fence for the example command. It does not add another executable command."
+        "confidence": 0.86,
+        "reason": "This finding points at the end of the Markdown code fence and nearby monitoring text. The actual command is covered by the line 37 verdict."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line describes timestamped status logs in prose. The backticks are formatting, not command substitution."
+        "confidence": 0.9,
+        "reason": "This line describes task monitoring and status logs. It does not contain shell syntax or dynamic command execution."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks format the files field name in documentation. This is output documentation, not shell execution."
+        "confidence": 0.95,
+        "reason": "The backticks format the files field name in documentation. No command is executed or suggested."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format a CSV column name. There is no command execution."
+        "confidence": 0.97,
+        "reason": "The backticks format a CSV column name. This is output documentation, not code execution."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format a CSV column name. There is no command execution."
+        "confidence": 0.97,
+        "reason": "The backticks format a CSV column name. The line does not invoke a command."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format a CSV column name. There is no command execution."
+        "confidence": 0.97,
+        "reason": "The backticks format a CSV column name. There is no shell or Ruby execution behavior."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format a CSV column name. There is no command execution."
+        "confidence": 0.97,
+        "reason": "The backticks format a CSV column name. This is plain documentation text."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format a CSV column name. There is no command execution."
+        "confidence": 0.97,
+        "reason": "The backticks format a CSV column name. No executable command appears in this finding."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "The backticks format an error string for matching output. This is documentation for error handling, not shell execution."
+        "reason": "The backticks mark an error string to look for in output. This is error-handling guidance, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "The backticks format error keywords for matching output. This is documentation, not shell execution."
+        "reason": "The backticks mark error keywords for concurrent task limits. The line does not execute or construct commands."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The URL appears only in user guidance for the BrowserAct console. It is not requested by the skill."
+        "confidence": 0.91,
+        "reason": "The URL is a user-facing setup link to the BrowserAct console. It is not an automated network request or hidden data transfer."
       },
       {
         "id": "network:SKILL.md:64:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The URL appears only in user guidance for plan upgrades. It is not requested by the skill."
+        "confidence": 0.91,
+        "reason": "The URL is a user-facing BrowserAct plan link shown for account limits. It does not cause the skill to send data."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
-        "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The metadata declares that BROWSERACT_API_KEY is required. It does not include a key value and is transparent dependency metadata."
+        "verdict": "confirmed",
+        "confidence": 0.86,
+        "severity": "high",
+        "reason": "The metadata declares that the skill requires BROWSERACT_API_KEY. This confirms the skill expects access to a sensitive credential."
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The instructions tell the agent to ask the user for the BrowserAct API key when it is missing. Asking for secrets in chat can expose credentials.",
-        "severity": "high"
+        "confidence": 0.92,
+        "severity": "high",
+        "reason": "The instructions tell the agent to check BROWSERACT_API_KEY and ask the user to provide it if missing. That guidance can lead to credential exposure in chat."
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The phrase describes avoiding AI hallucinations through a preset workflow. It is marketing copy, not a prompt injection or reconnaissance instruction."
+        "confidence": 0.95,
+        "reason": "This is marketing text about avoiding AI hallucinations. It does not gather host, network, or account reconnaissance data."
       },
       {
         "id": "blocker:SKILL.md:61:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line documents how to identify an invalid authorization error. It is ordinary API error handling guidance, not system reconnaissance."
+        "confidence": 0.92,
+        "reason": "This line tells the agent how to handle an invalid authorization message. It is API error handling, not reconnaissance."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unsafe Credential Handling Guidance",
-        "description": "The skill tells the agent to ask for BROWSERACT_API_KEY, and the script suggests providing it to the agent. API keys should be set through environment variables or secret stores, not pasted into chat.",
+        "title": "Credential Disclosure Through Chat Instructions",
+        "description": "The skill tells the agent to ask and wait for the user to provide BROWSERACT_API_KEY when it is missing. The script also tells users to provide the key to the agent, which can expose credentials in chat transcripts or tool logs.",
         "severity": "high",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 20,
-            "line_end": 22
+            "line_end": 20
           },
           {
             "file": "scripts/social_media_finder.py",
@@ -923,18 +922,18 @@
             "line_end": 118
           }
         ],
-        "confidence": 0.91,
-        "confidence_reasoning": "Both the documentation and script explicitly guide users toward sharing an API key with the agent when setup is missing."
+        "confidence": 0.94,
+        "confidence_reasoning": "Both the skill instructions and script explicitly direct users to provide the API key when it is missing. This is stronger evidence than a generic secret-name match."
       },
       {
-        "title": "Privacy-Invasive People Profiling Workflow",
-        "description": "The skill targets candidates, prospects, old friends, identity checks, and contact databases. These use cases can enable stalking, doxxing, non-consensual profiling, or unlawful background checks.",
-        "severity": "high",
+        "title": "Automated People Profile Discovery",
+        "description": "The skill is designed to find social profiles for people, job candidates, prospects, and people met online. This can enable identity lookup and contact database creation from third-party data.",
+        "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
+            "line_start": 9,
+            "line_end": 10
           },
           {
             "file": "SKILL.md",
@@ -942,31 +941,28 @@
             "line_end": 80
           }
         ],
-        "confidence": 0.89,
-        "confidence_reasoning": "The listed use cases repeatedly focus on finding people and compiling social profiles, not only brand or owned-account discovery."
-      },
-      {
-        "title": "Third-Party Disclosure of Search Targets",
-        "description": "The user supplied person or brand name is sent to BrowserAct, and results include social profile details. Users need notice and consent before sending personal targets to an external service.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "scripts/social_media_finder.py",
-            "line_start": 24,
-            "line_end": 36
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 49,
-            "line_end": 55
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The payload includes People_Name and the documented output includes profile URLs and follower data, confirming personal data processing through BrowserAct."
+        "confidence": 0.88,
+        "confidence_reasoning": "The documented brief and use cases explicitly include people lookup, candidates, prospects, identity verification, and contact databases. Legitimate use is possible, but the abuse potential is clear."
       }
     ],
     "critical_findings": [],
     "high_findings": [
+      {
+        "title": "Generic API/secret keys",
+        "description": "def run_social_media_finder_task(api_key, people_name=\"Mike+Smith\"):",
+        "locations": [
+          {
+            "file": "scripts/social_media_finder.py",
+            "line_start": 18,
+            "line_end": 18
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "high",
+        "confidence": 0.78,
+        "confidence_reasoning": "The function accepts an api_key parameter that is later used as bearer authentication. This confirms the script handles a sensitive credential for a third-party API."
+      },
       {
         "title": "Generic API/secret keys",
         "description": "headers = {\"Authorization\": f\"Bearer {api_key}\"}",
@@ -980,8 +976,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "The script builds a Bearer Authorization header from the API key. This is required for BrowserAct, but mishandling this value can expose the credential."
+        "confidence": 0.92,
+        "confidence_reasoning": "The code constructs an Authorization bearer header from the API key. The credential is intentionally sent to BrowserAct, which is real credential exposure to a third party."
       },
       {
         "title": "Generic API/secret keys",
@@ -996,8 +992,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.94,
-        "confidence_reasoning": "The code reads BROWSERACT_API_KEY from the environment. It is a declared requirement, but it is still direct access to a sensitive API credential."
+        "confidence": 0.9,
+        "confidence_reasoning": "The script reads the named BrowserAct API key from the environment for subsequent external API calls. This is expected, but it is direct access to a secret."
       },
       {
         "title": "Generic API/secret keys",
@@ -1012,8 +1008,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script tells users they can provide the API key to the agent. That guidance can lead to credential exposure in chat or logs."
+        "confidence": 0.93,
+        "confidence_reasoning": "The script tells the user to provide the API key to the agent or set it as an environment variable. Asking users to provide secrets in chat can expose credentials."
       },
       {
         "title": "Generic API/secret keys",
@@ -1028,8 +1024,24 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The API key is passed into the function that performs external requests. This is intended, but it extends the sensitive credential into the network workflow."
+        "confidence": 0.85,
+        "confidence_reasoning": "The API key is passed into the task runner that builds the Authorization header. This confirms the credential flow from local environment access into network authentication."
+      },
+      {
+        "title": "Generic API/secret keys",
+        "description": "metadata: {\"openclaw\":{\"emoji\":\"🌐\",\"requires\":{\"bins\":[\"python\"],\"env\":[\"BROWSERACT_API_KEY\"]}}}",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 4,
+            "line_end": 4
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "high",
+        "confidence": 0.86,
+        "confidence_reasoning": "The metadata declares that the skill requires BROWSERACT_API_KEY. This confirms the skill expects access to a sensitive credential."
       },
       {
         "title": "Generic API/secret keys",
@@ -1044,17 +1056,17 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The instructions tell the agent to ask the user for the BrowserAct API key when it is missing. Asking for secrets in chat can expose credentials."
+        "confidence": 0.92,
+        "confidence_reasoning": "The instructions tell the agent to check BROWSERACT_API_KEY and ask the user to provide it if missing. That guidance can lead to credential exposure in chat."
       },
       {
-        "title": "Unsafe Credential Handling Guidance",
-        "description": "The skill tells the agent to ask for BROWSERACT_API_KEY, and the script suggests providing it to the agent. API keys should be set through environment variables or secret stores, not pasted into chat.",
+        "title": "Credential Disclosure Through Chat Instructions",
+        "description": "The skill tells the agent to ask and wait for the user to provide BROWSERACT_API_KEY when it is missing. The script also tells users to provide the key to the agent, which can expose credentials in chat transcripts or tool logs.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 20,
-            "line_end": 22
+            "line_end": 20
           },
           {
             "file": "scripts/social_media_finder.py",
@@ -1065,29 +1077,8 @@
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "Both the documentation and script explicitly guide users toward sharing an API key with the agent when setup is missing."
-      },
-      {
-        "title": "Privacy-Invasive People Profiling Workflow",
-        "description": "The skill targets candidates, prospects, old friends, identity checks, and contact databases. These use cases can enable stalking, doxxing, non-consensual profiling, or unlawful background checks.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 3,
-            "line_end": 3
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 70,
-            "line_end": 80
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.89,
-        "confidence_reasoning": "The listed use cases repeatedly focus on finding people and compiling social profiles, not only brand or owned-account discovery."
+        "confidence": 0.94,
+        "confidence_reasoning": "Both the skill instructions and script explicitly direct users to provide the API key when it is missing. This is stronger evidence than a generic secret-name match."
       }
     ],
     "medium_findings": [
@@ -1104,29 +1095,29 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The fenced block instructs the agent to run the bundled Python script. The command is fixed, but it still executes local code that contacts an external API."
+        "confidence": 0.82,
+        "confidence_reasoning": "The Markdown block instructs the agent to run the community Python script. That command is expected, but it executes local code that performs network operations."
       },
       {
-        "title": "Third-Party Disclosure of Search Targets",
-        "description": "The user supplied person or brand name is sent to BrowserAct, and results include social profile details. Users need notice and consent before sending personal targets to an external service.",
+        "title": "Automated People Profile Discovery",
+        "description": "The skill is designed to find social profiles for people, job candidates, prospects, and people met online. This can enable identity lookup and contact database creation from third-party data.",
         "locations": [
           {
-            "file": "scripts/social_media_finder.py",
-            "line_start": 24,
-            "line_end": 36
+            "file": "SKILL.md",
+            "line_start": 9,
+            "line_end": 10
           },
           {
             "file": "SKILL.md",
-            "line_start": 49,
-            "line_end": 55
+            "line_start": 70,
+            "line_end": 80
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The payload includes People_Name and the documented output includes profile URLs and follower data, confirming personal data processing through BrowserAct."
+        "confidence": 0.88,
+        "confidence_reasoning": "The documented brief and use cases explicitly include people lookup, candidates, prospects, identity verification, and contact databases. Legitimate use is possible, but the abuse potential is clear."
       }
     ],
     "low_findings": [
@@ -1143,8 +1134,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.94,
-        "confidence_reasoning": "The script posts a task request to the BrowserAct API with the user supplied search target. This is expected behavior, but it is real outbound network disclosure."
+        "confidence": 0.86,
+        "confidence_reasoning": "The script sends a workflow payload, including the target name, to the BrowserAct API. This outbound request is expected, but it exposes user search targets to a third party."
       },
       {
         "title": "Python HTTP libraries",
@@ -1159,8 +1150,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.93,
-        "confidence_reasoning": "The script polls the BrowserAct API with the task id and authorization header. This is expected behavior, but it is real external network activity."
+        "confidence": 0.82,
+        "confidence_reasoning": "The script polls the BrowserAct API with the task ID and authorization header. This is normal workflow monitoring, but it is still repeated external network activity."
       },
       {
         "title": "Python HTTP libraries",
@@ -1175,8 +1166,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.93,
-        "confidence_reasoning": "The script retrieves task results from the BrowserAct API. This is expected behavior, but returned profile data and task metadata cross a third party boundary."
+        "confidence": 0.84,
+        "confidence_reasoning": "The script retrieves completed task data from BrowserAct over the network. This is expected behavior, but it transfers task results through an external service."
       },
       {
         "title": "Hardcoded URL",
@@ -1192,7 +1183,7 @@
         "source_category": "network",
         "source_severity": "low",
         "confidence": 0.88,
-        "confidence_reasoning": "The code hardcodes the BrowserAct workflow API endpoint. A fixed third party endpoint is intentional here, but users should know data leaves the local environment."
+        "confidence_reasoning": "The hardcoded URL fixes the workflow destination to BrowserAct. A fixed third-party endpoint is expected here, but users cannot configure or avoid that destination."
       },
       {
         "title": "Python getenv function",
@@ -1207,8 +1198,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.95,
-        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the process environment. This is a real secret access path, although it is declared and expected."
+        "confidence": 0.9,
+        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment. Accessing an API key is a real secret-handling behavior, even though it is expected for this integration."
       },
       {
         "title": "getenv function call",
@@ -1223,145 +1214,129 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.95,
-        "confidence_reasoning": "The getenv call reads BROWSERACT_API_KEY for API authentication. This is expected, but it still accesses sensitive credential material."
+        "confidence": 0.9,
+        "confidence_reasoning": "The getenv call reads the BrowserAct API key for authentication. This is legitimate configuration access, but it gives the skill access to a sensitive credential."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 207,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T04:58:46.016Z",
+    "audited_at": "2026-07-07T21:26:13.786Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Find Public Social Media Profiles",
-    "value_statement": "Finding official social profiles across platforms is slow and error-prone. This skill runs a BrowserAct workflow, returns profile data, and gives a CSV link when available.",
+    "user_title": "Find Social Media Profiles Across Platforms",
+    "value_statement": "Finding official and related social profiles across platforms is time consuming. This skill runs a BrowserAct workflow that returns profile links, follower counts, and CSV output.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "social media finder",
-      "BrowserAct API skill",
-      "public profile lookup",
-      "lead generation research",
-      "brand social monitoring",
-      "OSINT profile search",
-      "AI research automation"
+      "BrowserAct API",
+      "profile discovery",
+      "lead generation",
+      "public profile search",
+      "prospect research",
+      "social profile lookup"
     ],
     "actual_capabilities": [
-      "Runs a BrowserAct workflow for a supplied person, brand, or business name.",
-      "Creates a task through the BrowserAct workflow API.",
-      "Polls BrowserAct until the task finishes, fails, or times out.",
-      "Prints the final task output returned by BrowserAct.",
-      "Documents CSV fields for platform, followers, title, description, and profile URL.",
-      "Reports invalid authorization, concurrency limits, task failures, and timeouts."
+      "Runs a Python script that submits a BrowserAct workflow task for a name or brand.",
+      "Uses BROWSERACT_API_KEY for BrowserAct API authentication.",
+      "Polls BrowserAct task status until completion, failure, or timeout.",
+      "Retrieves workflow output with social profile details and CSV download information.",
+      "Handles invalid authorization and concurrent task limit messages."
     ],
     "limitations": [
-      "Requires BROWSERACT_API_KEY and an active BrowserAct account.",
-      "Sends search targets and task data to BrowserAct.",
-      "May take several minutes and can poll for up to 15 minutes.",
-      "Does not verify identity, consent, or legal permission for found profiles."
+      "Requires a valid BrowserAct API key and available account capacity.",
+      "Sends search targets and workflow data to BrowserAct for processing.",
+      "Results depend on BrowserAct output and public web availability.",
+      "Does not verify profile ownership or identity by itself."
     ],
     "use_cases": [
       {
-        "title": "Map a Brand Presence",
-        "description": "Find public social channels for a company before a marketing audit or support review.",
-        "target_user": "Brand managers"
+        "title": "Candidate Public Profile Review",
+        "description": "Recruiters can collect public profile links for a named candidate after confirming a lawful purpose and appropriate consent.",
+        "target_user": "Recruiters"
       },
       {
-        "title": "Research Approved Sales Accounts",
-        "description": "Locate public company and contact profiles for accounts that are already approved for outreach.",
+        "title": "Prospect Social Presence Research",
+        "description": "Sales teams can find public social channels for a prospect or company before outreach.",
         "target_user": "Sales researchers"
       },
       {
-        "title": "Audit Owned Public Profiles",
-        "description": "Check a person or organization profile list when the owner requested a public footprint review.",
-        "target_user": "Reputation analysts"
+        "title": "Brand Account Discovery",
+        "description": "Marketing teams can locate likely official accounts and compare presence across major platforms.",
+        "target_user": "Brand and marketing teams"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Find a Brand Presence",
-        "scenario": "Beginner search for public brand channels.",
-        "prompt": "Use this skill to find public social media profiles for Tesla. Return platform names, profile URLs, and any CSV link."
+        "title": "Basic Brand Search",
+        "scenario": "Beginner search for a known organization.",
+        "prompt": "Find public social media profiles for Tesla. Use the Social Media Finder skill and summarize the platforms found."
       },
       {
-        "title": "Research an Approved Prospect",
-        "scenario": "User confirms consent and business purpose.",
-        "prompt": "Find public social profiles for Jane Smith at ExampleCo. I have approval for outreach research. Summarize likely matches and uncertainty."
+        "title": "Careful Person Search",
+        "scenario": "Intermediate search with identity uncertainty.",
+        "prompt": "Find public profiles for Jane Doe, a conference speaker. Note possible matches and avoid claiming identity without evidence."
       },
       {
-        "title": "Compare Competitor Channels",
-        "scenario": "Marketing review across known brands.",
-        "prompt": "Find public social profiles for Acme Robotics. Highlight platforms, follower counts, and profiles that look official."
+        "title": "Structured Prospect Review",
+        "scenario": "Advanced review for outreach preparation.",
+        "prompt": "Research the public social presence for Acme Corp. Return platform names, profile URLs, follower counts, and any CSV link."
       },
       {
-        "title": "Run a Privacy-Aware Batch",
-        "scenario": "Advanced workflow with confirmation and separate searches.",
-        "prompt": "For these approved brand names, run one search at a time. Ask before each run, then combine the profile summaries."
+        "title": "Self Audit With Privacy Notes",
+        "scenario": "Advanced personal footprint audit.",
+        "prompt": "Run a limited search for my own public profiles under Alex Smith. Explain what data was sent to BrowserAct and list uncertain matches separately."
       }
     ],
     "output_examples": [
       {
-        "input": "Find public social media profiles for Acme Robotics.",
-        "output": [
-          "Likely profiles were found on LinkedIn, Instagram, and X.",
-          "The returned data includes profile URLs, page titles, descriptions, and follower counts when available.",
-          "A CSV download link is available from the BrowserAct result."
-        ]
+        "input": "Find profiles for Tesla.",
+        "output": "Found likely official profiles on LinkedIn, X, Instagram, and YouTube. The result includes profile URLs, page titles, follower counts, and a CSV download link."
       },
       {
-        "input": "Check my public social footprint for Jordan Lee.",
-        "output": [
-          "The workflow returned several profiles that may match the supplied name.",
-          "Each match needs manual review before it is treated as the same person.",
-          "The result includes a CSV link for follow-up review."
-        ]
-      },
-      {
-        "input": "Find profiles for a company, but the API key is missing.",
-        "output": [
-          "The task cannot run until BROWSERACT_API_KEY is configured.",
-          "Set the key in the environment or a secret manager before retrying."
-        ]
+        "input": "Search for Alex Smith.",
+        "output": "Returned several possible profile matches across LinkedIn, Instagram, and X. Ownership is not verified, so each match is marked as uncertain."
       }
     ],
     "best_practices": [
-      "Use the skill only for public profiles and a legitimate research purpose.",
-      "Set BROWSERACT_API_KEY in a secure environment variable before running the script.",
-      "Manually verify profile matches before making contact, hiring, or compliance decisions."
+      "Confirm the target name, brand, and purpose before running the workflow.",
+      "Tell users that search targets are sent to BrowserAct for processing.",
+      "Review results manually before using them for outreach or decisions."
     ],
     "anti_patterns": [
-      "Do not use the skill to stalk, harass, dox, or profile private individuals.",
-      "Do not paste API keys into chat, tickets, documents, or shared logs.",
-      "Do not treat returned profiles as verified identity matches without review."
+      "Do not use the skill to investigate private people without a lawful purpose or appropriate consent.",
+      "Do not paste API keys into chat; use environment variables or secret management.",
+      "Do not treat possible profile matches as verified identity without independent review."
     ],
     "faq": [
       {
-        "question": "Does this skill require an API key?",
-        "answer": "Yes. It requires BROWSERACT_API_KEY for the BrowserAct workflow API."
+        "question": "Does this skill need an API key?",
+        "answer": "Yes. It requires BROWSERACT_API_KEY for BrowserAct API authentication."
       },
       {
-        "question": "Where does the search run?",
-        "answer": "The local script sends a workflow request to BrowserAct and polls BrowserAct for results."
+        "question": "What data is sent to BrowserAct?",
+        "answer": "The skill sends the search target, workflow parameters, task ID, and authentication data needed to run the workflow."
       },
       {
-        "question": "What data can it return?",
-        "answer": "It can return platform names, follower counts, page titles, description snippets, profile URLs, and a CSV link."
+        "question": "Can it verify that a profile belongs to a person?",
+        "answer": "No. It can find possible public profiles, but a human must verify identity and ownership."
       },
       {
-        "question": "Can it verify a person identity?",
-        "answer": "No. It can find possible public profiles, but a human must verify identity and context."
+        "question": "Does it access private social media profiles?",
+        "answer": "No evidence found that it accesses private profiles. It relies on BrowserAct workflow results from available web data."
       },
       {
-        "question": "Is it safe to use for recruiting?",
-        "answer": "Use it only with consent, a lawful basis, and relevant compliance review for your location."
+        "question": "What happens if a task takes a long time?",
+        "answer": "The script polls status for up to 15 minutes and prints timestamped updates until completion or timeout."
       },
       {
-        "question": "What happens if BrowserAct is busy?",
-        "answer": "The script reports concurrency limit errors and asks the user to resolve the BrowserAct account limit."
+        "question": "Which AI tools can use this skill?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },

@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T05:22:39.697Z",
+    "generated_at": "2026-07-07T21:56:25.587Z",
     "slug": "browser-act-youtube-channel-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/video-platforms/youtube-channel-api-skill",
     "source_ref": "main",
@@ -9,15 +9,12 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "1eb6be330ceede0f90039287212eac66671bb1b66b71f8201f9c7f4b1cbe452c",
-    "tree_hash": "d74cd94f28c00a15537b6a05c149c8521a25f7bcc74935fd383e36d245297a96",
+    "tree_hash": "f261b24aa35af16f6f7c4d8efe085fb76950fa7fb216c3a2bd4988a15335b540",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,17 +23,17 @@
   },
   "skill": {
     "name": "youtube-channel-api-skill",
-    "description": "Extracts structured YouTube channel search results through the BrowserAct API, including channel links, handles, verification status, subscribers, descriptions, and thumbnails.",
-    "summary": "Find and collect YouTube channel profiles from keyword searches using BrowserAct.",
+    "description": "Extract structured YouTube channel results by calling a BrowserAct workflow with search keywords and an optional upload date filter.",
+    "summary": "Runs a BrowserAct workflow to collect YouTube channel names, links, handles, subscriber counts, and descriptions.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
     "tags": [
       "youtube",
       "browseract",
-      "channel-research",
-      "api",
+      "creator-research",
+      "channel-data",
       "market-research"
     ],
     "supported_tools": [
@@ -49,29 +46,29 @@
       "env_access",
       "external_commands"
     ],
-    "category": "data"
+    "category": "research"
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "safe",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The skill legitimately uses BrowserAct network APIs and a BrowserAct API key. Most markdown backtick and system reconnaissance alerts are false positives. The main issue is unsafe guidance that asks users to provide an API key directly to the agent.",
+    "summary": "The audit confirms intentional outbound BrowserAct API calls, environment-based API key access, and documented local script execution. No prompt injection, hidden exfiltration, command injection, or hardcoded secret value evidence was found.",
     "remediation": [
       {
-        "issue": "Unsafe API key request",
-        "suggestion": "Remove instructions to provide the key to the agent. Require BROWSERACT_API_KEY through the execution environment or a secret manager only.",
-        "severity": "high"
-      },
-      {
-        "issue": "External API data transfer",
-        "suggestion": "Document that keywords, upload filters, task ids, and task output are exchanged with api.browseract.com before the script runs.",
+        "issue": "Network requests send user search terms and a BrowserAct bearer token to an external service.",
+        "suggestion": "Document this data flow clearly and require the API key through the environment only.",
         "severity": "low"
       },
       {
-        "issue": "Shell command guidance",
-        "suggestion": "Tell agents to pass keywords and upload dates as separate arguments, with proper quoting for user-provided values.",
+        "issue": "The skill documentation instructs agents to run a local Python helper script.",
+        "suggestion": "Keep command arguments separate from shell strings and document the expected script path.",
         "severity": "medium"
+      },
+      {
+        "issue": "Returned workflow output is printed without local validation or normalization.",
+        "suggestion": "Tell users to review third-party results before importing them into CRMs or reports.",
+        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -647,386 +644,242 @@
       {
         "id": "network:scripts/youtube_channel_api.py:30:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.9,
+        "confidence": 0.88,
         "severity": "low",
-        "reason": "The script posts user keywords, upload filter, and Bearer authentication to the BrowserAct API. This is intended network access, but it is still external data transfer requiring user trust."
+        "reason": "The script sends user keywords and the BrowserAct bearer token to the BrowserAct workflow API. This is expected behavior, but it is real outbound network access with sensitive authentication."
       },
       {
         "id": "network:scripts/youtube_channel_api.py:47:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.82,
         "severity": "low",
-        "reason": "The script polls an external BrowserAct endpoint with the Authorization header and task id. This is expected behavior, but it is still authenticated network activity."
+        "reason": "The script polls the BrowserAct API using the task id and authorization header. This is legitimate status checking, but it is still external network access."
       },
       {
         "id": "network:scripts/youtube_channel_api.py:70:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.82,
         "severity": "low",
-        "reason": "The script retrieves task output from the external BrowserAct API using the Authorization header. This is intended, but it depends on an external service for user-requested results."
+        "reason": "The script retrieves task output from the BrowserAct API with the authorization header. This is expected, but it depends on an external service returning data."
       },
       {
         "id": "network:scripts/youtube_channel_api.py:15:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.86,
+        "confidence": 0.85,
         "severity": "low",
-        "reason": "The fixed BrowserAct API host controls where keywords and credentials are sent. The endpoint is expected, but the hardcoded external destination is part of the risk profile."
+        "reason": "The code hardcodes the BrowserAct workflow API base URL. The domain matches the skill purpose, but users should know requests leave the local environment."
       },
       {
         "id": "network:scripts/youtube_channel_api.py:96:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line only prints a BrowserAct console URL so the user can get a key. It does not perform a network request or hide an unexpected destination."
+        "confidence": 0.9,
+        "reason": "This line only prints the BrowserAct console URL for user setup. It does not perform a network request or disclose a secret value."
       },
       {
         "id": "env_access:scripts/youtube_channel_api.py:87:python-getenv-function",
         "verdict": "confirmed",
-        "confidence": 0.9,
+        "confidence": 0.86,
         "severity": "low",
-        "reason": "The script reads the specific BROWSERACT_API_KEY environment variable. This is expected for authentication, but it is real access to a secret-bearing environment value."
+        "reason": "The script reads BROWSERACT_API_KEY from the environment. This is required for the API call, but it is real access to a sensitive environment variable."
       },
       {
         "id": "env_access:scripts/youtube_channel_api.py:87:getenv-function-call",
         "verdict": "confirmed",
-        "confidence": 0.9,
+        "confidence": 0.86,
         "severity": "low",
-        "reason": "The getenv call reads BROWSERACT_API_KEY from the environment. The scope is narrow, but marketplace users should know the skill accesses a credential."
+        "reason": "The getenv call retrieves BROWSERACT_API_KEY for authentication. The access is intentional, but the skill handles a credential from the environment."
       },
       {
         "id": "env_access:scripts/youtube_channel_api.py:17:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "The api_key identifier is a function parameter, not a hardcoded secret or broad secret scan. Actual credential reads and transmission are covered by other findings."
+        "confidence": 0.88,
+        "reason": "This is a function parameter named api_key, not a hardcoded credential. No secret literal is present on this line."
       },
       {
         "id": "env_access:scripts/youtube_channel_api.py:18:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "high",
-        "reason": "The code builds a Bearer Authorization header from the BrowserAct API key. This is expected, but it transmits a secret to an external API."
+        "verdict": "false_positive",
+        "confidence": 0.78,
+        "reason": "The Authorization header uses the supplied BrowserAct API key for the intended BrowserAct endpoint. I found no evidence that the key is logged or sent to an unrelated host."
       },
       {
         "id": "env_access:scripts/youtube_channel_api.py:87:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "high",
-        "reason": "The script reads BROWSERACT_API_KEY from the environment, which is a credential. The access is narrow, but it is real secret handling."
+        "verdict": "false_positive",
+        "confidence": 0.85,
+        "reason": "This line names the BROWSERACT_API_KEY environment variable but does not contain a secret value. The actual environment access is covered by the getenv findings."
       },
       {
         "id": "env_access:scripts/youtube_channel_api.py:93:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.8,
-        "reason": "This line only checks whether the expected API key variable is present. It does not read additional secrets or transmit data."
+        "confidence": 0.9,
+        "reason": "This line checks whether the api_key variable is present. It does not reveal, transform, or hardcode a credential."
       },
       {
         "id": "env_access:scripts/youtube_channel_api.py:98:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "high",
-        "reason": "The error message tells users to provide the API key to the agent or set an environment variable. Asking for a secret in chat is unsafe key handling."
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "This message prints the environment variable name BROWSERACT_API_KEY, not the API key value. It is setup guidance rather than secret disclosure."
       },
       {
         "id": "env_access:scripts/youtube_channel_api.py:104:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.87,
-        "severity": "high",
-        "reason": "The code passes the API key into the function that sends authenticated BrowserAct requests. This is intentional credential use with external network transfer."
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "This line passes the existing api_key variable into the local helper function. It does not introduce a hardcoded key or an additional sink."
       },
       {
         "id": "blocker:scripts/youtube_channel_api.py:39:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This line stores a BrowserAct task id returned by the API. It does not inspect local host state or perform system reconnaissance."
+        "confidence": 0.94,
+        "reason": "The value is a BrowserAct task id returned by the API. It is not host, user, network, or system reconnaissance data."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The backticks are markdown formatting around an environment variable name. No shell or Ruby command execution is present on this line."
+        "confidence": 0.82,
+        "reason": "The backticks mark an environment variable name in Markdown. This line instructs key checking, but it is not Ruby or shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks are markdown formatting for the parameter type string. This is documentation, not executable shell content."
+        "confidence": 0.96,
+        "reason": "The backticks format the word string in Markdown. There is no command invocation or executable shell content."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "The backticks mark example keyword values in markdown. They do not define or run a command."
+        "reason": "The backticks format example search terms in Markdown. They are not evaluated as shell commands."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks are markdown formatting for a parameter type. There is no command execution behavior."
+        "confidence": 0.96,
+        "reason": "The backticks format the word string in Markdown. No external command execution is present on this line."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "The backticks mark allowed upload date values in documentation. This is not shell syntax in an executed context."
+        "reason": "The backticks format allowed upload-date values in Markdown. These values are not executable code."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "The backticks mark the documented default value. They do not create an execution path."
+        "reason": "The backticks format the default upload-date value in Markdown. This is documentation text, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.78,
+        "confidence": 0.74,
         "severity": "medium",
-        "reason": "This bash block instructs the agent to run the local Python helper script. The command is expected, but it executes local code that performs network requests with user-supplied arguments."
+        "reason": "This opens a bash example block that instructs the agent to run the local Python helper script. The command is expected, but it is real local command execution guidance."
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding is on the closing markdown fence and nearby status text. It does not add a separate command execution instruction."
+        "confidence": 0.72,
+        "reason": "This line closes the Markdown code fence. The surrounding block contains a command example, but this marker is not executable content by itself."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The referenced text describes status logs while the BrowserAct task runs. It is operational guidance, not shell or Ruby execution syntax."
+        "confidence": 0.94,
+        "reason": "This line describes status logs from a long-running task. It contains no shell metacharacters or command execution instruction."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark an output field name. They are documentation formatting and do not execute code."
+        "confidence": 0.96,
+        "reason": "The backticks format an output field name in Markdown. A field name is not executable code."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark an output field name. This is not an executable command context."
+        "confidence": 0.96,
+        "reason": "The backticks format an output field name in Markdown. There is no external command on this line."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark an output field name for documentation. There is no shell execution behavior."
+        "confidence": 0.96,
+        "reason": "The backticks format an output field name in Markdown. It is documentation text only."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark an output field name. They are safe markdown formatting."
+        "confidence": 0.96,
+        "reason": "The backticks format an output field name in Markdown. It does not execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark an output field name in the data output list. They do not run a command."
+        "confidence": 0.96,
+        "reason": "The backticks format an output field name in Markdown. The line only documents subscriber count output."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark an output field name. This is documentation and not an execution sink."
+        "confidence": 0.96,
+        "reason": "The backticks format an output field name in Markdown. The line contains no command invocation."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks mark an output field name. There is no command execution instruction in this finding."
+        "confidence": 0.96,
+        "reason": "The backticks format an output field name in Markdown. This is not Ruby or shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks quote an error string used for authorization handling. They are not shell execution syntax."
+        "confidence": 0.9,
+        "reason": "The backticks format the literal error text Invalid authorization. The line gives error handling guidance and does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:68:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks quote error text and an empty-result condition in documentation. They do not define executable code."
+        "confidence": 0.86,
+        "reason": "The backticks format literal error prefixes in Markdown. The retry guidance can rerun the known script, but this finding is not backtick execution."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a user-facing BrowserAct console link for obtaining an API key. It does not trigger network access by itself."
+        "confidence": 0.88,
+        "reason": "This is a user-facing BrowserAct console link for obtaining an API key. It is not an automated request and does not expose local data."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "high",
-        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment value. This is expected for the skill, but it is a real credential dependency."
+        "verdict": "false_positive",
+        "confidence": 0.84,
+        "reason": "The metadata lists BROWSERACT_API_KEY as a required environment variable. It does not include a secret value or instruct disclosure of the key."
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "high",
-        "reason": "The instruction says to request and wait for the user to provide the API key if it is not set. This encourages direct secret disclosure to the agent."
+        "verdict": "false_positive",
+        "confidence": 0.84,
+        "reason": "The documentation tells the agent to check whether BROWSERACT_API_KEY is set. It references the variable name, not the credential value."
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line is a marketing claim about stable data extraction. It does not inspect the local system or collect host information."
+        "confidence": 0.92,
+        "reason": "This line is a marketing claim about reducing hallucinations. It does not gather system, host, network, or account information."
       },
       {
         "id": "blocker:SKILL.md:67:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line describes handling an Invalid authorization API response. It is not local system reconnaissance."
+        "confidence": 0.92,
+        "reason": "This line checks for an authorization error string in tool output. It is not reconnaissance of the local system or environment."
       },
       {
         "id": "blocker:SKILL.md:68:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line describes retry behavior based on script output. It does not gather local system information."
-      }
-    ],
-    "semantic_findings": [
-      {
-        "title": "Unsafe API Key Solicitation",
-        "description": "The skill tells the agent to request BROWSERACT_API_KEY from the user, and the script says to provide it to the agent. This encourages secret sharing in chat instead of environment-only configuration.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/youtube_channel_api.py",
-            "line_start": 98,
-            "line_end": 98
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "Both cited lines explicitly direct the user to provide an API key outside a controlled secret store. The script still uses an environment variable, so the concern is unsafe guidance rather than hidden exfiltration."
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [
-      {
-        "title": "Generic API/secret keys",
-        "description": "headers = {\"Authorization\": f\"Bearer {api_key}\"}",
-        "locations": [
-          {
-            "file": "scripts/youtube_channel_api.py",
-            "line_start": 18,
-            "line_end": 18
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The code builds a Bearer Authorization header from the BrowserAct API key. This is expected, but it transmits a secret to an external API."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "api_key = os.getenv(\"BROWSERACT_API_KEY\")",
-        "locations": [
-          {
-            "file": "scripts/youtube_channel_api.py",
-            "line_start": 87,
-            "line_end": 87
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
         "confidence": 0.88,
-        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment, which is a credential. The access is narrow, but it is real secret handling."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "print(\"3. Provide it to me or set it as an environment variable (BROWSERACT_API_KEY).\", flush=True)",
-        "locations": [
-          {
-            "file": "scripts/youtube_channel_api.py",
-            "line_start": 98,
-            "line_end": 98
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The error message tells users to provide the API key to the agent or set an environment variable. Asking for a secret in chat is unsafe key handling."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "result = run_youtube_channel_task(api_key, keywords, upload_date)",
-        "locations": [
-          {
-            "file": "scripts/youtube_channel_api.py",
-            "line_start": 104,
-            "line_end": 104
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.87,
-        "confidence_reasoning": "The code passes the API key into the function that sends authenticated BrowserAct requests. This is intentional credential use with external network transfer."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "metadata: {\"openclaw\":{\"emoji\":\"🌐\",\"requires\":{\"bins\":[\"python\"],\"env\":[\"BROWSERACT_API_KEY\"]}}}",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 4,
-            "line_end": 4
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The metadata declares BROWSERACT_API_KEY as a required environment value. This is expected for the skill, but it is a real credential dependency."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "Before running, you must first check the `BROWSERACT_API_KEY` environment variable. If it is not set",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The instruction says to request and wait for the user to provide the API key if it is not set. This encourages direct secret disclosure to the agent."
-      },
-      {
-        "title": "Unsafe API Key Solicitation",
-        "description": "The skill tells the agent to request BROWSERACT_API_KEY from the user, and the script says to provide it to the agent. This encourages secret sharing in chat instead of environment-only configuration.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 20,
-            "line_end": 20
-          },
-          {
-            "file": "scripts/youtube_channel_api.py",
-            "line_start": 98,
-            "line_end": 98
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "Both cited lines explicitly direct the user to provide an API key outside a controlled secret store. The script still uses an environment variable, so the concern is unsafe guidance rather than hidden exfiltration."
+        "reason": "This line describes retry behavior after task failure. It does not collect local system details or enumerate environment data."
       }
     ],
+    "semantic_findings": [],
+    "critical_findings": [],
+    "high_findings": [],
     "medium_findings": [
       {
         "title": "Ruby/shell backtick execution",
@@ -1041,8 +894,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "This bash block instructs the agent to run the local Python helper script. The command is expected, but it executes local code that performs network requests with user-supplied arguments."
+        "confidence": 0.74,
+        "confidence_reasoning": "This opens a bash example block that instructs the agent to run the local Python helper script. The command is expected, but it is real local command execution guidance."
       }
     ],
     "low_findings": [
@@ -1059,8 +912,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script posts user keywords, upload filter, and Bearer authentication to the BrowserAct API. This is intended network access, but it is still external data transfer requiring user trust."
+        "confidence": 0.88,
+        "confidence_reasoning": "The script sends user keywords and the BrowserAct bearer token to the BrowserAct workflow API. This is expected behavior, but it is real outbound network access with sensitive authentication."
       },
       {
         "title": "Python HTTP libraries",
@@ -1075,8 +928,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The script polls an external BrowserAct endpoint with the Authorization header and task id. This is expected behavior, but it is still authenticated network activity."
+        "confidence": 0.82,
+        "confidence_reasoning": "The script polls the BrowserAct API using the task id and authorization header. This is legitimate status checking, but it is still external network access."
       },
       {
         "title": "Python HTTP libraries",
@@ -1091,8 +944,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The script retrieves task output from the external BrowserAct API using the Authorization header. This is intended, but it depends on an external service for user-requested results."
+        "confidence": 0.82,
+        "confidence_reasoning": "The script retrieves task output from the BrowserAct API with the authorization header. This is expected, but it depends on an external service returning data."
       },
       {
         "title": "Hardcoded URL",
@@ -1107,8 +960,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The fixed BrowserAct API host controls where keywords and credentials are sent. The endpoint is expected, but the hardcoded external destination is part of the risk profile."
+        "confidence": 0.85,
+        "confidence_reasoning": "The code hardcodes the BrowserAct workflow API base URL. The domain matches the skill purpose, but users should know requests leave the local environment."
       },
       {
         "title": "Python getenv function",
@@ -1123,8 +976,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The script reads the specific BROWSERACT_API_KEY environment variable. This is expected for authentication, but it is real access to a secret-bearing environment value."
+        "confidence": 0.86,
+        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment. This is required for the API call, but it is real access to a sensitive environment variable."
       },
       {
         "title": "getenv function call",
@@ -1139,137 +992,143 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The getenv call reads BROWSERACT_API_KEY from the environment. The scope is narrow, but marketplace users should know the skill accesses a credential."
+        "confidence": 0.86,
+        "confidence_reasoning": "The getenv call retrieves BROWSERACT_API_KEY for authentication. The access is intentional, but the skill handles a credential from the environment."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 189,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T05:22:39.697Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-07T21:56:25.587Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Extract YouTube Channel Data with BrowserAct",
-    "value_statement": "Manual YouTube channel research is slow and hard to standardize. This skill runs a BrowserAct workflow to return structured channel details from keyword searches.",
+    "value_statement": "Finding relevant YouTube channels manually takes time and creates inconsistent records. This skill runs a BrowserAct workflow to return structured channel details.",
     "seo_keywords": [
-      "Claude YouTube channel research",
-      "Codex YouTube data extraction",
-      "Claude Code BrowserAct skill",
+      "Claude",
+      "Codex",
+      "Claude Code",
       "YouTube channel API",
-      "BrowserAct YouTube workflow",
-      "creator discovery automation",
-      "influencer research tool",
-      "YouTube competitor analysis",
-      "channel subscriber data",
-      "YouTube market research"
+      "BrowserAct",
+      "creator discovery",
+      "influencer research",
+      "channel data extraction",
+      "YouTube market research",
+      "subscriber tracking"
     ],
     "actual_capabilities": [
-      "Runs scripts/youtube_channel_api.py with search keywords and an optional upload date filter.",
-      "Starts a BrowserAct workflow template for YouTube channel search.",
-      "Polls BrowserAct task status until completion, failure, cancellation, or timeout.",
-      "Returns channel fields such as title, link, handle, subscribers, verification, description, and thumbnail.",
-      "Uses BROWSERACT_API_KEY from the environment for API authentication."
+      "Runs a Python helper that starts a BrowserAct workflow template.",
+      "Accepts search keywords and an optional upload date filter.",
+      "Polls task status until the workflow finishes, fails, or times out.",
+      "Returns channel titles, links, handles, verification status, subscribers, descriptions, and thumbnails.",
+      "Reports missing or invalid BrowserAct API key conditions.",
+      "Documents one retry path when authorization is not the cause."
     ],
     "limitations": [
-      "Requires a valid BrowserAct API key before it can run.",
-      "Depends on BrowserAct service availability and workflow template behavior.",
-      "Does not analyze video content or audience demographics beyond returned channel fields.",
-      "Polls for up to five minutes and may return an error on long-running tasks."
+      "Requires a valid BROWSERACT_API_KEY environment variable.",
+      "Sends search terms and task requests to BrowserAct.",
+      "Depends on BrowserAct workflow availability and YouTube data availability.",
+      "Does not enrich, verify, or store results after printing them."
     ],
     "use_cases": [
       {
-        "title": "Creator Prospecting",
-        "description": "A partnerships manager finds YouTube channels in a niche and reviews public channel details for outreach.",
-        "target_user": "Partnerships manager"
+        "title": "Build Creator Prospect Lists",
+        "description": "Find YouTube channels by niche and collect structured fields for outreach review.",
+        "target_user": "Partnership managers"
       },
       {
-        "title": "Competitor Channel Mapping",
-        "description": "A marketing analyst collects competitor-related channels and compares handles, subscriber counts, and descriptions.",
-        "target_user": "Marketing analyst"
+        "title": "Map Competitor Channels",
+        "description": "Collect channel links, handles, subscriber counts, and descriptions for competitor research.",
+        "target_user": "Market researchers"
       },
       {
-        "title": "Research Dataset Building",
-        "description": "A data researcher gathers structured channel profiles from repeat keyword searches for a creator database.",
-        "target_user": "Data researcher"
+        "title": "Monitor Recent Uploaders",
+        "description": "Search for active channels that recently published videos in a target topic.",
+        "target_user": "Content strategists"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Find channels by topic",
-        "scenario": "Basic creator discovery",
-        "prompt": "Use this skill to find YouTube channels about home automation. Use Any time for upload date."
+        "title": "Find Channels by Topic",
+        "scenario": "Beginner search",
+        "prompt": "Find YouTube channels about sustainable packaging. Use Any time for upload date."
       },
       {
-        "title": "Filter recent channel activity",
+        "title": "Filter Recent Creators",
         "scenario": "Recent activity search",
-        "prompt": "Find YouTube channels for cybersecurity education that published content This week. Return the channel names, links, and subscriber counts."
+        "prompt": "Search for YouTube channels about AI automation. Use This week as the upload date filter and summarize the top matches."
       },
       {
-        "title": "Compare competitor categories",
-        "scenario": "Competitive research",
-        "prompt": "Search for YouTube channels related to electric bike reviews. Organize results by apparent brand, independent creator, and media outlet."
+        "title": "Prepare Outreach Research",
+        "scenario": "Partnership sourcing",
+        "prompt": "Find channels covering home fitness for beginners. Return channel names, links, subscribers, handles, and descriptions for partnership review."
       },
       {
-        "title": "Build a research-ready shortlist",
-        "scenario": "Multi-query market research",
-        "prompt": "Run searches for AI coding tutorials, developer tools, and software testing. Create a deduplicated shortlist with links, handles, subscribers, and notes."
+        "title": "Build Competitor Research",
+        "scenario": "Advanced market mapping",
+        "prompt": "Build a competitor research list for electric vehicle review channels. Use recent uploads, note verified channels, and flag missing subscriber counts."
       }
     ],
     "output_examples": [
       {
-        "input": "Find YouTube channels about plant-based cooking.",
-        "output": "A table-ready list of channel names, channel links, handles, subscriber counts, verification status, descriptions, and thumbnail links."
-      },
-      {
-        "input": "Search for robotics channels that posted this week.",
+        "input": "Search for channels about sustainable packaging with recent uploads.",
         "output": [
-          "Current status messages while the BrowserAct task runs.",
-          "A final channel list when the task finishes.",
-          "A clear error message if authorization or polling fails."
+          "Channel title, link, handle, verification status, subscriber count, description, and thumbnail were returned.",
+          "The response can be reviewed for outreach fit before export."
         ]
       },
       {
-        "input": "Build a shortlist of channels for fintech influencer outreach.",
-        "output": "A concise shortlist with public channel details that can be reviewed before outreach or CRM entry."
+        "input": "Find YouTube creators in the home fitness niche.",
+        "output": [
+          "The result lists matching channels with public channel metadata.",
+          "Subscriber counts and descriptions help compare audience size and positioning."
+        ]
+      },
+      {
+        "input": "Map competitor channels for electric vehicle reviews.",
+        "output": [
+          "The workflow returns channel links, handles, verification status, and descriptions.",
+          "Missing or unclear fields should be checked before reporting."
+        ]
       }
     ],
     "best_practices": [
-      "Set BROWSERACT_API_KEY in the environment before running the skill.",
-      "Use focused keywords so the returned channel list matches the research goal.",
-      "Review returned public data before adding channels to outreach or research workflows."
+      "Set BROWSERACT_API_KEY before starting a run.",
+      "Use precise search phrases and a clear upload date filter.",
+      "Review returned channels before outreach, reporting, or CRM import."
     ],
     "anti_patterns": [
-      "Do not paste API keys into chat or task prompts.",
-      "Do not run broad keyword searches when a niche query would be more accurate.",
-      "Do not treat subscriber counts as complete audience quality analysis."
+      "Do not ask the skill to scrape private or restricted YouTube data.",
+      "Do not share the BrowserAct API key in chat or prompt text.",
+      "Do not run broad searches when a narrow topic is available."
     ],
     "faq": [
       {
         "question": "Does this skill need an API key?",
-        "answer": "Yes. It requires BROWSERACT_API_KEY so the script can authenticate with BrowserAct."
+        "answer": "Yes. It requires BROWSERACT_API_KEY in the environment before running the script."
       },
       {
-        "question": "Does it scrape YouTube directly?",
-        "answer": "No. It calls a BrowserAct workflow template that performs the channel search workflow."
+        "question": "Does it access YouTube directly?",
+        "answer": "The local script calls BrowserAct. BrowserAct runs the configured workflow and returns YouTube channel results."
+      },
+      {
+        "question": "What inputs can I provide?",
+        "answer": "Provide search keywords and an optional upload date filter such as Any time or This week."
       },
       {
         "question": "What data can it return?",
-        "answer": "It can return channel title, link, handle, verification status, subscribers, description, and thumbnail URL."
+        "answer": "It can return channel titles, links, handles, verification status, subscribers, descriptions, and thumbnails."
       },
       {
-        "question": "Can it filter by upload date?",
-        "answer": "Yes. The script accepts an optional upload date value such as Any time or This week."
+        "question": "Can Claude, Codex, and Claude Code use it?",
+        "answer": "Yes. The report lists support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "How long can a task run?",
-        "answer": "The script polls for up to five minutes before reporting a timeout."
-      },
-      {
-        "question": "Can I use it for outreach research?",
-        "answer": "Yes. Use the results as a public channel shortlist and verify details before outreach."
+        "question": "Does it store results?",
+        "answer": "No. The script prints the workflow output and does not store results locally."
       }
     ]
   },

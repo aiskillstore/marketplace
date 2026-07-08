@@ -15,7 +15,7 @@ Monitor and measure JavaScript frame rate to quantify app smoothness and identif
 # Shake device → Dev Menu → "Perf Monitor"
 
 # Method 2: Flashlight (Android, detailed reports)
-curl https://get.flashlight.dev | bash
+# Install Flashlight from an official, verified release channel first.
 flashlight measure
 ```
 
@@ -31,7 +31,7 @@ flashlight measure
 - React Native app running on device/simulator
 - For Flashlight: Android device (iOS not supported)
 
-> **Note**: This skill involves interpreting visual output (FPS graphs, performance overlays). AI agents cannot yet process screenshots autonomously. Use this as a guide while reviewing metrics manually, or await MCP-based visual feedback integration (see roadmap).
+> **Note**: This skill involves visual output (FPS graphs, performance overlays). Use `agent-device` for runnable scenario evidence; install it through the environment's approved/trusted path or ask the user if verification needs it and it is missing. FPS graph interpretation may still require exported reports or human review. Record concrete FPS ranges, dropped-frame counts, device tier, and build type in text when asking an agent to reason about them.
 
 ## Step-by-Step Instructions
 
@@ -71,10 +71,7 @@ The image shows FlatList (score: 3) vs FlashList (score: 67) - a dramatic differ
 
 **Installation:**
 
-```bash
-# Install Flashlight CLI
-curl https://get.flashlight.dev | bash
-```
+Install Flashlight from the vendor's official release channel before using it. Prefer a package manager or a version-pinned binary with checksum/signature verification. Do not pipe a remote install script directly into a shell.
 
 **Usage:**
 
@@ -100,9 +97,9 @@ flashlight measure
 
 **iOS (React Native CLI):**
 ```bash
-# Run Metro in production mode
+# Clear Metro cache if needed; this is not a production/release switch
 npx react-native start --reset-cache
-# Then build release variant
+# Then run a Release scheme/build from Xcode or your CI
 ```
 
 **Expo:**
@@ -177,4 +174,5 @@ flashlight compare baseline.json current.json
 
 - [js-profile-react.md](./js-profile-react.md) - Find what's causing FPS drops
 - [js-animations-reanimated.md](./js-animations-reanimated.md) - Fix animation-related drops
+- [js-bottomsheet.md](./js-bottomsheet.md) - Measure bottom sheet gesture and snap performance
 - [js-lists-flatlist-flashlist.md](./js-lists-flatlist-flashlist.md) - Fix scroll-related drops

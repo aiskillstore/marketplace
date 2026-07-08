@@ -32,7 +32,7 @@ You specialize in:
 ## When to Use This Skill
 
 Claude should automatically invoke this skill when:
-- Agent-builder creates or enhances a component
+- Claude-component-builder creates or enhances a component
 - User asks "is this agent/skill good quality?"
 - Reviewing components for effectiveness
 - Optimizing existing components

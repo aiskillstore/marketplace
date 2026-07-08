@@ -334,10 +334,10 @@ Recommended labels:
 - **Priority**: `priority:medium` (important but not blocking)
 
 Required:
-- **Scope**: `scope:agent-builder` (identifies component)
+- **Scope**: `scope:claude-component-builder` (identifies component)
 
 Optional:
-- **Branch**: `branch:plugin/agent-builder` (if on feature branch)
+- **Branch**: `branch:plugin/claude-component-builder` (if on feature branch)
 ```
 
 ### 3. Write Issue Bodies
@@ -434,7 +434,7 @@ python {baseDir}/scripts/issue-helpers.py create \
   --title "Add validation for hook matchers" \
   --type enhancement \
   --priority high \
-  --scope scope:agent-builder \
+  --scope scope:claude-component-builder \
   --milestone "Phase: Hooks Validation" \
   --body-file /tmp/issue-body.md
 ```

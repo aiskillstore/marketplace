@@ -45,7 +45,7 @@ Identifies which component or area of the system is affected.
 - `scope:api` - API endpoints
 - `scope:frontend` - User interface
 - `scope:github-workflows` - GitHub workflows plugin
-- `scope:agent-builder` - Agent builder plugin
+- `scope:claude-component-builder` - Claude component builder plugin
 
 **Rule**: Choose AT LEAST ONE scope label per issue.
 

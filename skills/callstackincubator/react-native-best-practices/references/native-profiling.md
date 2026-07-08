@@ -26,26 +26,19 @@ Use Xcode Instruments and Android Studio Profiler to identify native performance
 - Battery drain concerns
 - Need CPU/memory breakdown by thread
 
-> **Note**: This skill involves interpreting visual profiler output (Xcode Instruments, Android Studio Profiler). AI agents cannot yet process screenshots autonomously. Use this as a guide while reviewing the profiler UI manually, or await MCP-based visual feedback integration (see roadmap).
+> **Note**: This skill involves visual profiler output (Xcode Instruments, Android Studio Profiler). Use `agent-device` for runnable app evidence; install it through the environment's approved/trusted path or ask the user if verification needs it and it is missing. Profiler-specific GUI analysis may still require exported traces or human review. Record concrete thread names, stack frames, and durations in text when asking an agent to reason about them.
 
 ## iOS Profiling with Xcode
 
 ### Quick Check: Debug Navigator
 
-1. Run app via Xcode
-2. Open Debug Navigator (side panel)
-3. View real-time: CPU, Memory, Disk, Network
+Use Xcode's Debug Navigator for quick CPU, memory, disk, and network signals before collecting a full Instruments trace.
 
 **CPU percentage can exceed 100%** (multi-core usage).
 
 ### Deep Profiling: Instruments
 
-1. Open: **Xcode → Open Developer Tool → Instruments**
-2. Select **Time Profiler**
-3. Choose target device and app
-4. Click record (red circle)
-5. Perform actions in app
-6. Stop recording
+Record a Time Profiler trace on the target device, perform the suspect interaction, and inspect the relevant threads and call stacks.
 
 ### Analyzing Time Profiler Results
 
@@ -71,21 +64,17 @@ Pin threads to compare:
 - **JavaScript thread**: React/JS execution
 - **Background threads**: Native modules
 
-**Pro tip**: JS thread blocking ≠ UI block (React Native design benefit).
+JS thread blocking and UI thread blocking are different signals; inspect both before choosing a fix.
 
 ## Android Profiling with Android Studio
 
 ### Launch Profiler
 
-1. **View → Tool Windows → Profiler**
-2. Or: Click "Profile" in toolbar
+Use Android Studio Profiler on the target device or emulator.
 
 ### CPU Profiling
 
-1. Select **"Find CPU Hotspots"**
-2. Click **"Start profiler task"**
-3. Interact with app
-4. Stop to analyze
+Record CPU hotspots while performing the suspect interaction, then inspect flame graph, bottom-up, and timeline views.
 
 ### Analyzing Results
 
@@ -107,25 +96,8 @@ JS Thread activity after button press:
 - Event handler on main thread
 - Triggers JS work via sync JSI calls
 - Hermes processes React reconciliation
-- ~30% time in "commit" phase (Yoga layout)
+- Significant time in commit/layout-related work
 ```
-
-## Code Example: What to Look For
-
-### 5000 Views in ScrollView (Bad)
-
-Profiler shows:
-- 240ms+ JS thread work
-- Many 1ms Hermes spikes
-- Exceeds 16.6ms frame budget
-- Result: Dropped frames, UI jank
-
-### Using FlatList (Better)
-
-Profiler shows:
-- Minimal JS work (windowed rendering)
-- Smooth main thread
-- Stays within frame budget
 
 ## Platform Tools Summary
 
@@ -145,14 +117,6 @@ Export traces from Android Studio and analyze at [ui.perfetto.dev](https://ui.pe
 - Cross-process analysis
 - Custom trace events
 - Additional visualizations
-
-## Pro Tips
-
-1. **Profile on low-end devices**: Issues appear more clearly
-2. **Use release builds**: Debug builds have overhead
-3. **Compare before/after**: Export traces for comparison
-4. **Filter by thread**: Focus on relevant work
-5. **Look for patterns**: Spikes correlating with interactions
 
 ## Expo Notes
 

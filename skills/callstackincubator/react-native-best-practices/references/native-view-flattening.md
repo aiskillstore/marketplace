@@ -35,7 +35,7 @@ Understand and debug React Native's view flattening optimization.
 - Building native components that accept children
 - Understanding React Native rendering
 
-> **Note**: This skill involves interpreting visual view hierarchy tools (Xcode Debug View Hierarchy, Android Layout Inspector). AI agents cannot yet process screenshots autonomously. Use this as a guide while reviewing the hierarchy manually, or await MCP-based visual feedback integration (see roadmap).
+> **Note**: This skill involves visual view hierarchy tools (Xcode Debug View Hierarchy, Android Layout Inspector). Use `agent-device` for screen evidence; install it through the environment's approved/trusted path or ask the user if verification needs it and it is missing. Native hierarchy inspection may still require Xcode, Android Studio, or human review. Record native child counts and component names in text when asking an agent to reason about them.
 
 ## What is View Flattening?
 
@@ -56,18 +56,7 @@ React Native's renderer automatically removes "layout-only" views that:
 </MyNativeComponent>
 ```
 
-If `Child1` is flattened, its internal views become direct children:
-
-```tsx
-// Native side receives 5 views instead of 3!
-<MyNativeComponent>
-  <View />   // Was inside Child1
-  <View />   // Was inside Child1  
-  <View />   // Was inside Child1
-  <Child2 />
-  <Child3 />
-</MyNativeComponent>
-```
+If a child wrapper is flattened, native code may receive a different child count or shape than the JS tree suggests.
 
 ## Preventing Flattening with `collapsable`
 
@@ -79,7 +68,7 @@ If `Child1` is flattened, its internal views become direct children:
 </MyNativeComponent>
 ```
 
-Now native side always receives exactly 3 children.
+The direct views marked `collapsable={false}` are preserved as native children.
 
 ## Debugging View Hierarchy
 
@@ -93,9 +82,7 @@ Use native debugging tools to see the actual view hierarchy:
 2. Click **"Debug View Hierarchy"** in debug toolbar (shown in image)
 3. Inspect 3D view of native hierarchy
 
-**React Native components map to:**
-- `<View />` → `RCTViewComponentView`
-- `<Text />` → `RCTTextView`
+Component class names vary by architecture and React Native version; verify the actual native hierarchy in the tool.
 
 ### Android Studio
 
@@ -103,9 +90,7 @@ Use native debugging tools to see the actual view hierarchy:
 2. **View → Tool Windows → Layout Inspector**
 3. Select running process
 
-**React Native components map to:**
-- `<View />` → `ReactViewGroup`
-- `<Text />` → `ReactTextView`
+Component class names vary by architecture and React Native version; verify the actual native hierarchy in the tool.
 
 ## Code Examples
 
@@ -160,27 +145,21 @@ const NativeChildWrapper = ({ children, ...props }) => (
 
 ## When Views Get Flattened
 
-Views are considered "layout-only" when they:
-- Have no `backgroundColor`
-- Have no `borderWidth`, `borderColor`
-- Have no `shadowColor`, `elevation`
-- Don't handle events (no `onPress`, etc.)
-- Don't use `opacity` < 1
-- Don't have `overflow: 'hidden'`
+React Native can flatten layout-only wrappers that do not need their own native view for drawing, events, accessibility, measurement, or native-component child semantics. The exact rules vary across renderer versions.
 
 ## Forcing a View to Stay
 
-Besides `collapsable={false}`, these also prevent flattening:
+Use `collapsable={false}` as the stable fix. Style or handler changes can be useful as debugging probes, but do not keep them as the production solution:
 
 ```tsx
-// Any of these prevent flattening
+// Diagnostic probes only
 <View style={{ backgroundColor: 'transparent' }} />
 <View style={{ borderWidth: 0.01 }} />
 <View style={{ opacity: 0.99 }} />
 <View onLayout={() => {}} />
 ```
 
-But `collapsable={false}` is the cleanest solution.
+Remove these probes after confirming flattening is the issue.
 
 ## Debugging Checklist
 

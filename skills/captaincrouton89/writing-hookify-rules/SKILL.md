@@ -1,7 +1,8 @@
 ---
-name: writing-hookify-rules
+name: Writing Hookify Rules
 description: This skill should be used when the user asks to "create a hookify rule", "write a hook rule", "configure hookify", "add a hookify rule", or needs guidance on hookify rule syntax and patterns.
 version: 0.1.0
+disable-model-invocation: true
 ---
 
 # Writing Hookify Rules
@@ -18,7 +19,7 @@ Hookify rules are markdown files with YAML frontmatter that define patterns to w
 ---
 name: rule-identifier
 enabled: true
-event: bash|file|stop|prompt|all
+event: bash|file|stop|prompt|teammate_idle|task_completed|all
 pattern: regex-pattern-here
 ---
 
@@ -43,11 +44,13 @@ Can include markdown formatting, warnings, suggestions, etc.
 - `file`: Edit, Write, MultiEdit tools
 - `stop`: When agent wants to stop
 - `prompt`: When user submits a prompt
+- `teammate_idle`: When a teammate is about to go idle
+- `task_completed`: When a task is marked complete
 - `all`: All events
 
 **action** (optional): What to do when rule matches
 - `warn`: Show message but allow operation (default)
-- `block`: Prevent operation (PreToolUse) or stop session (Stop events)
+- `block`: Prevent operation (PreToolUse), stop session (Stop), force continuation (TeammateIdle), or reject completion (TaskCompleted)
 - If omitted, defaults to `warn`
 
 **pattern** (simple format): Regex pattern to match
@@ -341,6 +344,8 @@ Warning message here
 - `file` - File edits
 - `stop` - Completion checks
 - `prompt` - User input
+- `teammate_idle` - Teammate about to idle
+- `task_completed` - Task marked complete
 - `all` - All events
 
 **Field options:**

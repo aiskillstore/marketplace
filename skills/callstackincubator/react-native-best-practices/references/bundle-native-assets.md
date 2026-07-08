@@ -13,8 +13,8 @@ Configure platform-specific asset delivery to reduce app download size.
 **iOS Asset Catalog (Build Phase):**
 
 ```bash
-# Add to "Bundle React Native code and images" build phase
-export EXTRA_PACKAGER_ARGS="--asset-catalog-dest ./"
+# Default RN template: the Xcode bundle script cd's to PROJECT_ROOT first.
+export EXTRA_PACKAGER_ARGS="--asset-catalog-dest ios"
 ```
 
 **Android**: Automatic via AAB — Play Store delivers correct density per device.
@@ -75,25 +75,23 @@ iOS requires explicit configuration.
 
 ### Step 1: Create Asset Catalog
 
-Create folder in `ios/`:
+Create an asset catalog in the same directory you pass to `--asset-catalog-dest`:
 
 ```
 ios/RNAssets.xcassets/
 ```
 
-**Important**: Must be named exactly `RNAssets.xcassets` (hardcoded in React Native).
+React Native's bundler writes image sets into `RNAssets.xcassets` under the destination directory. Keep the manual command and Xcode build phase destination consistent.
 
 ### Step 2: Configure Build Phase
 
-In Xcode:
-1. Open project settings
-2. Go to **Build Phases**
-3. Find **"Bundle React Native code and images"**
-4. Add before line 8:
+In Xcode, add this before the React Native bundle command in the **Bundle React Native code and images** build phase:
 
 ```bash
-export EXTRA_PACKAGER_ARGS="--asset-catalog-dest ./"
+export EXTRA_PACKAGER_ARGS="--asset-catalog-dest ios"
 ```
+
+This assumes the default React Native build script, which changes directory to `PROJECT_ROOT` before invoking Metro. If a custom build phase runs from a different working directory, set `--asset-catalog-dest` relative to that working directory and verify the generated `RNAssets.xcassets` path.
 
 ### Step 3: Build
 
@@ -173,13 +171,9 @@ npx sharp-cli input.jpg -o output.jpg --quality 80
 | WebP | Both (smaller) |
 | SVG | Vector icons |
 
-### 3. Consider react-native-fast-image
+### 3. Separate Bundled Assets from Remote Images
 
-Caching and better image handling:
-
-```bash
-npm install react-native-fast-image
-```
+Remote image caching libraries can help runtime image performance, but they do not reduce the size of images already bundled into the app.
 
 ## Verification
 
@@ -199,14 +193,14 @@ Upload IPA to see asset breakdown.
 
 ## Common Pitfalls
 
-- **Wrong folder name**: Must be `RNAssets.xcassets` exactly
+- **Inconsistent destination paths**: The build phase and manual bundle command should point at the same asset catalog parent directory
 - **Missing build phase config**: Assets not processed
 - **Not using size suffixes**: All variants included anyway
 - **Forgetting to rebuild**: Changes need fresh build
 
 ## Future Note
 
-As of January 2025, Asset Catalog is not default. May become default in future React Native versions.
+As of the March 2026 book export, iOS asset catalog generation is not described as default. Verify current React Native release notes before applying this manually.
 
 ## Related Skills
 

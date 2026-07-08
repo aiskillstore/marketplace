@@ -146,7 +146,7 @@ Is something broken?
 Indicate which component/plugin the issue affects (REQUIRED):
 
 ```
-scope:agent-builder
+scope:claude-component-builder
 scope:github-workflows
 scope:self-improvement
 ```
@@ -160,7 +160,7 @@ Link issues to feature branches:
 ```
 branch:feature/auth
 branch:release/v2.0
-branch:plugin/agent-builder
+branch:plugin/claude-component-builder
 ```
 
 Format: `branch:<branch-name>`

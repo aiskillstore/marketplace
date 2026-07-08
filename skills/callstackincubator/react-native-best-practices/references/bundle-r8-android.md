@@ -27,7 +27,7 @@ android {
 ## When to Use
 
 - Android app size too large
-- Want to obfuscate code for security
+- Want basic obfuscation to raise reverse-engineering effort, not as a security boundary
 - Building release APK/AAB
 
 ## What is R8?
@@ -67,6 +67,8 @@ android {
     }
 }
 ```
+
+For Expo projects, wire release minification through `android.enableMinifyInReleaseBuilds` and resource shrinking through `android.enableShrinkResourcesInReleaseBuilds`. In managed/prebuild projects, set these through `expo-build-properties` so they survive `expo prebuild`.
 
 ### 3. Configure ProGuard Rules (If Needed)
 
@@ -211,6 +213,10 @@ Decompile APK to check class names are obfuscated:
 # Using jadx or similar
 jadx android/app/build/outputs/apk/release/app-release.apk
 ```
+
+### Verify Runtime Behavior
+
+Use `agent-device` to install or open the release build, navigate critical flows, capture snapshots/screenshots, and collect logs. If it is missing and release verification is needed, install it through the environment's approved/trusted path or ask the user to install or enable it. Read the `agent-device` skill or CLI help when available before writing exact commands.
 
 ## Common Pitfalls
 

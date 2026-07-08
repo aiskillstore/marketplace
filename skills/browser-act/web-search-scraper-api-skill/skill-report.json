@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T05:04:07.547Z",
+    "generated_at": "2026-07-07T21:35:52.600Z",
     "slug": "browser-act-web-search-scraper-api-skill",
     "source_url": "https://github.com/browser-act/skills/tree/main/solutions/search-research/web-search-scraper-api-skill",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "bb9a4b88c9c3cda5906c4787578e22291e6ba86bc5077f45842c2c3ca02ec88c",
-    "tree_hash": "fb409e6472247eaec95acdbba2bd5a9a02add1887f2d0545920b62d70b650ebd",
+    "content_hash": "0d4fce87f582801ea66515bd364c8fb6bdd49f8d9ee82be5575ec2b16a2d9e59",
+    "tree_hash": "12e7c0beeceb59153fcb53cde9da0c514cf8ae05c3f81887a07a3443b2b55c84",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,18 +23,18 @@
   },
   "skill": {
     "name": "web-search-scraper-api-skill",
-    "description": "Extract webpage content as Markdown through the BrowserAct Web Search Scraper API using a provided URL and BrowserAct API key.",
-    "summary": "Turns a target webpage into Markdown through a hosted BrowserAct scraper workflow.",
+    "description": "Extract Markdown from web pages using the BrowserAct Web Search Scraper API. The skill runs a Python wrapper that submits one target URL, polls the task, and prints the returned content.",
+    "summary": "Extract webpage content as Markdown through the BrowserAct API.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "browser-act",
     "license": "MIT",
     "tags": [
       "web-scraping",
       "markdown",
-      "research",
       "browseract",
-      "content-extraction"
+      "research",
+      "automation"
     ],
     "supported_tools": [
       "claude",
@@ -56,26 +53,21 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Confirmed issues include expected outbound BrowserAct API calls, environment-key access, and one documented Python command invocation. Most Markdown backtick detections are false positives, but the skill also asks users to provide an API key and advertises avoiding verification and geofencing.",
+    "summary": "The skill intentionally makes authenticated HTTPS requests to BrowserAct and reads only BROWSERACT_API_KEY from the environment. Most generic secret and Markdown backtick matches are false positives, but the guidance asking users to provide an API key directly is a real credential exposure risk.",
     "remediation": [
       {
-        "issue": "Credential disclosure guidance",
-        "suggestion": "Remove instructions that ask users to provide API keys to the agent. Direct users to set BROWSERACT_API_KEY through an environment variable or secret manager only.",
+        "issue": "API key collection guidance",
+        "suggestion": "Remove instructions that ask users to provide API keys in chat. Require environment variables or a secure secret manager instead.",
         "severity": "high"
       },
       {
-        "issue": "Anti-bot and geofencing bypass claims",
-        "suggestion": "Remove claims about avoiding reCAPTCHA, verification challenges, IP restrictions, or geofencing. Add clear permission and site-terms guidance.",
-        "severity": "high"
-      },
-      {
-        "issue": "External service data transfer",
-        "suggestion": "Disclose that target URLs and the BrowserAct API credential are sent to api.browseract.com before any request is made.",
+        "issue": "Third-party data transfer disclosure",
+        "suggestion": "State clearly that target URLs and resulting task data are sent to BrowserAct for processing.",
         "severity": "medium"
       },
       {
-        "issue": "Shell invocation guidance",
-        "suggestion": "Show safe argument handling for target_url and warn users not to pass untrusted shell fragments as command text.",
+        "issue": "Target URL handling",
+        "suggestion": "Validate that inputs are HTTP or HTTPS URLs and advise users to process only authorized public pages.",
         "severity": "medium"
       }
     ],
@@ -532,226 +524,211 @@
       {
         "id": "network:scripts/web_search_scraper_api.py:29:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.91,
+        "confidence": 0.92,
         "severity": "low",
-        "reason": "The script sends a POST request to the BrowserAct workflow API with the target URL and authorization header. This is intended behavior, but it is real outbound network transfer to a third-party service."
+        "reason": "The script sends the target URL payload to the external BrowserAct workflow API. This is intended behavior, but it is real network access with user-provided input."
       },
       {
         "id": "network:scripts/web_search_scraper_api.py:46:python-http-libraries",
         "verdict": "confirmed",
         "confidence": 0.9,
         "severity": "low",
-        "reason": "The script polls BrowserAct over HTTP for task status using the same authorization header. This is expected, but still creates ongoing external network traffic."
+        "reason": "The script polls BrowserAct over HTTP with the task identifier and authorization header. This is expected but remains external network communication."
       },
       {
         "id": "network:scripts/web_search_scraper_api.py:69:python-http-libraries",
         "verdict": "confirmed",
         "confidence": 0.9,
         "severity": "low",
-        "reason": "The script retrieves task output from BrowserAct over HTTP. The request is legitimate for the skill, but confirms external data retrieval from a hosted API."
+        "reason": "The script retrieves task results from the BrowserAct API after completion. This is legitimate for the skill, but it is confirmed external network access."
       },
       {
         "id": "network:scripts/web_search_scraper_api.py:15:hardcoded-url",
         "verdict": "confirmed",
         "confidence": 0.88,
         "severity": "low",
-        "reason": "The API endpoint is hardcoded to https://api.browseract.com/v2/workflow. This is the expected service endpoint, but fixes where user URLs and credentials are sent."
+        "reason": "The hardcoded endpoint is the BrowserAct workflow API used by all requests. It is documented and expected, but it fixes traffic to a third-party service."
       },
       {
         "id": "network:scripts/web_search_scraper_api.py:95:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This line only prints a BrowserAct console URL for setup guidance. It does not perform a network request or redirect data."
+        "confidence": 0.94,
+        "reason": "This line only prints a BrowserAct console URL for setup guidance. It does not initiate a network request or redirect data."
       },
       {
         "id": "env_access:scripts/web_search_scraper_api.py:86:python-getenv-function",
         "verdict": "confirmed",
-        "confidence": 0.89,
+        "confidence": 0.88,
         "severity": "low",
-        "reason": "The script reads BROWSERACT_API_KEY from the environment. This is expected for API authentication, but it is real access to a sensitive credential."
+        "reason": "The script reads BROWSERACT_API_KEY from the environment. This is scoped and expected, but it is real environment secret access."
       },
       {
         "id": "env_access:scripts/web_search_scraper_api.py:86:getenv-function-call",
         "verdict": "confirmed",
-        "confidence": 0.89,
+        "confidence": 0.88,
         "severity": "low",
-        "reason": "The getenv call accesses the BrowserAct API key for later use in requests. The use is scoped, but it still handles a secret value."
+        "reason": "The getenv call accesses the required BrowserAct API key. It is not broad environment enumeration, but it is confirmed access to a secret-bearing variable."
       },
       {
         "id": "env_access:scripts/web_search_scraper_api.py:17:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The line is a function parameter named api_key, not a hardcoded credential or environment sweep. It is part of normal API authentication flow."
+        "confidence": 0.89,
+        "reason": "This is only a function parameter name for the required API key. No hardcoded secret or secret disclosure appears on this line."
       },
       {
         "id": "env_access:scripts/web_search_scraper_api.py:18:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.8,
-        "reason": "The Authorization header uses the provided BrowserAct API key for the intended API call. There is no evidence of secret harvesting or an unexpected destination on this line."
+        "confidence": 0.78,
+        "reason": "The API key is placed in the Authorization header for the documented BrowserAct API. This is expected authentication, not an unrelated secret leak."
       },
       {
         "id": "env_access:scripts/web_search_scraper_api.py:86:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The detected text is the expected BROWSERACT_API_KEY environment variable name. It is not a hardcoded secret value and is already covered by the lower-severity getenv finding."
+        "confidence": 0.86,
+        "reason": "The line references the required BROWSERACT_API_KEY environment variable but does not contain a hardcoded credential. The lower-severity getenv findings cover the real env access."
       },
       {
         "id": "env_access:scripts/web_search_scraper_api.py:92:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.87,
-        "reason": "This line checks whether the expected API key variable is missing. It does not expose, generate, or collect a credential by itself."
+        "confidence": 0.95,
+        "reason": "This condition only checks whether the API key is missing. It does not expose, log, or transmit the key."
       },
       {
         "id": "env_access:scripts/web_search_scraper_api.py:97:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.86,
+        "confidence": 0.9,
         "severity": "high",
-        "reason": "The script tells the user to provide the API key to the agent or set an environment variable. Asking users to provide a secret in chat can expose credentials in logs or transcripts."
+        "reason": "The script tells the user they may provide the API key to the agent, which can expose credentials in chat or logs. Secure setup should require environment or secret-manager storage instead."
       },
       {
         "id": "env_access:scripts/web_search_scraper_api.py:102:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The line passes the already-read API key into the local run_task function. It does not independently read additional secrets or reveal the key."
+        "confidence": 0.82,
+        "reason": "This line passes the local API key variable into the local run_task function. It is not by itself a secret leak or hardcoded credential."
       },
       {
         "id": "blocker:scripts/web_search_scraper_api.py:38:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line stores a BrowserAct task id from the API response. It is not host reconnaissance and does not enumerate local system details."
+        "confidence": 0.96,
+        "reason": "The line stores the BrowserAct task identifier returned by the API. It does not inspect the host system or gather reconnaissance data."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks mark an environment variable name in Markdown prose. There is no Ruby or shell backtick execution on this line."
+        "confidence": 0.93,
+        "reason": "The backticks are Markdown formatting around an environment variable name. They are not Ruby backtick execution or shell command execution."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks format the word string in Markdown. This is documentation text, not an executable command."
+        "confidence": 0.97,
+        "reason": "The backticks format the word string in documentation. There is no command execution behavior on this line."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.95,
-        "reason": "The backticks format an example URL in Markdown. The line does not execute a command or invoke a shell."
+        "reason": "The backticks format an example URL in Markdown. This line does not execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "severity": "medium",
-        "reason": "This Markdown block documents running python -u ./scripts/web_search_scraper_api.py with a target URL. It is not Ruby backtick execution, but it does instruct the agent to execute a local script."
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "This begins a fenced bash example in documentation. The skill documents running its bundled Python script, but this is not Ruby-style backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The cited line is the closing Markdown fence for the example command block. It is not an executable construct by itself."
+        "confidence": 0.85,
+        "reason": "This closes the Markdown command example. The analyzer matched fence syntax, not executable backtick behavior."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The line discusses status log text in Markdown. It does not contain shell backtick execution or a command invocation."
+        "confidence": 0.96,
+        "reason": "The line describes status logs and contains only Markdown formatting. It does not execute external commands."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "The backticks format the output field name content. This is documentation formatting only."
+        "reason": "The backticks format the output field name content. This is documentation text, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks format the literal error text Invalid authorization. It is not shell execution."
+        "confidence": 0.95,
+        "reason": "The backticks format an error phrase and the guidance says not to retry on authorization failure. There is no command execution on this line."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks format example error text in Markdown prose. No command is executed on this line."
+        "confidence": 0.86,
+        "reason": "The line discusses retrying the documented script after non-authorization errors. It contains no Ruby backtick execution or arbitrary command construction."
       },
       {
         "id": "network:SKILL.md:22:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This is a setup link to the BrowserAct console in documentation. It does not perform a network request from the skill."
+        "confidence": 0.93,
+        "reason": "This is a documentation link to the BrowserAct console for obtaining an API key. It does not make a network request by itself."
       },
       {
         "id": "network:SKILL.md:30:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.95,
-        "reason": "This is an example target URL in the parameter documentation. It is not a hardcoded exfiltration destination."
+        "reason": "This is a Markdown-formatted example URL. It is not an active endpoint used by the script."
       },
       {
         "id": "env_access:SKILL.md:4:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The metadata declares BROWSERACT_API_KEY as a required environment variable. It does not include a secret value and does not read arbitrary environment data."
+        "confidence": 0.9,
+        "reason": "The metadata declares that BROWSERACT_API_KEY is required. It does not contain a hardcoded key or request that the key be exposed."
       },
       {
         "id": "env_access:SKILL.md:20:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.89,
+        "confidence": 0.92,
         "severity": "high",
-        "reason": "The instruction says to ask and wait for the user to provide the API key if it is not set. This encourages credential disclosure to the agent instead of secret-manager use."
+        "reason": "The documentation tells the agent to ask and wait for the user to provide BROWSERACT_API_KEY when it is unset. That can collect secrets in chat instead of using safer environment configuration."
       },
       {
         "id": "blocker:SKILL.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line is a marketing claim about reducing AI hallucinations. It does not perform or instruct system reconnaissance."
+        "confidence": 0.96,
+        "reason": "The line is a marketing claim about avoiding hallucinations. It does not perform or instruct system reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:55:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The line tells the agent how to interpret an invalid authorization error. It does not inspect local system configuration or enumerate host data."
+        "confidence": 0.95,
+        "reason": "The line describes handling an invalid authorization error. It does not inspect system state or enumerate host information."
       },
       {
         "id": "blocker:SKILL.md:56:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The line describes retry behavior after a task failure. It is not local system reconnaissance."
+        "confidence": 0.92,
+        "reason": "The line describes retry behavior after a failed API task. It does not gather system information or perform reconnaissance."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Credential Disclosure Guidance",
-        "description": "The skill tells the agent to ask and wait for the user to provide BROWSERACT_API_KEY, and the script prints guidance to provide the key. This can expose API keys in chat history or logs.",
+        "title": "API Key Collection Guidance",
+        "description": "The skill instructs the agent to ask for BROWSERACT_API_KEY when it is unset, and the script says users may provide the key to the agent. This can expose credentials in chat transcripts, logs, or shared sessions.",
         "severity": "high",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 19,
-            "line_end": 22
+            "line_start": 20,
+            "line_end": 20
           },
           {
             "file": "scripts/web_search_scraper_api.py",
-            "line_start": 92,
+            "line_start": 97,
             "line_end": 97
           }
         ],
-        "confidence": 0.91,
-        "confidence_reasoning": "The cited instructions explicitly ask for API key provision when the environment variable is missing. The risk is clear because API keys are secrets and should not be pasted into conversational context."
-      },
-      {
-        "title": "Access-Control Circumvention Claims",
-        "description": "The skill advertises no need to handle reCAPTCHA, verification challenges, IP restrictions, or geofencing. These claims promote bypassing anti-bot or location controls during web scraping.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 14,
-            "line_end": 15
-          }
-        ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The language directly presents verification and geofencing avoidance as product features. This is a strong intent-level abuse indicator even though the local script delegates work to BrowserAct."
+        "confidence": 0.93,
+        "confidence_reasoning": "Both cited lines directly tell users or agents that the API key may be provided through the conversation rather than only through a secure environment variable."
       }
     ],
     "critical_findings": [],
@@ -769,8 +746,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The script tells the user to provide the API key to the agent or set an environment variable. Asking users to provide a secret in chat can expose credentials in logs or transcripts."
+        "confidence": 0.9,
+        "confidence_reasoning": "The script tells the user they may provide the API key to the agent, which can expose credentials in chat or logs. Secure setup should require environment or secret-manager storage instead."
       },
       {
         "title": "Generic API/secret keys",
@@ -785,65 +762,32 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.89,
-        "confidence_reasoning": "The instruction says to ask and wait for the user to provide the API key if it is not set. This encourages credential disclosure to the agent instead of secret-manager use."
+        "confidence": 0.92,
+        "confidence_reasoning": "The documentation tells the agent to ask and wait for the user to provide BROWSERACT_API_KEY when it is unset. That can collect secrets in chat instead of using safer environment configuration."
       },
       {
-        "title": "Credential Disclosure Guidance",
-        "description": "The skill tells the agent to ask and wait for the user to provide BROWSERACT_API_KEY, and the script prints guidance to provide the key. This can expose API keys in chat history or logs.",
+        "title": "API Key Collection Guidance",
+        "description": "The skill instructs the agent to ask for BROWSERACT_API_KEY when it is unset, and the script says users may provide the key to the agent. This can expose credentials in chat transcripts, logs, or shared sessions.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 19,
-            "line_end": 22
+            "line_start": 20,
+            "line_end": 20
           },
           {
             "file": "scripts/web_search_scraper_api.py",
-            "line_start": 92,
+            "line_start": 97,
             "line_end": 97
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "The cited instructions explicitly ask for API key provision when the environment variable is missing. The risk is clear because API keys are secrets and should not be pasted into conversational context."
-      },
-      {
-        "title": "Access-Control Circumvention Claims",
-        "description": "The skill advertises no need to handle reCAPTCHA, verification challenges, IP restrictions, or geofencing. These claims promote bypassing anti-bot or location controls during web scraping.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 14,
-            "line_end": 15
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The language directly presents verification and geofencing avoidance as product features. This is a strong intent-level abuse indicator even though the local script delegates work to BrowserAct."
+        "confidence": 0.93,
+        "confidence_reasoning": "Both cited lines directly tell users or agents that the API key may be provided through the conversation rather than only through a secure environment variable."
       }
     ],
-    "medium_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 35,
-            "line_end": 38
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "This Markdown block documents running python -u ./scripts/web_search_scraper_api.py with a target URL. It is not Ruby backtick execution, but it does instruct the agent to execute a local script."
-      }
-    ],
+    "medium_findings": [],
     "low_findings": [
       {
         "title": "Python HTTP libraries",
@@ -858,8 +802,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.91,
-        "confidence_reasoning": "The script sends a POST request to the BrowserAct workflow API with the target URL and authorization header. This is intended behavior, but it is real outbound network transfer to a third-party service."
+        "confidence": 0.92,
+        "confidence_reasoning": "The script sends the target URL payload to the external BrowserAct workflow API. This is intended behavior, but it is real network access with user-provided input."
       },
       {
         "title": "Python HTTP libraries",
@@ -875,7 +819,7 @@
         "source_category": "network",
         "source_severity": "low",
         "confidence": 0.9,
-        "confidence_reasoning": "The script polls BrowserAct over HTTP for task status using the same authorization header. This is expected, but still creates ongoing external network traffic."
+        "confidence_reasoning": "The script polls BrowserAct over HTTP with the task identifier and authorization header. This is expected but remains external network communication."
       },
       {
         "title": "Python HTTP libraries",
@@ -891,7 +835,7 @@
         "source_category": "network",
         "source_severity": "low",
         "confidence": 0.9,
-        "confidence_reasoning": "The script retrieves task output from BrowserAct over HTTP. The request is legitimate for the skill, but confirms external data retrieval from a hosted API."
+        "confidence_reasoning": "The script retrieves task results from the BrowserAct API after completion. This is legitimate for the skill, but it is confirmed external network access."
       },
       {
         "title": "Hardcoded URL",
@@ -907,7 +851,7 @@
         "source_category": "network",
         "source_severity": "low",
         "confidence": 0.88,
-        "confidence_reasoning": "The API endpoint is hardcoded to https://api.browseract.com/v2/workflow. This is the expected service endpoint, but fixes where user URLs and credentials are sent."
+        "confidence_reasoning": "The hardcoded endpoint is the BrowserAct workflow API used by all requests. It is documented and expected, but it fixes traffic to a third-party service."
       },
       {
         "title": "Python getenv function",
@@ -922,8 +866,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.89,
-        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment. This is expected for API authentication, but it is real access to a sensitive credential."
+        "confidence": 0.88,
+        "confidence_reasoning": "The script reads BROWSERACT_API_KEY from the environment. This is scoped and expected, but it is real environment secret access."
       },
       {
         "title": "getenv function call",
@@ -938,133 +882,137 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.89,
-        "confidence_reasoning": "The getenv call accesses the BrowserAct API key for later use in requests. The use is scoped, but it still handles a secret value."
+        "confidence": 0.88,
+        "confidence_reasoning": "The getenv call accesses the required BrowserAct API key. It is not broad environment enumeration, but it is confirmed access to a secret-bearing variable."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 173,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T05:04:07.547Z",
+    "audited_at": "2026-07-07T21:35:52.600Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Extract Web Pages to Markdown",
-    "value_statement": "Web research often requires clean text from pages, but manual copying is slow and inconsistent. This skill sends a target URL to BrowserAct and returns extracted Markdown for review or reuse.",
+    "value_statement": "Manual page copying is slow and often loses structure. This skill sends a target URL to BrowserAct and returns clean Markdown for research or documentation work.",
     "seo_keywords": [
-      "Claude web scraping",
-      "Codex web scraping",
-      "Claude Code markdown extraction",
-      "BrowserAct API",
-      "web page to Markdown",
-      "AI research tool",
-      "content extraction skill",
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "BrowserAct",
       "web scraper API",
-      "documentation scraping",
-      "article extraction"
+      "markdown extraction",
+      "webpage to markdown",
+      "research automation",
+      "content scraping",
+      "documentation scraping"
     ],
     "actual_capabilities": [
-      "Runs scripts/web_search_scraper_api.py with a target URL argument.",
-      "Reads BROWSERACT_API_KEY from the environment before calling the API.",
-      "Starts a BrowserAct workflow using template ID 85961818557645714.",
-      "Polls task status and prints timestamped progress messages.",
-      "Returns the API result string, usually Markdown page content."
+      "Accepts one target URL as the script argument.",
+      "Uses BROWSERACT_API_KEY from the environment for authentication.",
+      "Starts a BrowserAct workflow task for the target URL.",
+      "Polls task status until completion, failure, or timeout.",
+      "Prints returned Markdown or the API response content to the terminal."
     ],
     "limitations": [
-      "Requires a valid BrowserAct API key and network access.",
-      "Sends the target URL and API credential to BrowserAct.",
-      "Can take several minutes while the hosted workflow runs.",
-      "Does not verify copyright, site terms, or permission to scrape."
+      "Requires Python, the requests package, and a valid BrowserAct API key.",
+      "Sends the target URL and task data to BrowserAct.",
+      "Processes one URL per script invocation.",
+      "May wait up to five minutes before timing out."
     ],
     "use_cases": [
       {
-        "title": "Capture Article Text",
-        "description": "Extract clean Markdown from public articles for research notes or source review.",
+        "title": "Article Research",
+        "description": "Extract a public article into Markdown for review, notes, or citation planning.",
         "target_user": "Researcher"
       },
       {
-        "title": "Convert Documentation Pages",
-        "description": "Turn a public documentation page into Markdown for offline reading or indexing.",
+        "title": "Documentation Capture",
+        "description": "Convert a documentation page into structured Markdown for offline study or migration.",
         "target_user": "Developer"
       },
       {
-        "title": "Monitor Public Content",
-        "description": "Collect page text from approved URLs so changes can be compared later.",
+        "title": "Content Review",
+        "description": "Capture public page text so teams can compare updates and preserve source context.",
         "target_user": "Content analyst"
       }
     ],
     "prompt_templates": [
       {
         "title": "Extract One Page",
-        "scenario": "Beginner request for one public page.",
-        "prompt": "Extract Markdown from this public URL: [URL]. Tell me if the page cannot be accessed."
+        "prompt": "Extract Markdown from this public URL: https://example.com/article. Show the returned content after the task completes.",
+        "scenario": "Beginner single page extraction"
       },
       {
         "title": "Convert Documentation",
-        "scenario": "Basic documentation capture.",
-        "prompt": "Convert this public documentation page to Markdown and keep headings, lists, and links clear: [URL]."
+        "prompt": "Convert this documentation page to Markdown and keep the original heading order: https://example.com/docs/page.",
+        "scenario": "Intermediate documentation capture"
       },
       {
-        "title": "Summarize Extracted Content",
-        "scenario": "Intermediate research workflow.",
-        "prompt": "Extract Markdown from [URL], then summarize the main sections and note any missing or unreadable content."
+        "title": "Compare Public Pages",
+        "prompt": "Extract these two approved public URLs one at a time, then list the main content differences in plain language.",
+        "scenario": "Advanced comparison workflow"
       },
       {
-        "title": "Process Approved URLs",
-        "scenario": "Advanced workflow with safety boundaries.",
-        "prompt": "For these approved URLs, extract Markdown one at a time, summarize changes, and stop if authentication, paywall, or permission issues appear."
+        "title": "Prepare Research Notes",
+        "prompt": "Extract Markdown from these approved source URLs one at a time. Return concise notes with source titles and important sections.",
+        "scenario": "Advanced research synthesis"
       }
     ],
     "output_examples": [
       {
-        "input": "A public blog post URL.",
-        "output": "A Markdown document with the page title, headings, paragraphs, links, and readable article content."
+        "input": "Extract the content from a public product blog post.",
+        "output": "A Markdown article with title, headings, links, and paragraph text ready for review."
       },
       {
-        "input": "A public product documentation page.",
-        "output": "Clean Markdown suitable for notes, search indexing, or follow-up summarization."
+        "input": "Capture a documentation page for offline notes.",
+        "output": [
+          "Clean Markdown structure",
+          "Original headings preserved",
+          "Any API error message shown plainly"
+        ]
       },
       {
-        "input": "An approved public page used for monitoring.",
-        "output": "Extracted page text that can be compared with a previous capture."
+        "input": "Review a public webpage for updated content.",
+        "output": "A readable Markdown version of the page that can be compared with earlier notes."
       }
     ],
     "best_practices": [
-      "Use only URLs you are permitted to access and process.",
-      "Store BROWSERACT_API_KEY in the environment, not in chat or shared files.",
-      "Review extracted Markdown before publishing, indexing, or quoting it."
+      "Store BROWSERACT_API_KEY in the environment or a secret manager.",
+      "Use public URLs or pages you have permission to process.",
+      "Review extracted Markdown before using it as authoritative source material."
     ],
     "anti_patterns": [
-      "Do not paste API keys into chat or shared logs.",
-      "Do not use this skill to bypass paywalls, verification, or geofencing.",
-      "Do not scrape private or authenticated pages without explicit permission."
+      "Do not paste API keys into prompts, chat messages, or shared logs.",
+      "Do not scrape private, paid, or sensitive pages without authorization.",
+      "Do not assume empty or partial output means the page has no content."
     ],
     "faq": [
       {
-        "question": "What does this skill extract?",
-        "answer": "It extracts readable webpage content and returns it as Markdown when the BrowserAct workflow succeeds."
+        "question": "Does this run locally?",
+        "answer": "The wrapper runs locally, but extraction is performed by the BrowserAct API."
       },
       {
-        "question": "Does it require an API key?",
-        "answer": "Yes. It requires BROWSERACT_API_KEY to be available in the environment before the script runs."
+        "question": "Does it need an API key?",
+        "answer": "Yes. It requires BROWSERACT_API_KEY before it can start a BrowserAct workflow."
       },
       {
-        "question": "Where is the page processed?",
-        "answer": "The script sends the target URL to the BrowserAct API, which runs the hosted extraction workflow."
+        "question": "Can it handle any URL?",
+        "answer": "It accepts HTTP and HTTPS URLs, but access depends on BrowserAct and the target site."
       },
       {
-        "question": "Can it scrape any website?",
-        "answer": "It can accept HTTP or HTTPS URLs, but users must follow site terms, privacy rules, and access permissions."
+        "question": "Where does the output appear?",
+        "answer": "The script prints status messages and final Markdown in the terminal."
       },
       {
-        "question": "How long does extraction take?",
-        "answer": "The script polls for up to five minutes and prints status messages while the hosted task runs."
+        "question": "Can I process multiple pages?",
+        "answer": "Yes, but the bundled script processes one URL per invocation."
       },
       {
-        "question": "Is the output always complete?",
-        "answer": "No. Dynamic pages, blocked content, authentication, paywalls, or service errors can reduce or prevent extraction."
+        "question": "Is it safe for secrets?",
+        "answer": "Use environment variables. Do not paste API keys or sensitive page content into shared chats."
       }
     ]
   },

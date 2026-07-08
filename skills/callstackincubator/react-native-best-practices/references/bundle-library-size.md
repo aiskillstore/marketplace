@@ -31,7 +31,7 @@ npx bundle-phobia-cli <package-name>
 |------|------|----------|
 | bundlephobia.com | Web | Quick size check |
 | pkg-size.dev | Web | Backup/alternative |
-| Import Cost (VS Code) | IDE extension | Real-time feedback |
+| Import Cost (VS Code) | IDE extension | Rough JS import feedback |
 
 ## bundlephobia.com
 
@@ -83,7 +83,6 @@ Shows inline size next to imports:
 
 ```tsx
 import React from 'react';           // 6.5K (gzipped)
-import { View, Text } from 'react-native';  // 0B (native)
 import lodash from 'lodash';         // 71.5K (gzipped: 24.7K)
 import get from 'lodash/get';        // 8K (gzipped: 2.9K)
 ```
@@ -93,6 +92,8 @@ import get from 'lodash/get';        // 8K (gzipped: 2.9K)
 - Uses Webpack internally (not Metro)
 - May fail on React Native-specific packages
 - Doesn't account for tree shaking
+
+Bundlephobia, pkg-size.dev, and Import Cost measure JavaScript package cost. They do not capture native code added by React Native libraries such as maps, Reanimated, Firebase, camera, video, or analytics SDKs. For native dependencies, always verify the actual IPA/AAB/APK size after installation.
 
 ## Comparison Workflow
 
@@ -118,21 +119,12 @@ import get from 'lodash/get';        // 8K (gzipped: 2.9K)
 2. Verify actual impact matches expected
 3. Check for duplicate dependencies
 
-## Size Guidelines
-
-| Size (gzipped) | Assessment | Action |
-|----------------|------------|--------|
-| < 5 KB | Small | Generally fine |
-| 5-20 KB | Medium | Evaluate necessity |
-| 20-50 KB | Large | Look for alternatives |
-| > 50 KB | Very large | Strong justification needed |
-
 ## Common Large Dependencies
 
 | Library | Size (gzipped) | Alternative |
 |---------|----------------|-------------|
 | moment | ~70 KB | dayjs (~3 KB) |
-| lodash (full) | ~25 KB | lodash-es + direct imports |
+| lodash (full) | ~25 KB | Built-ins or direct imports |
 | aws-sdk (full) | 200+ KB | @aws-sdk/client-* |
 | crypto-js | ~15 KB | react-native-quick-crypto |
 
@@ -146,27 +138,22 @@ npx bundle-phobia-cli <package-name>
 npm pack <package-name> --dry-run 2>&1 | grep "total files"
 ```
 
-## Decision Matrix
+## Decision Rule
 
-| Factor | Keep JS Library | Use Native Alternative |
-|--------|-----------------|------------------------|
-| Size | > 50 KB | < 50 KB |
-| Platform coverage | Both platforms | Single platform OK |
-| Performance | Not critical | Critical path |
-| Functionality | Simple | Complex computation |
+Prefer the smallest option that satisfies correctness and platform requirements, then verify the real app artifact. JS package size alone is not enough for React Native dependencies with native code.
 
 ## Code Example: Optimizing Imports
 
 ```tsx
-// BAD: Full library (71.5 KB)
+// BAD: Full library
 import _ from 'lodash';
 _.get(obj, 'path.to.value');
 
-// BETTER: Specific import (8 KB)
+// BETTER: Specific import
 import get from 'lodash/get';
 get(obj, 'path.to.value');
 
-// BEST: Native JS (0 KB)
+// BEST: Native JS
 obj?.path?.to?.value;
 ```
 

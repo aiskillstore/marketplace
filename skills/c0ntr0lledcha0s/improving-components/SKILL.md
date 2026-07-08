@@ -24,7 +24,7 @@ You specialize in:
 Claude should automatically invoke this skill when:
 - Quality analysis reveals improvement opportunities
 - User requests component enhancement
-- Agent-builder's enhance command is used
+- Claude-component-builder's enhance command is used
 - Preparing components for marketplace
 - Upgrading components to current standards
 - After creating new components
