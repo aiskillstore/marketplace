@@ -63,10 +63,10 @@ Common query patterns with request bodies. Use the [SKILL.md workflow](../SKILL.
       { "type": "Dimension", "name": "ResourceGroupName" }
     ],
     "filter": {
-      "Tags": {
-        "Name": "Environment",
-        "Operator": "In",
-        "Values": ["production", "staging"]
+      "tags": {
+        "name": "Environment",
+        "operator": "In",
+        "values": ["production", "staging"]
       }
     },
     "sorting": [

@@ -1,0 +1,503 @@
+# AKS Automatic Compatibility Constraint Spec — Condensed Reference
+# Version: 1.1.1 | AKS: 2026-03-15
+# This condensed version is optimized for LLM context.
+
+apiVersion: aks-automatic.azure.com/v1
+kind: ConstraintSpecReference
+metadata:
+  version: "1.1.1"
+  aksVersion: "2026-03-15"
+  policyInitiatives:
+    deploymentSafeguards: c047ea8e-9c78-49b2-958b-37e56d291a44
+    podSecurityBaseline: a8640138-9b0a-4a28-b8cb-1666c838647d
+    podSecurityRestricted: 42b8ef37-b724-4e24-bbc8-7a7708edfe00
+
+# =============================================================================
+# CLUSTER CONSTRAINTS (23 total)
+# =============================================================================
+clusterConstraints:
+  # -- Addons --
+  - id: cluster-azure-policy-addon
+    severity: requiresChanges
+    field: addonProfiles.azurepolicy.enabled
+    required: true
+    fix: "az aks addon enable --addon azure-policy"
+
+  - id: cluster-keyvault-secrets-provider
+    severity: requiresChanges
+    field: addonProfiles.azureKeyvaultSecretsProvider.enabled
+    required:
+      enabled: true
+      enableSecretRotation: true
+    fix: "az aks addon enable --addon azure-keyvault-secrets-provider --enable-secret-rotation"
+
+  # -- Networking --
+  - id: cluster-api-server-vnet-integration
+    severity: requiresChanges
+    field: privateConnectProfile.enabled
+    required: true
+    fix: "az aks update --enable-apiserver-vnet-integration --apiserver-subnet-id <subnet-id>"
+
+  - id: cluster-azure-cni-overlay-cilium
+    severity: requiresChanges
+    field: networkPlugin/networkPluginMode/networkPolicy/ebpfDataplane
+    required: azure/overlay/cilium/cilium
+    fix: |
+      Step 1: az aks update --network-plugin-mode overlay --pod-cidr 192.168.0.0/16
+      Step 2: az aks update --network-dataplane cilium
+      Note: Irreversible. Disable NAP before Cilium update.
+
+  - id: cluster-standard-load-balancer
+    severity: requiresChanges
+    field: loadBalancerSku
+    required: standard
+    fix: "az aks update --load-balancer-sku standard (in-place upgrade from Basic supported)"
+
+  - id: cluster-nat-gateway-managed-vnet
+    severity: requiresChanges
+    condition: AKS-managed VNet only
+    field: outboundType
+    required: managedNATGateway
+    fix: "az aks update --outbound-type managedNATGateway"
+
+  # -- Upgrades --
+  - id: cluster-auto-upgrade
+    severity: requiresChanges
+    field: autoUpgradeProfile
+    required: upgradeChannel=stable, nodeOSUpgradeChannel=NodeImage
+    fix: "az aks update --auto-upgrade-channel stable --node-os-upgrade-channel NodeImage"
+
+  # -- Ingress --
+  - id: cluster-web-app-routing
+    severity: requiresChanges
+    field: ingressProfile.webAppRouting.enabled
+    required: true
+    fix: "az aks addon enable --addon web_application_routing"
+
+  # -- Identity --
+  - id: cluster-workload-identity-oidc
+    severity: requiresChanges
+    field: workloadIdentity.enabled + oidcProfile.enabled
+    required: true
+    fix: "az aks update --enable-oidc-issuer --enable-workload-identity"
+
+  - id: cluster-azure-rbac
+    severity: requiresChanges
+    field: aadProfile (managed + enableAzureRBAC)
+    required: true
+    fix: "az aks update --enable-aad --enable-azure-rbac"
+
+  - id: cluster-disable-local-accounts
+    severity: requiresChanges
+    field: disableLocalAccounts
+    required: true
+    fix: "az aks update --disable-local-accounts"
+
+  - id: cluster-system-assigned-managed-identity
+    severity: requiresChanges
+    condition: AKS-managed VNet only
+    field: identity.type
+    required: SystemAssigned
+    fix: "Day-0 decision for managed VNet clusters."
+
+  # -- Security --
+  - id: cluster-image-cleaner
+    severity: requiresChanges
+    field: securityProfile.imageCleaner.enabled
+    required: true
+    fix: "az aks update --enable-image-cleaner"
+
+  # -- Autoscaling --
+  - id: cluster-vpa
+    severity: requiresChanges
+    field: verticalPodAutoscaler
+    required: enabled=true, updateMode=Off
+    fix: "az aks update --enable-vpa"
+
+  - id: cluster-keda
+    severity: requiresChanges
+    field: keda.enabled
+    required: true
+    fix: "az aks update --enable-keda"
+
+  - id: cluster-node-auto-provisioning
+    severity: requiresChanges
+    field: nodeProvisioningProfile.mode
+    required: Auto
+    fix: "az aks update --node-provisioning-mode Auto"
+
+  # -- Governance --
+  - id: cluster-node-rg-readonly
+    severity: requiresChanges
+    field: nodeResourceGroupProfile.restrictionLevel
+    required: ReadOnly
+    fix: "Day-0 setting. May require new cluster."
+
+  # -- Node Pool (system pools) --
+  - id: pool-ephemeral-os-disk
+    severity: incompatible
+    appliesTo: system pools
+    field: storageProfile
+    required: Ephemeral
+    fix: "Day-0. Recreate system node pool."
+
+  - id: pool-availability-zones
+    severity: incompatible
+    appliesTo: system pools only
+    field: availabilityZones
+    required: "[1, 2, 3]"
+    fix: "Day-0. Recreate system pool in 3-AZ region. User pools not affected."
+
+  - id: pool-critical-addons-taint
+    severity: requiresChanges
+    appliesTo: system pools
+    field: taints
+    required: CriticalAddonsOnly=true:NoSchedule
+    fix: "az aks nodepool update --node-taints CriticalAddonsOnly=true:NoSchedule"
+
+  - id: pool-vmss-type
+    severity: incompatible
+    appliesTo: system pools
+    field: type
+    required: VirtualMachineScaleSets
+    fix: "Day-0. Recreate as VMSS."
+
+  - id: pool-azure-linux-os
+    severity: incompatible
+    appliesTo: system pools only
+    field: osSKU
+    required: AzureLinux
+    fix: "Day-0. Recreate system pool with --os-sku AzureLinux. User pools can use any OS."
+
+  - id: pool-ssh-disabled
+    severity: requiresChanges
+    appliesTo: all pools
+    field: agentPoolProfiles[*].securityProfile.sshAccess
+    required: Disabled
+    fix: "az aks nodepool update --cluster-name CLUSTER --name POOL_NAME --ssh-access disabled"
+
+# =============================================================================
+# WORKLOAD CONSTRAINTS — Deployment Safeguards (21 active policies)
+# Initiative: c047ea8e | Effect: Mixed(Deny/Warn/Mutate) on Automatic
+# =============================================================================
+safeguards:
+  # -- AKS Best Practices (9 policies) --
+  - id: safeguard-restricted-node-edits
+    policyId: 53a4a537
+    severity: requiresChanges
+    category: nodeProtection
+    check: Check if a rolebinding for a service account references a role with node edit permissions. The application might try to edit node objects directly
+    fix: Manage node pools through the AKS API (az aks nodepool) instead of direct Node object edits
+
+  - id: safeguard-container-resource-requests
+    policyId: 03a4ecdb
+    severity: autoFixed
+    category: resources
+    check: Every container must have cpu + memory requests and limits
+    effect: "ResourceRequestsWorkloadMutator sets defaults cpu=500m, memory=2Gi for requests+limits; enforces minimums cpu=100m, memory=100Mi; fixes QoS if requests > limits"
+
+  - id: safeguard-pod-enforce-antiaffinity
+    policyId: 34c88cd4
+    severity: autoFixed
+    category: availability
+    check: Replicated workloads with >1 replica should have podAntiAffinity or topologySpreadConstraints
+    effect: "AntiAffinityTopologySpreadWorkloadMutator adds preferred anti-affinity (weight=100, hostname) + topology spread (maxSkew=1, hostname, ScheduleAnyway) if neither exists"
+
+  - id: safeguard-restricted-labels
+    policyId: a22123bd
+    severity: requiresChanges
+    category: labeling
+    check: AKS-reserved label prefixes blocked
+    fix: Remove/rename labels with kubernetes.azure.com/ prefix
+
+  - id: safeguard-restricted-taints
+    policyId: 48940d92
+    severity: requiresChanges
+    category: nodeProtection
+    check: AKS-reserved taint CriticalAddonsOnly key blocked for users
+    fix: Remove reserved taints, use custom taint keys
+
+  - id: safeguard-probes-configured
+    policyId: b1a9997f
+    severity: informational
+    enforcement: warn  # Warning-only — deployments are admitted with a kubectl warning, not denied
+    category: reliability
+    check: Every container should have readinessProbe + livenessProbe (recommended best practice)
+    fix: Add probes (app-specific — HTTP/TCP/exec/gRPC) — recommended, not required for migration
+
+  - id: safeguard-csi-driver-storage-class
+    policyId: 4f3823b6
+    severity: requiresChanges
+    category: storage
+    check: StorageClass must use CSI provisioner (not in-tree)
+    fix: "Replace kubernetes.io/azure-disk → disk.csi.azure.com, also replace kubernetes.io/azure-file with file.csi.azure.com"
+
+  - id: safeguard-unique-service-selectors
+    policyId: b0fdedee
+    severity: requiresChanges
+    category: networking
+    check: Services must have unique selectors per namespace
+    fix: Deduplicate Service selectors
+
+  - id: safeguard-images-no-latest
+    policyId: 021f8078
+    severity: requiresChanges
+    category: imagePolicy
+    check: Image tag must not be :latest or untagged (no colon)
+    patch: "replace image tag with specific version or sha256 digest"
+
+  # -- PSS-related policies in Safeguards (12 policies) --
+  - id: safeguard-block-host-namespaces
+    policyId: 47a1ee2f
+    severity: incompatible
+    category: podSecurity
+    check: |
+      Sharing the host PID or IPC namespaces is disallowed in the Baseline policy.
+      Check the following fields:
+      - spec.hostPID
+      - spec.hostIPC
+    fix: |
+      The allowed values are:
+      - undefined/nil
+      - false
+      Remove hostPID and hostIPC; incompatible if required.
+
+  - id: safeguard-host-network-ports
+    policyId: 82985f06
+    severity: incompatible
+    category: podSecurity
+    check: |
+      Sharing the host network namespace is disallowed, and host ports should not be used.
+      Check the following fields:
+      - spec.hostNetwork
+      - spec.containers[*].ports[*].hostPort
+      - spec.initContainers[*].ports[*].hostPort
+      - spec.ephemeralContainers[*].ports[*].hostPort
+    fix: |
+      The allowed values are:
+      - spec.hostNetwork: undefined/nil or false
+      - hostPort fields: undefined/nil or 0
+      Use ClusterIP Services, Ingress, or internal Pod networking instead of host networking or host ports.
+
+  - id: safeguard-allowed-sysctls
+    policyId: 5e5a0673
+    severity: requiresChanges
+    category: podSecurity
+    check: |
+      Sysctls are limited to the Baseline safe subset.
+      Check the following field:
+      - spec.securityContext.sysctls[*].name
+    fix: |
+      The allowed values are:
+      - undefined/nil
+      - kernel.shm_rmid_forced
+      - net.ipv4.ip_local_port_range
+      - net.ipv4.ip_unprivileged_port_start
+      - net.ipv4.tcp_syncookies
+      - net.ipv4.ping_group_range
+      - net.ipv4.ip_local_reserved_ports
+      - net.ipv4.tcp_keepalive_time
+      - net.ipv4.tcp_fin_timeout
+      - net.ipv4.tcp_keepalive_intvl
+      - net.ipv4.tcp_keepalive_probes
+      Remove any sysctl not in this list.
+
+  - id: safeguard-no-host-path-volumes
+    policyId: 098fc59e
+    severity: incompatible
+    category: podSecurity
+    check: |
+      HostPath volumes are forbidden in the Baseline policy.
+      Check the following field:
+      - spec.volumes[*].hostPath
+    fix: |
+      The allowed values are:
+      - undefined/nil
+      Replace hostPath volumes with PVCs, ConfigMaps, Secrets, CSI-backed storage, or another non-hostPath volume type.
+
+  - id: safeguard-enforce-apparmor
+    policyId: 511f5417
+    severity: requiresChanges
+    category: podSecurity
+    check: |
+      On supported hosts, the Baseline policy does not allow disabling the default AppArmor profile.
+      Check the following fields:
+      - spec.securityContext.appArmorProfile.type
+      - spec.containers[*].securityContext.appArmorProfile.type
+      - spec.initContainers[*].securityContext.appArmorProfile.type
+      - spec.ephemeralContainers[*].securityContext.appArmorProfile.type
+      - metadata.annotations["container.apparmor.security.beta.kubernetes.io/*"]
+    fix: |
+      The allowed values are:
+      - appArmorProfile.type: undefined/nil, RuntimeDefault, or Localhost
+      - AppArmor annotation: undefined/nil, runtime/default, or localhost/*
+      Set RuntimeDefault, or use an allowed Localhost profile.
+
+  - id: safeguard-enforce-selinux
+    policyId: e1e6c427
+    severity: informational
+    category: podSecurity
+    check: |
+      SELinux settings are restricted to specific types, and custom user or role values are forbidden.
+      Check the following fields:
+      - spec.securityContext.seLinuxOptions.type
+      - spec.containers[*].securityContext.seLinuxOptions.type
+      - spec.initContainers[*].securityContext.seLinuxOptions.type
+      - spec.ephemeralContainers[*].securityContext.seLinuxOptions.type
+      - spec.securityContext.seLinuxOptions.user
+      - spec.containers[*].securityContext.seLinuxOptions.user
+      - spec.initContainers[*].securityContext.seLinuxOptions.user
+      - spec.ephemeralContainers[*].securityContext.seLinuxOptions.user
+      - spec.securityContext.seLinuxOptions.role
+      - spec.containers[*].securityContext.seLinuxOptions.role
+      - spec.initContainers[*].securityContext.seLinuxOptions.role
+      - spec.ephemeralContainers[*].securityContext.seLinuxOptions.role
+    fix: |
+      The allowed values are:
+      - seLinuxOptions.type: undefined/"", container_t, container_init_t, container_kvm_t, or container_engine_t
+      - seLinuxOptions.user: undefined/""
+      - seLinuxOptions.role: undefined/""
+      Optional hardening only: remove custom seLinuxOptions or use one of the allowed types.
+
+  - id: safeguard-windows-block-host-process
+    policyId: 077f0ce1
+    severity: incompatible
+    category: podSecurity
+    check: |
+      Windows Pods offer the ability to run HostProcess containers which enables privileged access to the Windows host machine. Privileged access to the host is disallowed in the Baseline policy.
+      Check the following fields:
+      - spec.securityContext.windowsOptions.hostProcess
+      - spec.containers[*].securityContext.windowsOptions.hostProcess
+      - spec.initContainers[*].securityContext.windowsOptions.hostProcess
+      - spec.ephemeralContainers[*].securityContext.windowsOptions.hostProcess
+    fix: |
+      The allowed values are:
+      - undefined/nil
+      - false
+      Remove hostProcess; incompatible if required.
+
+  - id: safeguard-no-privileged-containers
+    policyId: 95edb821
+    severity: incompatible
+    category: podSecurity
+    check: |
+      Privileged containers are disallowed in the Baseline policy.
+      Check the following fields:
+      - spec.containers[*].securityContext.privileged
+      - spec.initContainers[*].securityContext.privileged
+      - spec.ephemeralContainers[*].securityContext.privileged
+    fix: |
+      The allowed values are:
+      - undefined/nil
+      - false
+      Remove privileged mode or set privileged to false; incompatible if privileged access is required.
+
+  - id: safeguard-no-custom-proc-mount
+    policyId: f85eb0dd
+    severity: requiresChanges
+    category: podSecurity
+    check: |
+      Custom /proc mount types are disallowed.
+      Check the following fields:
+      - spec.containers[*].securityContext.procMount
+      - spec.initContainers[*].securityContext.procMount
+      - spec.ephemeralContainers[*].securityContext.procMount
+    fix: |
+      The allowed values are:
+      - undefined/nil
+      - Default
+      Remove custom procMount values or set procMount to Default.
+
+  - id: safeguard-container-capabilities
+    policyId: c26596ff
+    severity: requiresChanges
+    category: podSecurity
+    check: |
+      Adding capabilities is limited to the Baseline allowlist.
+      Check the following fields:
+      - spec.containers[*].securityContext.capabilities.add
+      - spec.initContainers[*].securityContext.capabilities.add
+      - spec.ephemeralContainers[*].securityContext.capabilities.add
+    fix: |
+      The allowed values are:
+      - undefined/nil
+      - AUDIT_WRITE
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - FSETID
+      - KILL
+      - MKNOD
+      - NET_BIND_SERVICE
+      - SETFCAP
+      - SETGID
+      - SETPCAP
+      - SETUID
+      - SYS_CHROOT
+      Remove any added capability outside this list.
+
+  - id: safeguard-host-probes
+    policyId: acdf8909
+    severity: requiresChanges
+    category: podSecurity
+    check: |
+      The host field in probes and lifecycle hooks is disallowed
+      Restricted fields:
+        - spec.containers[*].livenessProbe.httpGet.host
+        - spec.containers[*].readinessProbe.httpGet.host
+        - spec.containers[*].startupProbe.httpGet.host
+        - spec.containers[*].livenessProbe.tcpSocket.host
+        - spec.containers[*].readinessProbe.tcpSocket.host
+        - spec.containers[*].startupProbe.tcpSocket.host
+        - spec.containers[*].lifecycle.postStart.tcpSocket.host
+        - spec.containers[*].lifecycle.preStop.tcpSocket.host
+        - spec.containers[*].lifecycle.postStart.httpGet.host
+        - spec.containers[*].lifecycle.preStop.httpGet.host
+        - spec.initContainers[*].livenessProbe.httpGet.host
+        - spec.initContainers[*].readinessProbe.httpGet.host
+        - spec.initContainers[*].startupProbe.httpGet.host
+        - spec.initContainers[*].livenessProbe.tcpSocket.host
+        - spec.initContainers[*].readinessProbe.tcpSocket.host
+        - spec.initContainers[*].startupProbe.tcpSocket.host
+        - spec.initContainers[*].lifecycle.postStart.tcpSocket.host
+        - spec.initContainers[*].lifecycle.preStop.tcpSocket.host
+        - spec.initContainers[*].lifecycle.postStart.httpGet.host
+        - spec.initContainers[*].lifecycle.preStop.httpGet.host
+    fix: |
+      The allowed values are:
+        - undefined/nil
+        - ""
+      Remove the `host` field from probes and lifecycle hooks; the kubelet uses the pod IP by default.
+
+  - id: safeguard-allowed-seccomp-profiles
+    policyId: 975ce327
+    severity: requiresChanges
+    category: podSecurity
+    check: |
+      Seccomp must not be explicitly set to Unconfined.
+      Check the following fields:
+      - spec.securityContext.seccompProfile.type
+      - spec.containers[*].securityContext.seccompProfile.type
+      - spec.initContainers[*].securityContext.seccompProfile.type
+      - spec.ephemeralContainers[*].securityContext.seccompProfile.type
+    fix: |
+      The allowed values are:
+      - undefined/nil
+      - RuntimeDefault
+      - Localhost
+      Remove Unconfined, or set seccompProfile.type to RuntimeDefault or Localhost.
+
+# =============================================================================
+# WEBHOOK MUTATIONS (2 active mutators) — auto-applied at admission
+# =============================================================================
+mutations:
+  - id: mutation-anti-affinity-topology-spread
+    policyId: implicit
+    target: [Deployment, StatefulSet, ReplicaSet]
+    effect: "Adds preferred pod anti-affinity (weight=100, kubernetes.io/hostname) + topology spread (maxSkew=1, kubernetes.io/hostname, ScheduleAnyway). Skips if any existing anti-affinity or topology spread. Label priority: app > app.kubernetes.io/name > default-antiaffinity-applabel."
+
+  - id: mutation-resource-requests-default
+    policyId: implicit
+    target: containers
+    effect: "Sets resources.requests+limits defaults cpu=500m, memory=2Gi. Minimums cpu=100m, memory=100Mi. If only limits set, requests=limits. If requests > limits, requests capped at limits (QoS fix)."
+

@@ -11,6 +11,7 @@ Ask the user: "When did you notice the spike? (e.g., 'last Tuesday', 'between 2 
 ```bash
 az rest --method post \
   --url "https://management.azure.com/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.CostManagement/query?api-version=2023-11-01" \
+  --headers "ClientType=GitHubCopilotForAzure" \
   --body '{
     "type": "ActualCost",
     "timeframe": "Custom",

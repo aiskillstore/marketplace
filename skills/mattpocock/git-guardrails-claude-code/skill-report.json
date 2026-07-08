@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T19:50:32.269Z",
+    "generated_at": "2026-07-08T06:00:29.283Z",
     "slug": "mattpocock-git-guardrails-claude-code",
     "source_url": "https://github.com/mattpocock/skills/tree/main/skills/misc/git-guardrails-claude-code/",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "80a323eccb8aad8f413f89df2f25edc02408535fe1769b2f752fbd7d2848c3a7",
-    "tree_hash": "e8e83bb9c1f0316bb0224071a03617d184496e1bfd4091709ebd20cea06f938e",
+    "content_hash": "03c4de7613c712aea336d64c467ea3ed14be2cbd52345925fe949c75c01c29f7",
+    "tree_hash": "8be9282a8f11f001d45968cb1d2a5d760ed5cc22b7cd70b45782533d70068f52",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,18 +23,18 @@
   },
   "skill": {
     "name": "git-guardrails-claude-code",
-    "description": "Set up Claude Code hooks that block destructive Git commands before they execute, including push, hard reset, clean, branch deletion, and workspace restore commands.",
-    "summary": "Install Claude Code Git guardrails that stop risky Git commands before execution.",
+    "description": "Set up Claude Code hooks that block dangerous Git commands before they run.",
+    "summary": "Adds Claude Code Git guardrails that block destructive Bash commands.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "mattpocock",
     "license": "MIT",
     "tags": [
       "git",
       "claude-code",
       "hooks",
-      "guardrails",
-      "workflow-safety"
+      "safety",
+      "guardrails"
     ],
     "supported_tools": [
       "claude",
@@ -51,31 +48,26 @@
     "category": "security"
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "safe",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The skill is defensive, and most markdown backtick findings are false positives for documented Git commands, paths, or fenced examples. The real risks are the persistent Claude Code Bash hook and optional writes under ~/.claude, which can affect future sessions across projects. No prompt injection, network access, or secret exfiltration evidence was found.",
+    "summary": "Most SKILL.md external command findings are false positives from Markdown backticks and fenced examples. The real risks are the Bash PreToolUse hook and persistent hidden Claude configuration under project or home paths. No evidence found for prompt injection, network access, credential access, or data exfiltration intent.",
     "remediation": [
       {
-        "issue": "Global Claude Code hook installation",
-        "suggestion": "Default to project scope and require explicit user confirmation before writing to ~/.claude settings or hook paths.",
+        "issue": "Global hidden Claude settings can affect every project.",
+        "suggestion": "Default to project installation, require explicit confirmation for global installation, and provide uninstall steps before changing home Claude settings.",
         "severity": "high"
       },
       {
-        "issue": "Persistent Bash hook execution",
-        "suggestion": "Document the exact script path, required jq dependency, expected permissions, and verification result before enabling the hook.",
+        "issue": "Project hook installation changes persistent hidden configuration.",
+        "suggestion": "Show the target settings diff, preserve existing hooks, and ask confirmation before writing project Claude settings or hook files.",
         "severity": "medium"
       },
       {
-        "issue": "Existing settings merge risk",
-        "suggestion": "Parse and merge existing Claude Code settings, then show the user the planned changes before saving.",
+        "issue": "The Bash hook can fail open if it cannot inspect a command.",
+        "suggestion": "Keep the script minimal, validate jq exists, handle parse failures safely, and fail closed when command inspection is unavailable.",
         "severity": "medium"
-      },
-      {
-        "issue": "Pattern-based command blocking limits",
-        "suggestion": "Keep blocked patterns reviewed and test common bypass forms such as extra spacing, aliases, and chained commands.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -532,210 +524,188 @@
         "id": "external_commands:scripts/block-dangerous-git.sh:3:shell-command-substitution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The command substitution only captures stdin with cat inside the hook script. It does not execute user-controlled command text or build a shell command from input."
+        "reason": "The command substitution only captures stdin through a hardcoded cat call. It does not execute data from the hook payload or build a dynamic command."
       },
       {
         "id": "external_commands:scripts/block-dangerous-git.sh:4:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The script pipes quoted hook JSON into jq to extract a command string. The extracted command is not executed, so this is parsing rather than command injection."
+        "confidence": 0.88,
+        "reason": "This line extracts the proposed Bash command with hardcoded echo and jq calls. The extracted value is matched later and is not executed by the script."
       },
       {
         "id": "external_commands:scripts/block-dangerous-git.sh:1:unix-shell-invocation",
         "verdict": "confirmed",
-        "confidence": 0.78,
+        "confidence": 0.86,
         "severity": "medium",
-        "reason": "The skill installs a Bash hook that runs locally in the Claude Code workflow. The script is defensive, but a persistent shell hook is still an external command execution surface."
+        "reason": "The file is a Bash script intended to run as a Claude Code PreToolUse hook. That creates a real local command execution surface, although the script is limited to command filtering."
       },
       {
         "id": "external_commands:SKILL.md:12:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is a markdown code span listing git push as a blocked command. It is documentation of a denied pattern, not executable Ruby or shell backtick usage."
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:13:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is a markdown code span listing git reset --hard as a blocked command. It documents a guardrail target and does not execute a command."
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line lists git clean variants inside markdown backticks as commands to block. There is no backtick execution context in the skill file."
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:15:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is a markdown list item naming git branch -D as a blocked pattern. It is not shell execution."
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line documents git checkout and git restore patterns inside markdown code spans. The file is describing blocked operations, not running them."
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:24:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The backticks surround Claude settings file paths in prose. This is path documentation and not executable shell or Ruby syntax."
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticked text is a project hook path. It identifies where to copy the script and does not execute a command."
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticked text is a global hook path. The filesystem impact is covered separately; this specific external-command pattern is markdown, not execution."
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "severity": "medium",
-        "reason": "The prose instructs making the copied hook executable with chmod. That is an intended install step, but it changes local file permissions for code that Claude Code can run."
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The markdown code span names the project settings path. It does not represent Ruby or shell backtick execution."
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "This finding points at the start of a JSON example block. The block configures a hook, but this line is not command execution syntax."
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "This finding points at the end of a fenced JSON example. It is markdown formatting, not an executable shell construct."
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The backticked text is a global Claude settings path in documentation. Filesystem risk is covered separately, but this is not external command execution."
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "This finding points at a fenced JSON example for global settings. The fence itself is markdown and does not execute code."
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:79:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "This finding points at the closing fence of a JSON example. It is markdown syntax rather than an executable command."
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line references the hooks.PreToolUse settings key in markdown. It instructs merging configuration, not running a shell command."
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.7,
-        "severity": "medium",
-        "reason": "The fenced bash example instructs running a local verification pipeline against the copied hook script. The command is benign test input, but it still executes the installed shell hook."
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "The backticks are Markdown formatting around command names, paths, or fenced examples. SKILL.md documentation does not execute Ruby or shell backticks itself."
       },
       {
         "id": "filesystem:SKILL.md:24:hidden-file-in-home-directory",
         "verdict": "confirmed",
-        "confidence": 0.9,
+        "confidence": 0.88,
         "severity": "high",
-        "reason": "The skill offers global installation under ~/.claude/settings.json. Changing a hidden home-directory Claude configuration can affect future runs across all projects."
+        "reason": "The skill offers installation under hidden home Claude settings and hook paths. That configuration affects all Claude Code projects and persists across sessions, so it is a real filesystem risk."
       },
       {
         "id": "filesystem:SKILL.md:33:hidden-file-in-home-directory",
         "verdict": "confirmed",
-        "confidence": 0.9,
+        "confidence": 0.88,
         "severity": "high",
-        "reason": "The documented global hook path is ~/.claude/hooks/block-dangerous-git.sh. A script placed there can be invoked by global Claude Code settings."
+        "reason": "The skill offers installation under hidden home Claude settings and hook paths. That configuration affects all Claude Code projects and persists across sessions, so it is a real filesystem risk."
       },
       {
         "id": "filesystem:SKILL.md:61:hidden-file-in-home-directory",
         "verdict": "confirmed",
-        "confidence": 0.89,
+        "confidence": 0.88,
         "severity": "high",
-        "reason": "The global settings section targets ~/.claude/settings.json. This hidden home-directory configuration persists beyond the current repository."
+        "reason": "The skill offers installation under hidden home Claude settings and hook paths. That configuration affects all Claude Code projects and persists across sessions, so it is a real filesystem risk."
       },
       {
         "id": "filesystem:SKILL.md:72:hidden-file-in-home-directory",
         "verdict": "confirmed",
-        "confidence": 0.91,
+        "confidence": 0.88,
         "severity": "high",
-        "reason": "The JSON example points the global hook command at ~/.claude/hooks/block-dangerous-git.sh. That creates a persistent shell hook reachable from every Claude Code project for the user."
+        "reason": "The skill offers installation under hidden home Claude settings and hook paths. That configuration affects all Claude Code projects and persists across sessions, so it is a real filesystem risk."
       },
       {
         "id": "filesystem:SKILL.md:24:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.84,
         "severity": "medium",
-        "reason": "The install prompt includes both project .claude and global ~/.claude settings paths. Accessing hidden Claude configuration is intended, but it changes tool behavior."
+        "reason": "The skill intentionally writes or references hidden .claude configuration paths. This is legitimate for Claude Code hooks, but it is still persistent agent configuration that needs user consent."
       },
       {
         "id": "filesystem:SKILL.md:33:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.84,
         "severity": "medium",
-        "reason": "The global hook path is inside a hidden .claude directory. Writing a hook script there can change how Claude Code handles future Bash tool calls."
+        "reason": "The skill intentionally writes or references hidden .claude configuration paths. This is legitimate for Claude Code hooks, but it is still persistent agent configuration that needs user consent."
       },
       {
         "id": "filesystem:SKILL.md:52:hidden-file-access",
         "verdict": "confirmed",
         "confidence": 0.84,
         "severity": "medium",
-        "reason": "The project settings example executes a hook from $CLAUDE_PROJECT_DIR/.claude/hooks. This is expected project configuration, but it still uses hidden config to run local code."
+        "reason": "The skill intentionally writes or references hidden .claude configuration paths. This is legitimate for Claude Code hooks, but it is still persistent agent configuration that needs user consent."
       },
       {
         "id": "filesystem:SKILL.md:61:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.84,
         "severity": "medium",
-        "reason": "The global settings section references the hidden ~/.claude directory. That access is security-relevant because it persists outside the current project."
+        "reason": "The skill intentionally writes or references hidden .claude configuration paths. This is legitimate for Claude Code hooks, but it is still persistent agent configuration that needs user consent."
       },
       {
         "id": "filesystem:SKILL.md:72:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.89,
+        "confidence": 0.84,
         "severity": "medium",
-        "reason": "The global hook command references a script in ~/.claude/hooks. This is intentional, but it is hidden configuration that can execute during future Claude Code sessions."
+        "reason": "The skill intentionally writes or references hidden .claude configuration paths. This is legitimate for Claude Code hooks, but it is still persistent agent configuration that needs user consent."
       }
     ],
-    "semantic_findings": [
-      {
-        "title": "Persistent Claude Code Hook Installation",
-        "description": "The skill instructs adding a PreToolUse Bash hook to project or global Claude Code settings. Even though this hook is defensive, the mechanism can run local shell code during future Bash tool use.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 41,
-            "line_end": 72
-          },
-          {
-            "file": "scripts/block-dangerous-git.sh",
-            "line_start": 1,
-            "line_end": 24
-          }
-        ],
-        "confidence": 0.88,
-        "confidence_reasoning": "SKILL.md shows PreToolUse settings for Bash and command paths, and the bundled script is a Bash hook. The security impact is the persistent hook mechanism, not malicious intent."
-      }
-    ],
+    "semantic_findings": [],
     "critical_findings": [],
     "high_findings": [
       {
@@ -751,8 +721,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The skill offers global installation under ~/.claude/settings.json. Changing a hidden home-directory Claude configuration can affect future runs across all projects."
+        "confidence": 0.88,
+        "confidence_reasoning": "The skill offers installation under hidden home Claude settings and hook paths. That configuration affects all Claude Code projects and persists across sessions, so it is a real filesystem risk."
       },
       {
         "title": "Hidden file in home directory",
@@ -767,8 +737,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The documented global hook path is ~/.claude/hooks/block-dangerous-git.sh. A script placed there can be invoked by global Claude Code settings."
+        "confidence": 0.88,
+        "confidence_reasoning": "The skill offers installation under hidden home Claude settings and hook paths. That configuration affects all Claude Code projects and persists across sessions, so it is a real filesystem risk."
       },
       {
         "title": "Hidden file in home directory",
@@ -783,8 +753,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "high",
-        "confidence": 0.89,
-        "confidence_reasoning": "The global settings section targets ~/.claude/settings.json. This hidden home-directory configuration persists beyond the current repository."
+        "confidence": 0.88,
+        "confidence_reasoning": "The skill offers installation under hidden home Claude settings and hook paths. That configuration affects all Claude Code projects and persists across sessions, so it is a real filesystem risk."
       },
       {
         "title": "Hidden file in home directory",
@@ -799,29 +769,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "high",
-        "confidence": 0.91,
-        "confidence_reasoning": "The JSON example points the global hook command at ~/.claude/hooks/block-dangerous-git.sh. That creates a persistent shell hook reachable from every Claude Code project for the user."
-      },
-      {
-        "title": "Persistent Claude Code Hook Installation",
-        "description": "The skill instructs adding a PreToolUse Bash hook to project or global Claude Code settings. Even though this hook is defensive, the mechanism can run local shell code during future Bash tool use.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 41,
-            "line_end": 72
-          },
-          {
-            "file": "scripts/block-dangerous-git.sh",
-            "line_start": 1,
-            "line_end": 24
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
         "confidence": 0.88,
-        "confidence_reasoning": "SKILL.md shows PreToolUse settings for Bash and command paths, and the bundled script is a Bash hook. The security impact is the persistent hook mechanism, not malicious intent."
+        "confidence_reasoning": "The skill offers installation under hidden home Claude settings and hook paths. That configuration affects all Claude Code projects and persists across sessions, so it is a real filesystem risk."
       }
     ],
     "medium_findings": [
@@ -838,40 +787,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The skill installs a Bash hook that runs locally in the Claude Code workflow. The script is defensive, but a persistent shell hook is still an external command execution surface."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "Make it executable with `chmod +x`.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 35,
-            "line_end": 35
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.74,
-        "confidence_reasoning": "The prose instructs making the copied hook executable with chmod. That is an intended install step, but it changes local file permissions for code that Claude Code can run."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 91,
-            "line_end": 93
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.7,
-        "confidence_reasoning": "The fenced bash example instructs running a local verification pipeline against the copied hook script. The command is benign test input, but it still executes the installed shell hook."
+        "confidence": 0.86,
+        "confidence_reasoning": "The file is a Bash script intended to run as a Claude Code PreToolUse hook. That creates a real local command execution surface, although the script is limited to command filtering."
       },
       {
         "title": "Hidden file access",
@@ -886,8 +803,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The install prompt includes both project .claude and global ~/.claude settings paths. Accessing hidden Claude configuration is intended, but it changes tool behavior."
+        "confidence": 0.84,
+        "confidence_reasoning": "The skill intentionally writes or references hidden .claude configuration paths. This is legitimate for Claude Code hooks, but it is still persistent agent configuration that needs user consent."
       },
       {
         "title": "Hidden file access",
@@ -902,8 +819,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The global hook path is inside a hidden .claude directory. Writing a hook script there can change how Claude Code handles future Bash tool calls."
+        "confidence": 0.84,
+        "confidence_reasoning": "The skill intentionally writes or references hidden .claude configuration paths. This is legitimate for Claude Code hooks, but it is still persistent agent configuration that needs user consent."
       },
       {
         "title": "Hidden file access",
@@ -919,7 +836,7 @@
         "source_category": "filesystem",
         "source_severity": "medium",
         "confidence": 0.84,
-        "confidence_reasoning": "The project settings example executes a hook from $CLAUDE_PROJECT_DIR/.claude/hooks. This is expected project configuration, but it still uses hidden config to run local code."
+        "confidence_reasoning": "The skill intentionally writes or references hidden .claude configuration paths. This is legitimate for Claude Code hooks, but it is still persistent agent configuration that needs user consent."
       },
       {
         "title": "Hidden file access",
@@ -934,8 +851,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The global settings section references the hidden ~/.claude directory. That access is security-relevant because it persists outside the current project."
+        "confidence": 0.84,
+        "confidence_reasoning": "The skill intentionally writes or references hidden .claude configuration paths. This is legitimate for Claude Code hooks, but it is still persistent agent configuration that needs user consent."
       },
       {
         "title": "Hidden file access",
@@ -950,8 +867,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.89,
-        "confidence_reasoning": "The global hook command references a script in ~/.claude/hooks. This is intentional, but it is hidden configuration that can execute during future Claude Code sessions."
+        "confidence": 0.84,
+        "confidence_reasoning": "The skill intentionally writes or references hidden .claude configuration paths. This is legitimate for Claude Code hooks, but it is still persistent agent configuration that needs user consent."
       }
     ],
     "low_findings": [],
@@ -959,125 +876,124 @@
     "files_scanned": 2,
     "total_lines": 122,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T19:50:32.270Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-08T06:00:29.283Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Block Risky Git Commands in Claude Code",
-    "value_statement": "Claude Code can run destructive Git commands if a workflow is not guarded. This skill installs a PreToolUse hook that blocks risky Git operations before execution.",
+    "user_title": "Block Dangerous Git Commands in Claude Code",
+    "value_statement": "AI coding assistants can accidentally run destructive Git commands during automated work. This skill adds Claude Code hooks that block risky Git operations before execution.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "git guardrails",
-      "git hooks",
-      "PreToolUse hook",
-      "block git push",
-      "git reset protection",
-      "developer safety",
-      "AI coding workflow"
+      "Claude hooks",
+      "AI coding safety",
+      "git push blocker",
+      "destructive git command protection",
+      "developer security automation"
     ],
     "actual_capabilities": [
-      "Guides users through project or global Claude Code hook installation.",
-      "Copies a bundled Bash script into a .claude hooks path.",
-      "Configures a PreToolUse hook for Bash commands.",
-      "Blocks git push, hard reset, clean, branch deletion, and workspace restore patterns.",
-      "Provides a test flow to confirm blocked commands exit with code 2."
+      "Guides installation of a Claude Code PreToolUse hook for Bash commands.",
+      "Blocks push, force push, hard reset, clean, branch delete, checkout dot, and restore dot patterns.",
+      "Supports project scoped and global Claude Code settings.",
+      "Shows how to merge with existing Claude Code hook settings.",
+      "Includes a verification step that checks a blocked Git push command."
     ],
     "limitations": [
-      "Requires bash, jq, and standard Unix shell tools.",
-      "Only checks command text against predefined patterns.",
-      "Does not replace Git branch protection, reviews, or backups.",
-      "Global installation affects every Claude Code project for the user."
+      "It protects Claude Code Bash tool use, not every Git client on the machine.",
+      "It depends on the copied hook script remaining installed and executable.",
+      "Pattern matching can miss unusual command forms or aliases.",
+      "Global installation changes hidden home configuration for all Claude Code projects."
     ],
     "use_cases": [
       {
-        "title": "Protect a Shared Repository",
-        "description": "Add a project-level guardrail before using Claude Code in a repository with shared branches or release history.",
-        "target_user": "Team lead"
+        "title": "Protect Solo Development",
+        "description": "Add project guardrails that stop an assistant from pushing, cleaning, or hard resetting local work.",
+        "target_user": "Solo developer"
       },
       {
-        "title": "Add Personal Git Safeguards",
-        "description": "Reduce the chance of accidental pushes, hard resets, cleans, or branch deletions during AI-assisted development.",
-        "target_user": "Individual developer"
+        "title": "Standardize Repository Safety",
+        "description": "Use a shared project hook so Claude Code follows the same Git safety policy across a team repository.",
+        "target_user": "Engineering lead"
       },
       {
-        "title": "Standardize AI Coding Workflows",
-        "description": "Use a repeatable hook setup for teams that want safer Claude Code behavior around destructive Git operations.",
-        "target_user": "DevOps engineer"
+        "title": "Review Agent Controls",
+        "description": "Inspect the hook, settings path, and blocked patterns before enabling AI assisted repository work.",
+        "target_user": "Security reviewer"
       }
     ],
     "prompt_templates": [
       {
         "title": "Install Project Guardrails",
-        "scenario": "Beginner setup",
-        "prompt": "Set up this Git guardrail for the current project only. Ask before changing settings, then verify the hook works."
+        "scenario": "Beginner setup for one repository.",
+        "prompt": "Set up this skill for the current project only. Ask before editing settings, then add the hook and verify it blocks Git push."
       },
       {
-        "title": "Choose Installation Scope",
-        "scenario": "Scope decision",
-        "prompt": "Compare project and global installation for this repository. Recommend the safer scope and explain which files would change."
+        "title": "Choose Safe Scope",
+        "scenario": "Compare project and global installation.",
+        "prompt": "Compare project and global installation for my repository. Recommend the safer scope and explain which files will change."
       },
       {
         "title": "Customize Blocked Commands",
-        "scenario": "Team customization",
-        "prompt": "Review the default blocked Git command patterns and suggest additions for my team workflow. Explain the risk of removing safeguards."
+        "scenario": "Adapt the hook to a stricter local policy.",
+        "prompt": "Install the project hook and add blocking for rebase abort and tag deletion. Preserve existing Claude Code hooks."
       },
       {
-        "title": "Audit Existing Hook Setup",
-        "scenario": "Advanced maintenance",
-        "prompt": "Inspect my Claude Code hook configuration for Git safety coverage. Identify conflicts, missing patterns, and verification steps before changes."
+        "title": "Audit And Harden Settings",
+        "scenario": "Advanced review of an existing hook setup.",
+        "prompt": "Review my existing Claude Code hook settings, merge this guardrail safely, and create a verification checklist for bypass cases."
       }
     ],
     "output_examples": [
       {
-        "input": "Install Git guardrails for this project.",
-        "output": "The skill asks for project scope, places the guardrail script under project Claude configuration, updates the Bash hook, and reports verification."
+        "input": "Install project only Git guardrails.",
+        "output": "The assistant asks for confirmation, copies the hook into the project Claude folder, preserves existing settings, and verifies a blocked push."
       },
       {
-        "input": "Help my team block additional destructive Git operations.",
-        "output": "The skill reviews the default blocked patterns, suggests team-specific additions, and explains how each change affects normal Git workflows."
+        "input": "Customize the blocked Git operations for this repository.",
+        "output": "The assistant updates the copied hook patterns, explains the policy change, and runs a safe verification check."
       },
       {
-        "input": "Check whether my global setup is safe.",
-        "output": "The skill reviews the global hook configuration, warns about cross-project effects, and recommends project scope when global coverage is unnecessary."
+        "input": "Review my current Claude Code hook setup.",
+        "output": "The assistant summarizes existing hooks, identifies conflicts, and recommends a safe merge plan before making changes."
       }
     ],
     "best_practices": [
-      "Prefer project installation when safeguards only apply to one repository.",
-      "Review global hooks before enabling them for all projects.",
-      "Keep blocked patterns aligned with your team Git policy."
+      "Prefer project scoped installation unless every repository needs the same policy.",
+      "Review the hook script and settings diff before enabling the guardrail.",
+      "Test blocked and allowed Git commands after any customization."
     ],
     "anti_patterns": [
-      "Installing global hooks without explaining the cross-project effect.",
-      "Overwriting existing Claude Code settings instead of merging hook entries.",
-      "Removing destructive Git patterns to bypass review or release controls."
+      "Installing globally without explaining the change to the user.",
+      "Overwriting existing Claude Code hooks instead of merging settings.",
+      "Treating the guardrail as a substitute for repository permissions or branch protection."
     ],
     "faq": [
       {
-        "question": "Is this skill only for Claude Code?",
-        "answer": "The hook setup is designed for Claude Code. Marketplace metadata also lists Claude and Codex for discovery and review workflows."
-      },
-      {
-        "question": "Does it block every Git command?",
-        "answer": "No. It blocks selected destructive patterns, including push, hard reset, clean, branch deletion, and workspace restore commands."
+        "question": "Does this skill execute Git commands?",
+        "answer": "No. It installs a hook that inspects proposed Bash commands and blocks selected Git patterns."
       },
       {
         "question": "Can I install it for one project?",
-        "answer": "Yes. The project scope places settings and the hook under the repository Claude configuration."
+        "answer": "Yes. The recommended scope is the project Claude settings file when only one repository needs protection."
       },
       {
-        "question": "What does global installation change?",
-        "answer": "Global installation writes under ~/.claude and can affect every Claude Code project for that user."
+        "question": "Can it protect all projects?",
+        "answer": "Yes. Global installation uses the home Claude settings path and affects all Claude Code projects."
       },
       {
-        "question": "Does it protect Git outside Claude Code?",
-        "answer": "No. It is a Claude Code hook and does not enforce policy in terminals, CI systems, or Git hosting platforms."
+        "question": "Which commands are blocked by default?",
+        "answer": "It blocks push, force push, hard reset, clean, branch delete, checkout dot, and restore dot patterns."
       },
       {
-        "question": "What tools does the hook require?",
-        "answer": "The bundled script expects bash, jq, grep, echo, and standard Unix shell behavior."
+        "question": "Will it replace my existing hooks?",
+        "answer": "It should be merged into existing PreToolUse hooks without overwriting other settings."
+      },
+      {
+        "question": "Is this enough for team Git safety?",
+        "answer": "No. Use it with branch protection, code review, and repository permissions."
       }
     ]
   },

@@ -9,7 +9,7 @@
 | 403 | Forbidden | Insufficient permissions on the scope | Ensure the identity has **Cost Management Reader** role (or higher) on the target scope |
 | 404 | Not Found | Invalid scope URL — subscription, resource group, or billing account not found | Verify the scope URL path and resource IDs are correct |
 | 424 | Failed Dependency | Bad training data — forecast model cannot compute predictions | Falls back to actual costs if `includeActualCost=true`; otherwise suggest using **the Cost Query workflow (Part 1)** for historical data |
-| 429 | Too Many Requests | Rate limited — QPU quota exceeded | Read `x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after` header and wait before retrying |
+| 429 | Too Many Requests | Rate limited — QPU, entity, or tenant quota exceeded | Check all `x-ms-ratelimit-microsoft.costmanagement-*-retry-after` headers (`qpu`, `entity`, `tenant`). Wait for the **longest** value before retrying. |
 | 503 | Service Unavailable | Temporary service issue | Check [Azure Status](https://status.azure.com) for service health. |
 
 ## Validation Error Reference
@@ -37,7 +37,7 @@
 
 | Status | Retry? | Strategy |
 |---|---|---|
-| 429 | ✅ Yes | Wait for duration specified in `x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after` header. **Maximum 3 retries.** |
+| 429 | ✅ Yes | Check the response for all `x-ms-ratelimit-microsoft.costmanagement-*-retry-after` headers (`qpu-retry-after`, `entity-retry-after`, `tenant-retry-after`). Take the **longest** value and **do NOT retry until that duration has fully elapsed.** Maximum 3 retries. |
 | 400 | ❌ No | Fix the request body based on the validation error code |
 | 401 | ❌ No | Re-authenticate — the token is missing or expired |
 | 403 | ❌ No | Grant **Cost Management Reader** role on the target scope |

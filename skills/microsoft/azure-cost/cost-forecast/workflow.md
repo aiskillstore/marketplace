@@ -79,6 +79,7 @@ New-Item -ItemType Directory -Path "temp" -Force
 
 az rest --method post `
   --url "/subscriptions/<subscription-id>/providers/Microsoft.CostManagement/forecast?api-version=2023-11-01" `
+  --headers "ClientType=GitHubCopilotForAzure" `
   --body '@temp/cost-forecast.json'
 ```
 
@@ -114,7 +115,7 @@ az rest --method post `
 | 400 | Invalid dependency | Set `includeActualCost: true` when using `includeFreshPartialCost`. |
 | 403 | Forbidden | Needs **Cost Management Reader** role on scope. |
 | 424 | Bad training data | Insufficient history; falls back to actual costs if available. |
-| 429 | Rate limited | Retry after `x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after` header. **Max 3 retries.** |
+| 429 | Rate limited | Check all `x-ms-ratelimit-microsoft.costmanagement-*-retry-after` headers (`qpu`, `entity`, `tenant`). Wait for the **longest** value. **Max 3 retries.** |
 | 503 | Service unavailable | Check [Azure Status](https://status.azure.com). |
 
 > **Full details:** [Forecast Error Handling](./error-handling.md)

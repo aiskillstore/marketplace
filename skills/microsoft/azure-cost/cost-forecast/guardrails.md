@@ -69,10 +69,29 @@ The API returns "Forecast is unavailable for the specified time period" when:
 
 ## Rate Limiting
 
+### Rate Limit Thresholds
+
+The Forecast API shares the same rate limits as the Cost Query API:
+
+| Limit | Value |
+|-------|-------|
+| Per User | 20 requests per minute |
+| Per Scope | 4 requests per minute |
+| Per Tenant | 12 requests per 10 seconds, 60 requests per minute, 600 requests per hour |
+| Per Client Type | 2,000 requests per minute |
+
+> ⚠️ **Warning:** The **per-scope limit (4 requests/minute)** is the most restrictive. Sequential queries to the same subscription, resource group, or billing account share this limit.
+
+### Rate Limit Headers
+
 | Header | Description |
 |---|---|
 | `x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after` | Seconds to wait before retrying (QPU-based) |
-| `x-ms-ratelimit-microsoft.costmanagement-entity-retry-after` | Seconds to wait for entity-level throttle |
+| `x-ms-ratelimit-microsoft.costmanagement-entity-retry-after` | Seconds to wait for entity/scope-level throttle |
 | `x-ms-ratelimit-microsoft.costmanagement-tenant-retry-after` | Seconds to wait for tenant-level throttle |
 
-The Forecast API uses the same QPU-based rate limiting as the Query API. When a 429 response is received, read the retry-after headers and wait before retrying.
+### Handling 429 Responses
+
+On a 429 response, check **all** retry-after headers present in the response. Multiple headers may be returned simultaneously. Take the **maximum** value and **do NOT retry until that duration has fully elapsed.**
+
+> ⚠️ **Warning:** Do not retry before the retry-after duration has elapsed. Premature retries will be rejected and may extend the throttling period.

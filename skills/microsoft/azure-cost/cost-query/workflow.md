@@ -33,7 +33,7 @@ Define granularity, aggregation, grouping, filtering, and sorting in the `datase
 - **Granularity**: `None`, `Daily`, or `Monthly`
 - **Aggregation**: Use `Sum` on `Cost` or `PreTaxCost` for total cost
 - **Grouping**: Up to **2** `GroupBy` dimensions (e.g., `ServiceName`, `ResourceGroupName`)
-- **Filtering**: Use `Dimensions` or `Tags` filters with `Name`, `Operator` (`In`, `Equal`, `Contains`), and `Values` fields
+- **Filtering**: Use `dimensions` or `tags` filters with `name`, `operator` (`In`, `Equal`, `Contains`), and `values` fields
 - **Sorting**: Order results by cost or dimension columns
 
 > 💡 **Tip:** Not all dimensions are available at every scope. See [dimensions-by-scope.md](./dimensions-by-scope.md) for the availability matrix.
@@ -77,6 +77,7 @@ New-Item -ItemType Directory -Path "temp" -Force
 # Query using REST API (more reliable than az costmanagement query)
 az rest --method post `
   --url "<scope>/providers/Microsoft.CostManagement/query?api-version=2023-11-01" `
+  --headers "ClientType=GitHubCopilotForAzure" `
   --body '@temp/cost-query.json'
 ```
 
@@ -84,7 +85,7 @@ az rest --method post `
 
 - The API returns a maximum of **5,000 rows** per page (default: 1,000).
 - If `nextLink` is present in the response, follow it to retrieve additional pages.
-- Handle rate limiting (HTTP 429) by respecting `Retry-After` headers.
+- Handle rate limiting (HTTP 429) by checking all `x-ms-ratelimit-microsoft.costmanagement-*-retry-after` headers in the response. Wait for the longest value before retrying. Do not send further requests to the same scope until the retry-after duration has elapsed.
 
 See [error-handling.md](./error-handling.md) for the full error reference.
 
@@ -99,7 +100,7 @@ See [error-handling.md](./error-handling.md) for the full error reference.
 | ResourceId grouping scope | Subscription and resource group only — not supported at billing account, management group, or higher scopes |
 | Max rows per page | 5,000 |
 | Custom timeframe | Requires `timePeriod` with `from`/`to` |
-| Filter AND/OR | Must have at least 2 expressions |
+| Filter and/or | Must have at least 2 expressions |
 
 ## Examples
 
@@ -108,6 +109,7 @@ See [error-handling.md](./error-handling.md) for the full error reference.
 ```powershell
 az rest --method post `
   --url "/subscriptions/<subscription-id>/providers/Microsoft.CostManagement/query?api-version=2023-11-01" `
+  --headers "ClientType=GitHubCopilotForAzure" `
   --body '{
     "type": "ActualCost",
     "timeframe": "MonthToDate",
@@ -133,7 +135,7 @@ For more examples including daily trends, tag-based filtering, and multi-dimensi
 | 401 | Unauthorized | Verify authentication (`az login`). |
 | 403 | Forbidden | Ensure Cost Management Reader role on scope. |
 | 404 | Scope not found | Verify scope URL and resource IDs. |
-| 429 | Too many requests | Retry after `x-ms-ratelimit-microsoft.costmanagement-qpu-retry-after` header. **Max 3 retries.** |
+| 429 | Too many requests | Check all `x-ms-ratelimit-microsoft.costmanagement-*-retry-after` headers (`qpu`, `entity`, `tenant`). Wait for the **longest** value. **Max 3 retries.** |
 | 503 | Service unavailable | Check [Azure Status](https://status.azure.com). |
 
 See [error-handling.md](./error-handling.md) for detailed error handling including rate limit headers and retry strategies.

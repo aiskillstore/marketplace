@@ -49,15 +49,24 @@ output resourceGroupName string = rg.name
 
 ## main.parameters.json
 
+> ⚠️ **Warning:** This file uses ARM JSON syntax. Do **not** use `.bicepparam` syntax (`using`, `param`, `readEnvironmentVariable()`) in this file — `azd` will fail with a JSON parse error.
+
 ```json
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "environmentName": { "value": "dev" },
-    "location": { "value": "eastus2" }
+    "environmentName": { "value": "${AZURE_ENV_NAME}" },
+    "location": { "value": "${AZURE_LOCATION}" }
   }
 }
+```
+
+Use `azd env set` to supply values at deploy time:
+
+```bash
+azd env set AZURE_ENV_NAME myapp-1234
+azd env set AZURE_LOCATION eastus2
 ```
 
 ## Naming Convention
@@ -69,6 +78,9 @@ var resourceToken = uniqueString(subscription().id, resourceGroup().id, location
 // Total ≤32 chars, alphanumeric only
 var kvName = 'kv${environmentName}${resourceToken}'
 var storName = 'stor${resourceToken}'
+
+// Container Registry: alphanumeric only (5-50 chars)
+var acrName = replace('cr${environmentName}${resourceToken}', '-', '')
 ```
 
 ## Security Requirements
@@ -123,3 +135,4 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 ```
+
