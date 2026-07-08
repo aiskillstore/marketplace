@@ -1,8 +1,9 @@
 ---
 name: langchain-architecture
-description: "Design LLM applications using the LangChain framework with agents, memory, and tool integration patterns. Use when building LangChain applications, implementing AI agents, or creating complex LLM w..."
+description: "Master the LangChain framework for building sophisticated LLM applications with agents, chains, memory, and tool integration."
 risk: unknown
 source: community
+date_added: "2026-02-27"
 ---
 
 # LangChain Architecture
@@ -350,3 +351,8 @@ llm = OpenAI(streaming=True, callbacks=[StreamingStdOutCallbackHandler()])
 - [ ] Set up observability (callbacks)
 - [ ] Implement fallback strategies
 - [ ] Version control prompts and configurations
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

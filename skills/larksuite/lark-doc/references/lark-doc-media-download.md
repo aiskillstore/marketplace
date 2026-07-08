@@ -5,6 +5,12 @@
 
 下载文档中的图片/文件素材（`file_token`），或下载画板缩略图（`whiteboard_id`）。当 `--output` 不带扩展名时，会根据响应的 `Content-Type` 自动补全扩展名。
 
+## 选择规则
+
+- 用户明确说“下载素材”时，使用 `docs +media-download`
+- 用户只是想查看、预览图片或文件素材时，优先使用 [`docs +media-preview`](lark-doc-media-preview.md)
+- 如果目标明确是画板 / whiteboard / 画板缩略图，继续使用 `docs +media-download --type whiteboard`；`+media-preview` 不支持画板
+
 ## 命令
 
 ```bash
@@ -28,12 +34,17 @@ lark-cli docs +media-download --type whiteboard --token "wbcnxxxxxxxx" --output 
 
 ## token 从哪里来
 
-- 若你是从文档内容里提取：`lark-doc-fetch` 返回的 Markdown 里可能包含：
-  - 图片：`<image token="..." .../>`
-  - 文件：`<file token="..." name="..."/>`
+- 若你是从文档内容里提取：`lark-doc-fetch` 返回的内容里可能包含：
+  - 图片：`<img token="..." .../>`
+  - 文件：`<source token="..." name="..."/>`
   - 画板：`<whiteboard token="..."/>`
+
+## 排障
+
+- 如果报错返回的信息包含 `HTTP 403`，且目标是图片/文件素材，可以改成调用 [`docs +media-preview`](lark-doc-media-preview.md) 看是否能先预览内容
 
 ## 参考
 
 - [lark-doc-fetch](lark-doc-fetch.md) — 获取文档内容（用于提取 token）
+- [lark-doc-media-preview](lark-doc-media-preview.md) — 预览素材
 - [lark-shared](../../lark-shared/SKILL.md) — 认证和全局参数
