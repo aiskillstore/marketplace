@@ -1,81 +1,21 @@
 ---
 name: git-workflow
-description: Git worktree workflow, conventional commits, commit trailers, and PR guidelines. Activated during git operations and commits.
+description: >-
+  Conventional commit format, commit trailers, PR description templates, and
+  git workflow operations (branching, rebasing, merging, stashing, cherry-picking,
+  bisecting, reverting, pushing, pulling). Use whenever the user performs any
+  git operation or invokes any `git` command — including creating commits,
+  writing commit messages, creating or reviewing pull requests, managing
+  branches, rebasing, stashing, cherry-picking, bisecting, or pushing/pulling.
+  Do NOT use for purely conceptual questions about git internals that involve
+  no actual operation.
+user-invocable: false
 allowed-tools: ['Bash', 'Read']
 ---
 
 # Git Workflow Expert
 
-This skill provides guidance on Git worktree workflow, commit standards, and PR best practices.
-
-## 🌳 Git Worktree Workflow
-
-### Why Git Worktree?
-
-Git worktree allows working on multiple branches simultaneously without stashing or switching contexts. Each worktree is an independent working directory with its own branch.
-
-**Benefits**:
-- No context switching between branches
-- No stashing required
-- Parallel development on different features
-- Independent builds and tests per branch
-
-### Setting Up Worktrees
-
-```bash
-# Create worktree for feature development
-git worktree add ../project-feature-auth feature/user-authentication
-
-# Create worktree for bug fixes
-git worktree add ../project-bugfix-api hotfix/api-validation
-
-# Create worktree for experiments
-git worktree add ../project-experiment-new-ui experiment/react-19-upgrade
-```
-
-### Worktree Naming Convention
-
-```
-../project-<type>-<description>
-```
-
-**Types**:
-- `feature` - New feature development
-- `bugfix` - Bug fixes
-- `hotfix` - Urgent production fixes
-- `experiment` - Experimental changes
-- `refactor` - Code refactoring
-
-**Examples**:
-- `../myapp-feature-user-auth`
-- `../myapp-bugfix-login-error`
-- `../myapp-hotfix-security-patch`
-
-### Managing Worktrees
-
-```bash
-# List all worktrees
-git worktree list
-
-# Show details in long format
-git worktree list --porcelain
-
-# Remove worktree after merging
-git worktree remove ../project-feature-auth
-
-# Remove worktree (force if dirty)
-git worktree remove --force ../project-experiment
-
-# Prune stale worktree information
-git worktree prune
-```
-
-### Worktree Best Practices
-
-1. **Clean up after merging** - Remove worktrees after feature completion
-2. **Use descriptive names** - Follow naming convention
-3. **Keep main worktree clean** - Use for stable work only
-4. **Regular pruning** - Run `git worktree prune` periodically
+This skill provides guidance on commit standards and PR best practices.
 
 ## 🔧 Commit Standards
 
@@ -280,14 +220,14 @@ Related to #456
 Daily workflow checklist:
 
 - [ ] Pull latest changes: `git pull`
-- [ ] Create feature branch or worktree
+- [ ] Create feature branch
 - [ ] Make atomic commits with conventional format
 - [ ] Write meaningful commit messages
 - [ ] Push regularly: `git push`
 - [ ] Create PR with proper description
 - [ ] Address review feedback
 - [ ] Squash commits if needed
-- [ ] Merge and delete branch/worktree
+- [ ] Merge and delete branch
 
 ## 💡 Advanced Git Tips
 
@@ -358,7 +298,7 @@ git bisect reset
 - Skip commit message body for complex changes
 
 ✅ **Do**:
-- Use feature branches or worktrees
+- Use feature branches
 - Write descriptive conventional commits
 - Make atomic commits (one logical change)
 - Pull regularly and before pushing

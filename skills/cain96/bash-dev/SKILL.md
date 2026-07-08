@@ -1,6 +1,10 @@
 ---
 name: bash-dev
-description: Bash scripting development standards, error handling, and best practices. Activated when working with .sh files or Bash scripts.
+description: >-
+  Bash scripting development standards, error handling, and best practices.
+  Use when writing, editing, or reviewing .sh files or Bash scripts,
+  when the user asks about Bash patterns/conventions, or when shell script quality guidance is needed.
+user-invocable: false
 allowed-tools: ['Read', 'Grep', 'Bash']
 ---
 
@@ -165,7 +169,7 @@ esac
 main "$@"
 ```
 
-## 🛠️ Common Patterns
+## 🛠 Common Patterns
 
 ### Error Handling
 ```bash

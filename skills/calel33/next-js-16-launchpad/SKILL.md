@@ -1,5 +1,5 @@
 ---
-name: next-js-16-launchpad
+name: Next.js 16 Launchpad
 description: Next.js 16 with Turbopack, Cache Components, and proxy.ts. Use for bootstrapping, migrating, and building with App Router and React 19.
 version: 1.1.0
 trigger_keywords:

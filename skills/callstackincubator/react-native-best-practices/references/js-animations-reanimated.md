@@ -6,7 +6,7 @@ tags: reanimated, animations, worklets, ui-thread
 
 # Skill: High-Performance Animations
 
-Use React Native Reanimated and InteractionManager for smooth 60+ FPS animations.
+Use React Native Reanimated for smooth 60+ FPS animations.
 
 ## Quick Pattern
 
@@ -66,24 +66,24 @@ module.exports = {
 ### 1. Basic Animated Style (UI Thread)
 
 ```jsx
-import Animated, { 
-  useSharedValue, 
-  useAnimatedStyle, 
-  withTiming 
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming
 } from 'react-native-reanimated';
 
 const FadeInView = () => {
   const opacity = useSharedValue(0);
-  
+
   // This runs on UI thread - won't be blocked by JS
   const animatedStyle = useAnimatedStyle(() => {
     return { opacity: opacity.value };
   });
-  
+
   useEffect(() => {
     opacity.value = withTiming(1, { duration: 500 });
   }, []);
-  
+
   return <Animated.View style={[styles.box, animatedStyle]} />;
 };
 ```
@@ -106,6 +106,12 @@ const triggerAnimation = () => {
 
 ```jsx
 import { scheduleOnRN } from 'react-native-worklets';
+import { Pressable } from 'react-native';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 // Regular JS function
 const trackAnalytics = (value) => {
@@ -114,18 +120,28 @@ const trackAnalytics = (value) => {
 
 const AnimatedComponent = () => {
   const progress = useSharedValue(0);
-  
+
+  const handlePress = () => {
+    progress.value = withTiming(1, { duration: 200 }, (finished) => {
+      if (finished) {
+        scheduleOnRN(trackAnalytics, 1);
+      }
+    });
+  };
+
   const animatedStyle = useAnimatedStyle(() => {
-    // When animation completes, call JS function
-    if (progress.value === 1) {
-      scheduleOnRN(trackAnalytics, progress.value);
-    }
     return { opacity: progress.value };
   });
-  
-  return <Animated.View style={animatedStyle} />;
+
+  return (
+    <Pressable onPress={handlePress}>
+      <Animated.View style={animatedStyle} />
+    </Pressable>
+  );
 };
 ```
+
+Avoid calling `scheduleOnRN` from `useAnimatedStyle`; style worklets can evaluate more often than an analytics or state callback should run. Prefer animation completion callbacks or `useAnimatedReaction`.
 
 ### 4. Animation with Callback
 
@@ -134,11 +150,11 @@ import { scheduleOnRN } from 'react-native-worklets';
 
 const AnimatedButton = () => {
   const scale = useSharedValue(1);
-  
+
   const onComplete = () => {
     console.log('Animation finished!');
   };
-  
+
   const handlePress = () => {
     scale.value = withTiming(
       1.2,
@@ -150,11 +166,11 @@ const AnimatedButton = () => {
       }
     );
   };
-  
+
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
-  
+
   return (
     <Pressable onPress={handlePress}>
       <Animated.View style={[styles.button, animatedStyle]}>
@@ -163,65 +179,6 @@ const AnimatedButton = () => {
     </Pressable>
   );
 };
-```
-
-## InteractionManager for Heavy Work
-
-Defer expensive JS work until animations complete:
-
-```jsx
-import { InteractionManager } from 'react-native';
-
-const ScreenWithAnimation = () => {
-  useEffect(() => {
-    // Schedule after animations/interactions finish
-    const task = InteractionManager.runAfterInteractions(() => {
-      // Heavy computation here
-      loadExpensiveData();
-    });
-    
-    return () => task.cancel();
-  }, []);
-  
-  return <AnimatedHeader />;
-};
-```
-
-### With React Navigation
-
-```jsx
-import { useFocusEffect } from '@react-navigation/native';
-
-const Screen = () => {
-  useFocusEffect(
-    useCallback(() => {
-      // Wait for screen transition animation to complete
-      const task = InteractionManager.runAfterInteractions(() => {
-        fetchData();
-        renderExpensiveComponent();
-      });
-      
-      return () => task.cancel();
-    }, [])
-  );
-  
-  return <View>...</View>;
-};
-```
-
-### Custom Interaction Handle
-
-```jsx
-import { scheduleOnRN } from 'react-native-worklets';
-
-// Mark animation as an "interaction"
-const handle = InteractionManager.createInteractionHandle();
-
-// Run animation...
-animatedValue.value = withTiming(100, {}, () => {
-  // When done, clear the handle
-  scheduleOnRN(InteractionManager.clearInteractionHandle, handle);
-});
 ```
 
 ## When to Use What
@@ -236,8 +193,9 @@ animatedValue.value = withTiming(100, {}, () => {
 | `useAnimatedStyle` | Animated styles (auto UI thread) |
 | `scheduleOnUI` | Manual UI thread execution (from `react-native-worklets`) |
 | `scheduleOnRN` | Call JS functions from worklets (from `react-native-worklets`) |
-| `InteractionManager` | Defer heavy JS until animations complete |
 | `useTransition` | Alternative for React state-driven delays |
+
+For React Native Web targets, CSS transitions can be appropriate for simple state-driven style changes. In native apps, keep shared values/worklets for gesture-driven, scroll-driven, layout-sensitive, or orchestrated animations.
 
 ## Common Pitfalls
 
@@ -311,4 +269,5 @@ withSpring(value, {
 ## Related Skills
 
 - [js-measure-fps.md](./js-measure-fps.md) - Verify animation frame rate
+- [js-bottomsheet.md](./js-bottomsheet.md) - Keep bottom sheet visual state on the UI thread
 - [js-concurrent-react.md](./js-concurrent-react.md) - React-level deferral with useTransition

@@ -269,49 +269,111 @@ See `references/REFERENCE.md` for the complete setup script template.
 
 This optional preliminary step helps users discover available genome assemblies by taxon name before proceeding with the main workflow.
 
+**IMPORTANT**: This step requires the NCBI datasets CLI tool (`datasets`) to be installed **on the local machine where Claude is running**. If Claude is running locally but preparing scripts for a remote HPC cluster, the `datasets` tool must be installed locally to query NCBI and find assemblies. The query functionality cannot be used if preparing scripts for remote execution without local access to the datasets CLI tool.
+
 #### When to Offer This Step
 
 Offer this step when:
 - User wants to analyze genomes from NCBI
 - User doesn't have specific Assembly or BioProject accessions
 - User mentions a taxonomic group (e.g., "I want to build a phylogeny for beetles")
+- The `datasets` CLI tool is available locally (check with `command -v datasets`)
+
+If the datasets tool is not available locally, inform the user they can:
+1. Install it via conda: `conda install -c conda-forge ncbi-datasets-cli`
+2. Download it manually from https://www.ncbi.nlm.nih.gov/datasets/docs/v2/download-and-install/
+3. Use the NCBI website to manually search for assemblies
 
 #### Workflow
 
-1. **Ask for focal taxon**: Request the taxonomic group of interest
+1. **Check for datasets CLI tool availability**:
+   ```bash
+   command -v datasets >/dev/null 2>&1 && echo "datasets CLI found" || echo "datasets CLI not found"
+   ```
+
+2. **Ask for focal taxon**: Request the taxonomic group of interest
    - Examples: "Coleoptera", "Drosophila", "Apis mellifera"
    - Can be at any taxonomic level (order, family, genus, species)
 
-2. **Query NCBI using the script**: Use `scripts/query_ncbi_assemblies.py` to search for assemblies
+3. **Suggest quality filtering criteria**: Before querying, ask the user about quality preferences to help select the best assemblies for phylogenomics:
+
+   **Assembly Quality Considerations:**
+   - **Assembly Level**: Chromosome-level assemblies are preferred over Scaffold over Contig
+     - Chromosome: Most complete, best for phylogenomics
+     - Scaffold: Medium quality, may have gaps between contigs
+     - Contig: Lower quality, more fragmented
+
+   - **Contig N50**: Higher N50 indicates better assembly contiguity
+     - Excellent: N50 > 10 Mbp
+     - Good: N50 > 1 Mbp
+     - Poor: N50 < 100 kbp
+
+   - **Annotation Status**: Annotated assemblies have gene predictions and BUSCO scores
+     - Useful for assessing completeness
+     - BUSCO > 95% is excellent for phylogenomics
+
+   - **RefSeq vs GenBank**:
+     - RefSeq (GCF_*): Curated, higher quality, recommended
+     - GenBank (GCA_*): Submitted assemblies, variable quality
+
+   **Suggested Questions for Users:**
+   - "Do you prefer chromosome-level assemblies only, or are scaffold-level acceptable?"
+   - "Should I filter for high-quality assemblies (e.g., contig N50 > 1 Mbp)?"
+   - "Do you want to see RefSeq assemblies only (higher quality)?"
+   - "Would you like to see quality metrics (N50, BUSCO scores) to help you decide?"
+
+4. **Query NCBI using the script**: Use `scripts/query_ncbi_assemblies.py` with appropriate filters based on user preferences:
 
    ```bash
-   # Basic query (returns 20 results by default)
-   python scripts/query_ncbi_assemblies.py --taxon "Coleoptera"
+   # Basic query with quality metrics
+   python scripts/query_ncbi_assemblies.py --taxon "Coleoptera" --show-quality
 
-   # Query with more results
-   python scripts/query_ncbi_assemblies.py --taxon "Drosophila" --max-results 50
+   # Filter for chromosome-level assemblies
+   python scripts/query_ncbi_assemblies.py --taxon "Drosophila" --assembly-level Chromosome --show-quality
 
-   # Query for RefSeq assemblies only (higher quality, GCF_* accessions)
-   python scripts/query_ncbi_assemblies.py --taxon "Apis" --refseq-only
+   # Filter for high-quality assemblies (N50 > 1 Mbp)
+   python scripts/query_ncbi_assemblies.py --taxon "Apis" --min-contig-n50 1000000 --show-quality
 
-   # Save accessions to file for later download
-   python scripts/query_ncbi_assemblies.py --taxon "Coleoptera" --save assembly_accessions.txt
+   # RefSeq annotated assemblies only (highest quality)
+   python scripts/query_ncbi_assemblies.py --taxon "Felidae" --refseq-only --annotated --show-quality
+
+   # Combined filters: Chromosome-level, high N50, annotated
+   python scripts/query_ncbi_assemblies.py --taxon "Coleoptera" \
+     --assembly-level Chromosome \
+     --min-contig-n50 1000000 \
+     --annotated \
+     --show-quality \
+     --save assembly_accessions.txt
    ```
 
-3. **Present results to user**: The script displays:
+   **Available Filtering Options:**
+   - `--assembly-level {Chromosome,Scaffold,Contig}` - Filter by assembly level
+   - `--min-contig-n50 N` - Minimum contig N50 in base pairs (e.g., 1000000 for 1 Mbp)
+   - `--annotated` - Only return assemblies with gene annotations
+   - `--refseq-only` - Only return RefSeq (GCF_*) assemblies
+   - `--show-quality` - Display quality metrics (N50, BUSCO scores) in output
+   - `--max-results N` - Maximum number of results (default: 20)
+   - `--save FILE` - Save accessions to file for later download
+
+5. **Present results to user**: The script displays:
    - Assembly accession (GCA_* or GCF_*)
    - Organism name
    - Assembly level (Chromosome, Scaffold, Contig)
    - Assembly name
+   - **If --show-quality:** Contig N50, BUSCO completeness %, Annotation status
+   - **Quality summary:** Count of assemblies by level
 
-4. **Help user select assemblies**: Ask user which assemblies they want to include
-   - Consider assembly level (Chromosome > Scaffold > Contig)
+6. **Help user select assemblies**: Review results with user and recommend best choices:
+   - Prioritize chromosome-level assemblies with high N50
+   - Prefer RefSeq (GCF_*) over GenBank (GCA_*) when available
+   - Look for BUSCO completeness > 95% when available
+   - Aim for consistent quality across all taxa in the phylogeny
    - Consider phylogenetic breadth (species coverage)
    - Consider data quality (RefSeq > GenBank when available)
 
-5. **Collect selected accessions**: Compile the list of chosen assembly accessions
+7. **Collect selected accessions**: Compile the list of chosen assembly accessions
 
-6. **Proceed to STEP 1**: Use the selected accessions with `download_ncbi_genomes.py`
+8. **Proceed to STEP 1**: Use the selected accessions with `download_ncbi_genomes.py`
 
 #### Tips for Assembly Selection
 

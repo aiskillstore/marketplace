@@ -10,15 +10,16 @@ Understand which threads Turbo Modules and Fabric use for initialization, method
 
 ## Quick Reference
 
-| Action | iOS Thread | Android Thread |
-|--------|------------|----------------|
-| Module init | Main | JS (lazy) / Native (eager) |
-| Sync method | JS | JS |
-| Async method | Native modules | Native modules |
-| View init/props | Main | Main |
-| Yoga layout | JS | JS |
+Thread names and exact scheduling can vary by React Native version, architecture, and host app setup. Use this as a default mental model, then confirm with a profiler when the exact thread matters.
 
-**Key rule**: Sync methods block JS thread. Keep under 16ms or make async.
+| Action | Default assumption |
+|--------|--------------------|
+| UI view creation/updates | Main/UI thread |
+| Sync value-returning Turbo Module method | Blocks the JS caller until it returns |
+| Async Turbo Module method | Does not block JS, but may run on a shared native modules executor |
+| Heavy CPU/I/O work | Move to a module-owned background queue/coroutine |
+
+**Key rule**: Sync methods should be trivial and deterministic. Move anything that can block, allocate heavily, perform I/O, or wait on locks to async/background work.
 
 ## When to Use
 
@@ -65,7 +66,7 @@ ReactModuleInfo(
 
 ### Synchronous Method Calls
 
-**Always run on JS thread** - blocks until return.
+Synchronous value-returning Turbo Module methods block the JS caller until they return. Treat them as JS-critical even if a platform implementation dispatches through an internal executor.
 
 ```swift
 // iOS - runs on JS thread
@@ -87,7 +88,9 @@ ReactModuleInfo(
 
 ### Asynchronous Method Calls
 
-**Run on Native Modules thread** - doesn't block JS.
+**Usually dispatched off the JS thread** - does not block JS while the native work is pending.
+
+The native modules thread is shared across modules. If async work is CPU-heavy or long-running, move it to a module-owned queue/coroutine scope rather than occupying the shared React Native native modules thread.
 
 ```swift
 // iOS - runs on mqt_v_native thread
@@ -124,22 +127,15 @@ Called when React Native instance is torn down (e.g., Metro reload):
 
 ### View Lifecycle
 
-| Operation | Thread |
-|-----------|--------|
+| Operation | Default assumption |
+|-----------|--------------------|
 | View init | Main thread |
 | Prop updates | Main thread |
-| Layout (Yoga) | JS thread |
+| Layout/shadow tree work | Architecture-dependent; profile before assuming thread ownership |
 
 Views always manipulate UI on main thread (UIKit/Android requirement).
 
-### Yoga Layout
-
-Layout calculations happen on JS thread:
-
-```
-JS Thread: Calculate Yoga tree → Shadow tree
-Main Thread: Apply layout to native views
-```
+Do not use a hard-coded "Yoga runs on X thread" rule when diagnosing performance. React Native's renderer and scheduler details change across New Architecture releases; use Instruments, Perfetto, or Android Studio profiler to identify the actual bottleneck.
 
 ## Moving Work to Background
 
@@ -220,12 +216,12 @@ moduleScope.launch(Dispatchers.Default) {
 
 | Action | iOS Thread | Android Thread |
 |--------|------------|----------------|
-| Module init | Main | JS (lazy) / Native (eager) |
-| Sync method | JS | JS |
-| Async method | Native modules | Native modules |
+| Module init | Version/setup dependent; avoid blocking | Version/setup dependent; avoid blocking |
+| Sync method | Blocks JS caller | Blocks JS caller |
+| Async method | Shared native executor or implementation-defined | Shared native executor or implementation-defined |
 | View init | Main | Main |
 | Prop update | Main | Main |
-| Yoga layout | JS | JS |
+| Yoga/layout | Profile; do not assume fixed ownership | Profile; do not assume fixed ownership |
 | Invalidate | Native modules | ReactHost pool |
 
 ## Related Skills

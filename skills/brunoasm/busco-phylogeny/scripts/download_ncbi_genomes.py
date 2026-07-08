@@ -6,7 +6,7 @@ Usage:
     python download_ncbi_genomes.py --bioprojects PRJNA12345 PRJEB67890
     python download_ncbi_genomes.py --assemblies GCA_123456789.1 GCF_987654321.1
 
-Requires: ncbi-datasets-pylib (pip install ncbi-datasets-pylib)
+Requires: ncbi-datasets-cli (conda install -c conda-forge ncbi-datasets-cli)
 
 Author: Bruno de Medeiros (Field Museum)
 Based on tutorials by Paul Frandsen (BYU)
@@ -15,6 +15,7 @@ Based on tutorials by Paul Frandsen (BYU)
 import argparse
 import sys
 import subprocess
+import json
 
 
 def download_using_cli(accessions, output_file="genomes.zip"):
@@ -48,7 +49,7 @@ def download_using_cli(accessions, output_file="genomes.zip"):
 
 def get_bioproject_assemblies(bioprojects):
     """
-    Get assembly accessions for given BioProjects using Python API
+    Get assembly accessions for given BioProjects using CLI
 
     Args:
         bioprojects: List of BioProject accessions
@@ -56,25 +57,42 @@ def get_bioproject_assemblies(bioprojects):
     Returns:
         List of tuples (assembly_accession, organism_name)
     """
-    try:
-        from ncbi.datasets.metadata.genome import get_assembly_metadata_by_bioproject_accessions
-    except ImportError:
-        print("Error: ncbi-datasets-pylib not installed", file=sys.stderr)
-        print("Install with: pip install ncbi-datasets-pylib", file=sys.stderr)
-        sys.exit(1)
-
     assemblies = []
 
     print(f"Fetching assembly information for {len(bioprojects)} BioProject(s)...")
     print("")
 
-    for assembly in get_assembly_metadata_by_bioproject_accessions(bioprojects):
-        acc = assembly.accession
-        name = assembly.organism.organism_name
-        assemblies.append((acc, name))
-        print(f"  {name}: {acc}")
+    # Query using datasets CLI
+    cmd = ["datasets", "summary", "genome", "accession"] + bioprojects + ["--as-json-lines"]
 
-    print(f"\nFound {len(assemblies)} assemblies")
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+
+        # Parse JSON Lines output
+        for line in result.stdout.strip().split('\n'):
+            if not line:
+                continue
+
+            try:
+                data = json.loads(line)
+                acc = data.get('accession', 'Unknown')
+                name = data.get('organism', {}).get('organism_name', 'Unknown')
+                assemblies.append((acc, name))
+                print(f"  {name}: {acc}")
+            except json.JSONDecodeError as e:
+                print(f"Warning: Could not parse JSON line: {e}", file=sys.stderr)
+                continue
+
+        print(f"\nFound {len(assemblies)} assemblies")
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error querying BioProject assemblies: {e}", file=sys.stderr)
+        print(e.stderr, file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError:
+        print("Error: 'datasets' command not found", file=sys.stderr)
+        print("Install with: conda install -c conda-forge ncbi-datasets-cli", file=sys.stderr)
+        sys.exit(1)
 
     return assemblies
 

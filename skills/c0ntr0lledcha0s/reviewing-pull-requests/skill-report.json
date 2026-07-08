@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T04:39:04.759Z",
+    "generated_at": "2026-07-08T02:04:35.570Z",
     "slug": "c0ntr0lledcha0s-reviewing-pull-requests",
     "source_url": "https://github.com/C0ntr0lledCha0s/claude-code-plugin-automations/tree/main/github-workflows/skills/reviewing-pull-requests",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "2ef2a9d2879a434b74ed681eed4590216ba086a8e6f6b6fa700a254034872cc3",
-    "tree_hash": "894f40911125ea194ad7c1299f9ee8558d38fd513a5eba5ff90cd0955b5edb1c",
+    "content_hash": "5e43199027369a1c63e4687e64095497c3168ff2a94953c6cdcbccf73e310003",
+    "tree_hash": "75615b92f58f04483822c30a4ca5c1b8d076cd8a9debb5120a432f7146890eb8",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,10 +23,10 @@
   },
   "skill": {
     "name": "reviewing-pull-requests",
-    "description": "Helps create, review, and manage GitHub pull requests with quality gates, review checklists, and merge guidance.",
-    "summary": "Guides pull request creation, review, quality checks, and merge decisions.",
+    "description": "Guides GitHub pull request creation, review, quality gates, merge decisions, and workflow automation with optional helper scripts.",
+    "summary": "Review and manage GitHub pull requests with checklists, quality gates, merge guidance, and automation helpers.",
     "icon": "📦",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "author": "C0ntr0lledCha0s",
     "license": "MIT",
     "tags": [
@@ -37,7 +34,7 @@
       "code-review",
       "github",
       "quality-gates",
-      "merge-strategy"
+      "automation"
     ],
     "supported_tools": [
       "claude",
@@ -51,25 +48,25 @@
     "category": "coding"
   },
   "security_audit": {
-    "risk_level": "safe",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The subprocess and shell detections are legitimate GitHub and Git automation using argv lists, quoted parameters, or documentation examples. No prompt injection, hidden exfiltration, obfuscation, or unauthorized security bypass intent was found in the cited files.",
+    "summary": "Most static findings are false positives from Markdown code fences or safe argument-list command execution. Two documented shell command-substitution examples remain a real copy-paste risk, and the helper script can mutate GitHub state without a dry-run or explicit confirmation.",
     "remediation": [
       {
-        "issue": "Helper scripts can change GitHub PR labels, reviewers, and project boards.",
-        "suggestion": "Add an explicit dry-run mode and require confirmation before mutating PR or project state.",
-        "severity": "low"
+        "issue": "PR manager performs authenticated GitHub mutations without a dry-run mode.",
+        "suggestion": "Add dry-run output and require explicit confirmation before creating PRs, editing reviewers, or adding project items.",
+        "severity": "medium"
       },
       {
-        "issue": "The documentation includes a shell command substitution example for PR body creation.",
-        "suggestion": "Prefer a temporary body file example to reduce copy and paste risk in user shells.",
-        "severity": "low"
+        "issue": "Documentation uses command substitution and an unquoted heredoc for generated PR body text.",
+        "suggestion": "Use a temporary body file with gh pr create --body-file, or use a quoted heredoc and avoid shell evaluation of generated text.",
+        "severity": "medium"
       },
       {
-        "issue": "Automated commands depend on an authenticated GitHub CLI session.",
-        "suggestion": "Document required permissions and advise users to review the target repository before running scripts.",
+        "issue": "Helper scripts accept PR and branch inputs with limited validation.",
+        "suggestion": "Validate PR numbers and branch names, and use option separators where supported before passing user input to CLI tools.",
         "severity": "low"
       }
     ],
@@ -1091,556 +1088,630 @@
       {
         "id": "external_commands:scripts/pr-manager.py:22:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "run_gh builds an argv list for the GitHub CLI and does not invoke a shell. The calls are documented PR operations, not hidden command execution or exfiltration."
+        "confidence": 0.78,
+        "reason": "The subprocess call uses shell=False with an argument list for the GitHub CLI, so shell injection is not present. The broader state-changing behavior is covered separately as a semantic workflow risk."
       },
       {
         "id": "external_commands:scripts/pr-manager.py:34:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The git command is executed with a fixed argv list and the branch value remains one argument. There is no shell=True, eval, or string command construction."
+        "confidence": 0.86,
+        "reason": "The git diff command is invoked with shell=False and passes the branch comparison as one argument. This is a normal repository inspection command with no shell expansion."
       },
       {
         "id": "external_commands:scripts/pr-manager.py:45:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The git command is executed with a fixed argv list and the branch value remains one argument. There is no shell=True, eval, or string command construction."
+        "confidence": 0.86,
+        "reason": "The git log command is invoked with shell=False and passes the branch comparison as one argument. This is a normal repository inspection command with no shell expansion."
       },
       {
         "id": "external_commands:scripts/pr-manager.py:152:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This reads HEAD:CODEOWNERS with fixed git arguments and captures output. It does not execute user-controlled shell text."
+        "confidence": 0.88,
+        "reason": "The git show command uses a fixed CODEOWNERS path and shell=False. It reads repository metadata and does not execute user-controlled shell text."
       },
       {
         "id": "external_commands:scripts/quality-gates.sh:19:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The command substitution captures GitHub CLI output and quotes the PR argument. It is expected quality-gate behavior and does not use eval or unquoted shell expansion."
+        "confidence": 0.79,
+        "reason": "The command substitution captures GitHub CLI output into a variable with quoted PR input and no eval. It is external tooling, but this pattern is not shell command injection."
       },
       {
         "id": "external_commands:scripts/quality-gates.sh:22:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "jq processes JSON already captured from GitHub CLI output. The pattern is data parsing, not execution of attacker-controlled commands."
+        "confidence": 0.86,
+        "reason": "The command substitution pipes previously captured JSON into jq and stores a count. It does not execute untrusted data as code."
       },
       {
         "id": "external_commands:scripts/quality-gates.sh:24:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "jq processes JSON already captured from GitHub CLI output. The pattern is data parsing, not execution of attacker-controlled commands."
+        "confidence": 0.86,
+        "reason": "The command substitution pipes previously captured JSON into jq and stores a count. It does not execute untrusted data as code."
       },
       {
         "id": "external_commands:scripts/quality-gates.sh:45:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The command substitution captures GitHub CLI output and quotes the PR argument. It is expected quality-gate behavior and does not use eval or unquoted shell expansion."
+        "confidence": 0.79,
+        "reason": "The command substitution captures GitHub CLI output into a variable with quoted PR input and no eval. It is external tooling, but this pattern is not shell command injection."
       },
       {
         "id": "external_commands:scripts/quality-gates.sh:71:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The command substitution captures GitHub CLI output and quotes the PR argument. It is expected quality-gate behavior and does not use eval or unquoted shell expansion."
+        "confidence": 0.79,
+        "reason": "The command substitution captures GitHub CLI output into a variable with quoted PR input and no eval. It is external tooling, but this pattern is not shell command injection."
       },
       {
         "id": "external_commands:scripts/quality-gates.sh:102:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The command substitution captures GitHub CLI output and quotes the PR argument. It is expected quality-gate behavior and does not use eval or unquoted shell expansion."
+        "confidence": 0.79,
+        "reason": "The command substitution captures GitHub CLI output into a variable with quoted PR input and no eval. It is external tooling, but this pattern is not shell command injection."
       },
       {
         "id": "external_commands:scripts/quality-gates.sh:104:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.85,
-        "reason": "The command substitution captures GitHub CLI output and quotes the PR argument. It is expected quality-gate behavior and does not use eval or unquoted shell expansion."
+        "confidence": 0.79,
+        "reason": "The command substitution captures GitHub CLI output into a variable with quoted PR input and no eval. It is external tooling, but this pattern is not shell command injection."
       },
       {
         "id": "external_commands:scripts/quality-gates.sh:105:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The arithmetic expression combines numeric additions and deletions from GitHub metadata. It does not create or execute a shell command."
+        "confidence": 0.84,
+        "reason": "The arithmetic expansion uses numeric values returned by GitHub CLI JSON queries. No shell command is built from untrusted text."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:86:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:120:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:122:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:167:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:171:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:180:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:192:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:195:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:198:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:201:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:204:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:207:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:221:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:264:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:270:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:275:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:282:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:305:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:351:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:358:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:373:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:380:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:405:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:412:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:415:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:418:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:421:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:424:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:427:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:473:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:485:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:490:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:498:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:522:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:526:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:533:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:538:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:543:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:548:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:553:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:559:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:570:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:574:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:584:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:588:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is a markdown fence or inline slash-command example, not Ruby backtick execution. These lines are documentation for PR workflows and are not executed."
+        "confidence": 0.91,
+        "reason": "This match is a Markdown code fence or inline example text, not Ruby backtick execution. The skill documentation does not execute the fenced text automatically."
       },
       {
         "id": "external_commands:SKILL.md:266:shell-command-substitution",
-        "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The command substitution appears in a fenced bash example for creating a PR body. The skill documentation does not execute this text automatically."
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "severity": "medium",
+        "reason": "The documented gh pr create example builds the PR body through command substitution and an unquoted heredoc. If generated body text contains shell substitutions, a user who copies the command could execute unintended local commands."
       },
       {
         "id": "external_commands:SKILL.md:264:template-literal-with-command-substitution",
-        "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The command substitution appears in a fenced bash example for creating a PR body. The skill documentation does not execute this text automatically."
+        "verdict": "confirmed",
+        "confidence": 0.66,
+        "severity": "medium",
+        "reason": "The bash example contains command substitution to construct a PR body from generated text. It is not hidden malware, but it is a real copy-paste risk when generated content is treated as shell input."
       },
       {
         "id": "network:SKILL.md:272:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL is a placeholder GitHub PR link inside example output. It does not perform a network request or send data anywhere."
+        "confidence": 0.96,
+        "reason": "The URL is a placeholder GitHub PR example in documentation output. It is not a network request or exfiltration endpoint."
       },
       {
         "id": "network:SKILL.md:583:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL is a placeholder GitHub PR link inside example output. It does not perform a network request or send data anywhere."
+        "confidence": 0.96,
+        "reason": "The URL is a placeholder GitHub PR example in documentation output. It is not a network request or exfiltration endpoint."
       },
       {
         "id": "blocker:SKILL.md:73:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The matched text is checklist language about tests and CI passing. It is not network reconnaissance or scanning behavior."
+        "confidence": 0.95,
+        "reason": "This is checklist wording about tests and CI checks. It is not network reconnaissance or a command that scans hosts."
       },
       {
         "id": "blocker:SKILL.md:74:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The matched text is checklist language about tests and CI passing. It is not network reconnaissance or scanning behavior."
+        "confidence": 0.95,
+        "reason": "This is checklist wording about tests and CI checks. It is not network reconnaissance or a command that scans hosts."
       },
       {
         "id": "blocker:SKILL.md:93:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The matched text is checklist language about tests and CI passing. It is not network reconnaissance or scanning behavior."
+        "confidence": 0.95,
+        "reason": "This is checklist wording about tests and CI checks. It is not network reconnaissance or a command that scans hosts."
       },
       {
         "id": "blocker:SKILL.md:95:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The matched text is checklist language about tests and CI passing. It is not network reconnaissance or scanning behavior."
+        "confidence": 0.95,
+        "reason": "This is checklist wording about tests and CI checks. It is not network reconnaissance or a command that scans hosts."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Authenticated GitHub Mutations Lack Dry Run",
+        "description": "The PR manager can create pull requests, edit reviewers, and add project items through authenticated GitHub CLI calls without a dry-run mode or per-action confirmation.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/pr-manager.py",
+            "line_start": 78,
+            "line_end": 78
+          },
+          {
+            "file": "scripts/pr-manager.py",
+            "line_start": 197,
+            "line_end": 197
+          },
+          {
+            "file": "scripts/pr-manager.py",
+            "line_start": 276,
+            "line_end": 280
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The cited calls invoke gh pr create, gh pr edit, and gh project item-add using the user authenticated GitHub context. This is intended automation, but the lack of dry-run or confirmation creates a concrete workflow safety risk."
+      }
+    ],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
+    "medium_findings": [
+      {
+        "title": "Shell command substitution",
+        "description": "--body \"$(cat <<EOF",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 266,
+            "line_end": 269
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.68,
+        "confidence_reasoning": "The documented gh pr create example builds the PR body through command substitution and an unquoted heredoc. If generated body text contains shell substitutions, a user who copies the command could execute unintended local commands."
+      },
+      {
+        "title": "Template literal with command substitution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 264,
+            "line_end": 270
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.66,
+        "confidence_reasoning": "The bash example contains command substitution to construct a PR body from generated text. It is not hidden malware, but it is a real copy-paste risk when generated content is treated as shell input."
+      },
+      {
+        "title": "Authenticated GitHub Mutations Lack Dry Run",
+        "description": "The PR manager can create pull requests, edit reviewers, and add project items through authenticated GitHub CLI calls without a dry-run mode or per-action confirmation.",
+        "locations": [
+          {
+            "file": "scripts/pr-manager.py",
+            "line_start": 78,
+            "line_end": 78
+          },
+          {
+            "file": "scripts/pr-manager.py",
+            "line_start": 197,
+            "line_end": 197
+          },
+          {
+            "file": "scripts/pr-manager.py",
+            "line_start": 276,
+            "line_end": 280
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The cited calls invoke gh pr create, gh pr edit, and gh project item-add using the user authenticated GitHub context. This is intended automation, but the lack of dry-run or confirmation creates a concrete workflow safety risk."
+      }
+    ],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 6,
     "total_lines": 1384,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T04:39:04.759Z",
-    "risk_factors": [
-      "external_commands",
-      "network"
-    ],
+    "audited_at": "2026-07-08T02:04:35.570Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Review Pull Requests with Quality Gates",
-    "value_statement": "Pull request reviews can miss risks, unclear scope, and merge blockers. This skill structures PR review, creation, quality checks, and merge decisions.",
+    "value_statement": "Pull requests often miss clear review steps, test checks, and merge guidance. This skill provides structured PR creation, review, quality gates, and GitHub workflow automation.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "pull request review",
       "GitHub PR automation",
-      "code review checklist",
+      "code review workflow",
       "quality gates",
       "merge strategy",
-      "PR description",
-      "CI checks"
+      "PR checklist",
+      "GitHub CLI"
     ],
     "actual_capabilities": [
-      "Drafts pull request titles and descriptions from branch changes.",
-      "Reviews PRs with checklists for correctness, security, testing, performance, and documentation.",
-      "Runs GitHub CLI based quality gates for CI status, tests, security patterns, and PR size.",
-      "Suggests merge strategies based on commit history and review readiness.",
-      "Can apply labels, assign reviewers, and sync PRs to project boards through helper scripts."
+      "Drafts pull request titles and descriptions from branch changes and commits.",
+      "Reviews pull requests with checklists for correctness, security, testing, performance, and maintainability.",
+      "Runs quality gate checks through included GitHub CLI and shell helper scripts.",
+      "Suggests merge strategies based on commit structure and review readiness.",
+      "Can auto-label, assign reviewers, and sync project boards when the helper script is run."
     ],
     "limitations": [
-      "Requires GitHub CLI access for automated PR operations.",
-      "Does not replace human approval for sensitive or high risk code changes.",
-      "Quality gate results depend on repository CI, test, and coverage configuration.",
-      "Project board syncing depends on available GitHub project permissions."
+      "Requires GitHub CLI authentication for helper scripts that read or change pull requests.",
+      "Quality gate results depend on repository checks, test data, and available CI status.",
+      "The self-improvement quality check is optional and only works when that plugin exists.",
+      "Automation may change GitHub metadata, so users should review actions before running scripts."
     ],
     "use_cases": [
       {
-        "title": "Review an Open PR",
-        "description": "Run a structured review that checks CI, tests, security concerns, and merge readiness.",
-        "target_user": "Software engineer"
-      },
-      {
-        "title": "Prepare a PR for Review",
-        "description": "Create a clear PR title, description, testing notes, and related issue links.",
+        "title": "Prepare a Pull Request",
+        "description": "Generate a clear title, description, testing checklist, and issue links before opening a PR.",
         "target_user": "Feature developer"
       },
       {
-        "title": "Standardize Team PR Gates",
-        "description": "Apply repeatable checks for size, coverage, security, and review approval before merge.",
+        "title": "Review Code Changes",
+        "description": "Apply a structured review process across security, tests, performance, maintainability, and documentation.",
+        "target_user": "Code reviewer"
+      },
+      {
+        "title": "Manage PR Readiness",
+        "description": "Check CI status, test presence, PR size, and merge options before approving or merging.",
         "target_user": "Engineering lead"
       }
     ],
     "prompt_templates": [
       {
         "title": "Review a PR",
-        "scenario": "Beginner review request",
-        "prompt": "Review PR #123. Summarize the main changes, quality gate status, risks, and merge recommendation."
+        "scenario": "Beginner request for a structured review.",
+        "prompt": "Review pull request 123. Check correctness, tests, security, documentation, and merge readiness. Give a clear approval recommendation."
       },
       {
         "title": "Create a PR Description",
-        "scenario": "Prepare a branch for review",
-        "prompt": "Create a PR title and description for my current branch. Include summary, changes, testing, and related issues."
+        "scenario": "Prepare a new pull request from local changes.",
+        "prompt": "Create a pull request description for my current branch. Include summary, key changes, testing, risks, and related issues."
       },
       {
-        "title": "Check Merge Readiness",
-        "scenario": "Before merging a reviewed PR",
-        "prompt": "Check whether PR #123 is ready to merge. Review CI, tests, approvals, comments, size, and merge strategy."
+        "title": "Run Quality Gates",
+        "scenario": "Validate a PR before review or merge.",
+        "prompt": "Run the pull request quality gate process for PR 123. Report CI, tests, security checks, size, and required follow-up."
       },
       {
-        "title": "Run a Deep Review Workflow",
-        "scenario": "Advanced review with automation",
-        "prompt": "Review PR #123 using quality gates, security checks, commit quality, issue links, reviewer status, and project workflow impact."
+        "title": "Plan PR Automation",
+        "scenario": "Advanced workflow automation with controlled actions.",
+        "prompt": "Analyze PR 123 and propose labels, reviewers, project board updates, and merge strategy. Ask before making any GitHub changes."
       }
     ],
     "output_examples": [
       {
-        "input": "Review PR #123 for merge readiness.",
+        "input": "Review PR 123 for merge readiness.",
         "output": [
-          "PR summary with scope, files changed, and main behavior changes.",
-          "Quality gate results for CI, tests, security checks, size, and approvals.",
-          "Clear decision such as approve, comment, or request changes, with reasons."
+          "CI passed and the PR size is within the preferred range.",
+          "Tests cover the main path, but edge case coverage should be added.",
+          "Recommendation: request changes until the missing tests are added."
         ]
       },
       {
-        "input": "Create a PR for my current branch.",
-        "output": [
-          "Suggested title using the repository style.",
-          "Structured description with summary, changes, testing, and issue links.",
-          "Pre-review checklist that calls out missing tests or documentation."
-        ]
+        "input": "Create a PR summary for an authentication update.",
+        "output": "Summary: Adds token validation, refresh handling, and authentication middleware. Testing should include unit checks, endpoint coverage, and manual login validation."
       },
       {
         "input": "Should I squash or merge this PR?",
-        "output": [
-          "Commit history assessment and recommended merge method.",
-          "Reasoning based on commit quality, PR size, and desired history.",
-          "Warnings for unresolved comments, failing checks, or risky changes."
-        ]
+        "output": "Recommendation: squash and merge. The commits include several fixup changes, and one clean final commit will be easier to audit."
       }
     ],
     "best_practices": [
-      "Use this skill with a checked out repository and authenticated GitHub CLI session.",
-      "Ask for a review summary before posting comments or changing PR state.",
-      "Treat quality gate failures as review blockers unless the team has approved an exception."
+      "Keep pull requests small, focused, tested, and linked to related issues.",
+      "Run quality gates before requesting review and again before merging.",
+      "Ask for confirmation before running scripts that change GitHub labels, reviewers, or project boards."
     ],
     "anti_patterns": [
-      "Do not auto-approve sensitive changes without human review.",
-      "Do not merge when CI, tests, or required approvals are missing.",
-      "Do not use project syncing scripts without confirming repository and project permissions."
+      "Do not approve a pull request when tests, security checks, or unresolved comments are still failing.",
+      "Do not use automation to hide unclear ownership, missing context, or large unrelated changes.",
+      "Do not run GitHub mutation scripts without checking the target repository and PR number."
     ],
     "faq": [
       {
         "question": "Does this skill create pull requests automatically?",
-        "answer": "It can guide PR creation and includes helper scripts. GitHub CLI access is required for automated creation."
+        "answer": "It can guide PR creation and includes a helper script. GitHub changes require the user to run authenticated commands."
       },
       {
-        "question": "Can it post reviews on GitHub?",
-        "answer": "The skill helps draft reviews and decisions. Posting depends on the available tools and user approval."
+        "question": "Which tools does it support?",
+        "answer": "The metadata lists Claude, Codex, and Claude Code support."
       },
       {
-        "question": "Does it run tests for my project?",
-        "answer": "It checks CI status and PR signals. Project test execution depends on repository commands and CI configuration."
+        "question": "Can it post code reviews to GitHub?",
+        "answer": "It provides review guidance and examples. Posting requires GitHub CLI access and user-approved commands."
       },
       {
-        "question": "Can it detect security issues in a PR?",
-        "answer": "It includes checklist guidance and simple diff scanning. It is not a full application security scanner."
+        "question": "Does it replace human review?",
+        "answer": "No. It structures review work, but maintainers still need to judge design, risk, and product impact."
       },
       {
-        "question": "Which merge strategy does it recommend?",
-        "answer": "It compares merge commit, squash, and rebase based on commit quality and team workflow."
+        "question": "What does the quality gate script check?",
+        "answer": "It checks CI status, test file presence, simple security patterns, and pull request size."
       },
       {
-        "question": "Does it require GitHub?",
-        "answer": "The helper scripts are designed for GitHub and the GitHub CLI. General review guidance can still apply elsewhere."
+        "question": "What should users verify before running helper scripts?",
+        "answer": "Users should verify the repository, PR number, GitHub account, and every state-changing action."
       }
     ]
   },
@@ -1678,6 +1749,12 @@
       ]
     },
     {
+      "name": "SKILL.md",
+      "type": "file",
+      "path": "SKILL.md",
+      "lines": 614
+    },
+    {
       "name": "templates",
       "type": "dir",
       "path": "templates",
@@ -1695,12 +1772,6 @@
           "lines": 91
         }
       ]
-    },
-    {
-      "name": "SKILL.md",
-      "type": "file",
-      "path": "SKILL.md",
-      "lines": 614
     }
   ]
 }
