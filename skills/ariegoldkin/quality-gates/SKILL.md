@@ -1,3 +1,9 @@
+---
+name: quality-gates
+description: Guide agents to assess task complexity, validate requirements and dependencies, detect blockers, and require evidence before proceeding.
+license: MIT
+---
+
 # Quality Gates Skill
 
 **Version:** 1.0.0

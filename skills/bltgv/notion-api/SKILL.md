@@ -1,5 +1,5 @@
 ---
-name: Notion API
+name: notion-api
 description: This skill should be used when the user asks to "search Notion", "find in Notion", "search my Notion workspace", "create Notion page", "make a Notion page", "update Notion page", "edit Notion page", "query Notion database", "get Notion database", "read Notion page", "get page content from Notion", "list Notion pages", or mentions Notion integration, Notion workspace, or Notion API access.
 version: 0.1.0
 ---
