@@ -1,3 +1,8 @@
+---
+name: scholar-evaluation
+description: Apply the ScholarEval framework to evaluate scholarly work across research questions, literature, methodology, data, analysis, writing, and citations.
+---
+
 # Scholar Evaluation
 
 ## Overview
