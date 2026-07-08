@@ -1,6 +1,9 @@
 ---
 name: frontend-ui-dark-ts
-description: Build dark-themed React applications using Tailwind CSS with custom theming, glassmorphism effects, and Framer Motion animations. Use when creating dashboards, admin panels, or data-rich interfaces with a refined dark aesthetic.
+description: "A modern dark-themed React UI system using Tailwind CSS and Framer Motion. Designed for dashboards, admin panels, and data-rich applications with glassmorphism effects and tasteful animations."
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # Frontend UI Dark Theme (TypeScript)
@@ -583,6 +586,14 @@ export function PageTransition({ children }: PageTransitionProps) {
 
 ## Related Files
 
-- [Design Tokens](./references/design-tokens.md) — Complete color system, spacing, typography scales
-- [Components](./references/components.md) — Button, Card, Input, Dialog, Tabs, and more
-- [Patterns](./references/patterns.md) — Page layouts, navigation, lists, forms
+- Design Tokens — Complete color system, spacing, typography scales
+- Components — Button, Card, Input, Dialog, Tabs, and more
+- Patterns — Page layouts, navigation, lists, forms
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

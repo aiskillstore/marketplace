@@ -1,8 +1,9 @@
 ---
 name: imagen
-description: "Generates images using Google Gemini's image generation model for frontend UIs, documentation, and visual representations."
-source: "https://github.com/sanjay3290/ai-skills/tree/main/skills/imagen"
+description: "AI image generation skill powered by Google Gemini, enabling seamless visual content creation for UI placeholders, documentation, and design assets."
 risk: safe
+source: "https://github.com/sanjay3290/ai-skills/tree/main/skills/imagen"
+date_added: "2026-02-27"
 ---
 
 # Imagen - AI Image Generation Skill
@@ -75,3 +76,8 @@ User: "Create a diagram showing microservices architecture"
 User: "Generate a placeholder avatar image for the user profile component"
 -> Creates image in appropriate size for component use
 ```
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

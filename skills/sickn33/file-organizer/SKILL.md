@@ -1,6 +1,9 @@
 ---
 name: file-organizer
-description: Intelligently organizes files and folders by understanding context, finding duplicates, and suggesting better organizational structures. Use when user wants to clean up directories, organize downloads, remove duplicates, or restructure projects.
+description: "6. Reduces Clutter: Identifies old files you probably don't need anymore"
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # File Organizer
@@ -248,3 +251,8 @@ When a user requests file organization help:
 - Completed work that might be referenced later
 - Old versions after migration to new systems
 - Files you're hesitant to delete (archive first)
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

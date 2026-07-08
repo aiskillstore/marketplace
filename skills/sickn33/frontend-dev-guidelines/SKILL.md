@@ -1,6 +1,9 @@
 ---
 name: frontend-dev-guidelines
-description: Opinionated frontend development standards for modern React + TypeScript applications. Covers Suspense-first data fetching, lazy loading, feature-based architecture, MUI v7 styling, TanStack Router, performance optimization, and strict TypeScript practices.
+description: "You are a senior frontend engineer operating under strict architectural and performance standards. Use when creating components or pages, adding new features, or fetching or mutating data."
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 
@@ -84,8 +87,7 @@ FFCI = (Architectural Fit + Reusability + Performance) − (Complexity + Mainten
 
 ---
 
-## 3. When to Use This Skill
-
+## When to Use
 Use **frontend-dev-guidelines** when:
 
 * Creating components or pages
@@ -98,7 +100,7 @@ Use **frontend-dev-guidelines** when:
 
 ---
 
-## 4. Quick Start Checklists
+## 3. Quick Start Checklists
 
 ### New Component Checklist
 
@@ -126,7 +128,7 @@ Use **frontend-dev-guidelines** when:
 
 ---
 
-## 5. Import Aliases (Required)
+## 4. Import Aliases (Required)
 
 | Alias         | Path             |
 | ------------- | ---------------- |
@@ -139,7 +141,7 @@ Aliases must be used consistently. Relative imports beyond one level are discour
 
 ---
 
-## 6. Component Standards
+## 5. Component Standards
 
 ### Required Structure Order
 
@@ -160,7 +162,7 @@ Always wrapped in `<SuspenseLoader>`.
 
 ---
 
-## 7. Data Fetching Doctrine
+## 6. Data Fetching Doctrine
 
 ### Primary Pattern
 
@@ -183,7 +185,7 @@ Always wrapped in `<SuspenseLoader>`.
 
 ---
 
-## 8. Routing Standards (TanStack Router)
+## 7. Routing Standards (TanStack Router)
 
 * Folder-based routing only
 * Lazy load route components
@@ -198,7 +200,7 @@ export const Route = createFileRoute('/my-route/')({
 
 ---
 
-## 9. Styling Standards (MUI v7)
+## 8. Styling Standards (MUI v7)
 
 ### Inline vs Separate
 
@@ -216,7 +218,7 @@ Theme access must always be type-safe.
 
 ---
 
-## 10. Loading & Error Handling
+## 9. Loading & Error Handling
 
 ### Absolute Rule
 
@@ -230,7 +232,7 @@ Theme access must always be type-safe.
 
 ---
 
-## 11. Performance Defaults
+## 10. Performance Defaults
 
 * `useMemo` for expensive derivations
 * `useCallback` for passed handlers
@@ -242,7 +244,7 @@ Performance regressions are bugs.
 
 ---
 
-## 12. TypeScript Standards
+## 11. TypeScript Standards
 
 * Strict mode enabled
 * No implicit `any`
@@ -252,7 +254,7 @@ Performance regressions are bugs.
 
 ---
 
-## 13. Canonical File Structure
+## 12. Canonical File Structure
 
 ```
 src/
@@ -276,7 +278,7 @@ src/
 
 ---
 
-## 14. Canonical Component Template
+## 13. Canonical Component Template
 
 ```ts
 import React, { useState, useCallback } from 'react';
@@ -317,7 +319,7 @@ export default MyComponent;
 
 ---
 
-## 15. Anti-Patterns (Immediate Rejection)
+## 14. Anti-Patterns (Immediate Rejection)
 
 ❌ Early loading returns
 ❌ Feature logic in `components/`
@@ -328,7 +330,7 @@ export default MyComponent;
 
 ---
 
-## 16. Integration With Other Skills
+## 15. Integration With Other Skills
 
 * **frontend-design** → Visual systems & aesthetics
 * **page-cro** → Layout hierarchy & conversion logic
@@ -338,7 +340,7 @@ export default MyComponent;
 
 ---
 
-## 17. Operator Validation Checklist
+## 16. Operator Validation Checklist
 
 Before finalizing code:
 
@@ -352,8 +354,16 @@ Before finalizing code:
 
 ---
 
-## 18. Skill Status
+## 17. Skill Status
 
 **Status:** Stable, opinionated, and enforceable
 **Intended Use:** Production React codebases with long-term maintenance horizons
 
+
+### When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

@@ -1,12 +1,13 @@
 ---
 name: file-path-traversal
-description: "This skill should be used when the user asks to \"test for directory traversal\", \"exploit path traversal vulnerabilities\", \"read arbitrary files through web applications\", \"find LFI vu..."
-metadata:
-  author: zebbern
-  version: "1.1"
-risk: unknown
+description: "Identify and exploit file path traversal (directory traversal) vulnerabilities that allow attackers to read arbitrary files on the server, potentially including sensitive configuration files, credentials, and source code."
+risk: offensive
 source: community
+author: zebbern
+date_added: "2026-02-27"
 ---
+
+> AUTHORIZED USE ONLY: Use this skill only for authorized security assessments, defensive validation, or controlled educational environments.
 
 # File Path Traversal Testing
 

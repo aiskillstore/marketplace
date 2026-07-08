@@ -1,6 +1,9 @@
 ---
 name: incident-runbook-templates
-description: Create structured incident response runbooks with step-by-step procedures, escalation paths, and recovery actions. Use when building runbooks, responding to incidents, or establishing incident response procedures.
+description: "Production-ready templates for incident response runbooks covering detection, triage, mitigation, resolution, and communication."
+risk: critical
+source: community
+date_added: "2026-02-27"
 ---
 
 # Incident Runbook Templates
@@ -393,3 +396,8 @@ psql -c "VACUUM FULL large_table;"
 - [Google SRE Book - Incident Management](https://sre.google/sre-book/managing-incidents/)
 - [PagerDuty Incident Response](https://response.pagerduty.com/)
 - [Atlassian Incident Management](https://www.atlassian.com/incident-management)
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

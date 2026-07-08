@@ -1,6 +1,9 @@
 ---
 name: exa-search
-description: Semantic search, similar content discovery, and structured research using Exa API
+description: "Semantic search, similar content discovery, and structured research using Exa API. Use when you need semantic/embeddings-based search, finding similar content, or searching by category (company, people, research papers, etc.)."
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # exa-search
@@ -34,3 +37,8 @@ See the GitHub repository for troubleshooting guides.
 
 ## Related Skills
 - context7-auto-research, tavily-web, firecrawl-scraper, codex-review
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
