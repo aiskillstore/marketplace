@@ -20,6 +20,16 @@ on:
         description: 'GitHub URL (auto-filled from submission)'
         required: true
         type: string
+      review_issue_url:
+        description: 'Marketplace review issue URL for submitter notifications'
+        required: false
+        type: string
+        default: ''
+      review_issue_number:
+        description: 'Marketplace review issue number for submitter notifications'
+        required: false
+        type: string
+        default: ''
       model:
         description: 'Model to use (e.g., gpt-5.5:high, claude-sonnet-4.6)'
         required: false
@@ -38,6 +48,8 @@ on:
 env:
   SUBMISSION_ID: ${{ inputs.submission_id }}
   GITHUB_URL: ${{ inputs.github_url }}
+  REVIEW_ISSUE_URL: ${{ inputs.review_issue_url }}
+  REVIEW_ISSUE_NUMBER: ${{ inputs.review_issue_number }}
 
 concurrency:
   group: approve-submission-${{ inputs.submission_id }}
@@ -59,19 +71,33 @@ jobs:
           echo "URL: ${{ inputs.github_url }}"
 
       - name: Notify skillstore - Approved
+        env:
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          SKILLSTORE_CALLBACK_TOKEN: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
         run: |
-          curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
-            -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
+          PAYLOAD=$(jq -n \
+            --arg submission_id "${{ inputs.submission_id }}" \
+            --arg approved_by "${{ github.actor }}" \
+            --arg workflow_run_id "${{ github.run_id }}" \
+            --arg workflow_run_url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg review_issue_url "$REVIEW_ISSUE_URL" \
+            --arg review_issue_number "$REVIEW_ISSUE_NUMBER" \
+            '{
+              submission_id: $submission_id,
+              event: "approved",
+              approved_by: $approved_by,
+              workflow_run_id: ($workflow_run_id | tonumber),
+              workflow_run_url: $workflow_run_url
+            }
+            + (if $review_issue_url != "" then { issue_url: $review_issue_url } else {} end)
+            + (if $review_issue_number != "" then { issue_number: ($review_issue_number | tonumber) } else {} end)')
+
+          curl -sS -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
+            -H "Authorization: Bearer $SKILLSTORE_CALLBACK_TOKEN" \
             -H "Content-Type: application/json" \
             -H "User-Agent: GitHub-Actions/SkillstoreBot" \
             -H "X-Skillstore-Callback: true" \
-            -d '{
-              "submission_id": "'"${{ inputs.submission_id }}"'",
-              "event": "approved",
-              "approved_by": "'"${{ github.actor }}"'",
-              "workflow_run_id": ${{ github.run_id }},
-              "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }' || echo "::warning::Failed to notify skillstore"
+            -d "$PAYLOAD" || echo "::warning::Failed to notify skillstore"
 
   # ============================================================
   # JOB 2: PROCESS SKILLS (Reusable Workflow)
@@ -131,19 +157,33 @@ jobs:
 
       - name: Notify skillstore - Failed
         if: needs.process-skills.result == 'failure'
+        env:
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          SKILLSTORE_CALLBACK_TOKEN: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
         run: |
-          curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
-            -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
+          PAYLOAD=$(jq -n \
+            --arg submission_id "${{ env.SUBMISSION_ID }}" \
+            --arg error_message "Processing workflow failed. Check GitHub Actions log for details." \
+            --arg workflow_run_id "${{ github.run_id }}" \
+            --arg workflow_run_url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg review_issue_url "$REVIEW_ISSUE_URL" \
+            --arg review_issue_number "$REVIEW_ISSUE_NUMBER" \
+            '{
+              submission_id: $submission_id,
+              event: "failed",
+              error_message: $error_message,
+              workflow_run_id: ($workflow_run_id | tonumber),
+              workflow_run_url: $workflow_run_url
+            }
+            + (if $review_issue_url != "" then { issue_url: $review_issue_url } else {} end)
+            + (if $review_issue_number != "" then { issue_number: ($review_issue_number | tonumber) } else {} end)')
+
+          curl -sS -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
+            -H "Authorization: Bearer $SKILLSTORE_CALLBACK_TOKEN" \
             -H "Content-Type: application/json" \
             -H "User-Agent: GitHub-Actions/SkillstoreBot" \
             -H "X-Skillstore-Callback: true" \
-            -d '{
-              "submission_id": "'"${{ env.SUBMISSION_ID }}"'",
-              "event": "failed",
-              "error_message": "Processing workflow failed. Check GitHub Actions log for details.",
-              "workflow_run_id": ${{ github.run_id }},
-              "workflow_run_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }' || echo "::warning::Failed to notify skillstore"
+            -d "$PAYLOAD" || echo "::warning::Failed to notify skillstore"
 
       - name: Summary
         if: always()

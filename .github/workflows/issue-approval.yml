@@ -106,7 +106,9 @@ jobs:
           gh workflow run "Approve & Process Submission" \
             --repo ${{ github.repository }} \
             -f submission_id="${{ needs.check-approval.outputs.submission_id }}" \
-            -f github_url="${{ needs.check-approval.outputs.github_url }}"
+            -f github_url="${{ needs.check-approval.outputs.github_url }}" \
+            -f review_issue_url="${{ github.event.issue.html_url }}" \
+            -f review_issue_number="${{ github.event.issue.number }}"
           
           echo "🚀 Triggered processing workflow"
 
@@ -177,21 +179,35 @@ jobs:
         if: steps.check.outputs.should_reject == 'true'
         env:
           ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
           REJECTOR: ${{ github.event.comment.user.login }}
           REASON: ${{ steps.parse.outputs.reason }}
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          SKILLSTORE_CALLBACK_TOKEN: ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}
         run: |
           SUBMISSION_ID=$(echo "$ISSUE_BODY" | grep -oP 'Submission ID.*?\`\K[a-f0-9-]+' | head -1)
           
           if [ -n "$SUBMISSION_ID" ]; then
-            curl -sS -X POST "${{ secrets.SKILLSTORE_API_URL }}/api/submit/callback" \
-              -H "Authorization: Bearer ${{ secrets.SKILLSTORE_CALLBACK_TOKEN }}" \
+            PAYLOAD=$(jq -n \
+              --arg submission_id "$SUBMISSION_ID" \
+              --arg rejected_by "$REJECTOR" \
+              --arg reason "$REASON" \
+              --arg issue_url "$ISSUE_URL" \
+              --arg issue_number "$ISSUE_NUMBER" \
+              '{
+                submission_id: $submission_id,
+                event: "rejected",
+                rejected_by: $rejected_by,
+                reason: $reason,
+                issue_url: $issue_url,
+                issue_number: ($issue_number | tonumber)
+              }')
+
+            curl -sS -X POST "$SKILLSTORE_API_URL/api/submit/callback" \
+              -H "Authorization: Bearer $SKILLSTORE_CALLBACK_TOKEN" \
               -H "Content-Type: application/json" \
               -H "User-Agent: GitHub-Actions/SkillstoreBot" \
               -H "X-Skillstore-Callback: true" \
-              -d "{
-                \"submission_id\": \"$SUBMISSION_ID\",
-                \"event\": \"rejected\",
-                \"rejected_by\": \"$REJECTOR\",
-                \"reason\": \"$REASON\"
-              }" || echo "::warning::Failed to notify skillstore"
+              -d "$PAYLOAD" || echo "::warning::Failed to notify skillstore"
           fi
