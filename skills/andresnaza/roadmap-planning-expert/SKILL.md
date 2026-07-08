@@ -1,5 +1,5 @@
 ---
-name: Roadmap Planning Expert
+name: roadmap-planning-expert
 description: When the user asks about roadmap planning, sprint planning, milestone estimation, or capacity planning
 ---
 
