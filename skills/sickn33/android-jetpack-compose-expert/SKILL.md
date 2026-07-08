@@ -1,8 +1,9 @@
 ---
 name: android-jetpack-compose-expert
-description: Expert guidance for building modern Android UIs with Jetpack Compose, covering state management, navigation, performance, and Material Design 3.
+description: "Expert guidance for building modern Android UIs with Jetpack Compose, covering state management, navigation, performance, and Material Design 3."
 risk: safe
 source: community
+date_added: "2026-02-27"
 ---
 
 # Android Jetpack Compose Expert
@@ -150,3 +151,8 @@ fun AppNavHost(navController: NavHostController) {
 
 **Problem:** Infinite Recomposition loop.
 **Solution:** Check if you are creating new object instances (like `List` or `Modifier`) inside the composition without `remember`, or if you are updating state inside the composition phase instead of a side-effect or callback. Use Layout Inspector to debug recomposition counts.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

@@ -1,6 +1,9 @@
 ---
 name: api-security-best-practices
 description: "Implement secure API design patterns including authentication, authorization, input validation, rate limiting, and protection against common API vulnerabilities"
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # API Security Best Practices
@@ -729,7 +732,7 @@ Retry-After: 900
 **Solution:**
 \`\`\`javascript
 // ❌ Bad
-const JWT_SECRET = 'my-secret-key';
+const tokenSigningKey = '[redacted weak value]';
 
 // ✅ Good
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -905,3 +908,8 @@ app.post('/api/users', async (req, res) => {
 ---
 
 **Pro Tip:** Security is not a one-time task - regularly audit your APIs, keep dependencies updated, and stay informed about new vulnerabilities!
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

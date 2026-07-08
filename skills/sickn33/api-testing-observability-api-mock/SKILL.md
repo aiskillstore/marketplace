@@ -1,6 +1,9 @@
 ---
 name: api-testing-observability-api-mock
 description: "You are an API mocking expert specializing in realistic mock services for development, testing, and demos. Design mocks that simulate real API behavior and enable parallel development."
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # API Mocking Framework
@@ -44,3 +47,8 @@ $ARGUMENTS
 ## Resources
 
 - `resources/implementation-playbook.md` for code samples, checklists, and templates.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

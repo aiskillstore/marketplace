@@ -1,10 +1,11 @@
 ---
 name: aws-compliance-checker
-description: Automated compliance checking against CIS, PCI-DSS, HIPAA, and SOC 2 benchmarks
+description: "Automated compliance checking against CIS, PCI-DSS, HIPAA, and SOC 2 benchmarks"
+category: security
 risk: safe
 source: community
-category: security
-tags: [aws, compliance, audit, cis, pci-dss, hipaa, kiro-cli]
+tags: "[aws, compliance, audit, cis, pci-dss, hipaa, kiro-cli]"
+date_added: "2026-02-27"
 ---
 
 # AWS Compliance Checker
@@ -12,7 +13,6 @@ tags: [aws, compliance, audit, cis, pci-dss, hipaa, kiro-cli]
 Automated compliance validation against industry standards including CIS AWS Foundations, PCI-DSS, HIPAA, and SOC 2.
 
 ## When to Use
-
 Use this skill when you need to validate AWS compliance against industry standards, prepare for audits, or maintain continuous compliance monitoring.
 
 ## Supported Frameworks
@@ -514,3 +514,8 @@ kiro-cli chat "Generate PCI-DSS report with aws-compliance-checker"
 - [CIS AWS Foundations Benchmark](https://www.cisecurity.org/benchmark/amazon_web_services)
 - [AWS Security Hub](https://aws.amazon.com/security-hub/)
 - [AWS Compliance Programs](https://aws.amazon.com/compliance/programs/)
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

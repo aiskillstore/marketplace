@@ -1,6 +1,9 @@
 ---
 name: ab-test-setup
-description: Structured guide for setting up A/B tests with mandatory gates for hypothesis, metrics, and execution readiness.
+description: "Structured guide for setting up A/B tests with mandatory gates for hypothesis, metrics, and execution readiness."
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # A/B Test Setup
@@ -35,7 +38,7 @@ A valid hypothesis includes:
 
 ---
 
-### 3️⃣ Hypothesis Lock (Hard Gate)
+## 3️⃣ Hypothesis Lock (Hard Gate)
 
 Before designing variants or metrics, you MUST:
 
@@ -54,7 +57,7 @@ Ask explicitly:
 
 ---
 
-### 4️⃣ Assumptions & Validity Check (Mandatory)
+## 4️⃣ Assumptions & Validity Check (Mandatory)
 
 Explicitly list assumptions about:
 
@@ -71,7 +74,7 @@ If assumptions are weak or violated:
 
 ---
 
-### 5️⃣ Test Type Selection
+## 5️⃣ Test Type Selection
 
 Choose the simplest valid test:
 
@@ -84,7 +87,7 @@ Default to **A/B** unless there is a clear reason otherwise.
 
 ---
 
-### 6️⃣ Metrics Definition
+## 6️⃣ Metrics Definition
 
 #### Primary Metric (Mandatory)
 
@@ -106,7 +109,7 @@ Default to **A/B** unless there is a clear reason otherwise.
 
 ---
 
-### 7️⃣ Sample Size & Duration
+## 7️⃣ Sample Size & Duration
 
 Define upfront:
 
@@ -124,7 +127,21 @@ Estimate:
 
 ---
 
-### 8️⃣ Execution Readiness Gate (Hard Stop)
+### Tracking Verification (Required before Gate 8)
+
+Before entering the Execution Readiness Gate below, run through this checklist to make "Tracking is verified" mean something concrete:
+
+1. **Event firing:** Trigger each event the primary and secondary metrics depend on (sign-up, add-to-cart, custom event) on staging or a debug page, and confirm it lands in your analytics destination within 30 seconds.
+2. **Variant attribution:** Verify that the variant assignment ID is attached to every fired event — not just the entry event. Use your analytics' raw event view to compare a sample of 5+ events per variant.
+3. **De-duplication:** Confirm that a user reloading the page does not cause double-counted events. If your stack uses client-side de-duping, the variant ID must be part of the dedup key.
+4. **Sample randomization:** Pull the first 100 assignment records from your assignment table; the variant split should be within ±5% of the configured allocation.
+5. **Guardrail metric pipeline:** Each guardrail metric defined in §6️⃣ must have a working dashboard or alert by the time the test launches.
+
+If any of the above fails, stop and resolve it before Gate 8.
+
+---
+
+## 8️⃣ Execution Readiness Gate (Hard Stop)
 
 You may proceed to implementation **only if all are true**:
 
@@ -230,3 +247,11 @@ It is about **learning the truth with confidence**.
 
 If you feel tempted to rush, simplify, or “just try it” —
 that is the signal to **slow down and re-check the design**.
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
