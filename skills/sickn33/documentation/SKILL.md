@@ -1,11 +1,10 @@
 ---
 name: documentation
 description: "Documentation generation workflow covering API docs, architecture docs, README files, code comments, and technical writing."
-source: personal
-risk: safe
-domain: documentation
 category: workflow-bundle
-version: 1.0.0
+risk: safe
+source: personal
+date_added: "2026-02-27"
 ---
 
 # Documentation Workflow Bundle
@@ -259,3 +258,8 @@ Use @doc-coauthoring to collaborate on docs
 - `development` - Development workflow
 - `testing-qa` - Documentation testing
 - `ai-ml` - AI documentation
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

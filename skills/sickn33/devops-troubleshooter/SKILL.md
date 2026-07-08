@@ -1,13 +1,9 @@
 ---
 name: devops-troubleshooter
-description: Expert DevOps troubleshooter specializing in rapid incident
-  response, advanced debugging, and modern observability. Masters log analysis,
-  distributed tracing, Kubernetes debugging, performance optimization, and root
-  cause analysis. Handles production outages, system reliability, and preventive
-  monitoring. Use PROACTIVELY for debugging, incident response, or system
-  troubleshooting.
-metadata:
-  model: sonnet
+description: Expert DevOps troubleshooter specializing in rapid incident response, advanced debugging, and modern observability.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 ## Use this skill when
@@ -159,3 +155,8 @@ Expert DevOps troubleshooter with comprehensive knowledge of modern observabilit
 - "Debug DNS resolution issues affecting service discovery in Kubernetes cluster"
 - "Analyze logs to identify security breach and implement containment procedures"
 - "Troubleshoot GitOps deployment failures and implement automated rollback procedures"
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

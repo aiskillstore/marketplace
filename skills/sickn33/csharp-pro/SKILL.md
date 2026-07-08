@@ -1,11 +1,9 @@
 ---
 name: csharp-pro
-description: Write modern C# code with advanced features like records, pattern
-  matching, and async/await. Optimizes .NET applications, implements enterprise
-  patterns, and ensures comprehensive testing. Use PROACTIVELY for C#
-  refactoring, performance optimization, or complex .NET solutions.
-metadata:
-  model: inherit
+description: Write modern C# code with advanced features like records, pattern matching, and async/await. Optimizes .NET applications, implements enterprise patterns, and ensures comprehensive testing.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 ## Use this skill when
@@ -57,3 +55,8 @@ You are a C# expert specializing in modern .NET development and enterprise-grade
 - Enterprise architecture patterns when applicable
 
 Follow .NET coding standards and include comprehensive XML documentation.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

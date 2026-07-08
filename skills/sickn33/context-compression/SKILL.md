@@ -1,15 +1,15 @@
 ---
 name: context-compression
-description: "Design and evaluate compression strategies for long-running sessions"
-source: "https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering/tree/main/skills/context-compression"
-risk: safe
+description: "When agent sessions generate millions of tokens of conversation history, compression becomes mandatory. The naive approach is aggressive compression to minimize tokens per request."
+risk: unknown
+source: community
 ---
+
 # Context Compression Strategies
 
 When agent sessions generate millions of tokens of conversation history, compression becomes mandatory. The naive approach is aggressive compression to minimize tokens per request. The correct optimization target is tokens per task: total tokens consumed to complete a task, including re-fetching costs when compression loses critical information.
 
-## When to Activate
-
+## When to Use
 Activate this skill when:
 - Agent sessions exceed context window limits
 - Codebases exceed context windows (5M+ token systems)
@@ -243,7 +243,7 @@ This skill connects to several others in the collection:
 ## References
 
 Internal reference:
-- [Evaluation Framework Reference](./references/evaluation-framework.md) - Detailed probe types and scoring rubrics
+- Evaluation Framework Reference - Detailed probe types and scoring rubrics
 
 Related skills in this collection:
 - context-degradation - Understanding what compression prevents
@@ -264,3 +264,7 @@ External resources:
 **Author**: Agent Skills for Context Engineering Contributors
 **Version**: 1.1.0
 
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

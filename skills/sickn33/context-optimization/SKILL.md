@@ -1,21 +1,15 @@
 ---
 name: context-optimization
-description: "Apply compaction, masking, and caching strategies"
-source: "https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering/tree/main/skills/context-optimization"
-risk: safe
+description: "Context optimization extends the effective capacity of limited context windows through strategic compression, masking, caching, and partitioning. The goal is not to magically increase context windows but to make better use of available capacity."
+risk: unknown
+source: community
 ---
 
-## When to Use This Skill
-
-Apply compaction, masking, and caching strategies
-
-Use this skill when working with apply compaction, masking, and caching strategies.
 # Context Optimization Techniques
 
 Context optimization extends the effective capacity of limited context windows through strategic compression, masking, caching, and partitioning. The goal is not to magically increase context windows but to make better use of available capacity. Effective optimization can double or triple effective context capacity without requiring larger models or longer contexts.
 
-## When to Activate
-
+## When to Use
 Activate this skill when:
 - Context limits constrain task complexity
 - Optimizing for cost reduction (fewer tokens = lower costs)
@@ -164,7 +158,7 @@ This skill builds on context-fundamentals and context-degradation. It connects t
 ## References
 
 Internal reference:
-- [Optimization Techniques Reference](./references/optimization_techniques.md) - Detailed technical reference
+- Optimization Techniques Reference - Detailed technical reference
 
 Related skills in this collection:
 - context-fundamentals - Context basics
@@ -184,3 +178,8 @@ External resources:
 **Last Updated**: 2025-12-20
 **Author**: Agent Skills for Context Engineering Contributors
 **Version**: 1.0.0
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

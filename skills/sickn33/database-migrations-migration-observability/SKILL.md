@@ -1,10 +1,10 @@
 ---
 name: database-migrations-migration-observability
-description: Migration monitoring, CDC, and observability infrastructure
-allowed-tools: Read Write Edit Bash WebFetch
-metadata:
-  version: 1.0.0
-  tags: database, cdc, debezium, kafka, prometheus, grafana, monitoring
+description: "Migration monitoring, CDC, and observability infrastructure"
+risk: unknown
+source: community
+tags: "database, cdc, debezium, kafka, prometheus, grafana, monitoring"
+date_added: "2026-02-27"
 ---
 
 # Migration Observability and Real-time Monitoring
@@ -418,3 +418,8 @@ This plugin integrates with:
 - **sql-migrations**: Provides observability for SQL migrations
 - **nosql-migrations**: Monitors NoSQL transformations
 - **migration-integration**: Coordinates monitoring across workflows
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

@@ -1,6 +1,9 @@
 ---
 name: cost-optimization
-description: Optimize cloud costs through resource rightsizing, tagging strategies, reserved instances, and spending analysis. Use when reducing cloud expenses, analyzing infrastructure costs, or implementing cost governance policies.
+description: "Strategies and patterns for optimizing cloud costs across AWS, Azure, and GCP."
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # Cloud Cost Optimization
@@ -284,3 +287,8 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
 
 - `terraform-module-library` - For resource provisioning
 - `multi-cloud-architecture` - For cloud selection
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

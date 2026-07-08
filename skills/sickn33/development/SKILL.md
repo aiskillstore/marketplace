@@ -1,11 +1,10 @@
 ---
 name: development
 description: "Comprehensive web, mobile, and backend development workflow bundling frontend, backend, full-stack, and mobile development skills for end-to-end application delivery."
-source: personal
-risk: safe
-domain: software-development
 category: workflow-bundle
-version: 1.0.0
+risk: safe
+source: personal
+date_added: "2026-02-27"
 ---
 
 # Development Workflow Bundle
@@ -261,3 +260,8 @@ Before moving to next phase, verify:
 - `security-audit` - Security testing workflow
 - `testing-qa` - Comprehensive testing workflow
 - `documentation` - Documentation generation workflow
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

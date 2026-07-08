@@ -3,6 +3,7 @@ name: data-structure-protocol
 description: "Give agents persistent structural memory of a codebase — navigate dependencies, track public APIs, and understand why connections exist without re-reading the whole repo."
 risk: safe
 source: "https://github.com/k-kolomeitsev/data-structure-protocol"
+date_added: "2026-02-27"
 ---
 
 # Data Structure Protocol (DSP)
@@ -12,7 +13,6 @@ LLM coding agents lose context between tasks. On large codebases they spend most
 DSP is NOT documentation for humans and NOT an AST dump. It captures three things: **meaning** (why an entity exists), **boundaries** (what it imports and exposes), and **reasons** (why each connection exists). This is enough for an agent to navigate, refactor, and generate code without loading the entire source tree into the context window.
 
 ## When to Use
-
 Use this skill when:
 - The project has a `.dsp/` directory (DSP is already set up)
 - The user asks to set up DSP, bootstrap, or map a project's structure
@@ -196,3 +196,8 @@ This skill connects naturally to:
 - **Full architecture specification**: [ARCHITECTURE.md](https://github.com/k-kolomeitsev/data-structure-protocol/blob/main/ARCHITECTURE.md)
 - **CLI source + reference docs**: [skills/data-structure-protocol](https://github.com/k-kolomeitsev/data-structure-protocol/tree/main/skills/data-structure-protocol)
 - **Introduction article**: [article.md](https://github.com/k-kolomeitsev/data-structure-protocol/blob/main/article.md)
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

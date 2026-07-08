@@ -793,7 +793,7 @@ public class ProductsApiTests : IClassFixture<WebApplicationFactory<Program>>
 
 ## Resources
 
-- **assets/service-template.cs**: Complete service implementation template
-- **assets/repository-template.cs**: Repository pattern implementation
+- **assets/service-template.cs.template**: Complete service implementation template
+- **assets/repository-template.cs.template**: Repository pattern implementation
 - **references/ef-core-best-practices.md**: EF Core optimization guide
 - **references/dapper-patterns.md**: Advanced Dapper usage patterns
