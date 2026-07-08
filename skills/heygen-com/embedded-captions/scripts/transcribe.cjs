@@ -110,7 +110,7 @@ function main() {
     console.error("usage: transcribe.cjs <project-dir> [model] [language]");
     process.exit(1);
   }
-  // Default = multilingual `small`, NOT `small.en`. Per hyperframes-media: ".en models
+  // Default = multilingual `small`, NOT `small.en`. Per media-use: ".en models
   // mistranslate non-English and mis-handle accented speech; default to small (auto-detects
   // language)." We hardcoded small.en before — it hallucinated a wrong transcript on an
   // accented speaker. Pass `small.en` only for known-clean-English; tough accents → a larger model.
@@ -175,11 +175,15 @@ function main() {
       const outDir = path.join(project, "_wx_out");
       fs.mkdirSync(outDir, { recursive: true });
       const wxModel = model.replace(/\.en$/, ""); // whisperx model names are multilingual ids
+      // Pin whisperx so `uvx` fetches a reproducible build instead of resolving
+      // "latest" on every run (a supply-chain + determinism foot-gun). Override
+      // with $WHISPERX_VERSION if you've validated a different release.
+      const whisperxSpec = `whisperx==${process.env.WHISPERX_VERSION || "3.8.6"}`;
       const wxArgs = [
         "--python",
         "3.12",
         "--from",
-        "whisperx",
+        whisperxSpec,
         "whisperx",
         wav,
         "--model",

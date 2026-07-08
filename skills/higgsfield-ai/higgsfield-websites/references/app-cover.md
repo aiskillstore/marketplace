@@ -2,8 +2,8 @@
 
 Generate the launch cover for an app/website — the image behind `og_image_url`
 and the marketplace card — in 3:2, using `higgsfield generate create gpt_image_2`,
-guided by the reference covers bundled in
-`references/cover-refs/`. Also use this when the user directly asks for a
+guided by the hosted reference covers listed in the
+workflow below. Also use this when the user directly asks for a
 "cover", "кавер", "обложка", "OG image", "launch cover" or "thumbnail" for a
 product, model, feature or app announcement.
 
@@ -65,7 +65,15 @@ You need: the **product/feature name** (exact spelling — it will be rendered
 as text), a **hero concept** (the focal scene), and a **typography treatment**
 matching the vibe (see the style section — vary it between covers). For an app
 build, derive the name from `og_title` and the hero concept from what the app
-does. If the user gave only a name, invent a hero concept that fits the
+does.
+
+**Keep `og_title` SHORT — at most 3–4 words, and ideally ONE word.** It is the
+feed-card title and the browser tab title, and it's the dominant text on the
+cover, so a punchy one- or two-word product/brand name reads best (e.g. `Lumen`,
+`PixelForge`, `Recipe Vault`). Put the pitch/tagline in `og_description`, never
+in `og_title` — an `og_title` that's a full sentence is wrong.
+
+If the user gave only a name, invent a hero concept that fits the
 product's vibe (playful spectacle > generic tech imagery). Optional: accent
 color, partner lockup, CTA text override.
 
@@ -155,14 +163,14 @@ corner dots. Pick `--frame-color` to complement the art: signature acid lime
 on light frames, white or pastel on saturated ones). Other flags:
 `--margin-x/--margin-y` (capsule inset), `--no-dots`.
 
-Inspect the OG result closely (zoom into text near the capsule boundary). If
-the mask clipped text or the focal subject, first try fixing it in the compose
-step — `--offset-x/--offset-y` shifts the art (e.g. `--offset-x -70` pulls a
-right-hugging title inward) and `--shrink 0.92` scales it down; revealed gaps
-get filled with a blurred extension of the art, invisible on dark or soft
-backgrounds. Only regenerate (restating the safe zone more forcefully) if the
-shift/shrink fix isn't enough or the seam is visible. (Legacy: `--detect` mode
-handles art that already contains a model-drawn frame.)
+Do NOT image-analyze or visually inspect the composed OG result — keeping the
+title/logo inside the safe zone at generation time (above) is what prevents
+mask-clipping. The compose flags let you adjust framing without regenerating if
+you already know it needs it: `--offset-x/--offset-y` shift the art (e.g.
+`--offset-x -70` pulls a right-hugging title inward) and `--shrink 0.92` scales
+it down; revealed gaps get filled with a blurred extension of the art, invisible
+on dark or soft backgrounds. (Legacy: `--detect` mode handles art that already
+contains a model-drawn frame.)
 
 ### 6. Deliver / wire into the app
 

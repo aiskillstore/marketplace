@@ -1,9 +1,9 @@
-# review-rubric — Phase 5 mechanical gate + Phase 6 adversarial review
+# review-rubric — Phase 5 mechanical gate
 
-Two checklists. §A runs BEFORE the first deploy (grep/read the code — every item
-is mechanically checkable). §B runs AFTER the preview deploy, against real
-screenshots, in the voice of a skeptical outside reviewer whose default verdict
-is NEEDS_WORK. Both are completion gates, not suggestions.
+§A runs BEFORE deploy (grep/read the code — every item is mechanically
+checkable). It is a completion gate, not a suggestion. There is no post-deploy
+visual/screenshot review — the mechanical gate plus `bun run qa:fill --
+--strict` are the only verification.
 
 ## §A. Mechanical gate (pre-deploy, code-level)
 
@@ -79,45 +79,3 @@ before deploying.
 11. **Copy self-audit** — every visible string re-read; nothing grammatically
     broken, referent-unclear, filler-verb ("Elevate", "Seamless"…), or fake-precise
     (`92%`, `4.1×` without a source).
-
-## §B. Visual rubric (post-deploy, screenshot-level)
-
-Screenshot the deployed preview: full-page at ~1440px wide AND ~390px wide. Grade
-each item PASS / FAIL with one sentence of evidence. Be adversarial — you are
-hunting for reasons the page reads as AI-template output. Collect every FAIL into
-one batch fix list, apply, redeploy once.
-
-1. **First impression (the squint test).** Blur your eyes at the hero: is there
-   one clear focal point and an obvious next action? Does it look like a site a
-   studio charged real money for, or like a component demo?
-2. **Hero discipline.** Everything critical inside the first viewport; headline
-   ≤2 lines; no stacked micro-elements (eyebrow + tagline + trust strip); the
-   generated hero asset is actually visible and well-composed (not cropped into
-   mush, not buried under an overlay).
-3. **Type hierarchy.** Clear 3-level scale (display / section head / body); line
-   lengths ≤65ch; no headline wrapping into 4 lines; italic descenders not
-   clipped; consistent font usage per the brief.
-4. **Palette lock.** One accent everywhere; page reads as ONE theme top to
-   bottom; contrast holds (no white-on-white buttons, no gray-on-gray body); no
-   accidental beige+brass default.
-5. **Layout variance.** Scrolling the full page: no layout family repeats
-   back-to-back, no 3+ zigzag chain, no identical-trio card row, bento cells all
-   filled with real visual variation.
-6. **Asset integration.** Generated images look intentional: aspect ratios fit
-   their slots, palette matches the page, no obvious AI artifacts (garbled text,
-   warped hands/objects), no empty image boxes or broken image icons.
-7. **Density & copy.** Sections breathe; no data-dump tables; copy is short and
-   specific with zero AI-tell phrases visible; footer/nav read as finished.
-8. **Mobile integrity (390px).** Nav collapses properly; hero still fits and the
-   asset still works; no horizontal scroll; multi-column sections stack in a
-   deliberate order; tap targets aren't microscopic; signature effect degrades
-   gracefully (or is replaced by its static fallback).
-9. **Board faithfulness (per section).** Compare each built section against its
-   `refs/` reference board: does it still carry the board's composition, type
-   character, and component logic, or did it drift back to a template pattern
-   the board never showed? Any section that no longer resembles its board is a
-   FAIL for that section.
-
-Scoring: 9/9 = done. Any FAIL in items 1-4, 8, or 9 is blocking. FAILs in 5-7
-are blocking on the first pass; on the second pass, note remaining taste-level
-nits to the user instead of looping again.

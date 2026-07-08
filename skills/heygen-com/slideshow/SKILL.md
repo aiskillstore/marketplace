@@ -1,12 +1,12 @@
 ---
 name: slideshow
 description: >
-  Author a HyperFrames slideshow composition — a presentation, pitch deck, or
-  interactive deck with discrete slides, fragment reveals, branching sequences,
-  and hotspot navigation. Use as an intent check when the user asks for a
-  presentation, pitch deck, slide deck, interactive deck, or page-to-deck
-  conversion that might be a slideshow; if the user did not explicitly ask for a
-  slideshow / slide show, confirm before authoring.
+  Author a HyperFrames slideshow — a presentation, pitch deck, or interactive
+  deck with discrete slides, fragment reveals, branching, hotspot navigation,
+  and built-in presenter mode with speaker notes; also converts an existing
+  page into a deck. Output is a navigable deck, not a rendered MP4. If the
+  user didn't explicitly ask for a slideshow, confirm before authoring.
+  Unclear → /hyperframes.
 ---
 
 # Slideshow authoring contract
@@ -14,6 +14,12 @@ description: >
 A HyperFrames slideshow is a normal HyperFrames composition — scenes, clips, GSAP timelines — with one extra ingredient: a **JSON island** that declares which scenes are slides and how they connect. The player's `SlideshowController` reads the island and turns the continuous GSAP timeline into a discrete, navigable deck.
 
 **Read `/hyperframes-core` first** for the base composition contract (clips, tracks, `data-*` attributes, determinism rules). This skill covers only what is new: the island schema, slide writing rules, fragments, branching, validation, and the wrapping component.
+
+## Output — a navigable deck, not a linear MP4
+
+A slideshow's output is the **running deck**: serve it with `hyperframes present <project-dir>` (or Studio present mode) — the player's `SlideshowController` reads the island and drives navigation, fragments, branching, and presenter mode. See **Presenting and handoff** below.
+
+**Do not `hyperframes render` a slideshow into a single MP4.** A deck is authored as several top-level scene compositions (one `data-composition-id` per slide) with **no master-root composition** wrapping them, so `render` resolves only the **first** composition and emits a **silently truncated** MP4 (e.g. 6s of a 40-second deck). A linear main-line export (main slides only, branch sequences excluded) is **deferred** — until it ships, the supported outputs are the live `present` deck and per-slide `snapshot` stills. If a user needs a linear MP4 today, surface this limitation rather than pointing `render` at the deck.
 
 ## Intent confirmation
 
@@ -409,9 +415,14 @@ Wrap the composition in `<hyperframes-slideshow>` around `<hyperframes-player>` 
 
 The slideshow automatically sets the `interactive` attribute on every inner `<hyperframes-player>` at mount time, so clickable controls, links, native media controls, and custom players inside the composition iframe receive pointer events as expected. (Outside a slideshow wrapper, you must add `interactive` manually on `<hyperframes-player>` — the player defaults to `pointer-events: none` on the iframe so clicks on the player host don't get hijacked into toggling timeline playback.)
 
-**Presenter mode:** use the built-in Present icon button in the slideshow nav capsule, or press P. It calls `window.open('?mode=audience')` for a fullscreen audience window; the originating tab becomes the presenter view (current slide reduced, next-slide preview, notes, elapsed timer). Both windows sync via `BroadcastChannel('hf-slideshow:' + location.pathname)`. Do not add a custom wrapper-level Present button; the shared component owns its placement, icon, styling, and audience-mode hiding.
+**Presenter mode:** use the built-in Present icon button in the slideshow nav capsule, or press P. It calls `window.open('?mode=audience')` for a fullscreen audience tab; the originating tab becomes the presenter view (current slide reduced, next-slide preview, notes, elapsed timer). The two tabs sync via `BroadcastChannel('hf-slideshow:' + location.pathname)`. Do not add a custom wrapper-level Present button; the shared component owns its placement, icon, styling, and audience-mode hiding.
 
-Presenter-driven media playback has an autoplay-policy constraint: `BroadcastChannel` can sync intent, time, and state, but it cannot transfer the presenter's user activation to the audience window. The shared slideshow player mirrors native media events and starts remote audience playback muted first; only fall back to the standalone harness's audience unlock behavior if muted `media.play()` is rejected or if the deck specifically requires audible audience playback. Do not keep applying remote `timeupdate` messages after a rejected play, or the audience will silently seek through the video without playback.
+**Presenting over Google Meet / Zoom (screen share):** share the _audience_ surface, keep the presenter view on your own screen.
+
+- **Google Meet (or any in-Chrome share):** Present → in Meet choose **Share screen → A tab** → pick the audience tab → switch back to the presenter tab. Chrome keeps a captured tab rendering while backgrounded, so animations and slide nav stay live. Do **not** share "A window" or "Entire screen" — a fully covered window stops rendering (frozen slides for viewers), and entire-screen exposes your notes.
+- **Zoom (desktop app):** drag the audience tab out into its own window and share that window. Zoom captures via the OS, so if the audience window becomes _fully_ covered it freezes — use a second monitor, or keep a sliver of the audience window visible behind the presenter view.
+
+Presenter-driven media playback has an autoplay-policy constraint: `BroadcastChannel` can sync intent, time, and state, but it cannot transfer the presenter's user activation to the audience tab. The shared slideshow player mirrors native media events and starts remote audience playback muted first; only fall back to the standalone harness's audience unlock behavior if muted `media.play()` is rejected or if the deck specifically requires audible audience playback. Do not keep applying remote `timeupdate` messages after a rejected play, or the audience will silently seek through the video without playback.
 
 Presenter notes are editable in the presenter view. Edits are stored in `localStorage` per deck and slide, layered over the manifest notes without rewriting the composition file. Do not add one-off note-editing scripts to decks; rely on the shared slideshow player behavior. If a standalone/custom wrapper truly needs to implement this outside the shared player, use the deterministic storage snippet in `skills/slideshow/references/standalone-harness.md`.
 
@@ -514,7 +525,7 @@ Studio/`preview` is useful for editing a composition, but it is not a clear fina
 }
 ```
 
-At handoff, include the local presenter URL printed by the command and the minimal instruction: "Click Present, or press P, to open the audience window." Keep the server running if the user asked you to start it.
+At handoff, include the local presenter URL printed by the command and the minimal instruction: "Click Present, or press P, to open the audience tab." If the user will present over Google Meet or Zoom, also pass on the screen-share guidance from the Presenting section above (share the audience tab in Meet; a dragged-out audience window in Zoom). Keep the server running if the user asked you to start it.
 
 ---
 
