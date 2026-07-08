@@ -1,6 +1,6 @@
 ---
 name: quality-gates
-description: Guide AI agents through task complexity checks, requirement validation, blocked-state handling, and evidence-based completion gates.
+description: Guide agents through task complexity checks, requirement validation, blocked-state handling, and evidence-based completion gates.
 license: MIT
 ---
 
