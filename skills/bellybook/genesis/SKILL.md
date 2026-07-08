@@ -50,7 +50,7 @@ B: 读取 references → 逐步执行 → 完成
 
 **触发词**：创建 React 项目、新建前端项目、Web 应用、H5 项目
 
-**技术栈**：React 19 + Vite + TailwindCSS V4 + shadcn/ui
+**技术栈**：React 19 + TypeScript + Vite + TailwindCSS V4 + shadcn/ui
 
 ### 模式 A：模板复制（秒级完成）
 
@@ -62,13 +62,13 @@ cd {目标目录} && sed -i '' 's/"name": "web-react"/"name": "{项目名}"/g' p
 npm install && npm run dev
 ```
 
-**模板已包含**：Vite + React 19 + TailwindCSS V4 + shadcn/ui + 微拟物光影
+**模板已包含**：Vite + React 19 + TypeScript + TailwindCSS V4 + shadcn/ui + 微拟物光影
 
 ### 模式 B：AI 生成
 
 **执行顺序**：
 
-1. 读取 [web-react.md](references/web-react.md) → 搭建 Vite + React + Tailwind 环境
+1. 读取 [web-react.md](references/web-react.md) → 搭建 Vite + React + TypeScript + Tailwind 环境
 2. 读取 [design-system.md](references/design-system.md) → 集成 shadcn/ui 组件库
 3. 读取 [design-enhance.md](references/design-enhance.md) → 应用微拟物光影质感
 
@@ -87,7 +87,7 @@ npm install && npm run dev
 ```bash
 cp -r ~/.claude/skills/genesis/templates/backend-python {目标目录}
 cd {目标目录} && sed -i '' 's/name = "backend-python"/name = "{项目名}"/g' pyproject.toml
-uv sync && ./local-run.sh
+uv sync && ./deploy/local-run.sh
 ```
 
 **模板已包含**：FastAPI + UV + SQLModel + AsyncPG + 统一响应格式

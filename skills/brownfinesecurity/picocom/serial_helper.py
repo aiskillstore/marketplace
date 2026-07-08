@@ -132,17 +132,20 @@ class SerialHelper:
         """
         try:
             self._debug_print(f"Connecting to {self.device} at {self.baud} baud...")
-            self.serial = serial.Serial(
-                port=self.device,
-                baudrate=self.baud,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=self.timeout,
-                xonxoff=False,
-                rtscts=False,
-                dsrdtr=False
-            )
+            # Create serial object without opening to set DTR/RTS first
+            self.serial = serial.Serial()
+            self.serial.port = self.device
+            self.serial.baudrate = self.baud
+            self.serial.bytesize = serial.EIGHTBITS
+            self.serial.parity = serial.PARITY_NONE
+            self.serial.stopbits = serial.STOPBITS_ONE
+            self.serial.timeout = self.timeout
+            self.serial.xonxoff = False
+            self.serial.rtscts = False
+            self.serial.dsrdtr = False
+            self.serial.dtr = False  # Don't toggle DTR (can reset modems)
+            self.serial.rts = False  # Don't toggle RTS
+            self.serial.open()
 
             # Clear any existing data
             self.serial.reset_input_buffer()

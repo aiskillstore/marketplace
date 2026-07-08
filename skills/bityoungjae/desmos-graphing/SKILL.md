@@ -1,6 +1,8 @@
 ---
 name: desmos-graphing
 description: Create interactive Desmos graphs in Obsidian using desmos-graph code blocks. Use when visualizing functions, parametric curves, inequalities, or mathematical relationships with customizable styling and settings.
+context: fork
+user-invocable: false
 ---
 
 # Desmos Graphing in Obsidian

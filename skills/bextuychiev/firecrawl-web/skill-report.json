@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T03:52:42.344Z",
+    "generated_at": "2026-07-07T18:52:56.136Z",
     "slug": "bextuychiev-firecrawl-web",
     "source_url": "https://github.com/BexTuychiev/firecrawl-claude-code-skill/tree/main/",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "aa3585c8af0fb38103d087ec29f326de26fb1981c566e1282b778f551faace1a",
-    "tree_hash": "5c4cf908ab888e2eaadf60070690c055292b85559be62bcb74b0c32c484b0891",
+    "content_hash": "b78d5386723025f24f0e9de253204c023f137e0e9323064dd885b6bc4563cb4f",
+    "tree_hash": "cf7d8381987f7df17173cec3c5cf99ddc5964758ff318a0142dbcb40c3d0d475",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -26,18 +23,18 @@
   },
   "skill": {
     "name": "firecrawl-web",
-    "description": "Use Firecrawl to fetch web pages, capture screenshots, extract structured data, search the web, and crawl documentation sites from Claude Code, Codex, or Claude.",
-    "summary": "Use Firecrawl for web scraping, screenshots, search, extraction, and documentation crawling.",
+    "description": "Adds Firecrawl-backed web scraping, screenshots, structured extraction, search, and documentation crawling for Claude, Codex, and Claude Code.",
+    "summary": "Use Firecrawl to fetch pages, screenshots, search results, extracted fields, and crawled documentation.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "BexTuychiev",
     "license": "MIT",
     "tags": [
       "firecrawl",
       "web-scraping",
       "screenshots",
-      "web-search",
-      "crawling"
+      "structured-data",
+      "documentation"
     ],
     "supported_tools": [
       "claude",
@@ -57,27 +54,32 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Confirmed risks include external Firecrawl requests for arbitrary URLs, screenshot generation, local file writes, and loading .env files including ~/.env. Most SKILL.md and README.md detections are false positives because they are markdown examples or normal skill path references; no prompt injection text was found.",
+    "summary": "The skill performs legitimate Firecrawl web access, so many documentation-only command examples, code fences, and placeholder URLs are false positives. Confirmed risks include third-party page and screenshot processing, home .env loading, credential setup in ~/.env, and user-directed file writes. No prompt injection or malicious override text was found in the reviewed files.",
     "remediation": [
       {
-        "issue": "Home-directory environment file loading",
-        "suggestion": "Load only the FIRECRAWL_API_KEY value from the active environment or a dedicated skill config file, and remove Path.home() / \".env\" loading.",
+        "issue": "Third-party processing of URLs and page content",
+        "suggestion": "Document that URLs, search queries, extraction prompts, schemas, page content, and screenshots are sent to Firecrawl.",
         "severity": "high"
       },
       {
-        "issue": "Third-party exposure of URLs and page content",
-        "suggestion": "Warn users before sending private or internal URLs to Firecrawl, and document that screenshots, prompts, and crawl targets leave the local machine.",
+        "issue": "Screenshot capture can expose sensitive pages",
+        "suggestion": "Require explicit confirmation before screenshots of private, authenticated, or sensitive pages.",
         "severity": "high"
       },
       {
-        "issue": "Unrestricted output file paths",
-        "suggestion": "Restrict screenshot and crawl outputs to an explicit workspace directory, validate paths, and avoid silent overwrites.",
+        "issue": "Home dotenv loading broadens secret exposure",
+        "suggestion": "Prefer a skill-scoped config file or FIRECRAWL_API_KEY from the current environment instead of loading ~/.env.",
+        "severity": "high"
+      },
+      {
+        "issue": "User-controlled output paths can overwrite files",
+        "suggestion": "Resolve outputs under the workspace, reject parent traversal, and warn before replacing existing files.",
         "severity": "medium"
       },
       {
-        "issue": "API key installation guidance uses ~/.env",
-        "suggestion": "Recommend a scoped environment variable or dedicated permissions-controlled file instead of appending secrets to a global home .env file.",
-        "severity": "high"
+        "issue": "Crawl commands can consume credits or scrape too broadly",
+        "suggestion": "Set a conservative maximum crawl limit and require confirmation before large crawls.",
+        "severity": "medium"
       }
     ],
     "risk_factor_evidence": [
@@ -478,6 +480,16 @@
       }
     ],
     "static_findings": [
+      {
+        "id": "sensitive:.gitignore:1:environment-file-access",
+        "category": "sensitive",
+        "severity": "high",
+        "pattern": "Environment file access",
+        "file": ".gitignore",
+        "line_start": 1,
+        "line_end": 1,
+        "snippet": ".env"
+      },
       {
         "id": "network:fc.py:8:python-http-libraries",
         "category": "network",
@@ -1291,579 +1303,577 @@
     ],
     "finding_verdicts": [
       {
+        "id": "sensitive:.gitignore:1:environment-file-access",
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is a .gitignore entry that prevents committing .env files. It is not code that reads or writes environment secrets."
+      },
+      {
         "id": "network:fc.py:8:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "urllib.request is imported for later screenshot URL retrieval from Firecrawl. The import is not dangerous alone, but it is part of real external network behavior.",
+        "confidence": 0.74,
+        "reason": "urllib.request is imported for the screenshot download path used later in the script. This creates intentional external network access for remote screenshot assets.",
         "severity": "low"
       },
       {
         "id": "network:fc.py:36:python-http-libraries",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The code downloads a screenshot URL returned by Firecrawl to a caller-selected output path. This is intended behavior, but it is a real external network transfer.",
+        "confidence": 0.86,
+        "reason": "urlretrieve downloads a Firecrawl-provided screenshot URL to a local output path. This is expected functionality, but it pulls remote content into the workspace.",
         "severity": "low"
       },
       {
         "id": "filesystem:fc.py:45:python-file-write-append",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The screenshot command writes decoded image bytes to the caller-provided output path. This can overwrite or create arbitrary files allowed by the local process.",
+        "confidence": 0.82,
+        "reason": "The screenshot command writes decoded image bytes to a user-controlled output_path. Without path restrictions or overwrite checks, it can overwrite local files.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fc.py:149:python-file-write-append",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The crawl command writes markdown files under a caller-provided output directory. The filenames are generated, but the destination directory is user controlled.",
+        "confidence": 0.79,
+        "reason": "The crawl command writes markdown files under a user-provided output directory. It can create or overwrite files without an explicit overwrite guard.",
         "severity": "medium"
       },
       {
         "id": "env_access:fc.py:11:dotenv-library",
         "verdict": "confirmed",
-        "confidence": 0.73,
-        "reason": "The dotenv import is used by main() to load environment files for the Firecrawl API key. This confirms environment-based secret handling in the skill.",
+        "confidence": 0.68,
+        "reason": "The dotenv library is used by this script to load API credentials. This is expected, but it introduces process-level secret handling.",
         "severity": "low"
       },
       {
         "id": "env_access:fc.py:84:dotenv-library",
         "verdict": "confirmed",
-        "confidence": 0.8,
-        "reason": "load_dotenv() loads variables from a local .env file into the process. This is normal credential loading, but it can expose secrets to the running script.",
+        "confidence": 0.76,
+        "reason": "load_dotenv() imports variables from a local .env file into the process. Local dotenv loading can expose secrets to dependencies used by the script.",
         "severity": "low"
       },
       {
         "id": "env_access:fc.py:85:dotenv-library",
         "verdict": "confirmed",
-        "confidence": 0.91,
-        "reason": "The script explicitly loads ~/.env from the user home directory. A home-wide .env can contain unrelated secrets that should not be loaded by this tool.",
-        "severity": "high"
+        "confidence": 0.86,
+        "reason": "The script loads Path.home() / .env, which may contain secrets for unrelated projects. Loading the home dotenv file broadens secret exposure.",
+        "severity": "medium"
       },
       {
         "id": "env_access:fc.py:11:python-dotenv-loader",
         "verdict": "confirmed",
-        "confidence": 0.73,
-        "reason": "The python-dotenv loader is imported and then used to read .env files. It supports real environment secret access in this skill.",
+        "confidence": 0.68,
+        "reason": "The imported dotenv loader is later used to load API credentials. This is legitimate setup code, but it is still environment secret access.",
         "severity": "low"
       },
       {
         "id": "env_access:fc.py:84:python-dotenv-loader",
         "verdict": "confirmed",
-        "confidence": 0.8,
-        "reason": "The loader reads variables from a local .env file at runtime. This is common API key handling, but it is still environment file access.",
+        "confidence": 0.76,
+        "reason": "The script loads a local dotenv file before running commands. That can bring sensitive variables into a network-capable process.",
         "severity": "low"
       },
       {
         "id": "env_access:fc.py:85:python-dotenv-loader",
         "verdict": "confirmed",
-        "confidence": 0.91,
-        "reason": "The loader reads ~/.env from the user home directory. That broadens the script environment beyond the one Firecrawl key it needs.",
-        "severity": "high"
+        "confidence": 0.86,
+        "reason": "The script explicitly loads the user home .env file. This may import secrets beyond the Firecrawl API key into the process.",
+        "severity": "medium"
       },
       {
         "id": "obfuscation:fc.py:46:python-base64-decode",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "The base64 decode converts Firecrawl image data into screenshot bytes before writing a PNG. It is not used to hide code, commands, or payloads."
+        "reason": "The base64 decode handles Firecrawl screenshot image data before writing a PNG. The decoded bytes are not executed or interpreted as code."
       },
       {
         "id": "sensitive:fc.py:83:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The comment documents intentional loading of both current-directory and home-directory .env files. This confirms the sensitive-file access is deliberate.",
+        "confidence": 0.82,
+        "reason": "The comment documents that the script loads .env files from the current and home directories. The following lines implement real environment-file access.",
         "severity": "high"
       },
       {
         "id": "sensitive:fc.py:85:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.93,
-        "reason": "The code reads ~/.env directly, which may contain secrets unrelated to Firecrawl. Loading a global home environment file is a real sensitive data exposure risk.",
+        "confidence": 0.91,
+        "reason": "The script reads the user home .env file, which can contain many unrelated credentials. This is sensitive file access in a network-capable tool.",
         "severity": "high"
       },
       {
         "id": "network:README.md:18:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This hardcoded URL appears in documentation or usage examples. The real network behavior is handled by the Firecrawl commands, not by this example URL itself."
+        "confidence": 0.92,
+        "reason": "This is an installation or usage example URL in documentation. It is not a hidden endpoint used by the skill automatically."
       },
       {
         "id": "network:README.md:48:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This hardcoded URL appears in documentation or usage examples. The real network behavior is handled by the Firecrawl commands, not by this example URL itself."
+        "confidence": 0.92,
+        "reason": "This is an installation or usage example URL in documentation. It is not a hidden endpoint used by the skill automatically."
       },
       {
         "id": "network:README.md:51:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This hardcoded URL appears in documentation or usage examples. The real network behavior is handled by the Firecrawl commands, not by this example URL itself."
+        "confidence": 0.92,
+        "reason": "This is an installation or usage example URL in documentation. It is not a hidden endpoint used by the skill automatically."
       },
       {
         "id": "network:README.md:57:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This hardcoded URL appears in documentation or usage examples. The real network behavior is handled by the Firecrawl commands, not by this example URL itself."
+        "confidence": 0.92,
+        "reason": "This is an installation or usage example URL in documentation. It is not a hidden endpoint used by the skill automatically."
       },
       {
         "id": "filesystem:README.md:18:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line is documentation for installation or direct usage of the skill path. It does not access hidden files beyond the expected Claude skills location."
+        "confidence": 0.89,
+        "reason": "This line documents the normal Claude skill installation path under ~/.claude. It is not stealthy hidden-file access to user data."
       },
       {
         "id": "filesystem:README.md:30:hidden-file-in-home-directory",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The README instructs users to append a Firecrawl API key to ~/.env. Storing credentials in a global hidden home file creates avoidable secret exposure.",
+        "confidence": 0.9,
+        "reason": "The installation instructions append a Firecrawl API key to ~/.env. Storing credentials in a hidden home file can expose them across projects.",
         "severity": "high"
       },
       {
         "id": "filesystem:README.md:48:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line is documentation for installation or direct usage of the skill path. It does not access hidden files beyond the expected Claude skills location."
+        "confidence": 0.89,
+        "reason": "This line documents the normal Claude skill installation path under ~/.claude. It is not stealthy hidden-file access to user data."
       },
       {
         "id": "filesystem:README.md:51:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line is documentation for installation or direct usage of the skill path. It does not access hidden files beyond the expected Claude skills location."
+        "confidence": 0.89,
+        "reason": "This line documents the normal Claude skill installation path under ~/.claude. It is not stealthy hidden-file access to user data."
       },
       {
         "id": "filesystem:README.md:54:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line is documentation for installation or direct usage of the skill path. It does not access hidden files beyond the expected Claude skills location."
+        "confidence": 0.89,
+        "reason": "This line documents the normal Claude skill installation path under ~/.claude. It is not stealthy hidden-file access to user data."
       },
       {
         "id": "filesystem:README.md:57:hidden-file-in-home-directory",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line is documentation for installation or direct usage of the skill path. It does not access hidden files beyond the expected Claude skills location."
+        "confidence": 0.89,
+        "reason": "This line documents the normal Claude skill installation path under ~/.claude. It is not stealthy hidden-file access to user data."
       },
       {
         "id": "filesystem:README.md:18:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line is documentation for installation or direct usage of the skill path. It does not access hidden files beyond the expected Claude skills location."
+        "confidence": 0.89,
+        "reason": "This line documents the normal Claude skill installation path under ~/.claude. It is not stealthy hidden-file access to user data."
       },
       {
         "id": "filesystem:README.md:30:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The README instructs users to append a Firecrawl API key to ~/.env. Storing credentials in a global hidden home file creates avoidable secret exposure.",
+        "confidence": 0.9,
+        "reason": "The documented setup writes an API key into ~/.env. This is sensitive hidden-file access even though the key value shown is a placeholder.",
         "severity": "high"
       },
       {
         "id": "filesystem:README.md:48:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line is documentation for installation or direct usage of the skill path. It does not access hidden files beyond the expected Claude skills location."
+        "confidence": 0.89,
+        "reason": "This line documents the normal Claude skill installation path under ~/.claude. It is not stealthy hidden-file access to user data."
       },
       {
         "id": "filesystem:README.md:51:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line is documentation for installation or direct usage of the skill path. It does not access hidden files beyond the expected Claude skills location."
+        "confidence": 0.89,
+        "reason": "This line documents the normal Claude skill installation path under ~/.claude. It is not stealthy hidden-file access to user data."
       },
       {
         "id": "filesystem:README.md:54:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line is documentation for installation or direct usage of the skill path. It does not access hidden files beyond the expected Claude skills location."
+        "confidence": 0.89,
+        "reason": "This line documents the normal Claude skill installation path under ~/.claude. It is not stealthy hidden-file access to user data."
       },
       {
         "id": "filesystem:README.md:57:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This line is documentation for installation or direct usage of the skill path. It does not access hidden files beyond the expected Claude skills location."
+        "confidence": 0.89,
+        "reason": "This line documents the normal Claude skill installation path under ~/.claude. It is not stealthy hidden-file access to user data."
       },
       {
         "id": "env_access:README.md:24:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line only documents installing python-dotenv as a dependency. The actual environment file access is adjudicated in fc.py and the API key instruction."
+        "confidence": 0.95,
+        "reason": "This line only installs the python-dotenv package. Package installation text is not itself environment file access."
       },
       {
         "id": "env_access:README.md:30:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "The example key is a placeholder, but the instruction tells users to place a real API key in ~/.env. This is credential handling that should be scoped more narrowly.",
+        "confidence": 0.78,
+        "reason": "The value is a placeholder, not a leaked live secret, but the instruction handles a Firecrawl API key in ~/.env. That is credential-handling risk.",
         "severity": "high"
       },
       {
         "id": "sensitive:README.md:30:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The installation instructions write the Firecrawl API key into a home-directory environment file. That creates a persistent sensitive file dependency.",
+        "confidence": 0.91,
+        "reason": "The README tells users to append FIRECRAWL_API_KEY to ~/.env. This is explicit environment-file access for a secret value.",
         "severity": "high"
       },
       {
         "id": "blocker:README.md:8:screen-capture-upload",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The feature captures full-page screenshots of arbitrary URLs through Firecrawl. Users can disclose sensitive target URLs or page contents to an external service.",
+        "confidence": 0.92,
+        "reason": "The skill advertises full-page screenshots of any URL. Capturing pages through Firecrawl can disclose page content, page state, and target URLs to a third party.",
         "severity": "high"
       },
       {
         "id": "env_access:requirements.txt:2:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "This is only a dependency declaration. It does not read secrets by itself, and the real dotenv behavior is covered by fc.py findings."
+        "confidence": 0.9,
+        "reason": "requirements.txt declares a dependency only. The direct environment-file access is assessed at the script lines that call load_dotenv."
       },
       {
         "id": "external_commands:SKILL.md:20:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "external_commands:SKILL.md:89:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The detected text is a markdown code fence delimiter in SKILL.md. It is not Ruby backtick execution and does not execute a command by itself."
+        "confidence": 0.97,
+        "reason": "The matched text is a Markdown code fence or example boundary, not Ruby backtick execution. It does not execute commands by itself."
       },
       {
         "id": "network:SKILL.md:21:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This hardcoded URL appears in documentation or usage examples. The real network behavior is handled by the Firecrawl commands, not by this example URL itself."
+        "confidence": 0.92,
+        "reason": "The URL appears in a documented example command, usually example.com or a placeholder documentation site. It is not a hardcoded exfiltration endpoint."
       },
       {
         "id": "network:SKILL.md:27:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This hardcoded URL appears in documentation or usage examples. The real network behavior is handled by the Firecrawl commands, not by this example URL itself."
+        "confidence": 0.92,
+        "reason": "The URL appears in a documented example command, usually example.com or a placeholder documentation site. It is not a hardcoded exfiltration endpoint."
       },
       {
         "id": "network:SKILL.md:35:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This hardcoded URL appears in documentation or usage examples. The real network behavior is handled by the Firecrawl commands, not by this example URL itself."
+        "confidence": 0.92,
+        "reason": "The URL appears in a documented example command, usually example.com or a placeholder documentation site. It is not a hardcoded exfiltration endpoint."
       },
       {
         "id": "network:SKILL.md:56:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This hardcoded URL appears in documentation or usage examples. The real network behavior is handled by the Firecrawl commands, not by this example URL itself."
+        "confidence": 0.92,
+        "reason": "The URL appears in a documented example command, usually example.com or a placeholder documentation site. It is not a hardcoded exfiltration endpoint."
       },
       {
         "id": "network:SKILL.md:62:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This hardcoded URL appears in documentation or usage examples. The real network behavior is handled by the Firecrawl commands, not by this example URL itself."
+        "confidence": 0.92,
+        "reason": "The URL appears in a documented example command, usually example.com or a placeholder documentation site. It is not a hardcoded exfiltration endpoint."
       },
       {
         "id": "network:SKILL.md:84:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This hardcoded URL appears in documentation or usage examples. The real network behavior is handled by the Firecrawl commands, not by this example URL itself."
+        "confidence": 0.92,
+        "reason": "The URL appears in a documented example command, usually example.com or a placeholder documentation site. It is not a hardcoded exfiltration endpoint."
       },
       {
         "id": "network:SKILL.md:90:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This hardcoded URL appears in documentation or usage examples. The real network behavior is handled by the Firecrawl commands, not by this example URL itself."
+        "confidence": 0.92,
+        "reason": "The URL appears in a documented example command, usually example.com or a placeholder documentation site. It is not a hardcoded exfiltration endpoint."
       },
       {
         "id": "filesystem:SKILL.md:14:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:21:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:27:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:35:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:56:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:62:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:70:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:76:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:84:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:90:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:14:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:21:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:27:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:35:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:56:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:62:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:70:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:76:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:84:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "filesystem:SKILL.md:90:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "This references the standard Claude skill installation path under ~/.claude. It is a documentation path reference, not hidden-file probing or unauthorized home-directory access."
+        "reason": "This line references the expected installed skill path under ~/.claude for running the bundled script. It is documentation, not unauthorized hidden-file access."
       },
       {
         "id": "blocker:SKILL.md:93:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The line warns about Firecrawl credit usage. It does not enumerate system details, collect host information, or perform reconnaissance."
+        "confidence": 0.97,
+        "reason": "The line warns about Firecrawl credit usage and crawl limits. It does not gather system information or instruct reconnaissance."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Third-Party Web Content Exposure",
-        "description": "The skill sends user-supplied URLs, search queries, extraction schemas, prompts, and crawl targets to Firecrawl. This is the intended feature, but it can disclose sensitive target URLs or page content to a third-party service.",
+        "title": "Third-Party Firecrawl Data Transfer",
+        "description": "The skill routes user URLs, searches, extraction prompts, crawl targets, and screenshot requests through Firecrawl. This can expose sensitive page targets or content to an external service.",
         "severity": "high",
         "locations": [
           {
-            "file": "fc.py",
-            "line_start": 15,
-            "line_end": 23
+            "file": "README.md",
+            "line_start": 3,
+            "line_end": 3
           },
           {
             "file": "fc.py",
-            "line_start": 26,
-            "line_end": 29
+            "line_start": 18,
+            "line_end": 20
           },
           {
             "file": "fc.py",
-            "line_start": 52,
+            "line_start": 60,
             "line_end": 60
           },
           {
             "file": "fc.py",
-            "line_start": 64,
-            "line_end": 79
+            "line_start": 67,
+            "line_end": 67
           },
           {
-            "file": "SKILL.md",
-            "line_start": 7,
-            "line_end": 9
+            "file": "fc.py",
+            "line_start": 74,
+            "line_end": 78
           }
         ],
         "confidence": 0.91,
-        "confidence_reasoning": "The implementation directly calls Firecrawl scrape, search, and crawl methods using user-provided inputs. The README and SKILL.md describe this as the core capability."
+        "confidence_reasoning": "The README states the skill uses Firecrawl, and fc.py calls Firecrawl scrape, search, and crawl APIs with user-supplied targets and prompts."
+      },
+      {
+        "title": "Unrestricted Web Crawling Targets",
+        "description": "The command parsers accept arbitrary URLs for markdown, screenshot, extraction, and crawl operations without domain allowlists. This can enable unintended scraping or broad crawling when prompts are imprecise.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "fc.py",
+            "line_start": 91,
+            "line_end": 115
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 83,
+            "line_end": 90
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 93,
+            "line_end": 93
+          }
+        ],
+        "confidence": 0.8,
+        "confidence_reasoning": "The argparse definitions expose URL inputs for each network command, and the skill documentation only warns about credits rather than target restrictions."
       }
     ],
     "critical_findings": [],
     "high_findings": [
-      {
-        "title": "dotenv library",
-        "description": "load_dotenv(Path.home() / \".env\")",
-        "locations": [
-          {
-            "file": "fc.py",
-            "line_start": 85,
-            "line_end": 85
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.91,
-        "confidence_reasoning": "The script explicitly loads ~/.env from the user home directory. A home-wide .env can contain unrelated secrets that should not be loaded by this tool."
-      },
-      {
-        "title": "Python dotenv loader",
-        "description": "load_dotenv(Path.home() / \".env\")",
-        "locations": [
-          {
-            "file": "fc.py",
-            "line_start": 85,
-            "line_end": 85
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.91,
-        "confidence_reasoning": "The loader reads ~/.env from the user home directory. That broadens the script environment beyond the one Firecrawl key it needs."
-      },
       {
         "title": "Environment file access",
         "description": "# Load .env from current directory and home directory",
@@ -1877,8 +1887,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The comment documents intentional loading of both current-directory and home-directory .env files. This confirms the sensitive-file access is deliberate."
+        "confidence": 0.82,
+        "confidence_reasoning": "The comment documents that the script loads .env files from the current and home directories. The following lines implement real environment-file access."
       },
       {
         "title": "Environment file access",
@@ -1893,8 +1903,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "The code reads ~/.env directly, which may contain secrets unrelated to Firecrawl. Loading a global home environment file is a real sensitive data exposure risk."
+        "confidence": 0.91,
+        "confidence_reasoning": "The script reads the user home .env file, which can contain many unrelated credentials. This is sensitive file access in a network-capable tool."
       },
       {
         "title": "Hidden file in home directory",
@@ -1909,8 +1919,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The README instructs users to append a Firecrawl API key to ~/.env. Storing credentials in a global hidden home file creates avoidable secret exposure."
+        "confidence": 0.9,
+        "confidence_reasoning": "The installation instructions append a Firecrawl API key to ~/.env. Storing credentials in a hidden home file can expose them across projects."
       },
       {
         "title": "Hidden file access",
@@ -1925,8 +1935,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The README instructs users to append a Firecrawl API key to ~/.env. Storing credentials in a global hidden home file creates avoidable secret exposure."
+        "confidence": 0.9,
+        "confidence_reasoning": "The documented setup writes an API key into ~/.env. This is sensitive hidden-file access even though the key value shown is a placeholder."
       },
       {
         "title": "Generic API/secret keys",
@@ -1941,8 +1951,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The example key is a placeholder, but the instruction tells users to place a real API key in ~/.env. This is credential handling that should be scoped more narrowly."
+        "confidence": 0.78,
+        "confidence_reasoning": "The value is a placeholder, not a leaked live secret, but the instruction handles a Firecrawl API key in ~/.env. That is credential-handling risk."
       },
       {
         "title": "Environment file access",
@@ -1957,8 +1967,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The installation instructions write the Firecrawl API key into a home-directory environment file. That creates a persistent sensitive file dependency."
+        "confidence": 0.91,
+        "confidence_reasoning": "The README tells users to append FIRECRAWL_API_KEY to ~/.env. This is explicit environment-file access for a secret value."
       },
       {
         "title": "Screen capture upload",
@@ -1973,44 +1983,44 @@
         "review_kind": "security",
         "source_category": "blocker",
         "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The feature captures full-page screenshots of arbitrary URLs through Firecrawl. Users can disclose sensitive target URLs or page contents to an external service."
+        "confidence": 0.92,
+        "confidence_reasoning": "The skill advertises full-page screenshots of any URL. Capturing pages through Firecrawl can disclose page content, page state, and target URLs to a third party."
       },
       {
-        "title": "Third-Party Web Content Exposure",
-        "description": "The skill sends user-supplied URLs, search queries, extraction schemas, prompts, and crawl targets to Firecrawl. This is the intended feature, but it can disclose sensitive target URLs or page content to a third-party service.",
+        "title": "Third-Party Firecrawl Data Transfer",
+        "description": "The skill routes user URLs, searches, extraction prompts, crawl targets, and screenshot requests through Firecrawl. This can expose sensitive page targets or content to an external service.",
         "locations": [
           {
-            "file": "fc.py",
-            "line_start": 15,
-            "line_end": 23
+            "file": "README.md",
+            "line_start": 3,
+            "line_end": 3
           },
           {
             "file": "fc.py",
-            "line_start": 26,
-            "line_end": 29
+            "line_start": 18,
+            "line_end": 20
           },
           {
             "file": "fc.py",
-            "line_start": 52,
+            "line_start": 60,
             "line_end": 60
           },
           {
             "file": "fc.py",
-            "line_start": 64,
-            "line_end": 79
+            "line_start": 67,
+            "line_end": 67
           },
           {
-            "file": "SKILL.md",
-            "line_start": 7,
-            "line_end": 9
+            "file": "fc.py",
+            "line_start": 74,
+            "line_end": 78
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
         "confidence": 0.91,
-        "confidence_reasoning": "The implementation directly calls Firecrawl scrape, search, and crawl methods using user-provided inputs. The README and SKILL.md describe this as the core capability."
+        "confidence_reasoning": "The README states the skill uses Firecrawl, and fc.py calls Firecrawl scrape, search, and crawl APIs with user-supplied targets and prompts."
       }
     ],
     "medium_findings": [
@@ -2027,8 +2037,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The screenshot command writes decoded image bytes to the caller-provided output path. This can overwrite or create arbitrary files allowed by the local process."
+        "confidence": 0.82,
+        "confidence_reasoning": "The screenshot command writes decoded image bytes to a user-controlled output_path. Without path restrictions or overwrite checks, it can overwrite local files."
       },
       {
         "title": "Python file write/append",
@@ -2043,8 +2053,66 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The crawl command writes markdown files under a caller-provided output directory. The filenames are generated, but the destination directory is user controlled."
+        "confidence": 0.79,
+        "confidence_reasoning": "The crawl command writes markdown files under a user-provided output directory. It can create or overwrite files without an explicit overwrite guard."
+      },
+      {
+        "title": "dotenv library",
+        "description": "load_dotenv(Path.home() / \".env\")",
+        "locations": [
+          {
+            "file": "fc.py",
+            "line_start": 85,
+            "line_end": 85
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "low",
+        "confidence": 0.86,
+        "confidence_reasoning": "The script loads Path.home() / .env, which may contain secrets for unrelated projects. Loading the home dotenv file broadens secret exposure."
+      },
+      {
+        "title": "Python dotenv loader",
+        "description": "load_dotenv(Path.home() / \".env\")",
+        "locations": [
+          {
+            "file": "fc.py",
+            "line_start": 85,
+            "line_end": 85
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "env_access",
+        "source_severity": "low",
+        "confidence": 0.86,
+        "confidence_reasoning": "The script explicitly loads the user home .env file. This may import secrets beyond the Firecrawl API key into the process."
+      },
+      {
+        "title": "Unrestricted Web Crawling Targets",
+        "description": "The command parsers accept arbitrary URLs for markdown, screenshot, extraction, and crawl operations without domain allowlists. This can enable unintended scraping or broad crawling when prompts are imprecise.",
+        "locations": [
+          {
+            "file": "fc.py",
+            "line_start": 91,
+            "line_end": 115
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 83,
+            "line_end": 90
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 93,
+            "line_end": 93
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.8,
+        "confidence_reasoning": "The argparse definitions expose URL inputs for each network command, and the skill documentation only warns about credits rather than target restrictions."
       }
     ],
     "low_findings": [
@@ -2061,8 +2129,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.72,
-        "confidence_reasoning": "urllib.request is imported for later screenshot URL retrieval from Firecrawl. The import is not dangerous alone, but it is part of real external network behavior."
+        "confidence": 0.74,
+        "confidence_reasoning": "urllib.request is imported for the screenshot download path used later in the script. This creates intentional external network access for remote screenshot assets."
       },
       {
         "title": "Python HTTP libraries",
@@ -2077,8 +2145,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The code downloads a screenshot URL returned by Firecrawl to a caller-selected output path. This is intended behavior, but it is a real external network transfer."
+        "confidence": 0.86,
+        "confidence_reasoning": "urlretrieve downloads a Firecrawl-provided screenshot URL to a local output path. This is expected functionality, but it pulls remote content into the workspace."
       },
       {
         "title": "dotenv library",
@@ -2093,8 +2161,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.73,
-        "confidence_reasoning": "The dotenv import is used by main() to load environment files for the Firecrawl API key. This confirms environment-based secret handling in the skill."
+        "confidence": 0.68,
+        "confidence_reasoning": "The dotenv library is used by this script to load API credentials. This is expected, but it introduces process-level secret handling."
       },
       {
         "title": "dotenv library",
@@ -2109,8 +2177,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.8,
-        "confidence_reasoning": "load_dotenv() loads variables from a local .env file into the process. This is normal credential loading, but it can expose secrets to the running script."
+        "confidence": 0.76,
+        "confidence_reasoning": "load_dotenv() imports variables from a local .env file into the process. Local dotenv loading can expose secrets to dependencies used by the script."
       },
       {
         "title": "Python dotenv loader",
@@ -2125,8 +2193,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.73,
-        "confidence_reasoning": "The python-dotenv loader is imported and then used to read .env files. It supports real environment secret access in this skill."
+        "confidence": 0.68,
+        "confidence_reasoning": "The imported dotenv loader is later used to load API credentials. This is legitimate setup code, but it is still environment secret access."
       },
       {
         "title": "Python dotenv loader",
@@ -2141,8 +2209,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.8,
-        "confidence_reasoning": "The loader reads variables from a local .env file at runtime. This is common API key handling, but it is still environment file access."
+        "confidence": 0.76,
+        "confidence_reasoning": "The script loads a local dotenv file before running commands. That can bring sensitive variables into a network-capable process."
       }
     ],
     "dangerous_patterns": [
@@ -2159,143 +2227,145 @@
         "review_kind": "security",
         "source_category": "blocker",
         "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The feature captures full-page screenshots of arbitrary URLs through Firecrawl. Users can disclose sensitive target URLs or page contents to an external service."
+        "confidence": 0.92,
+        "confidence_reasoning": "The skill advertises full-page screenshots of any URL. Capturing pages through Firecrawl can disclose page content, page state, and target URLs to a third party."
       }
     ],
-    "files_scanned": 4,
-    "total_lines": 333,
+    "files_scanned": 5,
+    "total_lines": 337,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T03:52:42.344Z",
+    "audited_at": "2026-07-07T18:52:56.136Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Research Web Pages with Firecrawl",
-    "value_statement": "AI coding tools often need current web pages, screenshots, or documentation that is outside the local workspace. This skill uses Firecrawl to fetch, search, extract, and crawl web content through clear commands.",
+    "user_title": "Fetch Web Data with Firecrawl",
+    "value_statement": "Teams need current page content, screenshots, and structured web data inside AI coding workflows. This skill connects Claude, Codex, and Claude Code to Firecrawl web tools.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "Firecrawl skill",
-      "web scraping",
-      "web search",
-      "URL markdown extraction",
+      "Firecrawl",
+      "web scraping skill",
+      "web search automation",
+      "AI web browsing",
       "screenshot capture",
       "structured data extraction",
-      "documentation crawling"
+      "documentation crawler"
     ],
     "actual_capabilities": [
-      "Fetches a URL as clean markdown, with an option to keep only main content.",
-      "Captures full-page website screenshots and can save them as PNG files.",
-      "Extracts structured fields from a page using a user-provided schema and optional prompt.",
-      "Runs Firecrawl web searches with a configurable result limit.",
-      "Crawls documentation sites and can save crawled pages into a local directory."
+      "Fetch a webpage as markdown using the markdown command.",
+      "Capture full-page screenshots and save them as PNG files.",
+      "Extract structured data from a page using a JSON schema.",
+      "Search the web through Firecrawl and print titles, URLs, and descriptions.",
+      "Crawl documentation sites and save page markdown files."
     ],
     "limitations": [
-      "Requires a Firecrawl API key and installed Python dependencies.",
-      "Sends requested URLs, search terms, and extraction prompts to Firecrawl.",
-      "Consumes Firecrawl credits for scraping, screenshots, search, extraction, and crawling.",
-      "Does not provide custom browser cookies or authenticated session handling in the bundled script."
+      "Requires a valid Firecrawl API key and Firecrawl account credits.",
+      "Sends requested URLs and content processing requests to Firecrawl.",
+      "Does not enforce domain allowlists or private URL detection.",
+      "Output paths depend on user input and can overwrite local files."
     ],
     "use_cases": [
       {
-        "title": "Review External Documentation",
-        "description": "Fetch or crawl framework documentation so an assistant can answer implementation questions with current source material.",
-        "target_user": "Software developer"
+        "title": "Research Current Documentation",
+        "description": "Fetch and crawl framework documentation before answering setup or API questions.",
+        "target_user": "Developers"
       },
       {
-        "title": "Extract Page Details",
-        "description": "Pull product titles, prices, features, or similar fields from public pages using a defined extraction schema.",
-        "target_user": "Data analyst"
+        "title": "Capture Visual Page State",
+        "description": "Take a full-page screenshot for review, bug reports, or design comparison.",
+        "target_user": "QA engineers"
       },
       {
-        "title": "Capture Web Evidence",
-        "description": "Save page screenshots and markdown snapshots for research notes, issue reports, or content review workflows.",
-        "target_user": "Researcher"
+        "title": "Collect Product Page Fields",
+        "description": "Extract selected fields from public product pages using a defined schema.",
+        "target_user": "Data analysts"
       }
     ],
     "prompt_templates": [
       {
         "title": "Fetch Page Markdown",
-        "scenario": "Beginner request for readable page content.",
-        "prompt": "Get the markdown from this URL and summarize the main points: https://example.com"
+        "scenario": "Beginner page review",
+        "prompt": "Use firecrawl-web to get markdown from <URL> and summarize the main content."
       },
       {
-        "title": "Search Current Information",
-        "scenario": "Find recent or external web material before answering.",
-        "prompt": "Search the web for the latest stable release notes for this framework and return the top three useful sources."
+        "title": "Capture a Screenshot",
+        "scenario": "Visual inspection",
+        "prompt": "Use firecrawl-web to take a full-page screenshot of <URL> and save it as page.png."
       },
       {
-        "title": "Extract Specific Fields",
-        "scenario": "Use a schema to pull structured information from one page.",
-        "prompt": "Extract the title, price, feature list, and availability from this product page using a small schema."
+        "title": "Extract Structured Fields",
+        "scenario": "Intermediate data collection",
+        "prompt": "Use firecrawl-web to extract title, price, and feature list from <URL> with a schema."
       },
       {
-        "title": "Crawl Documentation Site",
-        "scenario": "Advanced workflow for learning a new library from its docs.",
-        "prompt": "Crawl this documentation site with a limit of 30 pages, then identify the installation steps and core API concepts."
+        "title": "Crawl Documentation Set",
+        "scenario": "Advanced documentation research",
+        "prompt": "Use firecrawl-web to crawl <DOCS_URL> with a limit of 20 pages, then identify setup steps and API examples."
       }
     ],
     "output_examples": [
       {
-        "input": "Get the markdown from a public documentation page.",
-        "output": [
-          "A cleaned markdown version of the page content.",
-          "Navigation and footer content can be reduced with the main content option.",
-          "The assistant can summarize the returned text or cite key sections."
-        ]
+        "input": "Fetch markdown from a library release notes page.",
+        "output": "Clean markdown content with headings, links, and the main article text."
       },
       {
-        "input": "Take a screenshot of a public landing page.",
-        "output": "The skill saves a full-page PNG screenshot or returns a screenshot link from Firecrawl."
+        "input": "Take a screenshot of a product page.",
+        "output": "A saved PNG file path and a short confirmation message."
       },
       {
-        "input": "Crawl a documentation site with a page limit.",
+        "input": "Crawl a documentation site with a small limit.",
         "output": [
-          "A bounded set of crawled documentation pages is returned.",
-          "When an output directory is provided, each page is saved as a markdown file."
+          "Page summaries saved as markdown files.",
+          "A list of titles and key installation notes."
         ]
       }
     ],
     "best_practices": [
-      "Use clear page limits before crawling large sites.",
-      "Avoid private, authenticated, or internal URLs unless Firecrawl use is approved.",
-      "Store the Firecrawl API key with least exposure and rotate it if it appears in logs."
+      "Use only public URLs unless the user confirms private data can be sent to Firecrawl.",
+      "Set small crawl limits before expanding a crawl.",
+      "Save screenshots and crawl output inside the current project folder."
     ],
     "anti_patterns": [
-      "Do not crawl broad domains without a limit or clear purpose.",
-      "Do not send confidential pages, customer data, or secrets to external scraping services.",
-      "Do not save screenshots or crawled pages into shared folders without checking the contents."
+      "Do not crawl large sites without a clear limit.",
+      "Do not use the skill for pages that contain private credentials or personal data.",
+      "Do not save output to home, system, or shared configuration directories."
     ],
     "faq": [
       {
-        "question": "What service does this skill use?",
-        "answer": "It uses Firecrawl through the firecrawl Python package and requires a Firecrawl API key."
+        "question": "Does this skill require an API key?",
+        "answer": "Yes. It requires a Firecrawl API key available in the environment or dotenv configuration."
       },
       {
-        "question": "Can it fetch current web pages?",
-        "answer": "Yes. It can scrape public pages as markdown and search the web through Firecrawl."
+        "question": "Can it browse any website?",
+        "answer": "It can request public URLs through Firecrawl, subject to Firecrawl limits and website access rules."
       },
       {
-        "question": "Can it take screenshots?",
-        "answer": "Yes. It requests full-page website screenshots through Firecrawl and can save them locally."
+        "question": "Does it send data to an external service?",
+        "answer": "Yes. URLs, search queries, extraction prompts, and screenshot requests are sent to Firecrawl."
       },
       {
-        "question": "Does it work with private websites?",
-        "answer": "The bundled script does not pass browser cookies or authenticated session data."
+        "question": "Can it save files locally?",
+        "answer": "Yes. Screenshot and crawl commands can save files to paths chosen in the command."
       },
       {
-        "question": "Where does it store output files?",
-        "answer": "Screenshots are saved to the requested output path, and crawled pages can be saved to a requested directory."
+        "question": "Is it suitable for private pages?",
+        "answer": "Use caution. Private URLs or page content may be processed by Firecrawl."
       },
       {
-        "question": "What should users avoid sending?",
-        "answer": "Users should avoid confidential URLs, internal systems, secrets, and pages containing private data."
+        "question": "Which AI tools can use it?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },
   "file_structure": [
+    {
+      "name": ".gitignore",
+      "type": "file",
+      "path": ".gitignore",
+      "lines": 4
+    },
     {
       "name": "fc.py",
       "type": "file",

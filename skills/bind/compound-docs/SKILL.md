@@ -6,17 +6,10 @@ license: MIT
 compatibility: opencode
 ---
 
-# compound-docs
-
-> Each documented solution compounds your team's knowledge. The first time 
-> you solve a problem takes research. Document it, and the next occurrence 
-> takes minutes. Knowledge compounds.
-
-This skill is inspired by [Every.to's compound-engineering plugin](https://github.com/EveryInc/compound-engineering-plugin).
-
 ## Auto-Invoke Triggers
 
 This skill auto-triggers when the user says:
+
 - "that worked"
 - "it's fixed"
 - "working now"
@@ -35,6 +28,7 @@ When a trigger phrase is detected or `/compound` is invoked:
 2. Check if the fix is worth documenting
 
 **Skip documentation for trivial fixes:**
+
 - Simple typos
 - Obvious syntax errors (missing semicolon, bracket)
 - Single-line fixes that were immediately obvious
@@ -45,16 +39,17 @@ If skipping, briefly explain why: "This was a simple typo fix - skipping documen
 
 Read [schema.yaml](schema.yaml) to get valid enum values, then extract from the conversation:
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| Symptom | Yes | Error message or observable behavior |
-| Category | Yes | From schema.yaml `category.values` (or add new) |
-| Component | No | From schema.yaml `component.values` (or add new) |
-| Root cause | No | From schema.yaml `root_cause.values` (or add new) |
-| Solution | Yes | The fix that worked |
-| Prevention | No | How to avoid this in the future |
+| Field      | Required | Description                                       |
+| ---------- | -------- | ------------------------------------------------- |
+| Symptom    | Yes      | Error message or observable behavior              |
+| Category   | Yes      | From schema.yaml `category.values` (or add new)   |
+| Component  | No       | From schema.yaml `component.values` (or add new)  |
+| Root cause | No       | From schema.yaml `root_cause.values` (or add new) |
+| Solution   | Yes      | The fix that worked                               |
+| Prevention | No       | How to avoid this in the future                   |
 
 **If a value doesn't exist in schema.yaml:**
+
 1. Add the new value to the appropriate enum in `schema.yaml`
 2. If it's a new category, create the directory: `mkdir -p {output_dir}/{new-category}`
 
@@ -97,17 +92,20 @@ If related, add to the `related` field in frontmatter.
 ### Step 4: Create Documentation
 
 **Validate against schema.yaml:**
+
 1. Read schema.yaml for current valid enum values
 2. Ensure all required fields are present
 3. Ensure enum values exist (or add them first)
 
 **Generate filename:**
+
 - Format: `{sanitized-symptom}-{YYYYMMDD}.md`
 - Sanitize: lowercase, replace spaces with hyphens, remove special chars, truncate to 80 chars
 
 **Create file at:** `{output_dir}/{category}/{filename}`
 
 **Ensure directory exists:**
+
 ```bash
 mkdir -p {output_dir}/{category}
 ```
@@ -135,16 +133,16 @@ Promote to patterns.md? This surfaces it prominently for future sessions.
 
 ## Solution Doc Template
 
-```markdown
+````markdown
 ---
-date: {YYYY-MM-DD}
-category: {category}
+date: { YYYY-MM-DD }
+category: { category }
 symptoms:
-  - {symptom 1}
-  - {symptom 2}
-component: {component}
-root_cause: {root_cause}
-tags: [{keyword1}, {keyword2}]
+  - { symptom 1 }
+  - { symptom 2 }
+component: { component }
+root_cause: { root_cause }
+tags: [{ keyword1 }, { keyword2 }]
 related: []
 ---
 
@@ -174,6 +172,7 @@ related: []
 # After (fixed)
 {code after}
 ```
+````
 
 ## Why This Works
 
@@ -182,7 +181,8 @@ related: []
 ## Prevention
 
 {How to avoid this in the future - tests, linting rules, patterns to follow}
-```
+
+````
 
 ## Pattern Template
 
@@ -197,7 +197,7 @@ When adding to `patterns.md`:
 
 ```{language}
 {code that causes the problem}
-```
+````
 
 ### CORRECT
 
@@ -208,7 +208,8 @@ When adding to `patterns.md`:
 **Why:** {Technical explanation}
 
 **When this applies:** {Context or conditions when this pattern is relevant}
-```
+
+````
 
 ## Integration
 
@@ -221,23 +222,26 @@ Add to your project's AGENTS.md to ensure patterns are checked:
 
 Before making changes, review known patterns:
 - [Solution Patterns](docs/solutions/patterns.md)
-```
+````
 
 ### Consuming Solutions
 
 Other workflows can discover and apply documented solutions:
 
 **Search by keyword:**
+
 ```bash
 grep -rl "keyword" docs/solutions/
 ```
 
 **Search by category:**
+
 ```bash
 ls docs/solutions/deployment/
 ```
 
 **Search by tag:**
+
 ```bash
 grep -l "tags:.*docker" docs/solutions/**/*.md
 ```

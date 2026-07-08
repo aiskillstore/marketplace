@@ -94,6 +94,8 @@ tail -f /tmp/session.log
 
 **Note:** See `OBSERVING_SESSIONS.md` for comprehensive guide on monitoring telnet sessions.
 
+See [examples.md](examples.md) for full worked walkthroughs: initial device identification, BusyBox detection, full system enumeration, SUID hunting, and hardcoded-credential discovery.
+
 ### Telnet Helper Options
 
 ```

@@ -22,11 +22,12 @@ Chipsec is Intel's Platform Security Assessment Framework. For static analysis o
 
 ### One-Time Setup (Fix Logging Permission)
 
-Chipsec requires a writable logs directory. Run once:
+Chipsec writes into a `logs/` directory inside its install location. Create it once. The Python version in the path varies by system, so derive the path instead of hardcoding it:
 
 ```bash
-sudo mkdir -p /usr/lib/python3.13/site-packages/logs
-sudo chmod 777 /usr/lib/python3.13/site-packages/logs
+CHIPSEC_DIR="$(find /usr/lib/python3*/site-packages ~/.local/lib/python3*/site-packages -maxdepth 1 -name chipsec -type d 2>/dev/null | head -1)"
+sudo mkdir -p "$CHIPSEC_DIR/logs"
+sudo chmod 777 "$CHIPSEC_DIR/logs"
 ```
 
 ### Verify Installation
@@ -375,13 +376,14 @@ done
 ### Permission Denied on Logs
 
 ```
-PermissionError: [Errno 13] Permission denied: '/usr/lib/python3.13/site-packages/logs/...'
+PermissionError: [Errno 13] Permission denied: '.../site-packages/logs/...'
 ```
 
-**Solution:**
+**Solution:** create the logs directory inside the chipsec install (the Python version in the path varies, so derive it):
 ```bash
-sudo mkdir -p /usr/lib/python3.13/site-packages/logs
-sudo chmod 777 /usr/lib/python3.13/site-packages/logs
+CHIPSEC_DIR="$(find /usr/lib/python3*/site-packages ~/.local/lib/python3*/site-packages -maxdepth 1 -name chipsec -type d 2>/dev/null | head -1)"
+sudo mkdir -p "$CHIPSEC_DIR/logs"
+sudo chmod 777 "$CHIPSEC_DIR/logs"
 ```
 
 ### Module Not Found

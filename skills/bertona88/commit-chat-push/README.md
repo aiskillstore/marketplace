@@ -5,6 +5,7 @@ Commit Chat Push is a Codex skill for shipping code with its implementation prov
 ## What It Does
 
 - Finds the relevant Codex session JSONL file.
+- Uses a unique anchor marker to disambiguate multiple sessions in the same repository.
 - Exports a Markdown transcript instead of committing raw session logs.
 - Redacts common secret formats and shortens home-directory paths.
 - Records user/assistant messages, tool calls, commands, and command exit status.
@@ -38,8 +39,21 @@ The skill exports transcripts to `docs/codex-sessions/` unless the repository al
 The bundled exporter can also be run directly:
 
 ```bash
+python3 - <<'PY'
+import datetime as dt
+import secrets
+
+print(f"codex-session-anchor: {dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}")
+PY
+```
+
+Copy the printed marker exactly, then run:
+
+```bash
 python3 scripts/export_codex_session.py \
   --repo "$(pwd)" \
+  --anchor 'PASTE_PRINTED_MARKER_HERE' \
+  --require-anchor \
   --output-dir docs/codex-sessions \
   --tool-output none
 ```
@@ -47,6 +61,8 @@ python3 scripts/export_codex_session.py \
 Useful options:
 
 - `--session PATH`: export a specific Codex JSONL session.
+- `--anchor TEXT`: prefer a session JSONL containing exact marker text.
+- `--require-anchor`: fail unless the selected session contains `--anchor`.
 - `--output PATH`: write to an exact Markdown file.
 - `--tool-output none|brief|full`: include no command output, truncated command output, or full command output.
 - `--include-local-paths`: keep full local paths in transcript metadata.

@@ -1,5 +1,5 @@
 ---
-name: fastapi-development
+name: FastAPI Development
 description: Build async APIs with FastAPI, including endpoints, dependency injection, validation, and testing. Use when creating REST APIs, web backends, or microservices.
 ---
 

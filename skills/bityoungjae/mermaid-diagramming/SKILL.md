@@ -1,6 +1,8 @@
 ---
 name: mermaid-diagramming
 description: Create Mermaid diagrams in Obsidian including flowcharts, sequence diagrams, class diagrams, and more. Use when visualizing processes, system architectures, workflows, or any structured relationships in Obsidian notes.
+context: fork
+user-invocable: false
 ---
 
 # Mermaid Diagramming in Obsidian

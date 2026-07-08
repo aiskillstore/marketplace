@@ -2,6 +2,7 @@
 name: config-auditing
 description: "Neovim configuration audit knowledge base. Use when: reviewing config files for issues, checking deprecated APIs, optimizing settings, or performing health checks. Provides checklists, best practices, and version-specific deprecated API detection patterns."
 allowed-tools: Read, Bash, Grep, Glob
+context: fork
 ---
 
 # Neovim Configuration Auditing Skill

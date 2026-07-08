@@ -65,12 +65,12 @@ nmap -p <OPEN_PORT_LIST> -sV -sC <target> -oA <output-dir>/nmap-services
 After Phase 1, extract open ports using:
 ```bash
 # Extract open ports from .gnmap file
-grep "Ports:" <output-dir>/nmap-portscan.gnmap | sed 's/.*Ports: //g' | sed 's|/|\n|g' | grep "open" | cut -d'/' -f1 | tr '\n' ',' | sed 's/,$//'
+grep "Ports:" <output-dir>/nmap-portscan.gnmap | sed 's/.*Ports: //' | tr ',' '\n' | grep '/open/' | cut -d'/' -f1 | tr -d ' ' | tr '\n' ',' | sed 's/,$//'
 ```
 
-Or parse from .nmap file:
+Or parse from .nmap file (matches the STATE column exactly, so `open|filtered` ports are excluded):
 ```bash
-grep "^[0-9]" <output-dir>/nmap-portscan.nmap | grep "open" | cut -d'/' -f1 | tr '\n' ',' | sed 's/,$//'
+awk '$2=="open"{split($1,p,"/"); ports=ports sep p[1]; sep=","} END{print ports}' <output-dir>/nmap-portscan.nmap
 ```
 
 ## Implementation Workflow
@@ -98,7 +98,7 @@ When the nmap-scan skill is invoked:
 
 4. **Parse open ports from results**
    ```bash
-   OPEN_PORTS=$(grep "^[0-9]" "$OUTPUT_DIR/nmap-portscan.nmap" | grep "open" | cut -d'/' -f1 | tr '\n' ',' | sed 's/,$//')
+   OPEN_PORTS=$(awk '$2=="open"{split($1,p,"/"); ports=ports sep p[1]; sep=","} END{print ports}' "$OUTPUT_DIR/nmap-portscan.nmap")
    ```
 
 5. **Run Phase 2: Service detection on open ports**
@@ -118,7 +118,7 @@ When the nmap-scan skill is invoked:
 ## Scan Types
 
 ### Quick Scan (Top 1000 Ports)
-Use for initial reconnaissance or when time is limited:
+Use for initial reconnaissance, when time is limited, or only when the user explicitly requests a quick/fast scan instead of the default two-phase strategy:
 ```bash
 nmap -sV -sC <target> -oA <output-prefix>
 ```
@@ -127,6 +127,7 @@ nmap -sV -sC <target> -oA <output-prefix>
 - `-oA`: Output in all formats (normal, XML, grepable)
 - Scans top 1000 most common ports
 - Typical duration: 1-3 minutes
+- **Limitation**: May miss services on non-standard ports
 
 ### Comprehensive Scan (All Ports)
 Use for thorough assessment when all ports must be checked:
@@ -184,38 +185,14 @@ sudo nmap -O <target> -oA <output-prefix>
 - Requires root privileges
 - Uses TCP/IP stack fingerprinting
 
-## Alternative Scan Types
-
-The following scan types are available if the user explicitly requests them instead of the default two-phase strategy:
-
-### Quick Scan (Top 1000 Ports Only)
-Use ONLY if user explicitly requests a quick/fast scan:
-```bash
-nmap -sV -sC <target> -oA <output-dir>/nmap-quick
-```
-- `-sV`: Service version detection
-- `-sC`: Run default NSE scripts
-- `-oA`: Output in all formats (normal, XML, grepable)
-- Scans top 1000 most common ports ONLY
-- Typical duration: 1-3 minutes
-- **Limitation**: May miss services on non-standard ports
-
 ## Scan Workflow
 
 ### Default Workflow (Two-Phase Strategy)
 
-**Phase 1: Port Discovery**
-1. Run fast SYN scan: `sudo nmap -p- <target> -oA <output-dir>/nmap-portscan`
-2. Check for "Host seems down" and retry with `-Pn` if needed
-3. Wait for scan to complete (typically 1-3 minutes)
-
-**Phase 2: Service Detection**
-4. Parse open ports from Phase 1 results
-5. Run targeted service detection: `nmap -p <OPEN_PORTS> -sV -sC <target> -oA <output-dir>/nmap-services`
-6. Wait for scan to complete (typically 1-3 minutes)
+Run Phase 1 (port discovery) and Phase 2 (service detection) per the Default Scanning Strategy and Implementation Workflow sections above. Then analyze:
 
 **Phase 3: Analysis**
-7. Review the service detection results to determine:
+- Review the service detection results to determine:
    - What services are running?
    - What versions are detected?
    - Are there any interesting services (web, SSH, database, IoT protocols)?
@@ -410,14 +387,7 @@ nmap -sV -sC <target>
 ```
 
 ### 2. Always Use Two-Phase Strategy
-Always use the default two-phase strategy unless explicitly told otherwise:
-```bash
-# Phase 1: Fast port discovery
-sudo nmap -p- <target> -oA nmap-portscan
-
-# Phase 2: Service detection on open ports
-nmap -p <OPEN_PORTS> -sV -sC <target> -oA nmap-services
-```
+Use the default two-phase strategy (see the Default Scanning Strategy section) unless the user explicitly requests a different scan type.
 
 ### 3. Use Appropriate Timing
 Match timing to your needs:
@@ -451,17 +421,7 @@ Always document:
 4. Run targeted HTTP scripts if web interface found
 
 ### Output Directory Usage
-Always save to an organized output directory:
-```bash
-OUTPUT_DIR="./nmap-output"
-mkdir -p "$OUTPUT_DIR"
-
-# Phase 1: Port discovery
-sudo nmap -p- <target> -oA "$OUTPUT_DIR/nmap-portscan"
-
-# Phase 2: Service detection
-nmap -p <OPEN_PORTS> -sV -sC <target> -oA "$OUTPUT_DIR/nmap-services"
-```
+Always save to an organized output directory (default `./nmap-output/`). See the Implementation Workflow section for the full command sequence.
 
 ## Troubleshooting
 
@@ -507,7 +467,7 @@ if grep -q "Host seems down" "$OUTPUT_DIR/nmap-portscan.nmap"; then
 fi
 
 # Parse open ports
-OPEN_PORTS=$(grep "^[0-9]" "$OUTPUT_DIR/nmap-portscan.nmap" | grep "open" | cut -d'/' -f1 | tr '\n' ',' | sed 's/,$//')
+OPEN_PORTS=$(awk '$2=="open"{split($1,p,"/"); ports=ports sep p[1]; sep=","} END{print ports}' "$OUTPUT_DIR/nmap-portscan.nmap")
 
 # Phase 2: Service detection
 if [ -n "$OPEN_PORTS" ]; then
@@ -516,20 +476,16 @@ fi
 ```
 
 ### Workflow 2: IoT Camera Testing
+Run the default two-phase scan from Workflow 1, then add camera-specific checks:
 ```bash
+TARGET="192.168.1.100"
 OUTPUT_DIR="./nmap-output"
-mkdir -p "$OUTPUT_DIR"
 
-# 1. Run default two-phase scan
-sudo nmap -p- 192.168.1.100 -oA "$OUTPUT_DIR/nmap-portscan"
-OPEN_PORTS=$(grep "^[0-9]" "$OUTPUT_DIR/nmap-portscan.nmap" | grep "open" | cut -d'/' -f1 | tr '\n' ',' | sed 's/,$//')
-nmap -p "$OPEN_PORTS" -sV -sC 192.168.1.100 -oA "$OUTPUT_DIR/nmap-services"
+# If ONVIF camera detected, check HTTP methods
+nmap -p 80 --script http-methods $TARGET -oA "$OUTPUT_DIR/nmap-http"
 
-# 2. If ONVIF camera detected, check HTTP methods
-nmap -p 80 --script http-methods 192.168.1.100 -oA "$OUTPUT_DIR/nmap-http"
-
-# 3. Check RTSP service
-nmap -p 554 --script rtsp-methods 192.168.1.100 -oA "$OUTPUT_DIR/nmap-rtsp"
+# Check RTSP service
+nmap -p 554 --script rtsp-methods $TARGET -oA "$OUTPUT_DIR/nmap-rtsp"
 ```
 
 ### Workflow 3: Additional UDP/OS Detection

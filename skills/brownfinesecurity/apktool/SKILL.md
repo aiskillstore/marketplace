@@ -451,45 +451,6 @@ jarsigner -verbose -keystore debug.keystore rebuilt.apk androiddebugkey
 - Be aware of terms of service and EULAs
 - Use for authorized security testing and research only
 
-## Example Analysis Session
-
-```bash
-# Complete analysis workflow
-TARGET="myapp.apk"
-OUTPUT="myapp-analysis"
-
-# 1. Unpack
-echo "[+] Unpacking APK..."
-apktool d "$TARGET" -o "$OUTPUT"
-
-# 2. Basic info
-echo "[+] Package info:"
-grep "package=" "$OUTPUT/AndroidManifest.xml"
-
-# 3. Permissions
-echo "[+] Permissions:"
-grep "uses-permission" "$OUTPUT/AndroidManifest.xml"
-
-# 4. Exported components
-echo "[+] Exported components:"
-grep "exported=\"true\"" "$OUTPUT/AndroidManifest.xml"
-
-# 5. Search for secrets
-echo "[+] Searching for hardcoded secrets..."
-grep -r "api.*key\|password\|secret" "$OUTPUT/res/" | grep -v "^Binary"
-
-# 6. Find URLs
-echo "[+] Finding URLs..."
-grep -rE "https?://[^\"']+" "$OUTPUT/res/" | grep -v "schema\|xmlns"
-
-# 7. Check debuggable
-echo "[+] Debug status:"
-grep "debuggable" "$OUTPUT/AndroidManifest.xml" || echo "Not debuggable (good)"
-
-# 8. Summary
-echo "[+] Analysis complete. Output in: $OUTPUT/"
-```
-
 ## Success Criteria
 
 A successful apktool analysis includes:
