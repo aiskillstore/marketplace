@@ -1,6 +1,9 @@
 ---
 name: architecture-decision-records
-description: Write and maintain Architecture Decision Records (ADRs) following best practices for technical decision documentation. Use when documenting significant technical decisions, reviewing past architectural choices, or establishing decision processes.
+description: "Comprehensive patterns for creating, maintaining, and managing Architecture Decision Records (ADRs) that capture the context and rationale behind significant technical decisions."
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # Architecture Decision Records
@@ -348,10 +351,10 @@ This directory contains Architecture Decision Records (ADRs) for [Project Name].
 
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
-| [0001](0001-use-postgresql.md) | Use PostgreSQL as Primary Database | Accepted | 2024-01-10 |
-| [0002](0002-caching-strategy.md) | Caching Strategy with Redis | Accepted | 2024-01-12 |
-| [0003](0003-mongodb-user-profiles.md) | MongoDB for User Profiles | Deprecated | 2023-06-15 |
-| [0020](0020-deprecate-mongodb.md) | Deprecate MongoDB | Accepted | 2024-01-15 |
+| 0001 | Use PostgreSQL as Primary Database | Accepted | 2024-01-10 |
+| 0002 | Caching Strategy with Redis | Accepted | 2024-01-12 |
+| 0003 | MongoDB for User Profiles | Deprecated | 2023-06-15 |
+| 0020 | Deprecate MongoDB | Accepted | 2024-01-15 |
 
 ## Creating a New ADR
 
@@ -439,3 +442,8 @@ adr link 2 "Complements" 1 "Is complemented by"
 - [MADR Template](https://adr.github.io/madr/)
 - [ADR GitHub Organization](https://adr.github.io/)
 - [adr-tools](https://github.com/npryce/adr-tools)
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

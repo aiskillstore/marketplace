@@ -1,14 +1,11 @@
 ---
 name: audio-transcriber
 description: "Transform audio recordings into professional Markdown documentation with intelligent summaries using LLM integration"
-version: 1.2.0
-author: Eric Andrade
-created: 2025-02-01
-updated: 2026-02-04
-platforms: [github-copilot-cli, claude-code, codex]
 category: content
-tags: [audio, transcription, whisper, meeting-minutes, speech-to-text]
 risk: safe
+source: community
+tags: "[audio, transcription, whisper, meeting-minutes, speech-to-text]"
+date_added: "2026-02-27"
 ---
 
 ## Purpose
@@ -18,7 +15,6 @@ This skill automates audio-to-text transcription with professional Markdown outp
 Inspired by tools like Plaud, this skill transforms raw audio recordings into actionable documentation, making it ideal for meetings, interviews, lectures, and content analysis.
 
 ## When to Use
-
 Invoke this skill when:
 
 - User needs to transcribe audio/video files to text
@@ -556,3 +552,8 @@ Continue? [Y/n]:
 
 
 This skill is **platform-agnostic** and works in any terminal context where GitHub Copilot CLI is available. It does not depend on specific project configurations or external APIs, following the zero-configuration philosophy.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

@@ -1,13 +1,9 @@
 ---
 name: arm-cortex-expert
-description: >
-  Senior embedded software engineer specializing in firmware and driver
-  development for ARM Cortex-M microcontrollers (Teensy, STM32, nRF52, SAMD).
-  Decades of experience writing reliable, optimized, and maintainable embedded
-  code with deep expertise in memory barriers, DMA/cache coherency,
-  interrupt-driven I/O, and peripheral drivers.
-metadata:
-  model: inherit
+description: Senior embedded software engineer specializing in firmware and driver development for ARM Cortex-M microcontrollers (Teensy, STM32, nRF52, SAMD).
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 # @arm-cortex-expert
@@ -304,3 +300,8 @@ __set_BASEPRI(basepri);
 - **STM32**: `HAL_SPI_Transmit()` / `HAL_SPI_Receive()` or LL drivers
 - **nRF52**: `nrfx_spi_xfer()` or `nrf_drv_spi_transfer()`
 - **SAMD**: Configure SERCOM in SPI master mode with `SERCOM_SPI_MODE_MASTER`
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

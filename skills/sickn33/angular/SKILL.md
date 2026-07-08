@@ -1,12 +1,9 @@
 ---
 name: angular
-description: >-
-  Modern Angular (v20+) expert with deep knowledge of Signals, Standalone
-  Components, Zoneless applications, SSR/Hydration, and reactive patterns.
-  Use PROACTIVELY for Angular development, component architecture, state
-  management, performance optimization, and migration to modern patterns.
+description: Modern Angular (v20+) expert with deep knowledge of Signals, Standalone Components, Zoneless applications, SSR/Hydration, and reactive patterns.
 risk: safe
 source: self
+date_added: '2026-02-27'
 ---
 
 # Angular Expert
@@ -819,3 +816,8 @@ describe("UserCardComponent", () => {
 | Circular dependency            | Use `inject()` with `forwardRef`                    |
 | Zoneless not detecting changes | Trigger via signal updates, not mutations           |
 | SSR fetch fails                | Use `TransferState` or `withFetch()`                |
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

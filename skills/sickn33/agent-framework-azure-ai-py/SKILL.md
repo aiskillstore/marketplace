@@ -1,7 +1,9 @@
 ---
 name: agent-framework-azure-ai-py
-description: Build Azure AI Foundry agents using the Microsoft Agent Framework Python SDK (agent-framework-azure-ai). Use when creating persistent agents with AzureAIAgentsProvider, using hosted tools (code interpreter, file search, web search), integrating MCP servers, managing conversation threads, or implementing streaming responses. Covers function tools, structured outputs, and multi-tool agents.
-package: agent-framework-azure-ai
+description: "Build persistent agents on Azure AI Foundry using the Microsoft Agent Framework Python SDK."
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # Agent Framework Azure Hosted Agents
@@ -327,7 +329,15 @@ if __name__ == "__main__":
 
 ## Reference Files
 
-- [references/tools.md](references/tools.md): Detailed hosted tool patterns
-- [references/mcp.md](references/mcp.md): MCP integration (hosted + local)
-- [references/threads.md](references/threads.md): Thread and conversation management
-- [references/advanced.md](references/advanced.md): OpenAPI, citations, structured outputs
+- references/tools.md: Detailed hosted tool patterns
+- references/mcp.md: MCP integration (hosted + local)
+- references/threads.md: Thread and conversation management
+- references/advanced.md: OpenAPI, citations, structured outputs
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

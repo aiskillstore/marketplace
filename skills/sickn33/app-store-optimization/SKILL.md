@@ -1,6 +1,9 @@
 ---
 name: app-store-optimization
-description: Complete App Store Optimization (ASO) toolkit for researching, optimizing, and tracking mobile app performance on Apple App Store and Google Play Store
+description: "Complete App Store Optimization (ASO) toolkit for researching, optimizing, and tracking mobile app performance on Apple App Store and Google Play Store"
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # App Store Optimization (ASO) Skill
@@ -351,6 +354,13 @@ Generates comprehensive pre-launch and update checklists.
 4. **Test Locally**: Have native speakers review before publishing
 5. **Measure ROI**: Track downloads by locale to assess impact
 
+## Optional External Research Tools
+
+Use external tools only when the workflow needs current market inputs or a second pass on directional estimates. Treat third-party estimates as approximate and cite the retrieval date.
+
+- [AppNiche Revenue Checker](https://getappniche.com/tools/app-revenue-checker) - free iOS App Store revenue benchmark for competitor prioritization and ASO score context.
+- [AppNiche ASO Keyword Opportunity Checker](https://getappniche.com/tools/app-store-keyword-tool) - free iOS keyword opportunity check for keyword research and Apple keyword field planning.
+
 ## Limitations
 
 ### Data Dependencies
@@ -401,3 +411,6 @@ This skill is based on current Apple App Store and Google Play Store requirement
 - Google Play Console updates (play.google.com/console/about/guides/releasewithconfidence)
 - iOS/Android version adoption rates (affects device testing)
 - Store algorithm changes (follow ASO blogs and communities)
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.

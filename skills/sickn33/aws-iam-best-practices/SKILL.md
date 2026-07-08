@@ -1,10 +1,11 @@
 ---
 name: aws-iam-best-practices
-description: IAM policy review, hardening, and least privilege implementation
+description: "IAM policy review, hardening, and least privilege implementation"
+category: security
 risk: safe
 source: community
-category: security
-tags: [aws, iam, security, access-control, kiro-cli, least-privilege]
+tags: "[aws, iam, security, access-control, kiro-cli, least-privilege]"
+date_added: "2026-02-27"
 ---
 
 # AWS IAM Best Practices
@@ -12,7 +13,6 @@ tags: [aws, iam, security, access-control, kiro-cli, least-privilege]
 Review and harden IAM policies following AWS security best practices and least privilege principles.
 
 ## When to Use
-
 Use this skill when you need to review IAM policies, implement least privilege access, or harden IAM security.
 
 ## Core Principles
@@ -112,7 +112,7 @@ while read user; do
 done
 
 # Rotate access key
-OLD_KEY="AKIAIOSFODNN7EXAMPLE"
+OLD_KEY="<AWS_ACCESS_KEY_ID>"
 USER="myuser"
 
 # Create new key
@@ -395,3 +395,8 @@ kiro-cli chat "Create a least privilege policy with aws-iam-best-practices"
 - [IAM Best Practices](https://docs.aws.amazon.com/IAM/latest/UserGuide/best-practices.html)
 - [IAM Policy Simulator](https://policysim.aws.amazon.com/)
 - [IAM Access Analyzer](https://aws.amazon.com/iam/features/analyze-access/)
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
