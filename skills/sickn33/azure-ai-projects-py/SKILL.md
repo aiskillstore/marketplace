@@ -1,7 +1,9 @@
 ---
 name: azure-ai-projects-py
-description: Build AI applications using the Azure AI Projects Python SDK (azure-ai-projects). Use when working with Foundry project clients, creating versioned agents with PromptAgentDefinition, running evaluations, managing connections/deployments/datasets/indexes, or using OpenAI-compatible clients. This is the high-level Foundry SDK - for low-level agent operations, use azure-ai-agents-python skill.
-package: azure-ai-projects
+description: "Build AI applications on Microsoft Foundry using the azure-ai-projects SDK."
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # Azure AI Projects Python SDK (Foundry SDK)
@@ -122,7 +124,7 @@ agent_version = client.agents.create_version(
 )
 ```
 
-See [references/agents.md](references/agents.md) for detailed agent patterns.
+See references/agents.md for detailed agent patterns.
 
 ## Tools Overview
 
@@ -138,7 +140,7 @@ See [references/agents.md](references/agents.md) for detailed agent patterns.
 | Memory Search | `MemorySearchTool` | Search agent memory stores |
 | SharePoint | `SharepointGroundingTool` | Search SharePoint content |
 
-See [references/tools.md](references/tools.md) for all tool patterns.
+See references/tools.md for all tool patterns.
 
 ## Thread and Message Flow
 
@@ -179,7 +181,7 @@ for conn in connections:
 connection = client.connections.get(connection_name="my-search-connection")
 ```
 
-See [references/connections.md](references/connections.md) for connection patterns.
+See references/connections.md for connection patterns.
 
 ## Deployments
 
@@ -190,7 +192,7 @@ for deployment in deployments:
     print(f"{deployment.name}: {deployment.model}")
 ```
 
-See [references/deployments.md](references/deployments.md) for deployment patterns.
+See references/deployments.md for deployment patterns.
 
 ## Datasets and Indexes
 
@@ -202,7 +204,7 @@ datasets = client.datasets.list()
 indexes = client.indexes.list()
 ```
 
-See [references/datasets-indexes.md](references/datasets-indexes.md) for data operations.
+See references/datasets-indexes.md for data operations.
 
 ## Evaluation
 
@@ -225,7 +227,7 @@ eval_run = openai_client.evals.runs.create(
 )
 ```
 
-See [references/evaluation.md](references/evaluation.md) for evaluation patterns.
+See references/evaluation.md for evaluation patterns.
 
 ## Async Client
 
@@ -240,7 +242,7 @@ async with AIProjectClient(
     # ... async operations
 ```
 
-See [references/async-patterns.md](references/async-patterns.md) for async patterns.
+See references/async-patterns.md for async patterns.
 
 ## Memory Stores
 
@@ -282,14 +284,22 @@ agent = client.agents.create_agent(
 
 ## Reference Files
 
-- [references/agents.md](references/agents.md): Agent operations with PromptAgentDefinition
-- [references/tools.md](references/tools.md): All agent tools with examples
-- [references/evaluation.md](references/evaluation.md): Evaluation operations overview
-- [references/built-in-evaluators.md](references/built-in-evaluators.md): Complete built-in evaluator reference
-- [references/custom-evaluators.md](references/custom-evaluators.md): Code and prompt-based evaluator patterns
-- [references/connections.md](references/connections.md): Connection operations
-- [references/deployments.md](references/deployments.md): Deployment enumeration
-- [references/datasets-indexes.md](references/datasets-indexes.md): Dataset and index operations
-- [references/async-patterns.md](references/async-patterns.md): Async client usage
-- [references/api-reference.md](references/api-reference.md): Complete API reference for all 373 SDK exports (v2.0.0b4)
-- [scripts/run_batch_evaluation.py](scripts/run_batch_evaluation.py): CLI tool for batch evaluations
+- references/agents.md: Agent operations with PromptAgentDefinition
+- references/tools.md: All agent tools with examples
+- references/evaluation.md: Evaluation operations overview
+- references/built-in-evaluators.md: Complete built-in evaluator reference
+- references/custom-evaluators.md: Code and prompt-based evaluator patterns
+- references/connections.md: Connection operations
+- references/deployments.md: Deployment enumeration
+- references/datasets-indexes.md: Dataset and index operations
+- references/async-patterns.md: Async client usage
+- references/api-reference.md: Complete API reference for all 373 SDK exports (v2.0.0b4)
+- scripts/run_batch_evaluation.py: CLI tool for batch evaluations
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

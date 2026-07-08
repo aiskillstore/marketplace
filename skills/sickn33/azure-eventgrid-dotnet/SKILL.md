@@ -1,8 +1,9 @@
 ---
 name: azure-eventgrid-dotnet
-description: |
-  Azure Event Grid SDK for .NET. Client library for publishing and consuming events with Azure Event Grid. Use for event-driven architectures, pub/sub messaging, CloudEvents, and EventGridEvents. Triggers: "Event Grid", "EventGridPublisherClient", "CloudEvent", "EventGridEvent", "publish events .NET", "event-driven", "pub/sub".
-package: Azure.Messaging.EventGrid
+description: Azure Event Grid SDK for .NET. Client library for publishing and consuming events with Azure Event Grid. Use for event-driven architectures, pub/sub messaging, CloudEvents, and EventGridEvents.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 # Azure.Messaging.EventGrid (.NET)
@@ -486,3 +487,11 @@ catch (RequestFailedException)
 | Quickstart | https://learn.microsoft.com/azure/event-grid/custom-event-quickstart |
 | Pull Delivery | https://learn.microsoft.com/azure/event-grid/pull-delivery-overview |
 | GitHub Source | https://github.com/Azure/azure-sdk-for-net/tree/main/sdk/eventgrid/Azure.Messaging.EventGrid |
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

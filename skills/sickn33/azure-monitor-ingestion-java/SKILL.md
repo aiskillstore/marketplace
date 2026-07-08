@@ -1,9 +1,9 @@
 ---
 name: azure-monitor-ingestion-java
-description: |
-  Azure Monitor Ingestion SDK for Java. Send custom logs to Azure Monitor via Data Collection Rules (DCR) and Data Collection Endpoints (DCE).
-  Triggers: "LogsIngestionClient java", "azure monitor ingestion java", "custom logs java", "DCR java", "data collection rule java".
-package: com.azure:azure-monitor-ingestion
+description: Azure Monitor Ingestion SDK for Java. Send custom logs to Azure Monitor via Data Collection Rules (DCR) and Data Collection Endpoints (DCE).
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 # Azure Monitor Ingestion SDK for Java
@@ -211,7 +211,7 @@ try {
 
 ## Querying Uploaded Logs
 
-Use [azure-monitor-query](../query/SKILL.md) to query ingested logs:
+Use azure-monitor-query to query ingested logs:
 
 ```java
 // See azure-monitor-query skill for LogsQueryClient usage
@@ -228,3 +228,11 @@ String query = "MyTable_CL | where TimeGenerated > ago(1h) | limit 10";
 | DCE Overview | https://learn.microsoft.com/azure/azure-monitor/essentials/data-collection-endpoint-overview |
 | DCR Overview | https://learn.microsoft.com/azure/azure-monitor/essentials/data-collection-rule-overview |
 | Troubleshooting | https://github.com/Azure/azure-sdk-for-java/blob/main/sdk/monitor/azure-monitor-ingestion/TROUBLESHOOTING.md |
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

@@ -1,10 +1,9 @@
 ---
 name: azure-monitor-query-java
-description: |
-  Azure Monitor Query SDK for Java. Execute Kusto queries against Log Analytics workspaces and query metrics from Azure resources.
-  Triggers: "LogsQueryClient java", "MetricsQueryClient java", "kusto query java", "log analytics java", "azure monitor query java".
-  Note: This package is deprecated. Migrate to azure-monitor-query-logs and azure-monitor-query-metrics.
-package: com.azure:azure-monitor-query
+description: Azure Monitor Query SDK for Java. Execute Kusto queries against Log Analytics workspaces and query metrics from Azure resources.
+risk: safe
+source: community
+date_added: '2026-02-27'
 ---
 
 # Azure Monitor Query SDK for Java
@@ -415,3 +414,11 @@ try {
 | Kusto Query Language | https://learn.microsoft.com/azure/data-explorer/kusto/query/ |
 | Log Analytics Limits | https://learn.microsoft.com/azure/azure-monitor/service-limits#la-query-api |
 | Troubleshooting | https://github.com/Azure/azure-sdk-for-java/blob/main/sdk/monitor/azure-monitor-query/TROUBLESHOOTING.md |
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

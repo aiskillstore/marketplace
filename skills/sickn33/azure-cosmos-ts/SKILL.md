@@ -1,8 +1,9 @@
 ---
 name: azure-cosmos-ts
-description: |
-  Azure Cosmos DB JavaScript/TypeScript SDK (@azure/cosmos) for data plane operations. Use for CRUD operations on documents, queries, bulk operations, and container management. Triggers: "Cosmos DB", "@azure/cosmos", "CosmosClient", "document CRUD", "NoSQL queries", "bulk operations", "partition key", "container.items".
-package: "@azure/cosmos"
+description: Azure Cosmos DB JavaScript/TypeScript SDK (@azure/cosmos) for data plane operations. Use for CRUD operations on documents, queries, bulk operations, and container management.
+risk: unknown
+source: community
+date_added: '2026-02-27'
 ---
 
 # @azure/cosmos (TypeScript/JavaScript)
@@ -469,3 +470,11 @@ export class ProductService {
 | `@azure/cosmos` | Data plane (this SDK) | `npm install @azure/cosmos` |
 | `@azure/arm-cosmosdb` | Management plane (ARM) | `npm install @azure/arm-cosmosdb` |
 | `@azure/identity` | Authentication | `npm install @azure/identity` |
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.

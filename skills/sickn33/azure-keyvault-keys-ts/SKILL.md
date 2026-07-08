@@ -1,7 +1,9 @@
 ---
 name: azure-keyvault-keys-ts
-description: Manage cryptographic keys using Azure Key Vault Keys SDK for JavaScript (@azure/keyvault-keys). Use when creating, encrypting/decrypting, signing, or rotating keys.
-package: "@azure/keyvault-keys"
+description: "Manage cryptographic keys using Azure Key Vault Keys SDK for JavaScript (@azure/keyvault-keys). Use when creating, encrypting/decrypting, signing, or rotating keys."
+risk: unknown
+source: community
+date_added: "2026-02-27"
 ---
 
 # Azure Key Vault Keys SDK for TypeScript
@@ -267,3 +269,11 @@ try {
 4. **Use key rotation policies** - Automate key rotation
 5. **Limit key operations** - Only grant needed operations (encrypt, sign, etc.)
 6. **Browser not supported** - These SDKs are Node.js only
+
+## When to Use
+This skill is applicable to execute the workflow or actions described in the overview.
+
+## Limitations
+- Use this skill only when the task clearly matches the scope described above.
+- Do not treat the output as a substitute for environment-specific validation, testing, or expert review.
+- Stop and ask for clarification if required inputs, permissions, safety boundaries, or success criteria are missing.
