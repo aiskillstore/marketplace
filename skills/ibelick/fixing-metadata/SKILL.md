@@ -1,25 +1,21 @@
 ---
 name: fixing-metadata
-description: Ship correct, complete metadata.
+description: >
+  Audit and fix HTML metadata including page titles, meta descriptions, canonical URLs, Open Graph
+  tags, Twitter cards, favicons, JSON-LD structured data, and robots directives. Use when adding
+  SEO metadata, fixing social share previews, reviewing Open Graph tags, setting up canonical URLs,
+  or shipping new pages that need correct meta tags.
+version: 1.0.1
+license: MIT
 ---
 
-# fixing-metadata
+## Workflow
 
-Ship correct, complete metadata.
-
-## how to use
-
-- `/fixing-metadata`
-  Apply these constraints to any metadata work in this conversation.
-
-- `/fixing-metadata <file>`
-  Review the file against all rules below and report:
-  - violations (quote the exact line or snippet)
-  - why it matters (one short sentence)
-  - a concrete fix (code-level suggestion)
-
-Do not introduce new frameworks or SEO libraries unless explicitly requested. Prefer minimal diffs.
-
+1. Identify pages with missing or incorrect metadata (titles, descriptions, canonical, OG tags)
+2. Audit against the priority rules below — fix critical issues (duplicates, indexing) first
+3. Ensure title, description, canonical, and og:url all agree with each other
+4. Verify social cards render correctly on a real URL, not localhost
+5. Keep diffs minimal and scoped to metadata only — do not refactor unrelated code
 ## when to apply
 
 Reference these guidelines when:
@@ -105,7 +101,7 @@ Reference these guidelines when:
 
 - prefer minimal changes, do not refactor unrelated code
 - do not migrate frameworks or SEO libraries unless requested
-- follow the project’s existing metadata pattern (Next.js metadata API, react-helmet, manual head, etc.)
+- follow the project's existing metadata pattern (Next.js metadata API, react-helmet, manual head, etc.)
 
 ## review guidance
 

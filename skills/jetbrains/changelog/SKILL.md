@@ -1,11 +1,13 @@
 ---
 name: changelog
-description: Maintains IdeaVim changelog (CHANGES.md) and build.gradle.kts changeNotes. Use when updating changelog, documenting releases, or reviewing commits/PRs for changelog entries.
+description: Maintains the IdeaVim changelog (CHANGES.md). Use when updating the changelog, documenting releases, or reviewing commits/PRs for changelog entries.
 ---
 
 # Changelog Maintenance
 
-You are a changelog maintenance specialist for the IdeaVim project. Your job is to keep the changelog (CHANGES.md) and build.gradle.kts changeNotes in sync with code changes.
+You are a changelog maintenance specialist for the IdeaVim project. Your job is to keep the changelog (CHANGES.md) in sync with code changes.
+
+`build.gradle.kts` `changeNotes` is auto-derived from CHANGES.md at build time via the `org.jetbrains.changelog` plugin — do not edit it by hand.
 
 ## Historical Context
 
@@ -48,7 +50,7 @@ You are a changelog maintenance specialist for the IdeaVim project. Your job is 
 When running via the GitHub Actions workflow, check if a last processed commit SHA is provided in the prompt.
 - If a commit SHA is provided, use `git log <SHA>..HEAD --oneline` to see only unprocessed commits
 - This is more accurate than date-based filtering
-- The `workflow-changelog` tag tracks the last successful changelog workflow run
+- The last successful workflow run is tracked via GitHub Actions API
 
 ### 2. Find Releases
 - Use `git tag --list --sort=-version:refname` to see all version tags
@@ -90,6 +92,7 @@ git log --oneline <previous-tag>..<new-tag>
 - Test-only changes
 - **API module changes** (while in experimental status) - Do not log changes to the `api` module as it's currently experimental
   - Note: This exclusion should be removed once the API status is no longer experimental
+- **Vim Everywhere project** (including Hints toggle) - Do not log changes related to the Vim Everywhere project as it's not yet ready
 - **Internal code changes** - Do not log coding changes that users cannot see or experience
   - Refactoring, code cleanup, internal architecture changes
   - Performance optimizations (unless they fix a noticeable user issue)
@@ -183,47 +186,12 @@ Always put the ticket link FIRST, then the description:
 4. Review commits and PRs since last entry
 5. Group changes by release or under [To Be Released]
 6. Update CHANGES.md maintaining existing format
-7. Update the `changeNotes` section in `build.gradle.kts` (see detailed instructions below)
-8. Create a PR only if there are changes to document:
+7. Create a PR only if there are changes to document:
    - Title format: "Update changelog: <super short summary>"
    - Example: "Update changelog: Add gn text object, fix visual mode issues"
    - Body: Brief summary of what was added
 
-## Updating changeNotes in build.gradle.kts
-
-The `changeNotes` section in `build.gradle.kts` displays on the JetBrains Marketplace plugin page. Follow these rules:
-
-### Content Requirements
-- **Match CHANGES.md exactly**: Use the same content from the `[To Be Released]` section
-- **Don't create a shorter version**: Include all entries as they appear in CHANGES.md
-- **Keep the same level of detail**: Don't summarize or condense
-
-### HTML Formatting
-Convert Markdown to HTML format:
-- Headers: `### Features:` -> `<b>Features:</b>`
-- Line breaks: Use `<br>` between items
-- Links: Convert markdown links to HTML `<a href="">` tags
-- Bullet points: Use `*` or keep `*` with proper spacing
-- Code blocks: Use `<code>` tags for commands like `<code>gn</code>`
-
-### Special Notes
-- **IMPORTANT**: Keep any existing information about the reward program in changeNotes
-- This content appears in the plugin description on JetBrains Marketplace
-
-### Example Conversion
-Markdown in CHANGES.md:
-```
-### Features:
-* Added support for `gn` text object
-* [VIM-3456](https://youtrack.jetbrains.com/issue/VIM-3456) Fixed cursor position
-```
-
-HTML in changeNotes:
-```html
-<b>Features:</b><br>
-* Added support for <code>gn</code> text object<br>
-* <a href="https://youtrack.jetbrains.com/issue/VIM-3456">VIM-3456</a> Fixed cursor position<br>
-```
+`build.gradle.kts` `changeNotes` is auto-derived from CHANGES.md at build time via the `org.jetbrains.changelog` plugin — do not touch it.
 
 ## Important Notes
 

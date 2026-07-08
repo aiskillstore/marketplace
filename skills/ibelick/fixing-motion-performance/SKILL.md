@@ -1,6 +1,6 @@
 ---
 name: fixing-motion-performance
-description: Fix animation performance issues.
+description: Audit and fix animation performance issues including layout thrashing, compositor properties, scroll-linked motion, and blur effects. Use when animations stutter, transitions jank, or reviewing CSS/JS animation performance.
 ---
 
 # fixing-motion-performance
@@ -118,6 +118,30 @@ Reference these guidelines when:
 - do not migrate or rewrite animation libraries unless explicitly requested
 - apply these rules within the existing animation system
 - never partially migrate APIs or mix styles within the same component
+
+## common fixes
+
+```css
+/* layout thrashing: animate transform instead of width */
+/* before */ .panel { transition: width 0.3s; }
+/* after */  .panel { transition: transform 0.3s; }
+
+/* scroll-linked: use scroll-timeline instead of JS */
+/* before */ window.addEventListener('scroll', () => el.style.opacity = scrollY / 500)
+/* after */  .reveal { animation: fade-in linear; animation-timeline: view(); }
+```
+
+```js
+// measurement: batch reads before writes (FLIP)
+// before — layout thrash
+el.style.left = el.getBoundingClientRect().left + 10 + 'px';
+// after — measure once, animate via transform
+const first = el.getBoundingClientRect();
+el.classList.add('moved');
+const last = el.getBoundingClientRect();
+el.style.transform = `translateX(${first.left - last.left}px)`;
+requestAnimationFrame(() => { el.style.transition = 'transform 0.3s'; el.style.transform = ''; });
+```
 
 ## review guidance
 

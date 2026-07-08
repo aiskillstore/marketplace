@@ -1,6 +1,6 @@
 ---
 name: fixing-accessibility
-description: Fix accessibility issues.
+description: Audit and fix HTML accessibility issues including ARIA labels, keyboard navigation, focus management, color contrast, and form errors. Use when adding interactive controls, forms, dialogs, or reviewing WCAG compliance.
 ---
 
 # fixing-accessibility
@@ -111,6 +111,22 @@ Reference these guidelines when:
 - prefer minimal changes, do not refactor unrelated code
 - do not add aria when native semantics already solve the problem
 - do not migrate UI libraries unless requested
+
+## common fixes
+
+```html
+<!-- icon-only button: add aria-label -->
+<!-- before --> <button><svg>...</svg></button>
+<!-- after -->  <button aria-label="Close"><svg aria-hidden="true">...</svg></button>
+
+<!-- div as button: use native element -->
+<!-- before --> <div onclick="save()">Save</div>
+<!-- after -->  <button onclick="save()">Save</button>
+
+<!-- form error: link with aria-describedby -->
+<!-- before --> <input id="email" /> <span>Invalid email</span>
+<!-- after -->  <input id="email" aria-describedby="email-err" aria-invalid="true" /> <span id="email-err">Invalid email</span>
+```
 
 ## review guidance
 
