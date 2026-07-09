@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-09T01:32:58.251Z",
+    "generated_at": "2026-07-09T04:22:05.093Z",
     "slug": "automattic-wp-performance",
     "source_url": "https://github.com/Automattic/agent-skills/tree/trunk/skills/wp-performance",
     "source_ref": "trunk",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "b0bb047807a8367350a4953f9e38bd9e8cc77d0e5a48169532ef929b40e5a7d3",
-    "tree_hash": "dce9e402b3e2dec276bdb83e2089d01d2675a1d01ec2bfb684e99e53c6424cef",
+    "tree_hash": "6e4246c71e80d85c30289d396f2680d45b62c5b953e04b7fabd8d1536afc15e9",
     "provenance": {
       "model_requested": "claude-sonnet-4.6",
       "model_effective": "claude:claude-sonnet-4.6",
@@ -25,8 +25,8 @@
   },
   "skill": {
     "name": "wp-performance",
-    "description": "Investigate and improve WordPress backend performance with WP-CLI, Server-Timing, Query Monitor data, and safe verification steps.",
-    "summary": "Diagnose WordPress performance bottlenecks with backend-focused measurements and repeatable checks.",
+    "description": "Investigate WordPress performance from a backend-only environment using WP-CLI, profiling tools, REST headers, and safe verification steps.",
+    "summary": "Diagnose and improve WordPress backend performance with safe, repeatable measurements.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "Automattic",
@@ -36,7 +36,7 @@
       "performance",
       "wp-cli",
       "profiling",
-      "optimization"
+      "backend"
     ],
     "supported_tools": [
       "claude",
@@ -55,19 +55,8 @@
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most static findings are documentation examples, benign WordPress performance guidance, or false matches on JavaScript template literals. The only confirmed risk is the helper script invoking WP-CLI through child_process, which is legitimate but should require clear user approval because WP-CLI can execute local WordPress code.",
-    "remediation": [
-      {
-        "issue": "Helper script executes WP-CLI through child_process.",
-        "suggestion": "Keep the no-shell spawnSync pattern, but document that running the script executes WP-CLI against the selected WordPress install and requires explicit user approval.",
-        "severity": "high"
-      },
-      {
-        "issue": "User-supplied --path and --url determine the WordPress target.",
-        "suggestion": "Recommend running only against trusted local or staging installs, and show the exact WP-CLI commands before execution when used by an agent.",
-        "severity": "medium"
-      }
-    ],
+    "summary": "Static analysis flagged many command, filesystem, network, and reconnaissance patterns, but review found they are expected WordPress performance diagnostics and documentation examples. The script runs WP-CLI with argument arrays rather than shell interpolation, and file checks are limited to plugin and cache drop-in presence under the supplied WordPress path. No prompt injection, credential exfiltration, or malicious intent was found.",
+    "remediation": [],
     "risk_factor_evidence": [
       {
         "factor": "network",
@@ -771,456 +760,431 @@
       {
         "id": "blocker:references/database.md:7:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The text is performance guidance using words like avoid for query, cache, or debug practices. It is not system reconnaissance or a request to gather sensitive host information."
+        "confidence": 0.94,
+        "reason": "This is performance guidance about avoiding N+1 query patterns, not system reconnaissance. It recommends safer database access patterns and contains no collection or exfiltration behavior."
       },
       {
         "id": "blocker:references/database.md:9:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The text is performance guidance using words like avoid for query, cache, or debug practices. It is not system reconnaissance or a request to gather sensitive host information."
+        "confidence": 0.94,
+        "reason": "This is optimization guidance about avoiding expensive WordPress meta queries. It does not instruct the agent to enumerate systems or collect sensitive host data."
       },
       {
         "id": "blocker:references/http-api.md:9:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The text is performance guidance using words like avoid for query, cache, or debug practices. It is not system reconnaissance or a request to gather sensitive host information."
+        "confidence": 0.94,
+        "reason": "This is performance guidance to batch remote API calls and avoid repeated page-load requests. It reduces external traffic rather than creating suspicious network behavior."
       },
       {
         "id": "network:references/object-cache.md:8:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The line describes the WordPress object-cache.php drop-in path. It does not use Python HTTP libraries or initiate network traffic."
+        "confidence": 0.93,
+        "reason": "The referenced text names the WordPress object-cache.php drop-in file, not a Python HTTP library. It is documentation about persistent cache behavior."
       },
       {
         "id": "blocker:references/object-cache.md:22:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The text is performance guidance using words like avoid for query, cache, or debug practices. It is not system reconnaissance or a request to gather sensitive host information."
+        "confidence": 0.94,
+        "reason": "The text advises bounded cache lifetimes and invalidation hooks. It is defensive performance guidance, not reconnaissance."
       },
       {
         "id": "filesystem:references/server-timing.md:17:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The /dev/null usage is a standard curl output sink in a documentation example. It does not read device files or access sensitive filesystem data."
+        "confidence": 0.93,
+        "reason": "The /dev/null usage is a standard curl output discard in a documentation example for reading Server-Timing headers. It does not read or write sensitive device files."
       },
       {
         "id": "blocker:references/wp-cli-doctor.md:22:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The text is performance guidance using words like avoid for query, cache, or debug practices. It is not system reconnaissance or a request to gather sensitive host information."
+        "confidence": 0.94,
+        "reason": "The line references WP-CLI doctor checks for disabling costly debug flags in production. It is production readiness guidance, not host reconnaissance."
       },
       {
         "id": "external_commands:scripts/perf_inspect.mjs:3:node-js-child-process-module",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "The helper imports node:child_process and later uses it to invoke WP-CLI. This is legitimate diagnostic tooling, but it is still external command execution and should require user approval.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The child_process import supports the intended WP-CLI diagnostic script. Review of its use shows spawnSync is called without a shell and with structured argument arrays."
       },
       {
         "id": "external_commands:scripts/perf_inspect.mjs:32:synchronous-spawn",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "spawnSync executes the wp binary with arguments derived from user-provided targeting options. It avoids shell interpolation, but WP-CLI execution can load WordPress code and affect the local environment.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "spawnSync runs the wp executable with an argument array and no shell, which avoids shell injection from --path or --url values. The command is limited to WordPress diagnostic reads such as info, version, doctor help, profile help, and option list."
       },
       {
         "id": "external_commands:scripts/perf_inspect.mjs:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The user-supplied path and URL are appended as argv entries for spawnSync, not interpolated into a shell command. This avoids shell command injection for these values."
+        "confidence": 0.93,
+        "reason": "This is JavaScript template string construction for a WP-CLI --path argument, not shell backtick execution. The value is passed as one spawn argument with shell disabled."
       },
       {
         "id": "external_commands:scripts/perf_inspect.mjs:29:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The user-supplied path and URL are appended as argv entries for spawnSync, not interpolated into a shell command. This avoids shell command injection for these values."
+        "confidence": 0.93,
+        "reason": "This is JavaScript template string construction for a WP-CLI --url argument, not shell backtick execution. The value is passed as one spawn argument with shell disabled."
       },
       {
         "id": "external_commands:scripts/perf_inspect.mjs:79:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This is JavaScript template literal output of JSON to stdout, not Ruby backtick execution or shell execution. It does not run attacker-controlled code."
+        "confidence": 0.93,
+        "reason": "This template string writes JSON output to stdout and does not execute code. It serializes the diagnostic report only."
       },
       {
         "id": "external_commands:scripts/perf_inspect.mjs:87:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This is JavaScript template literal output of JSON to stdout, not Ruby backtick execution or shell execution. It does not run attacker-controlled code."
+        "confidence": 0.93,
+        "reason": "This template string writes JSON output to stdout and does not execute code. It is used after an early diagnostic exit."
       },
       {
         "id": "external_commands:scripts/perf_inspect.mjs:121:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks appear inside user-facing install tips and are not executed. They document optional WP-CLI package commands only."
+        "confidence": 0.93,
+        "reason": "The backticks are literal Markdown formatting inside a note about installing WP-CLI doctor. No command is executed by this line."
       },
       {
         "id": "external_commands:scripts/perf_inspect.mjs:122:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks appear inside user-facing install tips and are not executed. They document optional WP-CLI package commands only."
+        "confidence": 0.93,
+        "reason": "The backticks are literal Markdown formatting inside a note about installing WP-CLI profile. No command is executed by this line."
       },
       {
         "id": "external_commands:scripts/perf_inspect.mjs:124:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This is JavaScript template literal output of JSON to stdout, not Ruby backtick execution or shell execution. It does not run attacker-controlled code."
+        "confidence": 0.93,
+        "reason": "This template string writes JSON output to stdout and does not execute code. It serializes the final report."
       },
       {
         "id": "filesystem:scripts/perf_inspect.mjs:19:node-js-fs-stat-operations",
         "verdict": "false_positive",
         "confidence": 0.86,
-        "reason": "fs.statSync is used only to check whether known WordPress plugin or drop-in files exist under the requested path. It is read-only and does not expose file contents."
+        "reason": "fs.statSync is used only to check whether expected WordPress plugin and cache drop-in files exist under the supplied path. It does not read file contents or traverse arbitrary directories."
       },
       {
         "id": "filesystem:scripts/perf_inspect.mjs:108:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This line validates that WP-CLI output is numeric before parsing it. It is not hidden file access and performs no filesystem operation."
+        "confidence": 0.93,
+        "reason": "The flagged line is a numeric stdout validation regex for autoloaded option bytes, not hidden file access. No filesystem operation occurs on this line."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks are Markdown formatting for a --path input parameter. This is documentation, not executable shell code."
       },
       {
         "id": "external_commands:SKILL.md:24:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks are Markdown formatting for a --url input parameter. This is documentation, not executable shell code."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The line documents using curl to measure TTFB when possible. It is an expected performance measurement command and not hidden execution."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format a local reference file name in Markdown. No command execution is described."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "This documents the intended local diagnostic script invocation with explicit --path and optional --url inputs. It is transparent performance tooling, not stealth execution."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format WP-CLI command names in documentation. No command is executed by the Markdown text."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The line recommends wp doctor check as a standard WordPress diagnostic. It is an expected read-oriented health check."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format a local reference file name in Markdown. No command execution is described."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The line recommends wp profile stage for performance profiling. This is legitimate WordPress diagnostic usage."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The line recommends wp profile hook with an optional --url for profiling slow hooks. This is legitimate WordPress diagnostic usage."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The line mentions wp profile eval for targeted code paths as profiling guidance. It is documentation for authorized performance investigation."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format a local reference file name in Markdown. No command execution is described."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format the _envelope parameter in documentation about Query Monitor REST output. No command execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:81:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The line describes inspecting Query Monitor headers and REST envelope output. It is documentation for measuring performance data."
       },
       {
         "id": "external_commands:SKILL.md:84:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format a local reference file name in Markdown. No command execution is described."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format a local reference file name in Markdown. No command execution is described."
       },
       {
         "id": "external_commands:SKILL.md:93:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format a local reference file name in Markdown. No command execution is described."
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format a local reference file name in Markdown. No command execution is described."
       },
       {
         "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format a local reference file name in Markdown. No command execution is described."
       },
       {
         "id": "external_commands:SKILL.md:99:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format a local reference file name in Markdown. No command execution is described."
       },
       {
         "id": "external_commands:SKILL.md:103:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The line tells the user to repeat the same diagnostic measurement for verification. This is normal performance validation guidance."
       },
       {
         "id": "external_commands:SKILL.md:129:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The line uses Markdown formatting for wp doctor check in a verification checklist. It is expected diagnostic documentation."
       },
       {
         "id": "external_commands:SKILL.md:136:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format the --url option while explaining a measurement mismatch failure mode. No command execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The backticks format SAVEQUERIES while warning that it adds overhead. No command execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:145:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The matched text is documentation or a command example for user-approved WordPress performance diagnostics. It is not code execution inside the skill file."
+        "confidence": 0.95,
+        "reason": "The line explicitly warns not to install plugins, enable SAVEQUERIES, run load tests, or flush caches in production without approval. This is a safety guardrail."
       },
       {
         "id": "network:SKILL.md:17:python-http-libraries",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line says the agent may use HTTP requests for backend inspection. This is an expected diagnostic capability, not Python HTTP library code or unauthorized exfiltration."
+        "confidence": 0.93,
+        "reason": "The line says to prefer WP-CLI, logs, and HTTP requests for backend-only diagnostics. This is transparent performance measurement guidance, not Python network library use."
       },
       {
         "id": "network:SKILL.md:124:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The URL is a public WordPress performance reference in documentation. It is not a callback endpoint and no data is sent to it by the skill."
+        "confidence": 0.97,
+        "reason": "The URL is a public WordPress Core performance field guide reference. It is documentation, not an endpoint used by code for data transfer."
       },
       {
         "id": "blocker:SKILL.md:31:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line is benign performance guidance or a section heading. It does not instruct reconnaissance of host secrets or security-sensitive system state."
+        "confidence": 0.94,
+        "reason": "The heading establishes guardrails to measure first and avoid risky operations. It is safety guidance, not reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:90:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line is benign performance guidance or a section heading. It does not instruct reconnaissance of host secrets or security-sensitive system state."
+        "confidence": 0.94,
+        "reason": "The line lists performance fixes for database bottlenecks. It does not instruct system enumeration or sensitive data collection."
       },
       {
         "id": "blocker:SKILL.md:96:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The line is benign performance guidance or a section heading. It does not instruct reconnaissance of host secrets or security-sensitive system state."
+        "confidence": 0.94,
+        "reason": "The line recommends timeouts, caching, batching, and avoiding remote APIs on every request. It reduces risky network behavior rather than enabling it."
       }
     ],
     "semantic_findings": [],
     "critical_findings": [],
-    "high_findings": [
-      {
-        "title": "Node.js child_process module",
-        "description": "import { spawnSync } from \"node:child_process\";",
-        "locations": [
-          {
-            "file": "scripts/perf_inspect.mjs",
-            "line_start": 3,
-            "line_end": 3
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.72,
-        "confidence_reasoning": "The helper imports node:child_process and later uses it to invoke WP-CLI. This is legitimate diagnostic tooling, but it is still external command execution and should require user approval."
-      },
-      {
-        "title": "Synchronous spawn",
-        "description": "const out = spawnSync(\"wp\", args, { encoding: \"utf8\" });",
-        "locations": [
-          {
-            "file": "scripts/perf_inspect.mjs",
-            "line_start": 32,
-            "line_end": 32
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.78,
-        "confidence_reasoning": "spawnSync executes the wp binary with arguments derived from user-provided targeting options. It avoids shell interpolation, but WP-CLI execution can load WordPress code and affect the local environment."
-      }
-    ],
+    "high_findings": [],
     "medium_findings": [],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 12,
     "total_lines": 526,
     "audit_model": "claude",
-    "audited_at": "2026-07-09T01:32:58.251Z",
+    "audited_at": "2026-07-09T04:22:05.093Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Diagnose WordPress Performance",
-    "value_statement": "Slow WordPress sites are hard to diagnose without repeatable backend measurements. This skill guides Claude, Codex, and Claude Code through WP-CLI checks, profiling, and safe verification.",
+    "user_title": "Diagnose WordPress Performance Safely",
+    "value_statement": "Slow WordPress sites need careful measurement before changes. This skill guides Claude, Codex, and Claude Code through backend-only profiling, bottleneck analysis, and safe verification.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "WordPress performance",
       "WP-CLI profiling",
+      "wp doctor",
+      "wp profile",
       "Query Monitor",
       "Server-Timing",
-      "autoloaded options",
-      "object cache",
-      "TTFB optimization"
+      "object cache"
     ],
     "actual_capabilities": [
       "Builds a backend-only WordPress performance investigation plan.",
-      "Runs or recommends WP-CLI doctor and profile checks when available.",
-      "Inspects autoloaded options size and cache drop-in presence with the helper script.",
-      "Guides Query Monitor and Server-Timing analysis without a browser UI.",
-      "Maps bottlenecks to database, cache, cron, HTTP API, or theme resource fixes.",
-      "Defines verification steps using the same target URL, route, and environment."
+      "Uses WP-CLI doctor and profile commands when available.",
+      "Checks autoloaded options size and cache drop-in presence through the included script.",
+      "Guides REST header and Query Monitor based diagnostics without a browser UI.",
+      "Maps bottlenecks to database, object cache, HTTP API, cron, or autoloaded option fixes.",
+      "Defines verification steps using repeatable baseline and after measurements."
     ],
     "limitations": [
-      "Requires WP-CLI access for the strongest diagnostics.",
-      "Does not replace production load testing or full APM traces.",
-      "Cannot safely install plugins, flush caches, or enable debug tooling without approval.",
-      "Backend measurements may not capture all client-side performance problems."
+      "Requires access to the target WordPress environment or a representative copy.",
+      "Does not replace browser-based front-end performance testing.",
+      "Cannot safely run write operations in production without explicit approval.",
+      "Results depend on WP-CLI, plugins, and profiling tools available in the environment."
     ],
     "use_cases": [
       {
-        "title": "Investigate slow page loads",
-        "description": "Measure backend timing, profile WP-CLI stages, and identify the dominant bottleneck before changing code.",
-        "target_user": "WordPress developers"
-      },
-      {
-        "title": "Audit production readiness",
-        "description": "Use WP-CLI doctor guidance to find autoload bloat, debug flags, cron issues, and other performance risks.",
+        "title": "Investigate slow production pages",
+        "description": "Create a safe measurement plan for TTFB, WP-CLI profiling, and logs before changing code.",
         "target_user": "Site reliability engineers"
       },
       {
-        "title": "Plan safe optimization work",
-        "description": "Choose focused fixes for queries, caching, cron, or remote HTTP calls and verify results with repeatable measurements.",
-        "target_user": "Agency and platform teams"
+        "title": "Reduce backend bottlenecks",
+        "description": "Identify whether database queries, autoloaded options, object cache misses, cron, or HTTP calls dominate latency.",
+        "target_user": "WordPress developers"
+      },
+      {
+        "title": "Verify performance fixes",
+        "description": "Repeat the same measurements after a change and check that behavior and logs remain clean.",
+        "target_user": "Release managers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Start a basic performance check",
-        "scenario": "Beginner investigation for a slow WordPress page.",
-        "prompt": "Use the wp-performance skill to investigate a slow WordPress page. My environment is staging, the WP root is <path>, and the slow URL is <url>. Start with safe read-only checks."
+        "title": "Start a basic diagnosis",
+        "scenario": "Beginner baseline request",
+        "prompt": "Use the wp-performance skill to diagnose why this WordPress page is slow. I can provide the URL, environment, and WP path."
       },
       {
-        "title": "Analyze WP-CLI diagnostic output",
-        "scenario": "Review existing command output before deciding fixes.",
-        "prompt": "Use the wp-performance skill to interpret this wp doctor and wp profile output. Identify the likely bottleneck, the evidence, and the safest next measurement."
+        "title": "Create a safe profiling plan",
+        "scenario": "Staging or production planning",
+        "prompt": "Use the wp-performance skill to make a backend-only profiling plan for a WordPress site. Do not run write operations unless I approve them."
       },
       {
-        "title": "Optimize a specific bottleneck",
-        "scenario": "Focus on one confirmed performance category.",
-        "prompt": "Use the wp-performance skill for a database bottleneck. Review the query symptoms, suggest low-risk changes, and define how to verify query count and TTFB improvement."
+        "title": "Analyze WP-CLI results",
+        "scenario": "Interpreting diagnostic output",
+        "prompt": "Use the wp-performance skill to interpret my wp doctor, wp profile, and perf_inspect output. Identify the most likely bottleneck and next safe step."
       },
       {
-        "title": "Create a production-safe rollout plan",
-        "scenario": "Advanced planning for a sensitive production site.",
-        "prompt": "Use the wp-performance skill to create a production-safe optimization plan. Include approval gates, read-only diagnostics, staging validation, rollout steps, and rollback criteria."
+        "title": "Validate an optimization",
+        "scenario": "Advanced verification workflow",
+        "prompt": "Use the wp-performance skill to verify this WordPress performance fix. Compare baseline and after measurements, note risks, and recommend rollout steps."
       }
     ],
     "output_examples": [
       {
-        "input": "A staging WordPress site has high TTFB on one product page.",
-        "output": "The skill produces a baseline plan, WP-CLI checks, likely bottleneck categories, and a verification checklist for the same URL."
+        "input": "A WordPress REST endpoint has high TTFB on staging.",
+        "output": [
+          "Baseline the route with repeated HTTP timing samples.",
+          "Run WP-CLI profile for the same route when available.",
+          "Check Query Monitor REST headers for slow queries and HTTP calls.",
+          "Recommend one primary bottleneck to fix first."
+        ]
       },
       {
-        "input": "WP-CLI doctor reports large autoloaded options and debug settings enabled.",
-        "output": "The skill explains the performance impact, ranks the issues, and recommends safe changes before repeating the diagnostic checks."
+        "input": "The site has many autoloaded options and slow admin pages.",
+        "output": [
+          "Report the autoloaded option size.",
+          "Identify whether WP-CLI doctor flags the issue.",
+          "Suggest reducing large autoloaded values safely.",
+          "Repeat the same admin measurement after changes."
+        ]
       },
       {
-        "input": "Query Monitor headers show slow remote HTTP calls during REST requests.",
-        "output": "The skill suggests timeouts, caching, batching, or async processing, then defines measurements to confirm lower latency."
+        "input": "A proposed cache change may affect production traffic.",
+        "output": "The skill recommends staging validation, explicit cache invalidation checks, and avoiding cache flushes during traffic unless approved."
       }
     ],
     "best_practices": [
-      "Capture a baseline before changing code or configuration.",
-      "Run risky operations only after explicit approval in the target environment.",
-      "Verify improvements with the same URL, route, cache state, and environment."
+      "Capture baseline and after measurements in the same environment.",
+      "Ask for approval before plugin installs, cache flushes, load tests, or production writes.",
+      "Fix one dominant bottleneck first, then verify with the same measurement path."
     ],
     "anti_patterns": [
-      "Do not flush caches in production as a first troubleshooting step.",
-      "Do not enable SAVEQUERIES or profiling plugins in production without approval.",
-      "Do not optimize multiple bottleneck categories at once before measuring impact."
+      "Running load tests against production without approval.",
+      "Changing caches or plugins before collecting a baseline.",
+      "Comparing results from different URLs, users, cache states, or environments."
     ],
     "faq": [
       {
-        "question": "Does this skill require browser access?",
+        "question": "Does this skill need browser access?",
         "answer": "No. It is designed for backend-only WordPress diagnostics using WP-CLI, logs, HTTP headers, and REST responses."
       },
       {
-        "question": "Can it run WP-CLI commands?",
-        "answer": "Yes, the helper script can invoke WP-CLI when the user approves execution in the target environment."
+        "question": "Can it run in production?",
+        "answer": "It can guide safe read-only measurements in production. Write operations require explicit approval and careful timing."
       },
       {
-        "question": "Is it safe for production sites?",
-        "answer": "It can guide read-only production diagnostics, but write operations, plugin installs, cache flushes, and load tests need explicit approval."
+        "question": "What tools does it prefer?",
+        "answer": "It prefers WP-CLI doctor, WP-CLI profile, Query Monitor data, Server-Timing headers, and the included perf_inspect script."
       },
       {
-        "question": "What performance areas does it cover?",
-        "answer": "It covers backend timing, database queries, autoloaded options, object caching, cron, remote HTTP calls, and verification."
+        "question": "Does it fix performance automatically?",
+        "answer": "No. It identifies likely bottlenecks and recommends targeted changes that the user can review and approve."
       },
       {
-        "question": "Does it fix code automatically?",
-        "answer": "No. It helps identify likely fixes and verification steps. Implementation still depends on the WordPress project and user approval."
+        "question": "What WordPress versions does it target?",
+        "answer": "The skill targets WordPress 6.9 and later, with PHP 7.2.24 or later noted in the skill metadata."
       },
       {
-        "question": "Can it use Query Monitor without a browser?",
-        "answer": "Yes. It describes how to inspect Query Monitor data through REST headers and envelope responses when configured."
+        "question": "Can it diagnose front-end metrics like LCP?",
+        "answer": "It can discuss WordPress backend causes, but it does not replace browser-based field or lab testing for front-end metrics."
       }
     ]
   },
