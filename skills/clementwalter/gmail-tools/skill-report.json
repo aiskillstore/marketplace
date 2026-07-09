@@ -1,23 +1,22 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T06:16:53.059Z",
+    "generated_at": "2026-07-09T01:27:20.492Z",
     "slug": "clementwalter-gmail-tools",
     "source_url": "https://github.com/ClementWalter/rookie-marketplace/tree/main/gmail-mcp/skills/gmail-tools",
     "source_ref": "main",
-    "model": "codex",
+    "model": "claude",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "5e6ad6706f452d9a1be1fc27a7f3d2f90dc26f1b0c93e680585dcc4045b7aaff",
-    "tree_hash": "0d6cab142e3b722cef318a1cc60111b3f72d35f5672ef50d454077c2f31c7d75",
+    "tree_hash": "9162a5801b43c9417a254ecb324db519027a70ce4b6695fb5384036179744cbf",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_requested": "claude-sonnet-4.6",
+      "model_effective": "claude:claude-sonnet-4.6",
       "fallback_chain": [
         {
-          "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
+          "agent": "claude",
+          "model": "claude-sonnet-4.6",
           "outcome": "success"
         }
       ],
@@ -26,8 +25,8 @@
   },
   "skill": {
     "name": "gmail-tools",
-    "description": "Use Gmail through IMAP and SMTP with credentials retrieved from a named 1Password item.",
-    "summary": "List, read, and reply to Gmail messages using local 1Password credentials.",
+    "description": "Access Gmail through IMAP and SMTP using credentials stored in 1Password.",
+    "summary": "List, read, search, and reply to Gmail messages with 1Password-based authentication.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "ClementWalter",
@@ -55,31 +54,21 @@
     "is_blocked": true,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The script findings confirm sensitive Gmail credential access through 1Password, private mailbox reads through IMAP, and outbound email sending through SMTP. Most SKILL.md backtick findings are false positives from Markdown examples, but the skill still has high-impact email and attachment capabilities.",
+    "summary": "The skill intentionally accesses Gmail using credentials retrieved from 1Password and can read mailbox content and send replies through SMTP. Most documentation-only Markdown detections are false positives, and subprocess use calls the 1Password CLI without shell interpretation. The remaining confirmed risks are sensitive credential handling, private email access, and side-effecting email sending.",
     "remediation": [
       {
-        "issue": "The skill retrieves Gmail credentials from 1Password and uses them for IMAP and SMTP.",
-        "suggestion": "Require explicit user approval before credential access. Consider OAuth with limited scopes instead of long-lived app passwords.",
+        "issue": "Runtime scripts retrieve Gmail app passwords from 1Password.",
+        "suggestion": "Document the exact credential scope, require Gmail app passwords, and avoid printing command stderr that could include sensitive details.",
         "severity": "critical"
       },
       {
-        "issue": "Replies can be sent immediately when dry-run is not selected.",
-        "suggestion": "Make preview mode the default and require a second explicit confirmation before SMTP delivery.",
-        "severity": "high"
-      },
-      {
-        "issue": "Attachment paths are opened and sent with no allowlist or size control.",
-        "suggestion": "Restrict attachment directories, show file names and sizes, and require approval before sending files.",
-        "severity": "high"
-      },
-      {
-        "issue": "Full email bodies can be printed into the tool output.",
-        "suggestion": "Redact or summarize content by default. Add an explicit full-content mode for sensitive messages.",
+        "issue": "The reply script sends email and optional attachments through SMTP.",
+        "suggestion": "Require a dry-run preview or explicit user confirmation before sending messages or attaching files.",
         "severity": "medium"
       },
       {
-        "issue": "The subprocess call to 1Password has no timeout and exposes raw stderr in errors.",
-        "suggestion": "Add a timeout, sanitize error messages, and keep command arguments as a fixed argv list.",
+        "issue": "Read and list commands can expose private mailbox content in terminal output.",
+        "suggestion": "Warn users before displaying full message bodies and prefer limits or redaction for sensitive accounts.",
         "severity": "medium"
       }
     ],
@@ -990,483 +979,419 @@
     "finding_verdicts": [
       {
         "id": "external_commands:scripts/gmail_list.py:25:python-subprocess-run",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "high",
-        "reason": "The script invokes the local op CLI through subprocess.run to retrieve credential JSON. The argv list avoids shell injection, but external command execution with secret access is real."
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "subprocess.run invokes the 1Password CLI with a fixed argument list and shell=False, so there is no shell injection path. The item name is passed as a single argv value rather than interpreted as code."
       },
       {
         "id": "network:scripts/gmail_list.py:58:fetch-api-call",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "medium",
-        "reason": "The IMAP fetch retrieves Gmail message data so the script can output mailbox metadata. This is expected behavior, but it exposes private email content to the tool."
+        "confidence": 0.87,
+        "severity": "low",
+        "reason": "The script fetches full Gmail messages over IMAP from the user account. This is expected functionality, but it exposes mailbox content to the local tool and terminal output."
       },
       {
         "id": "sensitive:scripts/gmail_list.py:24:1password-data",
         "verdict": "confirmed",
-        "confidence": 0.96,
+        "confidence": 0.9,
         "severity": "critical",
-        "reason": "The get_credentials function retrieves username and password fields from a 1Password item. This is direct access to sensitive Gmail account credentials."
+        "reason": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "id": "sensitive:scripts/gmail_list.py:31:1password-data",
         "verdict": "confirmed",
-        "confidence": 0.82,
+        "confidence": 0.9,
         "severity": "critical",
-        "reason": "This line is part of the 1Password credential retrieval path and propagates password-manager errors. The surrounding function handles Gmail username and password values."
+        "reason": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "id": "sensitive:scripts/gmail_list.py:90:1password-data",
         "verdict": "confirmed",
-        "confidence": 0.86,
+        "confidence": 0.9,
         "severity": "critical",
-        "reason": "The CLI accepts a 1Password item name that is passed into credential retrieval. That lets the tool select and use stored Gmail account credentials."
+        "reason": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "id": "blocker:scripts/gmail_list.py:57:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line iterates over Gmail message IDs returned by IMAP search. It is mailbox pagination, not host or system reconnaissance."
+        "confidence": 0.9,
+        "reason": "The loop iterates over Gmail message IDs returned by IMAP to list recent email, not system reconnaissance. It does not inspect host, network, or environment state."
       },
       {
         "id": "external_commands:scripts/gmail_read.py:25:python-subprocess-run",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "high",
-        "reason": "The script invokes the local op CLI through subprocess.run to retrieve credential JSON. The argv list avoids shell injection, but external command execution with secret access is real."
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "subprocess.run invokes the 1Password CLI with a fixed argument list and shell=False, so there is no shell injection path. The item name is passed as a single argv value rather than interpreted as code."
       },
       {
         "id": "network:scripts/gmail_read.py:53:fetch-api-call",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "medium",
-        "reason": "The IMAP fetch retrieves full RFC822 email content by message ID. This is expected for reading mail, but it is real access to private message data."
+        "confidence": 0.87,
+        "severity": "low",
+        "reason": "The script fetches full Gmail messages over IMAP from the user account. This is expected functionality, but it exposes mailbox content to the local tool and terminal output."
       },
       {
         "id": "sensitive:scripts/gmail_read.py:24:1password-data",
         "verdict": "confirmed",
-        "confidence": 0.96,
+        "confidence": 0.9,
         "severity": "critical",
-        "reason": "The get_credentials function retrieves username and password fields from a 1Password item. This is direct access to sensitive Gmail account credentials."
+        "reason": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "id": "sensitive:scripts/gmail_read.py:31:1password-data",
         "verdict": "confirmed",
-        "confidence": 0.82,
+        "confidence": 0.9,
         "severity": "critical",
-        "reason": "This line is part of the 1Password credential retrieval path and propagates password-manager errors. The surrounding function handles Gmail username and password values."
+        "reason": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "id": "sensitive:scripts/gmail_read.py:104:1password-data",
         "verdict": "confirmed",
-        "confidence": 0.86,
+        "confidence": 0.9,
         "severity": "critical",
-        "reason": "The CLI accepts a 1Password item name that is passed into credential retrieval. That lets the tool select and use stored Gmail account credentials."
+        "reason": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "id": "external_commands:scripts/gmail_reply.py:31:python-subprocess-run",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "high",
-        "reason": "The script invokes the local op CLI through subprocess.run to retrieve credential JSON. The argv list avoids shell injection, but external command execution with secret access is real."
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "subprocess.run invokes the 1Password CLI with a fixed argument list and shell=False, so there is no shell injection path. The item name is passed as a single argv value rather than interpreted as code."
       },
       {
         "id": "network:scripts/gmail_reply.py:59:fetch-api-call",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "medium",
-        "reason": "The reply workflow fetches the original Gmail message to build reply headers. This is expected, but it still reads private mailbox data before sending."
+        "confidence": 0.86,
+        "severity": "low",
+        "reason": "The script fetches the original Gmail message over IMAP to build reply headers. This is expected, but it processes private email content and metadata."
       },
       {
         "id": "network:scripts/gmail_reply.py:20:email-sending-capability",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "high",
-        "reason": "The smtplib import is used by the same script for SMTP sending later in the file. This confirms a real ability to send email as the configured Gmail user."
+        "confidence": 0.91,
+        "severity": "medium",
+        "reason": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "id": "network:scripts/gmail_reply.py:145:email-sending-capability",
         "verdict": "confirmed",
-        "confidence": 0.97,
-        "severity": "high",
-        "reason": "The script opens an SMTP_SSL connection to smtp.gmail.com and sends the constructed message. This is a real outbound email capability."
+        "confidence": 0.91,
+        "severity": "medium",
+        "reason": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "id": "network:scripts/gmail_reply.py:146:email-sending-capability",
         "verdict": "confirmed",
-        "confidence": 0.97,
-        "severity": "high",
-        "reason": "The script opens an SMTP_SSL connection to smtp.gmail.com and sends the constructed message. This is a real outbound email capability."
+        "confidence": 0.91,
+        "severity": "medium",
+        "reason": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "id": "network:scripts/gmail_reply.py:20:python-email-libraries",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.91,
         "severity": "medium",
-        "reason": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "reason": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "id": "network:scripts/gmail_reply.py:25:python-email-libraries",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.91,
         "severity": "medium",
-        "reason": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "reason": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "id": "network:scripts/gmail_reply.py:26:python-email-libraries",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.91,
         "severity": "medium",
-        "reason": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "reason": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "id": "network:scripts/gmail_reply.py:122:python-email-libraries",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.91,
         "severity": "medium",
-        "reason": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "reason": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "id": "network:scripts/gmail_reply.py:123:python-email-libraries",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.91,
         "severity": "medium",
-        "reason": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "reason": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "id": "network:scripts/gmail_reply.py:137:python-email-libraries",
         "verdict": "confirmed",
-        "confidence": 0.88,
+        "confidence": 0.91,
         "severity": "medium",
-        "reason": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "reason": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "id": "network:scripts/gmail_reply.py:146:python-email-libraries",
         "verdict": "confirmed",
-        "confidence": 0.96,
+        "confidence": 0.91,
         "severity": "medium",
-        "reason": "This line is the SMTP_SSL send path and is not merely an email library import. It enables outbound Gmail delivery with retrieved credentials."
+        "reason": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "id": "sensitive:scripts/gmail_reply.py:30:1password-data",
         "verdict": "confirmed",
-        "confidence": 0.96,
+        "confidence": 0.9,
         "severity": "critical",
-        "reason": "The get_credentials function retrieves username and password fields from a 1Password item. This is direct access to sensitive Gmail account credentials."
+        "reason": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "id": "sensitive:scripts/gmail_reply.py:37:1password-data",
         "verdict": "confirmed",
-        "confidence": 0.82,
+        "confidence": 0.9,
         "severity": "critical",
-        "reason": "This line is part of the 1Password credential retrieval path and propagates password-manager errors. The surrounding function handles Gmail username and password values."
+        "reason": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "id": "sensitive:scripts/gmail_reply.py:160:1password-data",
         "verdict": "confirmed",
-        "confidence": 0.86,
+        "confidence": 0.9,
         "severity": "critical",
-        "reason": "The CLI accepts a 1Password item name that is passed into credential retrieval. That lets the tool select and use stored Gmail account credentials."
+        "reason": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "id": "external_commands:SKILL.md:24:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:89:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:98:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:102:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:105:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:109:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:112:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:116:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:131:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:135:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:136:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:145:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:146:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:147:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:148:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:149:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:150:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "external_commands:SKILL.md:151:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The match is Markdown documentation, inline code, a fenced example, or a table entry. It is not Ruby or shell code executed by the skill."
+        "confidence": 0.93,
+        "reason": "This finding is caused by Markdown inline code or fenced examples in documentation. It is not Ruby execution or shell backtick execution in runtime code."
       },
       {
         "id": "network:SKILL.md:29:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The URL points to Google Account Security in setup documentation. It is a user-facing help link, not a runtime network request."
+        "confidence": 0.9,
+        "reason": "The URL points users to Google Account Security documentation for creating an app password. It is documentation, not code that makes a network request."
       },
       {
         "id": "network:SKILL.md:8:email-sending-capability",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "high",
-        "reason": "The documentation states that the skill supports Gmail SMTP sending and replies. That matches the reply script and is a real outbound communication capability."
+        "confidence": 0.88,
+        "severity": "medium",
+        "reason": "The documentation explicitly advertises sending and replying through IMAP/SMTP. This confirms the skill has side-effecting email capability, even though the line itself is descriptive."
       },
       {
         "id": "sensitive:SKILL.md:8:1password-data",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "critical",
-        "reason": "The documentation states the skill uses 1Password credential storage for Gmail IMAP and SMTP. That confirms sensitive account credentials are part of the workflow."
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "This is documentation about configuring a 1Password item and does not read or expose secret values. No credential material is embedded in the file."
       },
       {
         "id": "sensitive:SKILL.md:19:1password-data",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This line is only a documentation section heading for setup. It does not contain, retrieve, or expose a credential value."
+        "confidence": 0.9,
+        "reason": "This is documentation about configuring a 1Password item and does not read or expose secret values. No credential material is embedded in the file."
       },
       {
         "id": "sensitive:SKILL.md:21:1password-data",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "critical",
-        "reason": "The setup instructions tell users to create a 1Password item for Gmail credentials. This is sensitive configuration that the scripts later retrieve."
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "This is documentation about configuring a 1Password item and does not read or expose secret values. No credential material is embedded in the file."
       },
       {
         "id": "sensitive:SKILL.md:33:1password-data",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "critical",
-        "reason": "The documentation instructs users to copy a Gmail app password into 1Password. That credential enables mailbox access and SMTP sending."
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "This is documentation about configuring a 1Password item and does not read or expose secret values. No credential material is embedded in the file."
       },
       {
         "id": "sensitive:SKILL.md:44:1password-data",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a placeholder account name in an example parameter block. It does not include a real password or secret value."
+        "confidence": 0.9,
+        "reason": "This is documentation about configuring a 1Password item and does not read or expose secret values. No credential material is embedded in the file."
       },
       {
         "id": "sensitive:SKILL.md:157:1password-data",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a troubleshooting heading about an item lookup error. It does not access or disclose 1Password data."
+        "confidence": 0.9,
+        "reason": "This is documentation about configuring a 1Password item and does not read or expose secret values. No credential material is embedded in the file."
       },
       {
         "id": "sensitive:SKILL.md:159:1password-data",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This troubleshooting sentence tells users to verify an item name. It does not contain or expose secret material."
+        "confidence": 0.9,
+        "reason": "This is documentation about configuring a 1Password item and does not read or expose secret values. No credential material is embedded in the file."
       }
     ],
-    "semantic_findings": [
-      {
-        "title": "Unconfirmed Email Sending Path",
-        "description": "The reply script sends through Gmail SMTP when dry-run is not used. There is no built-in confirmation gate before delivery.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "scripts/gmail_reply.py",
-            "line_start": 145,
-            "line_end": 148
-          },
-          {
-            "file": "scripts/gmail_reply.py",
-            "line_start": 181,
-            "line_end": 196
-          }
-        ],
-        "confidence": 0.93,
-        "confidence_reasoning": "The code has a dry-run branch, then sends the reply immediately in the else branch. This creates a clear risk of unintended outbound mail if an agent calls it directly."
-      },
-      {
-        "title": "Arbitrary Local File Attachment Sending",
-        "description": "The reply workflow reads each provided attachment path and sends the file with the email. This can disclose local files if paths are chosen incorrectly.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "scripts/gmail_reply.py",
-            "line_start": 125,
-            "line_end": 135
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 70,
-            "line_end": 81
-          }
-        ],
-        "confidence": 0.95,
-        "confidence_reasoning": "The code checks os.path.exists, opens each path in binary mode, and attaches the content. The documentation also exposes attachment path parameters."
-      },
-      {
-        "title": "Full Email Content Exposed to Tool Output",
-        "description": "The read script extracts the full message body and prints it unless JSON output is selected. Private email content can enter the AI tool transcript.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "scripts/gmail_read.py",
-            "line_start": 70,
-            "line_end": 99
-          },
-          {
-            "file": "scripts/gmail_read.py",
-            "line_start": 115,
-            "line_end": 123
-          }
-        ],
-        "confidence": 0.91,
-        "confidence_reasoning": "The script decodes text/plain or text/html content into body and prints body to stdout. This is expected functionality, but it is a privacy exposure."
-      }
-    ],
+    "semantic_findings": [],
     "critical_findings": [
       {
         "title": "1Password data",
@@ -1481,8 +1406,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.96,
-        "confidence_reasoning": "The get_credentials function retrieves username and password fields from a 1Password item. This is direct access to sensitive Gmail account credentials."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -1497,8 +1422,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.82,
-        "confidence_reasoning": "This line is part of the 1Password credential retrieval path and propagates password-manager errors. The surrounding function handles Gmail username and password values."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -1513,8 +1438,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.86,
-        "confidence_reasoning": "The CLI accepts a 1Password item name that is passed into credential retrieval. That lets the tool select and use stored Gmail account credentials."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -1529,8 +1454,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.96,
-        "confidence_reasoning": "The get_credentials function retrieves username and password fields from a 1Password item. This is direct access to sensitive Gmail account credentials."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -1545,8 +1470,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.82,
-        "confidence_reasoning": "This line is part of the 1Password credential retrieval path and propagates password-manager errors. The surrounding function handles Gmail username and password values."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -1561,8 +1486,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.86,
-        "confidence_reasoning": "The CLI accepts a 1Password item name that is passed into credential retrieval. That lets the tool select and use stored Gmail account credentials."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -1577,8 +1502,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.96,
-        "confidence_reasoning": "The get_credentials function retrieves username and password fields from a 1Password item. This is direct access to sensitive Gmail account credentials."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -1593,8 +1518,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.82,
-        "confidence_reasoning": "This line is part of the 1Password credential retrieval path and propagates password-manager errors. The surrounding function handles Gmail username and password values."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -1609,171 +1534,12 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.86,
-        "confidence_reasoning": "The CLI accepts a 1Password item name that is passed into credential retrieval. That lets the tool select and use stored Gmail account credentials."
-      },
-      {
-        "title": "1Password data",
-        "description": "Secure Gmail access via IMAP/SMTP with 1Password credential storage. Supports listing, reading, sear",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 8,
-            "line_end": 8
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.88,
-        "confidence_reasoning": "The documentation states the skill uses 1Password credential storage for Gmail IMAP and SMTP. That confirms sensitive account credentials are part of the workflow."
-      },
-      {
-        "title": "1Password data",
-        "description": "### 1Password Setup",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 19,
-            "line_end": 19
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed sensitive/critical static finding; AI dismissal overridden."
-      },
-      {
-        "title": "1Password data",
-        "description": "Create a 1Password item with:",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 21,
-            "line_end": 21
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.88,
-        "confidence_reasoning": "The setup instructions tell users to create a 1Password item for Gmail credentials. This is sensitive configuration that the scripts later retrieve."
-      },
-      {
-        "title": "1Password data",
-        "description": "5. Copy the 16-character password to your 1Password item",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 33,
-            "line_end": 33
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.88,
-        "confidence_reasoning": "The documentation instructs users to copy a Gmail app password into 1Password. That credential enables mailbox access and SMTP sending."
-      },
-      {
-        "title": "1Password data",
-        "description": "account: \"Gmail Work Claude\"  # 1Password item name",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 44,
-            "line_end": 44
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed sensitive/critical static finding; AI dismissal overridden."
-      },
-      {
-        "title": "1Password data",
-        "description": "### \"1Password item not found\"",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 157,
-            "line_end": 157
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed sensitive/critical static finding; AI dismissal overridden."
-      },
-      {
-        "title": "1Password data",
-        "description": "Verify the exact item name in 1Password matches what you're using.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 159,
-            "line_end": 159
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed sensitive/critical static finding; AI dismissal overridden."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       }
     ],
-    "high_findings": [
-      {
-        "title": "Python subprocess.run",
-        "description": "result = subprocess.run(",
-        "locations": [
-          {
-            "file": "scripts/gmail_list.py",
-            "line_start": 25,
-            "line_end": 25
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The script invokes the local op CLI through subprocess.run to retrieve credential JSON. The argv list avoids shell injection, but external command execution with secret access is real."
-      },
-      {
-        "title": "Python subprocess.run",
-        "description": "result = subprocess.run(",
-        "locations": [
-          {
-            "file": "scripts/gmail_read.py",
-            "line_start": 25,
-            "line_end": 25
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The script invokes the local op CLI through subprocess.run to retrieve credential JSON. The argv list avoids shell injection, but external command execution with secret access is real."
-      },
-      {
-        "title": "Python subprocess.run",
-        "description": "result = subprocess.run(",
-        "locations": [
-          {
-            "file": "scripts/gmail_reply.py",
-            "line_start": 31,
-            "line_end": 31
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.88,
-        "confidence_reasoning": "The script invokes the local op CLI through subprocess.run to retrieve credential JSON. The argv list avoids shell injection, but external command execution with secret access is real."
-      },
+    "high_findings": [],
+    "medium_findings": [
       {
         "title": "Email sending capability",
         "description": "import smtplib",
@@ -1787,8 +1553,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "The smtplib import is used by the same script for SMTP sending later in the file. This confirms a real ability to send email as the configured Gmail user."
+        "confidence": 0.91,
+        "confidence_reasoning": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "title": "Email sending capability",
@@ -1803,8 +1569,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.97,
-        "confidence_reasoning": "The script opens an SMTP_SSL connection to smtp.gmail.com and sends the constructed message. This is a real outbound email capability."
+        "confidence": 0.91,
+        "confidence_reasoning": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "title": "Email sending capability",
@@ -1819,116 +1585,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.97,
-        "confidence_reasoning": "The script opens an SMTP_SSL connection to smtp.gmail.com and sends the constructed message. This is a real outbound email capability."
-      },
-      {
-        "title": "Email sending capability",
-        "description": "Secure Gmail access via IMAP/SMTP with 1Password credential storage. Supports listing, reading, sear",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 8,
-            "line_end": 8
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "medium",
-        "confidence": 0.92,
-        "confidence_reasoning": "The documentation states that the skill supports Gmail SMTP sending and replies. That matches the reply script and is a real outbound communication capability."
-      },
-      {
-        "title": "Unconfirmed Email Sending Path",
-        "description": "The reply script sends through Gmail SMTP when dry-run is not used. There is no built-in confirmation gate before delivery.",
-        "locations": [
-          {
-            "file": "scripts/gmail_reply.py",
-            "line_start": 145,
-            "line_end": 148
-          },
-          {
-            "file": "scripts/gmail_reply.py",
-            "line_start": 181,
-            "line_end": 196
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "The code has a dry-run branch, then sends the reply immediately in the else branch. This creates a clear risk of unintended outbound mail if an agent calls it directly."
-      },
-      {
-        "title": "Arbitrary Local File Attachment Sending",
-        "description": "The reply workflow reads each provided attachment path and sends the file with the email. This can disclose local files if paths are chosen incorrectly.",
-        "locations": [
-          {
-            "file": "scripts/gmail_reply.py",
-            "line_start": 125,
-            "line_end": 135
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 70,
-            "line_end": 81
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.95,
-        "confidence_reasoning": "The code checks os.path.exists, opens each path in binary mode, and attaches the content. The documentation also exposes attachment path parameters."
-      }
-    ],
-    "medium_findings": [
-      {
-        "title": "Fetch API call",
-        "description": "_, msg_data = mail.fetch(eid, \"(RFC822)\")",
-        "locations": [
-          {
-            "file": "scripts/gmail_list.py",
-            "line_start": 58,
-            "line_end": 58
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.92,
-        "confidence_reasoning": "The IMAP fetch retrieves Gmail message data so the script can output mailbox metadata. This is expected behavior, but it exposes private email content to the tool."
-      },
-      {
-        "title": "Fetch API call",
-        "description": "_, msg_data = mail.fetch(email_id.encode(), \"(RFC822)\")",
-        "locations": [
-          {
-            "file": "scripts/gmail_read.py",
-            "line_start": 53,
-            "line_end": 53
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.92,
-        "confidence_reasoning": "The IMAP fetch retrieves full RFC822 email content by message ID. This is expected for reading mail, but it is real access to private message data."
-      },
-      {
-        "title": "Fetch API call",
-        "description": "_, msg_data = mail.fetch(email_id.encode(), \"(RFC822)\")",
-        "locations": [
-          {
-            "file": "scripts/gmail_reply.py",
-            "line_start": 59,
-            "line_end": 59
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.92,
-        "confidence_reasoning": "The reply workflow fetches the original Gmail message to build reply headers. This is expected, but it still reads private mailbox data before sending."
+        "confidence": 0.91,
+        "confidence_reasoning": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "title": "Python email libraries",
@@ -1943,8 +1601,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "confidence": 0.91,
+        "confidence_reasoning": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "title": "Python email libraries",
@@ -1959,8 +1617,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "confidence": 0.91,
+        "confidence_reasoning": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "title": "Python email libraries",
@@ -1975,8 +1633,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "confidence": 0.91,
+        "confidence_reasoning": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "title": "Python email libraries",
@@ -1991,8 +1649,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "confidence": 0.91,
+        "confidence_reasoning": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "title": "Python email libraries",
@@ -2007,8 +1665,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "confidence": 0.91,
+        "confidence_reasoning": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "title": "Python email libraries",
@@ -2023,8 +1681,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The email MIME library usage builds the outbound reply body or attachments for SMTP delivery. In context, it supports real message sending rather than inert parsing."
+        "confidence": 0.91,
+        "confidence_reasoning": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
         "title": "Python email libraries",
@@ -2039,32 +1697,76 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.96,
-        "confidence_reasoning": "This line is the SMTP_SSL send path and is not merely an email library import. It enables outbound Gmail delivery with retrieved credentials."
+        "confidence": 0.91,
+        "confidence_reasoning": "gmail_reply.py builds and sends messages through Gmail SMTP, including optional attachments. Email sending is real side-effecting network behavior that can contact external recipients."
       },
       {
-        "title": "Full Email Content Exposed to Tool Output",
-        "description": "The read script extracts the full message body and prints it unless JSON output is selected. Private email content can enter the AI tool transcript.",
+        "title": "Email sending capability",
+        "description": "Secure Gmail access via IMAP/SMTP with 1Password credential storage. Supports listing, reading, sear",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 8,
+            "line_end": 8
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "medium",
+        "confidence": 0.88,
+        "confidence_reasoning": "The documentation explicitly advertises sending and replying through IMAP/SMTP. This confirms the skill has side-effecting email capability, even though the line itself is descriptive."
+      }
+    ],
+    "low_findings": [
+      {
+        "title": "Fetch API call",
+        "description": "_, msg_data = mail.fetch(eid, \"(RFC822)\")",
+        "locations": [
+          {
+            "file": "scripts/gmail_list.py",
+            "line_start": 58,
+            "line_end": 58
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.87,
+        "confidence_reasoning": "The script fetches full Gmail messages over IMAP from the user account. This is expected functionality, but it exposes mailbox content to the local tool and terminal output."
+      },
+      {
+        "title": "Fetch API call",
+        "description": "_, msg_data = mail.fetch(email_id.encode(), \"(RFC822)\")",
         "locations": [
           {
             "file": "scripts/gmail_read.py",
-            "line_start": 70,
-            "line_end": 99
-          },
-          {
-            "file": "scripts/gmail_read.py",
-            "line_start": 115,
-            "line_end": 123
+            "line_start": 53,
+            "line_end": 53
           }
         ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.91,
-        "confidence_reasoning": "The script decodes text/plain or text/html content into body and prints body to stdout. This is expected functionality, but it is a privacy exposure."
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.87,
+        "confidence_reasoning": "The script fetches full Gmail messages over IMAP from the user account. This is expected functionality, but it exposes mailbox content to the local tool and terminal output."
+      },
+      {
+        "title": "Fetch API call",
+        "description": "_, msg_data = mail.fetch(email_id.encode(), \"(RFC822)\")",
+        "locations": [
+          {
+            "file": "scripts/gmail_reply.py",
+            "line_start": 59,
+            "line_end": 59
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.86,
+        "confidence_reasoning": "The script fetches the original Gmail message over IMAP to build reply headers. This is expected, but it processes private email content and metadata."
       }
     ],
-    "low_findings": [],
     "dangerous_patterns": [
       {
         "title": "1Password data",
@@ -2079,8 +1781,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.96,
-        "confidence_reasoning": "The get_credentials function retrieves username and password fields from a 1Password item. This is direct access to sensitive Gmail account credentials."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -2095,8 +1797,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.82,
-        "confidence_reasoning": "This line is part of the 1Password credential retrieval path and propagates password-manager errors. The surrounding function handles Gmail username and password values."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -2111,8 +1813,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.86,
-        "confidence_reasoning": "The CLI accepts a 1Password item name that is passed into credential retrieval. That lets the tool select and use stored Gmail account credentials."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -2127,8 +1829,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.96,
-        "confidence_reasoning": "The get_credentials function retrieves username and password fields from a 1Password item. This is direct access to sensitive Gmail account credentials."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -2143,8 +1845,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.82,
-        "confidence_reasoning": "This line is part of the 1Password credential retrieval path and propagates password-manager errors. The surrounding function handles Gmail username and password values."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -2159,8 +1861,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.86,
-        "confidence_reasoning": "The CLI accepts a 1Password item name that is passed into credential retrieval. That lets the tool select and use stored Gmail account credentials."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -2175,8 +1877,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.96,
-        "confidence_reasoning": "The get_credentials function retrieves username and password fields from a 1Password item. This is direct access to sensitive Gmail account credentials."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -2191,8 +1893,8 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.82,
-        "confidence_reasoning": "This line is part of the 1Password credential retrieval path and propagates password-manager errors. The surrounding function handles Gmail username and password values."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       },
       {
         "title": "1Password data",
@@ -2207,244 +1909,136 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 0.86,
-        "confidence_reasoning": "The CLI accepts a 1Password item name that is passed into credential retrieval. That lets the tool select and use stored Gmail account credentials."
-      },
-      {
-        "title": "1Password data",
-        "description": "Secure Gmail access via IMAP/SMTP with 1Password credential storage. Supports listing, reading, sear",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 8,
-            "line_end": 8
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.88,
-        "confidence_reasoning": "The documentation states the skill uses 1Password credential storage for Gmail IMAP and SMTP. That confirms sensitive account credentials are part of the workflow."
-      },
-      {
-        "title": "1Password data",
-        "description": "### 1Password Setup",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 19,
-            "line_end": 19
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed sensitive/critical static finding; AI dismissal overridden."
-      },
-      {
-        "title": "1Password data",
-        "description": "Create a 1Password item with:",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 21,
-            "line_end": 21
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.88,
-        "confidence_reasoning": "The setup instructions tell users to create a 1Password item for Gmail credentials. This is sensitive configuration that the scripts later retrieve."
-      },
-      {
-        "title": "1Password data",
-        "description": "5. Copy the 16-character password to your 1Password item",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 33,
-            "line_end": 33
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 0.88,
-        "confidence_reasoning": "The documentation instructs users to copy a Gmail app password into 1Password. That credential enables mailbox access and SMTP sending."
-      },
-      {
-        "title": "1Password data",
-        "description": "account: \"Gmail Work Claude\"  # 1Password item name",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 44,
-            "line_end": 44
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed sensitive/critical static finding; AI dismissal overridden."
-      },
-      {
-        "title": "1Password data",
-        "description": "### \"1Password item not found\"",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 157,
-            "line_end": 157
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed sensitive/critical static finding; AI dismissal overridden."
-      },
-      {
-        "title": "1Password data",
-        "description": "Verify the exact item name in 1Password matches what you're using.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 159,
-            "line_end": 159
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "sensitive",
-        "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed sensitive/critical static finding; AI dismissal overridden."
+        "confidence": 0.9,
+        "confidence_reasoning": "The runtime code retrieves Gmail usernames and app passwords from 1Password and uses them for IMAP/SMTP login. Handling mailbox credentials is sensitive even though no hardcoded secret is present."
       }
     ],
     "files_scanned": 4,
     "total_lines": 608,
-    "audit_model": "codex",
-    "audited_at": "2026-07-05T06:16:53.059Z",
+    "audit_model": "claude",
+    "audited_at": "2026-07-09T01:27:20.492Z",
     "agent_auto_install_policy": "blocked",
     "manual_install_policy": "allowed_with_warning"
   },
   "content": {
-    "user_title": "Manage Gmail Messages with 1Password",
-    "value_statement": "Gmail work often requires context from current messages and careful replies. This skill lets AI tools list, read, and reply through Gmail using 1Password credentials.",
+    "user_title": "Manage Gmail from Claude Code",
+    "value_statement": "Email work often requires switching between tools and copying message details by hand. This skill lets Claude, Codex, and Claude Code list, read, search, and reply to Gmail using 1Password-stored credentials.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "Gmail automation",
       "Gmail IMAP",
-      "SMTP email replies",
-      "1Password Gmail",
-      "email workflow",
-      "AI email assistant",
-      "MCP Gmail tools"
+      "Gmail SMTP",
+      "1Password credentials",
+      "email replies",
+      "email attachments",
+      "mailbox search"
     ],
     "actual_capabilities": [
-      "Lists recent Gmail messages from a selected folder through IMAP.",
-      "Reads message headers and body content by Gmail message ID.",
-      "Sends threaded Gmail replies through SMTP with proper reply headers.",
-      "Adds optional local file attachments to reply messages.",
-      "Retrieves Gmail app credentials from a named 1Password item."
+      "List recent messages from a Gmail folder with message IDs, senders, subjects, and dates.",
+      "Read a selected Gmail message body and basic headers by message ID.",
+      "Reply to an existing Gmail message while preserving thread headers.",
+      "Send reply attachments from local file paths when provided.",
+      "Use Gmail app passwords stored in a named 1Password item.",
+      "Accept IMAP folder names and common IMAP search query patterns."
     ],
     "limitations": [
-      "Requires the local 1Password CLI and an accessible Gmail app password.",
-      "Requires Gmail IMAP and SMTP access to be enabled for the account.",
-      "The provided files do not include the MCP server implementation described in documentation.",
-      "Reply sending can expose account data or attachments without careful review."
+      "Requires the 1Password CLI and a configured item with Gmail credentials.",
+      "Requires Gmail IMAP access and a Gmail app password, not a normal account password.",
+      "Standalone scripts cover listing, reading, and replying; advertised MCP tools may need separate server wiring.",
+      "Email sending is a real external side effect and should be previewed before use."
     ],
     "use_cases": [
       {
-        "title": "Review Support Mail",
-        "description": "List and read recent customer messages before preparing a response.",
-        "target_user": "Support specialist"
+        "title": "Review incoming support messages",
+        "description": "List recent Gmail messages and read selected items before drafting a response.",
+        "target_user": "Customer support operator"
       },
       {
-        "title": "Follow Up on Threads",
-        "description": "Send a threaded reply that keeps Gmail conversation history intact.",
+        "title": "Reply with project attachments",
+        "description": "Send a threaded Gmail reply and include a local document as an attachment.",
         "target_user": "Project manager"
       },
       {
-        "title": "Build Personal Email Workflows",
-        "description": "Connect Gmail access to an AI coding environment for controlled inbox tasks.",
-        "target_user": "Developer"
+        "title": "Search mailbox context during work",
+        "description": "Use IMAP search terms to find messages from a sender or about a topic.",
+        "target_user": "Developer or researcher"
       }
     ],
     "prompt_templates": [
       {
-        "title": "List Recent Messages",
-        "scenario": "Beginner inbox review",
-        "prompt": "Use gmail-tools to list my 10 most recent Gmail messages from INBOX. Show sender, subject, date, and message ID."
+        "title": "List my recent Gmail messages",
+        "scenario": "Beginner check of the inbox.",
+        "prompt": "Use gmail-tools to list the 10 most recent messages in my INBOX for the account named \"Gmail Work Claude\"."
       },
       {
-        "title": "Read One Message",
-        "scenario": "Inspect a selected email",
-        "prompt": "Use gmail-tools to read message ID 46 from INBOX. Summarize the sender, subject, date, and main request."
+        "title": "Read one message",
+        "scenario": "Inspect a message after listing email IDs.",
+        "prompt": "Use gmail-tools to read message ID 46 from INBOX for the account named \"Gmail Work Claude\" and summarize the sender, subject, and request."
       },
       {
-        "title": "Preview a Threaded Reply",
-        "scenario": "Review before sending",
-        "prompt": "Use gmail-tools to prepare a dry-run reply to message ID 46. Keep the thread headers and include the proposed body for review."
+        "title": "Prepare a safe reply",
+        "scenario": "Draft and preview a threaded response.",
+        "prompt": "Use gmail-tools to prepare a dry-run reply to message ID 46 from \"Gmail Work Claude\". Do not send it until I approve the final text."
       },
       {
-        "title": "Handle a Reply with Attachment",
-        "scenario": "Advanced controlled sending",
-        "prompt": "Use gmail-tools to reply to message ID 46 with my approved response and attach the specified file. Confirm recipient and attachment first."
+        "title": "Find and respond with context",
+        "scenario": "Advanced mailbox search and reply workflow.",
+        "prompt": "Search INBOX for messages from sender@example.com about the contract, read the latest match, draft a concise reply, and show a dry run before sending."
       }
     ],
     "output_examples": [
       {
-        "input": "List my five newest inbox messages.",
-        "output": "A concise message list with sender, subject, date, and Gmail message ID for each email."
+        "input": "List the latest five Gmail messages.",
+        "output": [
+          "Message IDs with sender, subject, and date are shown.",
+          "The user can choose an ID to read next."
+        ]
       },
       {
         "input": "Read message 46 and summarize it.",
-        "output": "A plain-language summary of the message, including sender, topic, date, and requested action."
+        "output": "The assistant displays the sender, recipient, subject, date, and a concise summary of the message body."
       },
       {
-        "input": "Dry-run a reply to message 46.",
-        "output": "A preview showing recipient, subject, thread headers, attachment names, and the reply body before sending."
+        "input": "Reply to message 46 with an attachment after preview.",
+        "output": "The assistant shows the recipient, subject, threading headers, attachment names, and body before sending."
       }
     ],
     "best_practices": [
-      "Use dry-run mode and review every reply before sending email.",
-      "Store only a Gmail app password in the dedicated 1Password item.",
-      "Review recipient, body, and attachment names before allowing SMTP sending."
+      "Use Gmail app passwords stored in 1Password instead of normal account passwords.",
+      "Run reply actions in dry-run mode and review the recipient, subject, body, and attachments.",
+      "Limit message listing and reading to the folders and message IDs needed for the task."
     ],
     "anti_patterns": [
-      "Do not ask the AI tool to send email without human approval.",
-      "Do not attach broad folders or sensitive files to reply messages.",
-      "Do not use a personal app password in a shared automation environment."
+      "Do not store Gmail passwords directly in prompts, files, or shell history.",
+      "Do not send replies or attachments without reviewing a dry-run preview.",
+      "Do not use this skill on accounts where Claude should not view mailbox content."
     ],
     "faq": [
       {
-        "question": "Does this skill store my Gmail password?",
-        "answer": "No. It retrieves credentials from a local 1Password item at runtime."
+        "question": "Does this skill require a Gmail app password?",
+        "answer": "Yes. The documentation says to use a Gmail app password stored in a 1Password item."
+      },
+      {
+        "question": "Can it read full email bodies?",
+        "answer": "Yes. The read script fetches a message by ID and prints the message body and headers."
       },
       {
         "question": "Can it send email?",
-        "answer": "Yes. The reply script sends through Gmail SMTP and supports a dry-run preview."
+        "answer": "Yes. The reply script sends threaded Gmail replies through SMTP and can include attachments."
       },
       {
-        "question": "Does it require a Gmail app password?",
-        "answer": "Yes. The documentation expects a Gmail app password stored in 1Password."
+        "question": "Does it preserve email threads?",
+        "answer": "Yes. Replies use Message-ID, In-Reply-To, and References headers from the original message."
       },
       {
-        "question": "Can it search Gmail?",
-        "answer": "The documentation describes IMAP search. The provided standalone scripts cover list, read, and reply."
+        "question": "Is the 1Password CLI required?",
+        "answer": "Yes. The scripts call the op command to read the named credential item."
       },
       {
-        "question": "Which AI tools can use this skill?",
-        "answer": "The report marks support for Claude, Codex, and Claude Code."
-      },
-      {
-        "question": "Is this safe for automatic use?",
-        "answer": "Use caution. The skill can access private email and send replies as the Gmail account."
+        "question": "Should users review messages before sending?",
+        "answer": "Yes. Users should preview each reply, especially when attachments or external recipients are involved."
       }
     ]
   },
