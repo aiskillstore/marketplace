@@ -1,23 +1,22 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T09:04:04.316Z",
+    "generated_at": "2026-07-09T01:30:46.787Z",
     "slug": "daisuke897-assume-cloudformation-role",
     "source_url": "https://github.com/Daisuke897/dotfiles/tree/main/.github/skills/assume-cloudformation-role",
     "source_ref": "main",
-    "model": "codex",
+    "model": "claude",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "1faeb738f363c216e095ee18c51b35333156b5df524563e88d586194538cc347",
-    "tree_hash": "e93f7aee7603aebe47c46ff1f2c3fc84b5939d7cb6180b237266a75f19fe2200",
+    "tree_hash": "e79b6799c0b5da740ebda2124bf04c020939cc0824392a327c6c7837854ad6cf",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_requested": "claude-sonnet-4.6",
+      "model_effective": "claude:claude-sonnet-4.6",
       "fallback_chain": [
         {
-          "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
+          "agent": "claude",
+          "model": "claude-sonnet-4.6",
           "outcome": "success"
         }
       ],
@@ -26,8 +25,8 @@
   },
   "skill": {
     "name": "assume-cloudformation-role",
-    "description": "Assumes an AWS IAM role for CloudFormation work and prepares temporary AWS CLI credentials for stack operations.",
-    "summary": "Prepare temporary AWS credentials for CloudFormation stack operations.",
+    "description": "Assume an AWS IAM role for CloudFormation stack operations and export temporary AWS credentials for CLI use.",
+    "summary": "Prepare temporary AWS credentials for CloudFormation create, update, and delete operations.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "Daisuke897",
@@ -35,9 +34,9 @@
     "tags": [
       "aws",
       "cloudformation",
-      "iam-role",
+      "iam",
       "sts",
-      "aws-cli"
+      "credentials"
     ],
     "supported_tools": [
       "claude",
@@ -56,27 +55,27 @@
     "is_blocked": true,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The skill is a legitimate DevOps helper, but it obtains and exports AWS STS credentials for CloudFormation operations. Key risks include predictable temporary credential storage, environment variable exposure, a hard-coded role ARN, and destructive stack examples. No prompt injection text was found in SKILL.md.",
+    "summary": "The skill intentionally runs AWS CLI and jq commands to assume a CloudFormation write role and export temporary AWS credential variables. Most backtick detections are markdown formatting false positives, but the shell command substitution, environment variable export, shared /tmp credential file, and AWS credential directory references are real security concerns that require safer handling.",
     "remediation": [
       {
         "issue": "Predictable temporary credential file",
-        "suggestion": "Use mktemp with restrictive permissions, avoid shared paths, and delete the file with a trap on exit.",
+        "suggestion": "Use mktemp with restrictive permissions, trap cleanup on exit, or parse the AWS CLI JSON without writing credentials to a shared /tmp path.",
         "severity": "high"
       },
       {
-        "issue": "Credential exposure through environment variables",
-        "suggestion": "Prefer AWS CLI profiles, process-local environment scope, and explicit credential unset steps after the task.",
+        "issue": "AWS credentials exported into the parent shell environment",
+        "suggestion": "Prefer scoped execution, such as running the required CloudFormation command with temporary environment variables only for that process.",
         "severity": "high"
       },
       {
-        "issue": "Hard-coded AWS account role ARN",
-        "suggestion": "Require the user to provide profile, role ARN, account, and region before any assume-role command.",
-        "severity": "high"
+        "issue": "Hardcoded default AWS account role ARN and profile",
+        "suggestion": "Require users to confirm or provide the role ARN and profile before running commands that grant CloudFormation write access.",
+        "severity": "medium"
       },
       {
-        "issue": "Destructive CloudFormation examples",
-        "suggestion": "Require confirmation and change review before create, update, or delete stack operations.",
-        "severity": "high"
+        "issue": "Credential cleanup depends on the final rm command",
+        "suggestion": "Add a shell trap and avoid command tracing so temporary credentials are removed even when an intermediate command fails.",
+        "severity": "medium"
       }
     ],
     "risk_factor_evidence": [
@@ -532,230 +531,197 @@
       {
         "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "Line 16 is Markdown inline code for a parameter and default profile name. It is not shell backtick execution and does not run a command."
+        "confidence": 0.96,
+        "reason": "This line uses markdown inline code to document a parameter or variable name; it is not executable code and has no command execution path."
       },
       {
         "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "Line 17 is Markdown inline code for a role ARN parameter and default value. It is not Ruby or shell backtick execution."
+        "confidence": 0.96,
+        "reason": "This line uses markdown inline code to document a parameter or variable name; it is not executable code and has no command execution path."
       },
       {
         "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "Line 18 is Markdown inline code for a session name parameter. It does not execute a command."
+        "confidence": 0.96,
+        "reason": "This line uses markdown inline code to document a parameter or variable name; it is not executable code and has no command execution path."
       },
       {
         "id": "external_commands:SKILL.md:29:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "high",
-        "reason": "The flagged range contains a Bash example that runs AWS STS, jq, export, and rm commands. In a skill context, these external commands handle AWS credentials."
+        "verdict": "false_positive",
+        "confidence": 0.91,
+        "reason": "This finding points to markdown code-fence syntax or surrounding prose, not executable logic. The executable commands inside the example are adjudicated separately by their specific findings."
       },
       {
         "id": "external_commands:SKILL.md:44:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "Line 44 is a closing Markdown code fence, followed by descriptive output text. It is not shell backtick execution."
+        "confidence": 0.91,
+        "reason": "This finding points to markdown code-fence syntax or surrounding prose, not executable logic. The executable commands inside the example are adjudicated separately by their specific findings."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "Line 49 is a Markdown inline reference to AWS_ACCESS_KEY_ID. It names an environment variable but does not execute a command."
+        "confidence": 0.96,
+        "reason": "This line uses markdown inline code to document a parameter or variable name; it is not executable code and has no command execution path."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "Line 50 is a Markdown inline reference to AWS_SECRET_ACCESS_KEY. It is documentation, not Ruby or shell execution."
+        "confidence": 0.96,
+        "reason": "This line uses markdown inline code to document a parameter or variable name; it is not executable code and has no command execution path."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "Line 51 is a Markdown inline reference to AWS_SESSION_TOKEN. It does not invoke a shell command."
+        "confidence": 0.96,
+        "reason": "This line uses markdown inline code to document a parameter or variable name; it is not executable code and has no command execution path."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "high",
-        "reason": "The flagged range contains AWS CLI CloudFormation create, update, and delete stack examples. These commands can modify or remove infrastructure if executed."
+        "verdict": "false_positive",
+        "confidence": 0.91,
+        "reason": "This finding points to markdown code-fence syntax or surrounding prose, not executable logic. The executable commands inside the example are adjudicated separately by their specific findings."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.91,
-        "reason": "Line 66 is a closing Markdown code fence before the prerequisites section. It is not shell backtick execution."
+        "reason": "This finding points to markdown code-fence syntax or surrounding prose, not executable logic. The executable commands inside the example are adjudicated separately by their specific findings."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "Line 72 uses Markdown inline code to document a profile name and AWS config paths. It does not execute a command."
+        "confidence": 0.95,
+        "reason": "This line documents where an AWS CLI profile may be configured; the backticks are markdown formatting, not Ruby or shell execution."
       },
       {
         "id": "external_commands:SKILL.md:38:shell-command-substitution",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "high",
-        "reason": "Line 38 uses command substitution to parse AccessKeyId from /tmp/creds.json. The command handles AWS credential material in the shell."
+        "confidence": 0.88,
+        "reason": "The example executes jq through shell command substitution to export AWS credentials. It is a legitimate local parsing step but still executes external commands while handling secrets.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:39:shell-command-substitution",
         "verdict": "confirmed",
-        "confidence": 0.89,
-        "severity": "high",
-        "reason": "Line 39 uses command substitution to parse SecretAccessKey from /tmp/creds.json. This directly handles a high-value AWS secret in the shell."
+        "confidence": 0.9,
+        "reason": "The example executes jq through shell command substitution to read the secret access key. This is expected for the workflow but increases exposure if shell history, tracing, or process capture is present.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:40:shell-command-substitution",
         "verdict": "confirmed",
         "confidence": 0.88,
-        "severity": "high",
-        "reason": "Line 40 uses command substitution to parse SessionToken from /tmp/creds.json. The shell command processes temporary AWS session credentials."
+        "reason": "The example executes jq through shell command substitution to read the session token. This is legitimate but still external command execution over credential material.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:29:template-literal-with-command-substitution",
         "verdict": "confirmed",
-        "confidence": 0.8,
-        "severity": "high",
-        "reason": "The Bash example contains command substitutions that parse STS credentials into environment variables. It is not JavaScript, but the credential command flow is real."
+        "confidence": 0.72,
+        "reason": "The fenced example contains command substitution later in the block. It is documentation rather than code, but the skill instructs users to run the commands, so the pattern is relevant.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:SKILL.md:72:hidden-file-in-home-directory",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "Line 72 documents standard AWS CLI credential and config locations as prerequisites. It does not instruct the skill to read, copy, or modify hidden files directly."
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "The skill relies on AWS profiles stored under ~/.aws. This is normal AWS CLI usage, but it references sensitive credential configuration in the home directory.",
+        "severity": "high"
       },
       {
         "id": "filesystem:SKILL.md:72:hidden-file-access",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "Line 72 references normal AWS CLI profile storage for user setup. No direct hidden-file access or credential disclosure is requested."
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "The skill instructs use of AWS configuration under ~/.aws. This is expected for AWS CLI profile use, but it is still access to sensitive hidden files.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:SKILL.md:35:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.91,
-        "severity": "high",
-        "reason": "Line 35 writes the full STS response to /tmp/creds.json, a predictable shared path. Temporary AWS credentials could be exposed before cleanup."
+        "confidence": 0.94,
+        "reason": "The command writes STS credential output to /tmp/creds.json. A predictable shared temporary file can expose credentials or be targeted by symlink attacks on multi-user systems.",
+        "severity": "high"
       },
       {
         "id": "filesystem:SKILL.md:38:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "severity": "high",
-        "reason": "Line 38 reads credential material from the fixed /tmp/creds.json path. The file path is predictable and contains STS credential data."
+        "confidence": 0.9,
+        "reason": "The command reads AWS access key material from /tmp/creds.json. The temporary file contains secrets and should not use a predictable shared path.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:SKILL.md:39:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "severity": "high",
-        "reason": "Line 39 reads the AWS secret access key from the fixed /tmp/creds.json path. That creates a real exposure window for sensitive data."
+        "confidence": 0.92,
+        "reason": "The command reads the AWS secret access key from /tmp/creds.json. This confirms sensitive credential material is stored in a predictable temporary file.",
+        "severity": "high"
       },
       {
         "id": "filesystem:SKILL.md:40:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.89,
-        "severity": "high",
-        "reason": "Line 40 reads the AWS session token from the fixed /tmp/creds.json path. The workflow relies on a predictable temporary credential file."
+        "confidence": 0.9,
+        "reason": "The command reads the AWS session token from /tmp/creds.json. The workflow depends on a temporary file containing active credentials.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:SKILL.md:43:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.75,
-        "severity": "medium",
-        "reason": "Line 43 removes the predictable temporary file after use. The cleanup is helpful, but it confirms the credential workflow depends on a fixed /tmp path."
+        "confidence": 0.82,
+        "reason": "The example deletes /tmp/creds.json after parsing, which reduces exposure. The predictable file still exists briefly and cleanup may fail if commands abort.",
+        "severity": "medium"
       },
       {
         "id": "env_access:SKILL.md:38:aws-credential-environment-variables",
         "verdict": "confirmed",
         "confidence": 0.9,
-        "severity": "high",
-        "reason": "Line 38 exports AWS_ACCESS_KEY_ID into the shell environment. Environment credentials can be inherited by later processes and exposed through logs or debugging."
+        "reason": "The skill exports AWS_ACCESS_KEY_ID into the shell environment. Environment variables can leak to child processes, shell logs, or debugging output.",
+        "severity": "high"
       },
       {
         "id": "env_access:SKILL.md:39:aws-credential-environment-variables",
         "verdict": "confirmed",
         "confidence": 0.94,
-        "severity": "high",
-        "reason": "Line 39 exports AWS_SECRET_ACCESS_KEY into the shell environment. This is direct handling of sensitive AWS credential material."
+        "reason": "The skill exports AWS_SECRET_ACCESS_KEY into the shell environment. This is sensitive credential material and creates exposure beyond the immediate AWS command.",
+        "severity": "high"
       },
       {
         "id": "env_access:SKILL.md:40:aws-credential-environment-variables",
         "verdict": "confirmed",
-        "confidence": 0.92,
-        "severity": "high",
-        "reason": "Line 40 exports AWS_SESSION_TOKEN into the shell environment. The token can enable AWS API access until it expires."
+        "confidence": 0.9,
+        "reason": "The skill exports AWS_SESSION_TOKEN into the shell environment. The temporary token grants AWS permissions until expiration and can leak to child processes.",
+        "severity": "high"
       },
       {
         "id": "env_access:SKILL.md:49:aws-credential-environment-variables",
         "verdict": "confirmed",
-        "confidence": 0.74,
-        "severity": "high",
-        "reason": "The output section states the skill sets AWS_ACCESS_KEY_ID for later AWS CLI use. This confirms credential environment exposure, although the line is descriptive."
+        "confidence": 0.82,
+        "reason": "The output section confirms AWS_ACCESS_KEY_ID is set by the workflow. This is intentional but security relevant credential exposure.",
+        "severity": "high"
       },
       {
         "id": "env_access:SKILL.md:50:aws-credential-environment-variables",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "high",
-        "reason": "The output section states the skill sets AWS_SECRET_ACCESS_KEY. This is a sensitive credential variable, even though the line documents behavior."
+        "confidence": 0.86,
+        "reason": "The output section confirms AWS_SECRET_ACCESS_KEY is set by the workflow. This is intentional but high risk because it exposes a secret in the environment.",
+        "severity": "high"
       },
       {
         "id": "env_access:SKILL.md:51:aws-credential-environment-variables",
         "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "high",
-        "reason": "The output section states the skill sets AWS_SESSION_TOKEN. This documents temporary credential exposure through environment variables."
+        "confidence": 0.82,
+        "reason": "The output section confirms AWS_SESSION_TOKEN is set by the workflow. This is intentional but sensitive because it grants temporary AWS access.",
+        "severity": "high"
       },
       {
         "id": "sensitive:SKILL.md:72:aws-credentials-directory",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "Line 72 only says an AWS CLI profile must exist in standard config or credential files. It does not request credential disclosure or direct file access."
+        "verdict": "confirmed",
+        "confidence": 0.7,
+        "reason": "The skill references ~/.aws/credentials as a prerequisite, which is a sensitive credential location. It does not read or exfiltrate the file, but marketplace review should fail closed on direct credential-directory references.",
+        "severity": "critical"
       }
     ],
-    "semantic_findings": [
-      {
-        "title": "Hard-coded AWS Role Target",
-        "description": "The skill defaults to a specific AWS profile and role ARN, including account 692859919890. Users may assume or operate against the wrong account if they run the example unchanged.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 16,
-            "line_end": 18
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 31,
-            "line_end": 35
-          }
-        ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The profile, role ARN, and AWS account are explicit defaults in the documented parameters and command example."
-      },
-      {
-        "title": "Destructive CloudFormation Operations",
-        "description": "The examples include create, update, and delete stack commands after role assumption. These actions can change or remove infrastructure when executed by an agent.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 57,
-            "line_end": 65
-          }
-        ],
-        "confidence": 0.92,
-        "confidence_reasoning": "The cited lines explicitly show CloudFormation create, update, and delete workflows following credential setup."
-      }
-    ],
+    "semantic_findings": [],
     "critical_findings": [
       {
         "title": "AWS credentials directory",
@@ -767,109 +733,29 @@
             "line_end": 72
           }
         ],
-        "review_kind": "false_positive",
+        "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed sensitive/critical static finding; AI dismissal overridden."
+        "confidence": 0.7,
+        "confidence_reasoning": "The skill references ~/.aws/credentials as a prerequisite, which is a sensitive credential location. It does not read or exfiltrate the file, but marketplace review should fail closed on direct credential-directory references."
       }
     ],
     "high_findings": [
       {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
+        "title": "Hidden file in home directory",
+        "description": "- Specified profile (default: `web-hosting`) configured in `~/.aws/credentials` or `~/.aws/config`",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 29,
-            "line_end": 44
+            "line_start": 72,
+            "line_end": 72
           }
         ],
         "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The flagged range contains a Bash example that runs AWS STS, jq, export, and rm commands. In a skill context, these external commands handle AWS credentials."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 57,
-            "line_end": 66
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The flagged range contains AWS CLI CloudFormation create, update, and delete stack examples. These commands can modify or remove infrastructure if executed."
-      },
-      {
-        "title": "Shell command substitution",
-        "description": "export AWS_ACCESS_KEY_ID=$(jq -r '.Credentials.AccessKeyId' /tmp/creds.json)",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 38,
-            "line_end": 38
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "Line 38 uses command substitution to parse AccessKeyId from /tmp/creds.json. The command handles AWS credential material in the shell."
-      },
-      {
-        "title": "Shell command substitution",
-        "description": "export AWS_SECRET_ACCESS_KEY=$(jq -r '.Credentials.SecretAccessKey' /tmp/creds.json)",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 39,
-            "line_end": 39
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.89,
-        "confidence_reasoning": "Line 39 uses command substitution to parse SecretAccessKey from /tmp/creds.json. This directly handles a high-value AWS secret in the shell."
-      },
-      {
-        "title": "Shell command substitution",
-        "description": "export AWS_SESSION_TOKEN=$(jq -r '.Credentials.SessionToken' /tmp/creds.json)",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 40,
-            "line_end": 40
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "Line 40 uses command substitution to parse SessionToken from /tmp/creds.json. The shell command processes temporary AWS session credentials."
-      },
-      {
-        "title": "Template literal with command substitution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 29,
-            "line_end": 44
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.8,
-        "confidence_reasoning": "The Bash example contains command substitutions that parse STS credentials into environment variables. It is not JavaScript, but the credential command flow is real."
+        "source_category": "filesystem",
+        "source_severity": "high",
+        "confidence": 0.72,
+        "confidence_reasoning": "The skill relies on AWS profiles stored under ~/.aws. This is normal AWS CLI usage, but it references sensitive credential configuration in the home directory."
       },
       {
         "title": "Temp directory access",
@@ -884,24 +770,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.91,
-        "confidence_reasoning": "Line 35 writes the full STS response to /tmp/creds.json, a predictable shared path. Temporary AWS credentials could be exposed before cleanup."
-      },
-      {
-        "title": "Temp directory access",
-        "description": "export AWS_ACCESS_KEY_ID=$(jq -r '.Credentials.AccessKeyId' /tmp/creds.json)",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 38,
-            "line_end": 38
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "Line 38 reads credential material from the fixed /tmp/creds.json path. The file path is predictable and contains STS credential data."
+        "confidence": 0.94,
+        "confidence_reasoning": "The command writes STS credential output to /tmp/creds.json. A predictable shared temporary file can expose credentials or be targeted by symlink attacks on multi-user systems."
       },
       {
         "title": "Temp directory access",
@@ -916,24 +786,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "Line 39 reads the AWS secret access key from the fixed /tmp/creds.json path. That creates a real exposure window for sensitive data."
-      },
-      {
-        "title": "Temp directory access",
-        "description": "export AWS_SESSION_TOKEN=$(jq -r '.Credentials.SessionToken' /tmp/creds.json)",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 40,
-            "line_end": 40
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.89,
-        "confidence_reasoning": "Line 40 reads the AWS session token from the fixed /tmp/creds.json path. The workflow relies on a predictable temporary credential file."
+        "confidence": 0.92,
+        "confidence_reasoning": "The command reads the AWS secret access key from /tmp/creds.json. This confirms sensitive credential material is stored in a predictable temporary file."
       },
       {
         "title": "AWS credential environment variables",
@@ -949,7 +803,7 @@
         "source_category": "env_access",
         "source_severity": "high",
         "confidence": 0.9,
-        "confidence_reasoning": "Line 38 exports AWS_ACCESS_KEY_ID into the shell environment. Environment credentials can be inherited by later processes and exposed through logs or debugging."
+        "confidence_reasoning": "The skill exports AWS_ACCESS_KEY_ID into the shell environment. Environment variables can leak to child processes, shell logs, or debugging output."
       },
       {
         "title": "AWS credential environment variables",
@@ -965,7 +819,7 @@
         "source_category": "env_access",
         "source_severity": "high",
         "confidence": 0.94,
-        "confidence_reasoning": "Line 39 exports AWS_SECRET_ACCESS_KEY into the shell environment. This is direct handling of sensitive AWS credential material."
+        "confidence_reasoning": "The skill exports AWS_SECRET_ACCESS_KEY into the shell environment. This is sensitive credential material and creates exposure beyond the immediate AWS command."
       },
       {
         "title": "AWS credential environment variables",
@@ -980,8 +834,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "Line 40 exports AWS_SESSION_TOKEN into the shell environment. The token can enable AWS API access until it expires."
+        "confidence": 0.9,
+        "confidence_reasoning": "The skill exports AWS_SESSION_TOKEN into the shell environment. The temporary token grants AWS permissions until expiration and can leak to child processes."
       },
       {
         "title": "AWS credential environment variables",
@@ -996,8 +850,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.74,
-        "confidence_reasoning": "The output section states the skill sets AWS_ACCESS_KEY_ID for later AWS CLI use. This confirms credential environment exposure, although the line is descriptive."
+        "confidence": 0.82,
+        "confidence_reasoning": "The output section confirms AWS_ACCESS_KEY_ID is set by the workflow. This is intentional but security relevant credential exposure."
       },
       {
         "title": "AWS credential environment variables",
@@ -1012,8 +866,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.78,
-        "confidence_reasoning": "The output section states the skill sets AWS_SECRET_ACCESS_KEY. This is a sensitive credential variable, even though the line documents behavior."
+        "confidence": 0.86,
+        "confidence_reasoning": "The output section confirms AWS_SECRET_ACCESS_KEY is set by the workflow. This is intentional but high risk because it exposes a secret in the environment."
       },
       {
         "title": "AWS credential environment variables",
@@ -1028,48 +882,123 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.76,
-        "confidence_reasoning": "The output section states the skill sets AWS_SESSION_TOKEN. This documents temporary credential exposure through environment variables."
-      },
-      {
-        "title": "Hard-coded AWS Role Target",
-        "description": "The skill defaults to a specific AWS profile and role ARN, including account 692859919890. Users may assume or operate against the wrong account if they run the example unchanged.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 16,
-            "line_end": 18
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 31,
-            "line_end": 35
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The profile, role ARN, and AWS account are explicit defaults in the documented parameters and command example."
-      },
-      {
-        "title": "Destructive CloudFormation Operations",
-        "description": "The examples include create, update, and delete stack commands after role assumption. These actions can change or remove infrastructure when executed by an agent.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 57,
-            "line_end": 65
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.92,
-        "confidence_reasoning": "The cited lines explicitly show CloudFormation create, update, and delete workflows following credential setup."
+        "confidence": 0.82,
+        "confidence_reasoning": "The output section confirms AWS_SESSION_TOKEN is set by the workflow. This is intentional but sensitive because it grants temporary AWS access."
       }
     ],
     "medium_findings": [
+      {
+        "title": "Shell command substitution",
+        "description": "export AWS_ACCESS_KEY_ID=$(jq -r '.Credentials.AccessKeyId' /tmp/creds.json)",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 38,
+            "line_end": 38
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.88,
+        "confidence_reasoning": "The example executes jq through shell command substitution to export AWS credentials. It is a legitimate local parsing step but still executes external commands while handling secrets."
+      },
+      {
+        "title": "Shell command substitution",
+        "description": "export AWS_SECRET_ACCESS_KEY=$(jq -r '.Credentials.SecretAccessKey' /tmp/creds.json)",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 39
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.9,
+        "confidence_reasoning": "The example executes jq through shell command substitution to read the secret access key. This is expected for the workflow but increases exposure if shell history, tracing, or process capture is present."
+      },
+      {
+        "title": "Shell command substitution",
+        "description": "export AWS_SESSION_TOKEN=$(jq -r '.Credentials.SessionToken' /tmp/creds.json)",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 40
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.88,
+        "confidence_reasoning": "The example executes jq through shell command substitution to read the session token. This is legitimate but still external command execution over credential material."
+      },
+      {
+        "title": "Template literal with command substitution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 29,
+            "line_end": 44
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.72,
+        "confidence_reasoning": "The fenced example contains command substitution later in the block. It is documentation rather than code, but the skill instructs users to run the commands, so the pattern is relevant."
+      },
+      {
+        "title": "Hidden file access",
+        "description": "- Specified profile (default: `web-hosting`) configured in `~/.aws/credentials` or `~/.aws/config`",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 72,
+            "line_end": 72
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.72,
+        "confidence_reasoning": "The skill instructs use of AWS configuration under ~/.aws. This is expected for AWS CLI profile use, but it is still access to sensitive hidden files."
+      },
+      {
+        "title": "Temp directory access",
+        "description": "export AWS_ACCESS_KEY_ID=$(jq -r '.Credentials.AccessKeyId' /tmp/creds.json)",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 38,
+            "line_end": 38
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.9,
+        "confidence_reasoning": "The command reads AWS access key material from /tmp/creds.json. The temporary file contains secrets and should not use a predictable shared path."
+      },
+      {
+        "title": "Temp directory access",
+        "description": "export AWS_SESSION_TOKEN=$(jq -r '.Credentials.SessionToken' /tmp/creds.json)",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 40
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.9,
+        "confidence_reasoning": "The command reads the AWS session token from /tmp/creds.json. The workflow depends on a temporary file containing active credentials."
+      },
       {
         "title": "Temp directory access",
         "description": "rm /tmp/creds.json",
@@ -1083,8 +1012,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.75,
-        "confidence_reasoning": "Line 43 removes the predictable temporary file after use. The cleanup is helpful, but it confirms the credential workflow depends on a fixed /tmp path."
+        "confidence": 0.82,
+        "confidence_reasoning": "The example deletes /tmp/creds.json after parsing, which reduces exposure. The predictable file still exists briefly and cleanup may fail if commands abort."
       }
     ],
     "low_findings": [],
@@ -1099,23 +1028,23 @@
             "line_end": 72
           }
         ],
-        "review_kind": "false_positive",
+        "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed sensitive/critical static finding; AI dismissal overridden."
+        "confidence": 0.7,
+        "confidence_reasoning": "The skill references ~/.aws/credentials as a prerequisite, which is a sensitive credential location. It does not read or exfiltrate the file, but marketplace review should fail closed on direct credential-directory references."
       }
     ],
     "files_scanned": 1,
     "total_lines": 80,
-    "audit_model": "codex",
-    "audited_at": "2026-07-05T09:04:04.316Z",
+    "audit_model": "claude",
+    "audited_at": "2026-07-09T01:30:46.787Z",
     "agent_auto_install_policy": "blocked",
     "manual_install_policy": "allowed_with_warning"
   },
   "content": {
-    "user_title": "Assume AWS Roles for CloudFormation",
-    "value_statement": "CloudFormation work often fails when temporary role credentials are missing. This skill guides AWS STS role assumption and environment setup for CLI-based stack operations.",
+    "user_title": "Assume CloudFormation AWS Roles",
+    "value_statement": "CloudFormation work often needs short lived role credentials before stack changes can run. This skill gives Claude, Codex, and Claude Code a repeatable AWS STS workflow for preparing those credentials.",
     "seo_keywords": [
       "Claude",
       "Codex",
@@ -1124,122 +1053,115 @@
       "AWS STS",
       "IAM role assumption",
       "temporary AWS credentials",
-      "DevOps automation",
-      "AWS CLI",
-      "infrastructure deployment"
+      "CloudFormation deployment",
+      "AWS CLI profile",
+      "DevOps automation"
     ],
     "actual_capabilities": [
-      "Runs an AWS STS assume-role workflow using a named AWS CLI profile.",
-      "Shows how to export temporary AccessKeyId, SecretAccessKey, and SessionToken values.",
-      "Uses jq to parse credential fields from the STS response.",
-      "Removes the temporary credential file after environment variables are set.",
-      "Lists example create, update, and delete commands for CloudFormation stacks."
+      "Shows the AWS STS assume-role command for a CloudFormation write role.",
+      "Documents default profile, role ARN, and role session name inputs.",
+      "Explains how to parse STS credential output with jq.",
+      "Exports AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN for AWS CLI use.",
+      "Lists CloudFormation create-stack, update-stack, and delete-stack examples.",
+      "States prerequisites for AWS CLI, jq, profile configuration, and AssumeRole permission."
     ],
     "limitations": [
-      "Requires AWS CLI, jq, and a local AWS profile with sts:AssumeRole permission.",
-      "Defaults contain a specific profile and role ARN that must be reviewed before use.",
-      "Uses a predictable /tmp credentials file in the provided example.",
-      "Does not validate templates, stack policies, regions, or IAM blast radius."
+      "It does not validate IAM permissions before stack operations begin.",
+      "It uses a hardcoded example role ARN and profile that may not match other AWS accounts.",
+      "It stores credential JSON in a predictable temporary path in the documented example.",
+      "It does not inspect or validate CloudFormation templates."
     ],
     "use_cases": [
       {
-        "title": "Prepare Stack Credentials",
-        "description": "Set up temporary credentials before creating or updating a CloudFormation stack from a local workstation.",
+        "title": "Prepare deployment credentials",
+        "description": "Assume a CloudFormation write role before creating or updating a stack from the AWS CLI.",
         "target_user": "DevOps engineer"
       },
       {
-        "title": "Switch Deployment Roles",
-        "description": "Assume a specific IAM role before running AWS CLI commands in a controlled deployment session.",
-        "target_user": "Cloud engineer"
+        "title": "Standardize role setup",
+        "description": "Give a team a consistent sequence for obtaining temporary AWS credentials before stack maintenance.",
+        "target_user": "Platform team lead"
       },
       {
-        "title": "Review Credential Workflow",
-        "description": "Inspect the assume-role process and improve how temporary credentials are handled during automation.",
-        "target_user": "Security engineer"
+        "title": "Run controlled stack cleanup",
+        "description": "Set temporary credentials before deleting a known CloudFormation stack during maintenance.",
+        "target_user": "Cloud administrator"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Check Prerequisites",
-        "scenario": "Beginner credential setup",
-        "prompt": "Use this skill to prepare for CloudFormation role assumption. Confirm prerequisites and avoid changing any stacks."
+        "title": "Assume the default role",
+        "scenario": "Beginner setup with the documented defaults.",
+        "prompt": "Use the assume-cloudformation-role skill with the default profile and role session name. Explain each command before I run it."
       },
       {
-        "title": "Use Custom Role",
-        "scenario": "Custom account or role",
-        "prompt": "Use profile <profile-name>, role ARN <role-arn>, and session name <session-name>. Explain each credential step before running commands."
+        "title": "Use a custom AWS profile",
+        "scenario": "A user has a different local AWS CLI profile.",
+        "prompt": "Use this skill with my AWS CLI profile named staging-admin. Keep the default role session name unless I specify another one."
       },
       {
-        "title": "Deploy After Setup",
-        "scenario": "Controlled stack deployment",
-        "prompt": "Assume the CloudFormation role, then help me create or update stack <stack-name> from template <template-file>. Check the target account first."
+        "title": "Prepare for a stack update",
+        "scenario": "Credentials are needed before a specific CloudFormation change.",
+        "prompt": "Assume the CloudFormation role, then help me confirm the AWS identity before I run an update-stack command."
       },
       {
-        "title": "Harden Credential Handling",
-        "scenario": "Advanced security review",
-        "prompt": "Review the role assumption workflow for safer temporary credential handling. Recommend changes that reduce secret exposure without changing the deployment goal."
+        "title": "Harden the credential workflow",
+        "scenario": "Advanced user wants safer handling of temporary secrets.",
+        "prompt": "Adapt the assume-role workflow to avoid a predictable /tmp credential file and keep credentials scoped to one CloudFormation command."
       }
     ],
     "output_examples": [
       {
-        "input": "Assume the default CloudFormation role before a stack update.",
+        "input": "Assume the CloudFormation write role with the default profile.",
+        "output": "The assistant presents the STS assume-role command, shows how credentials are extracted, and reminds the user to remove temporary credential files."
+      },
+      {
+        "input": "Prepare credentials before updating my-stack.",
         "output": [
-          "Prerequisites checked: AWS CLI, jq, and a configured profile are required.",
-          "The role assumption flow is ready, with temporary credentials scoped to the requested session.",
-          "Review the target role ARN and account before running any stack operation."
+          "Confirms the AWS profile and role ARN.",
+          "Provides the temporary credential setup sequence.",
+          "Suggests verifying caller identity before the stack update."
         ]
       },
       {
-        "input": "Review the credential handling in this skill.",
-        "output": [
-          "The workflow stores STS credentials in a predictable temporary file.",
-          "Use a private temporary file or direct parsing to reduce exposure.",
-          "Unset credentials after the CloudFormation task finishes."
-        ]
-      },
-      {
-        "input": "Prepare a custom account deployment.",
-        "output": [
-          "The profile, role ARN, and session name need explicit values.",
-          "The assistant should verify the target account and region before deployment.",
-          "Stack create, update, or delete actions should require user confirmation."
-        ]
+        "input": "Make the credential setup safer for a shared workstation.",
+        "output": "The assistant recommends a unique temporary file, restrictive permissions, trap-based cleanup, and process-scoped environment variables."
       }
     ],
     "best_practices": [
-      "Replace the default role ARN and profile with values for the target account.",
-      "Use a private temporary file and restrictive permissions for credential material.",
-      "Confirm account, region, stack name, and change impact before CloudFormation actions."
+      "Verify the AWS account and caller identity before running stack changes.",
+      "Use the shortest practical credential lifetime and clear environment variables after use.",
+      "Store temporary credential files with restrictive permissions and automatic cleanup."
     ],
     "anti_patterns": [
-      "Do not run the defaults against an unknown AWS account.",
-      "Do not leave temporary AWS credentials exported after the task is complete.",
-      "Do not use the example delete flow without explicit stack confirmation."
+      "Do not reuse the hardcoded example role ARN without confirming the target account.",
+      "Do not leave AWS_SECRET_ACCESS_KEY or AWS_SESSION_TOKEN exported after the task finishes.",
+      "Do not write active credentials to predictable shared paths on multi-user systems."
     ],
     "faq": [
       {
-        "question": "What does this skill help with?",
-        "answer": "It prepares temporary AWS credentials by assuming an IAM role for CloudFormation operations."
+        "question": "Does this skill create or update CloudFormation stacks by itself?",
+        "answer": "No. It prepares AWS credentials so a user can run CloudFormation commands afterward."
       },
       {
-        "question": "Does it deploy stacks automatically?",
-        "answer": "No. It provides credential setup and examples. Stack operations still need explicit user direction."
+        "question": "Which AWS permissions are required?",
+        "answer": "The source profile needs sts:AssumeRole permission for the configured CloudFormation write role."
       },
       {
-        "question": "What tools are required?",
-        "answer": "The workflow requires AWS CLI, jq, and an AWS profile with permission to assume the target role."
+        "question": "How long do the temporary credentials last?",
+        "answer": "The skill notes that temporary credentials typically expire after about one hour."
       },
       {
         "question": "Can I use a different role ARN?",
-        "answer": "Yes. Review and replace the default profile, role ARN, and session name before use."
+        "answer": "Yes. The role ARN is an input parameter and should match your AWS account and deployment policy."
       },
       {
-        "question": "Why are temporary credentials risky?",
-        "answer": "They can grant AWS access until expiration, especially if exposed through files, logs, or inherited environments."
+        "question": "Is this safe on a shared machine?",
+        "answer": "Use caution. The documented example writes credentials to /tmp, so safer temporary file handling is recommended."
       },
       {
-        "question": "How should I use it safely?",
-        "answer": "Verify the account, region, stack name, and permissions before running any CloudFormation command."
+        "question": "Does it require jq?",
+        "answer": "Yes. The documented workflow uses jq to extract fields from the AWS STS JSON response."
       }
     ]
   },

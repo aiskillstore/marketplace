@@ -1,20 +1,22 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-08T01:55:30.359Z",
+    "generated_at": "2026-07-09T01:04:58.205Z",
     "slug": "c0ntr0lledcha0s-reading-logseq-data",
     "source_url": "https://github.com/C0ntr0lledCha0s/claude-code-plugin-automations/tree/main/logseq-expert/skills/reading-logseq-data",
     "source_ref": "main",
-    "model": "codex",
+    "model": "claude",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "c65e86a53fe0ab7ed770d7434678e6556501fa4bb186884def2316da3cae7337",
-    "tree_hash": "a95ba9177144766da43e9db301bb9a3bddb31bd5eb2a59f6c837332d59c83764",
+    "content_hash": "eaef312d661d058ee91f0c55be16c1ccf1cc8d51dd92191ebe261c3b74859926",
+    "tree_hash": "f7d9bd63238442d34f9af26e6793fb0a5f0220e6e671928509a0e86476627ea2",
     "provenance": {
-      "model_effective": "codex",
+      "model_requested": "claude-sonnet-4.6",
+      "model_effective": "claude:claude-sonnet-4.6",
       "fallback_chain": [
         {
-          "agent": "codex",
+          "agent": "claude",
+          "model": "claude-sonnet-4.6",
           "outcome": "success"
         }
       ],
@@ -23,18 +25,18 @@
   },
   "skill": {
     "name": "reading-logseq-data",
-    "description": "Read Logseq graph data through the Logseq HTTP API or CLI. Use it to fetch pages, blocks, properties, backlinks, and Datalog query results.",
-    "summary": "Read Logseq pages, blocks, properties, backlinks, and Datalog query results.",
+    "description": "Read data from Logseq DB graphs through the local HTTP API or Logseq CLI, including pages, blocks, properties, backlinks, and Datalog query results.",
+    "summary": "Read Logseq graph data with local API and CLI helpers.",
     "icon": "📦",
-    "version": "1.0.1",
+    "version": "1.0.0",
     "author": "C0ntr0lledCha0s",
     "license": "MIT",
     "tags": [
       "logseq",
       "datalog",
-      "knowledge-graph",
-      "notes",
-      "data-access"
+      "knowledge-management",
+      "graph-data",
+      "local-api"
     ],
     "supported_tools": [
       "claude",
@@ -53,27 +55,22 @@
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most static detections in the Markdown and query templates are false positives from documentation backticks, error strings, and Logseq Datalog syntax. The implementation still has real security-sensitive behavior: configurable token-bearing HTTP requests, environment and config secret access, and one CLI subprocess path for user-provided queries. No prompt injection attempt was found in the reviewed files.",
+    "summary": "Static command, network, environment, and reconnaissance matches were mostly false positives from documented local Logseq API and CLI access. Two semantic risks remain: bearer tokens can be sent to a configurable API URL, and CLI search fallback builds Datalog with unescaped search text.",
     "remediation": [
       {
-        "issue": "Bearer tokens can be sent to a configurable API URL.",
-        "suggestion": "Restrict the default client to loopback URLs, warn or require confirmation for non-loopback hosts, and document trusted endpoint requirements.",
+        "issue": "Bearer tokens are sent to any configured Logseq API URL.",
+        "suggestion": "Default to localhost and require explicit user confirmation or allowlisting before sending Authorization headers to non-local hosts.",
         "severity": "medium"
       },
       {
-        "issue": "Search text is interpolated directly into a Datalog string.",
-        "suggestion": "Escape string values or rewrite the fallback search query to pass user text through Datalog parameters.",
+        "issue": "Search fallback interpolates raw search text into Datalog.",
+        "suggestion": "Use Datalog parameters for the search text or escape string literals before constructing the fallback query.",
         "severity": "medium"
       },
       {
-        "issue": "The CLI fallback runs a PATH-resolved logseq executable.",
-        "suggestion": "Resolve a trusted executable path, document the command, and require explicit user choice before CLI fallback runs.",
-        "severity": "high"
-      },
-      {
-        "issue": "Project-local configuration can control token and graph access.",
-        "suggestion": "Validate .claude/logseq-expert/env.json, reject unexpected keys, and avoid environment-variable indirection from untrusted workspaces.",
-        "severity": "medium"
+        "issue": "CLI query parameters are accepted by the API but not passed through in _cli_query.",
+        "suggestion": "Implement parameter passing for CLI queries or reject params in CLI mode so callers do not assume parameterization is active.",
+        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -1139,465 +1136,452 @@
       {
         "id": "blocker:references/read-operations.md:286:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line is documentation for normal Logseq error handling. It does not probe the host system or collect system reconnaissance data."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "blocker:references/read-operations.md:297:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line is documentation for normal Logseq error handling. It does not probe the host system or collect system reconnaissance data."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "external_commands:scripts/logseq-client.py:151:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This subprocess only runs logseq --version with fixed arguments to detect CLI availability. It does not use shell execution or untrusted command construction."
+        "confidence": 0.9,
+        "reason": "subprocess.run executes a fixed logseq --version command with an argument list and no shell. This is a local availability check, not command injection."
       },
       {
         "id": "external_commands:scripts/logseq-client.py:203:python-subprocess-run",
-        "verdict": "confirmed",
-        "confidence": 0.68,
-        "severity": "high",
-        "reason": "The client runs a PATH-resolved logseq CLI command with caller-provided Datalog query content and graph or token options. It avoids shell=True, but executing a local CLI against private graph data is security-sensitive."
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "subprocess.run invokes the Logseq CLI using an argument list with shell disabled by default. User query text is passed as an argument, so shell metacharacters are not executed."
       },
       {
         "id": "network:scripts/logseq-client.py:19:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "The urllib import supports real HTTP calls later in the same client. The network use is intended for Logseq, but it is still a true network capability."
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "The urllib usage posts requests to the configured Logseq API endpoint as the core read operation. Network access is explicit and expected for this skill."
       },
       {
         "id": "network:scripts/logseq-client.py:166:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "medium",
-        "reason": "The client makes an HTTP POST to self.url/api and includes an Authorization bearer token. The endpoint is configurable, so token-bearing network access is security-relevant."
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "The urllib usage posts requests to the configured Logseq API endpoint as the core read operation. Network access is explicit and expected for this skill."
       },
       {
         "id": "network:scripts/logseq-client.py:176:python-http-libraries",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "severity": "medium",
-        "reason": "The client makes an HTTP POST to self.url/api and includes an Authorization bearer token. The endpoint is configurable, so token-bearing network access is security-relevant."
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "The urllib usage posts requests to the configured Logseq API endpoint as the core read operation. Network access is explicit and expected for this skill."
       },
       {
         "id": "network:scripts/logseq-client.py:76:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The hardcoded address is the Logseq loopback default at 127.0.0.1:12315, not an external host. Configurable endpoint risk is covered by the HTTP and configuration findings."
+        "confidence": 0.88,
+        "reason": "The URL points to the local Logseq API default and is part of the documented local integration. No external destination or hidden exfiltration endpoint is present in this line."
       },
       {
         "id": "network:scripts/logseq-client.py:80:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The hardcoded address is the Logseq loopback default at 127.0.0.1:12315, not an external host. Configurable endpoint risk is covered by the HTTP and configuration findings."
+        "confidence": 0.88,
+        "reason": "The URL points to the local Logseq API default and is part of the documented local integration. No external destination or hidden exfiltration endpoint is present in this line."
       },
       {
         "id": "network:scripts/logseq-client.py:103:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The hardcoded address is the Logseq loopback default at 127.0.0.1:12315, not an external host. Configurable endpoint risk is covered by the HTTP and configuration findings."
+        "confidence": 0.88,
+        "reason": "The URL points to the local Logseq API default and is part of the documented local integration. No external destination or hidden exfiltration endpoint is present in this line."
       },
       {
         "id": "network:scripts/logseq-client.py:76:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The hardcoded address is the Logseq loopback default at 127.0.0.1:12315, not an external host. Configurable endpoint risk is covered by the HTTP and configuration findings."
+        "confidence": 0.88,
+        "reason": "The URL points to the local Logseq API default and is part of the documented local integration. No external destination or hidden exfiltration endpoint is present in this line."
       },
       {
         "id": "network:scripts/logseq-client.py:80:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The hardcoded address is the Logseq loopback default at 127.0.0.1:12315, not an external host. Configurable endpoint risk is covered by the HTTP and configuration findings."
+        "confidence": 0.88,
+        "reason": "The URL points to the local Logseq API default and is part of the documented local integration. No external destination or hidden exfiltration endpoint is present in this line."
       },
       {
         "id": "network:scripts/logseq-client.py:103:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The hardcoded address is the Logseq loopback default at 127.0.0.1:12315, not an external host. Configurable endpoint risk is covered by the HTTP and configuration findings."
+        "confidence": 0.88,
+        "reason": "The URL points to the local Logseq API default and is part of the documented local integration. No external destination or hidden exfiltration endpoint is present in this line."
       },
       {
         "id": "env_access:scripts/logseq-client.py:80:python-environment-access",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "low",
-        "reason": "Reads LOGSEQ_API_URL from the environment, which can redirect where API calls are sent. This is legitimate configuration, but it changes the network trust boundary."
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "The environment or config access loads local Logseq connection settings. This is expected configuration handling, not broad environment harvesting."
       },
       {
         "id": "env_access:scripts/logseq-client.py:81:python-environment-access",
-        "verdict": "confirmed",
-        "confidence": 0.86,
-        "severity": "medium",
-        "reason": "Reads LOGSEQ_API_TOKEN from the environment, which is a sensitive credential. The token is later used in an Authorization header."
+        "verdict": "false_positive",
+        "confidence": 0.78,
+        "reason": "The environment or config value is used as the Logseq API token for authentication. I found no evidence that the token is logged or sent anywhere except the configured API endpoint."
       },
       {
         "id": "env_access:scripts/logseq-client.py:82:python-environment-access",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "severity": "low",
-        "reason": "Reads LOGSEQ_GRAPH_PATH from the environment for CLI access to a local graph. This is intended configuration, but it grants access to local note data."
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "The environment or config access loads local Logseq connection settings. This is expected configuration handling, not broad environment harvesting."
       },
       {
         "id": "env_access:scripts/logseq-client.py:110:python-environment-access",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "Reads an environment variable whose name is supplied by configuration. If the config is untrusted, this can expose an unintended token value to the client."
+        "verdict": "false_positive",
+        "confidence": 0.78,
+        "reason": "The environment or config value is used as the Logseq API token for authentication. I found no evidence that the token is logged or sent anywhere except the configured API endpoint."
       },
       {
         "id": "env_access:scripts/logseq-client.py:102:configuration-library",
-        "verdict": "confirmed",
-        "confidence": 0.73,
-        "severity": "low",
-        "reason": "Loads HTTP configuration from .claude/logseq-expert/env.json in the current working directory. Project-local configuration can influence endpoint and token handling."
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "The environment or config access loads local Logseq connection settings. This is expected configuration handling, not broad environment harvesting."
       },
       {
         "id": "env_access:scripts/logseq-client.py:104:configuration-library",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "low",
-        "reason": "Allows the config file to override the API URL. This is intended setup behavior, but an untrusted config could redirect token-bearing requests."
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "The environment or config access loads local Logseq connection settings. This is expected configuration handling, not broad environment harvesting."
       },
       {
         "id": "env_access:scripts/logseq-client.py:106:configuration-library",
-        "verdict": "confirmed",
-        "confidence": 0.8,
-        "severity": "medium",
-        "reason": "Reads a token value from local configuration. Tokens are sensitive and are later sent to the configured API endpoint."
+        "verdict": "false_positive",
+        "confidence": 0.78,
+        "reason": "The environment or config value is used as the Logseq API token for authentication. I found no evidence that the token is logged or sent anywhere except the configured API endpoint."
       },
       {
         "id": "env_access:scripts/logseq-client.py:115:configuration-library",
-        "verdict": "confirmed",
-        "confidence": 0.68,
-        "severity": "low",
-        "reason": "Loads CLI configuration from the same local config file. The value is legitimate configuration but affects graph access behavior."
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "The environment or config access loads local Logseq connection settings. This is expected configuration handling, not broad environment harvesting."
       },
       {
         "id": "env_access:scripts/logseq-client.py:117:configuration-library",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "severity": "low",
-        "reason": "Allows the config file to set graphPath for CLI access. This can point the client at local graph data selected by configuration."
+        "verdict": "false_positive",
+        "confidence": 0.86,
+        "reason": "The environment or config access loads local Logseq connection settings. This is expected configuration handling, not broad environment harvesting."
       },
       {
         "id": "blocker:scripts/logseq-client.py:186:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is Logseq error handling or Datalog syntax inside the client. It does not perform host reconnaissance or enumerate system-level information."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "blocker:scripts/logseq-client.py:218:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is Logseq error handling or Datalog syntax inside the client. It does not perform host reconnaissance or enumerate system-level information."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "blocker:scripts/logseq-client.py:281:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is Logseq error handling or Datalog syntax inside the client. It does not perform host reconnaissance or enumerate system-level information."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "blocker:scripts/logseq-client.py:282:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is Logseq error handling or Datalog syntax inside the client. It does not perform host reconnaissance or enumerate system-level information."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "blocker:scripts/logseq-client.py:336:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is Logseq error handling or Datalog syntax inside the client. It does not perform host reconnaissance or enumerate system-level information."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "blocker:scripts/logseq-client.py:374:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is Logseq error handling or Datalog syntax inside the client. It does not perform host reconnaissance or enumerate system-level information."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "external_commands:SKILL.md:24:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:82:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:87:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:96:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:107:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:111:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:118:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:122:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:128:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:132:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:145:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:159:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:163:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:172:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:176:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:194:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:196:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:203:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:209:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:219:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:223:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:227:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The matched backticks are Markdown inline code or fenced examples in documentation. They are not Ruby backtick execution and do not execute shell commands."
+        "confidence": 0.95,
+        "reason": "The match is Markdown inline code or fenced examples documenting API usage. It is not executable code and does not create a command execution path."
       },
       {
         "id": "network:SKILL.md:156:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is a documentation example using localhost for the Logseq API. It is not an external endpoint or hidden network destination."
+        "confidence": 0.93,
+        "reason": "The hardcoded URL appears in documentation as a localhost example for the Logseq API. It is not an external network destination."
       },
       {
         "id": "blocker:SKILL.md:171:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is Logseq error handling or Datalog syntax inside the client. It does not perform host reconnaissance or enumerate system-level information."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "blocker:templates/query-template.edn:23:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a Logseq Datalog query template using block UUIDs and pull syntax. It queries graph content, not host system metadata or operating system state."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "blocker:templates/query-template.edn:25:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a Logseq Datalog query template using block UUIDs and pull syntax. It queries graph content, not host system metadata or operating system state."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "blocker:templates/query-template.edn:194:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a Logseq Datalog query template using block UUIDs and pull syntax. It queries graph content, not host system metadata or operating system state."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "blocker:templates/query-template.edn:196:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a Logseq Datalog query template using block UUIDs and pull syntax. It queries graph content, not host system metadata or operating system state."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       },
       {
         "id": "blocker:templates/query-template.edn:208:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a Logseq Datalog query template using block UUIDs and pull syntax. It queries graph content, not host system metadata or operating system state."
+        "confidence": 0.91,
+        "reason": "The flagged text is an error message, Datalog variable, UUID field, or query attribute from normal Logseq read operations. It is not system reconnaissance or a prompt injection attempt."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Configurable API Endpoint Receives Token",
-        "description": "The client loads the API URL and token from environment or local config, then sends a bearer token to self.url/api. A malicious or unsafe configuration could redirect Logseq credentials and query payloads to an unintended endpoint.",
+        "title": "Configurable API Endpoint Can Receive Bearer Token",
+        "description": "The client reads LOGSEQ_API_URL or .claude/logseq-expert/env.json and sends the bearer token to the configured URL. This supports custom deployments, but a malicious or mistaken configuration could disclose the Logseq API token to a non-local endpoint.",
         "severity": "medium",
         "locations": [
           {
@@ -1605,416 +1589,209 @@
             "line_start": 80,
             "line_end": 82
           },
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 95,
-            "line_end": 112
-          },
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 166,
-            "line_end": 172
-          }
-        ],
-        "confidence": 0.82,
-        "confidence_reasoning": "The URL, token loading, and Authorization header are explicit in the client. Exploitation depends on attacker control of environment or local config, so the risk is contextual."
-      },
-      {
-        "title": "Unescaped Search Text In Datalog Query",
-        "description": "The fallback search query inserts query_text directly inside a quoted Datalog string. Crafted text containing quotes or query syntax could alter the generated query or expose more graph data than intended.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 335,
-            "line_end": 340
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The f-string directly interpolates user search text into query syntax without escaping or parameters. The impact is limited to Logseq query behavior, not shell execution."
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [
-      {
-        "title": "Python subprocess.run",
-        "description": "result = subprocess.run(",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 203,
-            "line_end": 203
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.68,
-        "confidence_reasoning": "The client runs a PATH-resolved logseq CLI command with caller-provided Datalog query content and graph or token options. It avoids shell=True, but executing a local CLI against private graph data is security-sensitive."
-      }
-    ],
-    "medium_findings": [
-      {
-        "title": "Python HTTP libraries",
-        "description": "req = urllib.request.Request(",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 166,
-            "line_end": 166
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "The client makes an HTTP POST to self.url/api and includes an Authorization bearer token. The endpoint is configurable, so token-bearing network access is security-relevant."
-      },
-      {
-        "title": "Python HTTP libraries",
-        "description": "with urllib.request.urlopen(req, timeout=30) as response:",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 176,
-            "line_end": 176
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.84,
-        "confidence_reasoning": "The client makes an HTTP POST to self.url/api and includes an Authorization bearer token. The endpoint is configurable, so token-bearing network access is security-relevant."
-      },
-      {
-        "title": "Python environment access",
-        "description": "self.token = token or os.environ.get(\"LOGSEQ_API_TOKEN\", \"\")",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 81,
-            "line_end": 81
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "Reads LOGSEQ_API_TOKEN from the environment, which is a sensitive credential. The token is later used in an Authorization header."
-      },
-      {
-        "title": "Python environment access",
-        "description": "self.token = os.environ.get(var_name, \"\")",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 110,
-            "line_end": 110
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.82,
-        "confidence_reasoning": "Reads an environment variable whose name is supplied by configuration. If the config is untrusted, this can expose an unintended token value to the client."
-      },
-      {
-        "title": "Configuration library",
-        "description": "token = http_config.get(\"token\", \"\")",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 106,
-            "line_end": 106
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.8,
-        "confidence_reasoning": "Reads a token value from local configuration. Tokens are sensitive and are later sent to the configured API endpoint."
-      },
-      {
-        "title": "Configurable API Endpoint Receives Token",
-        "description": "The client loads the API URL and token from environment or local config, then sends a bearer token to self.url/api. A malicious or unsafe configuration could redirect Logseq credentials and query payloads to an unintended endpoint.",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 80,
-            "line_end": 82
-          },
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 95,
-            "line_end": 112
-          },
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 166,
-            "line_end": 172
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The URL, token loading, and Authorization header are explicit in the client. Exploitation depends on attacker control of environment or local config, so the risk is contextual."
-      },
-      {
-        "title": "Unescaped Search Text In Datalog Query",
-        "description": "The fallback search query inserts query_text directly inside a quoted Datalog string. Crafted text containing quotes or query syntax could alter the generated query or expose more graph data than intended.",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 335,
-            "line_end": 340
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The f-string directly interpolates user search text into query syntax without escaping or parameters. The impact is limited to Logseq query behavior, not shell execution."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "Python HTTP libraries",
-        "description": "import urllib.request",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 19,
-            "line_end": 19
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The urllib import supports real HTTP calls later in the same client. The network use is intended for Logseq, but it is still a true network capability."
-      },
-      {
-        "title": "Python environment access",
-        "description": "self.url = url or os.environ.get(\"LOGSEQ_API_URL\", \"http://127.0.0.1:12315\")",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 80,
-            "line_end": 80
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.76,
-        "confidence_reasoning": "Reads LOGSEQ_API_URL from the environment, which can redirect where API calls are sent. This is legitimate configuration, but it changes the network trust boundary."
-      },
-      {
-        "title": "Python environment access",
-        "description": "self.graph_path = graph_path or os.environ.get(\"LOGSEQ_GRAPH_PATH\", \"\")",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 82,
-            "line_end": 82
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.72,
-        "confidence_reasoning": "Reads LOGSEQ_GRAPH_PATH from the environment for CLI access to a local graph. This is intended configuration, but it grants access to local note data."
-      },
-      {
-        "title": "Configuration library",
-        "description": "http_config = config.get(\"http\", {})",
-        "locations": [
           {
             "file": "scripts/logseq-client.py",
             "line_start": 102,
-            "line_end": 102
+            "line_end": 112
+          },
+          {
+            "file": "scripts/logseq-client.py",
+            "line_start": 166,
+            "line_end": 172
           }
         ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.73,
-        "confidence_reasoning": "Loads HTTP configuration from .claude/logseq-expert/env.json in the current working directory. Project-local configuration can influence endpoint and token handling."
+        "confidence": 0.74,
+        "confidence_reasoning": "The code clearly combines configurable URLs with Authorization header transmission. The risk depends on user configuration, so confidence is high for the behavior but medium for exploitability."
       },
       {
-        "title": "Configuration library",
-        "description": "self.url = http_config.get(\"url\", self.url)",
+        "title": "Unescaped Search Text in Datalog Fallback",
+        "description": "The CLI search fallback interpolates query_text directly into a Datalog string. A crafted search term containing quotes or Datalog syntax could alter the query or cause unexpected graph reads when CLI fallback is used.",
+        "severity": "medium",
         "locations": [
           {
             "file": "scripts/logseq-client.py",
-            "line_start": 104,
-            "line_end": 104
+            "line_start": 335,
+            "line_end": 340
           }
         ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "Allows the config file to override the API URL. This is intended setup behavior, but an untrusted config could redirect token-bearing requests."
-      },
-      {
-        "title": "Configuration library",
-        "description": "cli_config = config.get(\"cli\", {})",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 115,
-            "line_end": 115
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.68,
-        "confidence_reasoning": "Loads CLI configuration from the same local config file. The value is legitimate configuration but affects graph access behavior."
-      },
-      {
-        "title": "Configuration library",
-        "description": "self.graph_path = cli_config.get(\"graphPath\", \"\")",
-        "locations": [
-          {
-            "file": "scripts/logseq-client.py",
-            "line_start": 117,
-            "line_end": 117
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.72,
-        "confidence_reasoning": "Allows the config file to set graphPath for CLI access. This can point the client at local graph data selected by configuration."
+        "confidence": 0.8,
+        "confidence_reasoning": "The interpolation is direct and not parameterized. The impact is limited to local Logseq query behavior, but the injection pattern is concrete."
       }
     ],
+    "critical_findings": [],
+    "high_findings": [],
+    "medium_findings": [
+      {
+        "title": "Configurable API Endpoint Can Receive Bearer Token",
+        "description": "The client reads LOGSEQ_API_URL or .claude/logseq-expert/env.json and sends the bearer token to the configured URL. This supports custom deployments, but a malicious or mistaken configuration could disclose the Logseq API token to a non-local endpoint.",
+        "locations": [
+          {
+            "file": "scripts/logseq-client.py",
+            "line_start": 80,
+            "line_end": 82
+          },
+          {
+            "file": "scripts/logseq-client.py",
+            "line_start": 102,
+            "line_end": 112
+          },
+          {
+            "file": "scripts/logseq-client.py",
+            "line_start": 166,
+            "line_end": 172
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "The code clearly combines configurable URLs with Authorization header transmission. The risk depends on user configuration, so confidence is high for the behavior but medium for exploitability."
+      },
+      {
+        "title": "Unescaped Search Text in Datalog Fallback",
+        "description": "The CLI search fallback interpolates query_text directly into a Datalog string. A crafted search term containing quotes or Datalog syntax could alter the query or cause unexpected graph reads when CLI fallback is used.",
+        "locations": [
+          {
+            "file": "scripts/logseq-client.py",
+            "line_start": 335,
+            "line_end": 340
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.8,
+        "confidence_reasoning": "The interpolation is direct and not parameterized. The impact is limited to local Logseq query behavior, but the injection pattern is concrete."
+      }
+    ],
+    "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 4,
     "total_lines": 1219,
-    "audit_model": "codex",
-    "audited_at": "2026-07-08T01:55:30.359Z",
+    "audit_model": "claude",
+    "audited_at": "2026-07-09T01:04:58.205Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Read Logseq Graph Data",
-    "value_statement": "Logseq graphs can be hard to inspect from an AI coding session. This skill provides guided read access for pages, blocks, properties, backlinks, search, and Datalog queries.",
+    "value_statement": "Logseq users often need reliable access to pages, blocks, properties, and relationships without hand-writing every query. This skill gives Claude, Codex, and Claude Code structured helpers for reading local Logseq graph data.",
     "seo_keywords": [
-      "Logseq",
-      "Logseq graph",
-      "Datalog queries",
-      "knowledge graph",
-      "note search",
       "Claude",
       "Codex",
       "Claude Code",
-      "AI productivity",
-      "graph data access"
+      "Logseq",
+      "Datalog",
+      "Logseq API",
+      "knowledge graph",
+      "graph queries",
+      "backlinks",
+      "local data"
     ],
     "actual_capabilities": [
-      "Fetches Logseq pages and blocks by title or UUID.",
-      "Runs Datalog queries against a Logseq graph.",
-      "Searches graph content and returns matching blocks.",
-      "Lists pages and retrieves backlink relationships.",
-      "Reads page and block properties from graph data.",
-      "Uses HTTP API access or a Logseq CLI fallback."
+      "Fetch Logseq pages and blocks by title or UUID.",
+      "Run Datalog queries against a Logseq graph.",
+      "Search graph content and limit returned results.",
+      "List pages, backlinks, and graph metadata.",
+      "Read page and block properties through HTTP API or CLI backends."
     ],
     "limitations": [
-      "Requires a running Logseq API or an installed Logseq CLI.",
-      "Needs a valid token, graph path, or local configuration.",
-      "Only reads graph data and does not edit Logseq content.",
-      "CLI behavior can vary by Logseq version and local setup."
+      "Requires a running Logseq HTTP API or installed Logseq CLI.",
+      "Needs a valid Logseq API token for HTTP operations.",
+      "Focuses on read operations and does not edit graph content.",
+      "Query results depend on the user graph schema and available properties."
     ],
     "use_cases": [
       {
-        "title": "Inspect Project Notes",
-        "description": "Fetch project pages, open related blocks, and summarize current notes without leaving the coding session.",
-        "target_user": "Developers using Logseq for technical planning"
+        "title": "Inspect research notes",
+        "description": "Find pages, backlinks, and related blocks before summarizing a research topic.",
+        "target_user": "Researchers and analysts"
       },
       {
-        "title": "Query Knowledge Graphs",
-        "description": "Run focused Datalog queries to find tagged items, properties, tasks, and relationships in a Logseq graph.",
-        "target_user": "Researchers and power users"
+        "title": "Build graph reports",
+        "description": "Run Datalog queries to list tasks, tagged items, ratings, or other structured Logseq data.",
+        "target_user": "Knowledge management power users"
       },
       {
-        "title": "Review Linked Context",
-        "description": "Find backlinks and references for a topic before drafting documentation or making product decisions.",
-        "target_user": "Product managers and documentation writers"
+        "title": "Support local automation",
+        "description": "Use Claude Code to retrieve Logseq data through a reusable Python client in scripts.",
+        "target_user": "Developers and automation builders"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Fetch One Page",
-        "scenario": "Beginner page lookup",
-        "prompt": "Read the Logseq page named Project Alpha and summarize the main points and open questions."
+        "title": "Fetch a page",
+        "prompt": "Use the Logseq reading skill to get the page named \"Project Alpha\" and summarize its blocks.",
+        "scenario": "Beginner page lookup"
       },
       {
-        "title": "Search Notes",
-        "scenario": "Find relevant blocks",
-        "prompt": "Search my Logseq graph for onboarding and list the most relevant pages with short context for each match."
+        "title": "Find backlinks",
+        "prompt": "Use Logseq to find backlinks to \"Quarterly Planning\" and group the results by source page.",
+        "scenario": "Relationship review"
       },
       {
-        "title": "Review Backlinks",
-        "scenario": "Relationship discovery",
-        "prompt": "Find backlinks for the Architecture page and group the results by source page and topic."
+        "title": "Query tagged items",
+        "prompt": "Run a Logseq Datalog query that finds all blocks tagged \"Book\" with a rating of 4 or higher.",
+        "scenario": "Structured graph query"
       },
       {
-        "title": "Run Focused Query",
-        "scenario": "Advanced Datalog analysis",
-        "prompt": "Run a Datalog query for tasks marked In Progress with priority High, then summarize owners, due dates, and blockers."
+        "title": "Audit task metadata",
+        "prompt": "Read my Logseq graph and list tasks with status \"In Progress\", including deadlines and parent pages when available.",
+        "scenario": "Advanced workflow review"
       }
     ],
     "output_examples": [
       {
-        "input": "Read the page Meeting Notes and summarize the actions.",
-        "output": "A short summary of the page, followed by action items, owners, and linked follow-up pages."
+        "input": "Get the Logseq page \"Project Alpha\".",
+        "output": "A concise page summary with properties, top-level blocks, and any missing page notice."
       },
       {
-        "input": "Find backlinks for Roadmap.",
-        "output": "A grouped backlink review showing source pages, matching block summaries, and relationship notes."
+        "input": "Find backlinks to \"Hiring Plan\".",
+        "output": [
+          "Referencing page names",
+          "Matched block excerpts",
+          "Counts grouped by page"
+        ]
       },
       {
-        "input": "Search for security review in my Logseq graph.",
-        "output": "A ranked list of matching pages and blocks with concise excerpts and suggested next reads."
+        "input": "List books rated at least 4 stars.",
+        "output": "A table-style summary of matching book titles, authors, and ratings when those properties exist."
       }
     ],
     "best_practices": [
-      "Use the narrowest page title, block UUID, or search phrase that answers the task.",
-      "Prefer parameterized Datalog queries when values come from user text.",
-      "Keep Logseq API tokens in local environment variables or trusted configuration only."
+      "Keep the Logseq API bound to localhost unless remote access is required.",
+      "Use parameterized Datalog queries for user-supplied values.",
+      "Request only the fields needed to keep graph reads fast and private."
     ],
     "anti_patterns": [
-      "Do not run broad graph-wide queries when a page or tag lookup is enough.",
-      "Do not share Logseq API tokens in prompts, logs, or public repositories.",
-      "Do not use a remote API URL unless you fully trust the endpoint."
+      "Do not paste sensitive graph exports into prompts when local API access is enough.",
+      "Do not use broad pull-all queries for large graphs without a limit.",
+      "Do not configure API tokens for remote URLs you do not control."
     ],
     "faq": [
       {
-        "question": "Does this skill write to my Logseq graph?",
-        "answer": "No. The documented operations are read focused and cover pages, blocks, properties, search, backlinks, and queries."
+        "question": "Does this skill modify my Logseq graph?",
+        "answer": "No. The documented operations focus on reading pages, blocks, properties, backlinks, and query results."
       },
       {
-        "question": "What setup is required?",
-        "answer": "You need the Logseq HTTP API with a token, or the Logseq CLI with access to your graph."
+        "question": "What connection methods are supported?",
+        "answer": "It supports the local Logseq HTTP API and a CLI fallback when the Logseq CLI is available."
+      },
+      {
+        "question": "Do I need an API token?",
+        "answer": "Yes for HTTP API calls. The token can come from parameters, environment variables, or local configuration."
       },
       {
         "question": "Can it run custom Datalog queries?",
-        "answer": "Yes. It includes Datalog query examples and a client method for running graph queries."
+        "answer": "Yes. The skill includes examples and templates for Datalog queries against a Logseq DB graph."
       },
       {
-        "question": "Does it work with Claude, Codex, and Claude Code?",
-        "answer": "Yes. The report lists support for Claude, Codex, and Claude Code."
+        "question": "Is this useful for Markdown file graphs?",
+        "answer": "It is designed for Logseq DB graph access through API or CLI behavior. Results depend on Logseq support for the graph."
       },
       {
-        "question": "Can it search across all notes?",
-        "answer": "Yes. It can search graph content and return matching blocks, subject to the configured backend."
-      },
-      {
-        "question": "What security precautions should I take?",
-        "answer": "Use localhost when possible, protect your API token, and avoid untrusted configuration files."
+        "question": "Can Claude Code use the included Python client?",
+        "answer": "Yes. Claude Code can call the provided client library when local permissions allow file and command access."
       }
     ]
   },
@@ -2046,12 +1823,6 @@
       ]
     },
     {
-      "name": "SKILL.md",
-      "type": "file",
-      "path": "SKILL.md",
-      "lines": 229
-    },
-    {
       "name": "templates",
       "type": "dir",
       "path": "templates",
@@ -2063,6 +1834,12 @@
           "lines": 218
         }
       ]
+    },
+    {
+      "name": "SKILL.md",
+      "type": "file",
+      "path": "SKILL.md",
+      "lines": 229
     }
   ]
 }
