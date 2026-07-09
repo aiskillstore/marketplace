@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T12:30:51.793Z",
+    "generated_at": "2026-07-09T16:10:06.864Z",
     "slug": "dyai2025-artifacts-builder",
     "source_url": "https://github.com/DYAI2025/Stoppclock-page/tree/main/stoppclock_speckit/.claude/commands/skills/artifacts-builder",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "8455a64e627d203fd7b43df64c83d8870cb98907aae21edce4ec8eeef651d850",
-    "tree_hash": "7408a473e20bf1d35c3334d1aa47a197add9ea4664b63c1c88f1662c3c4ccd00",
+    "tree_hash": "98c20139567ab2f7e900c551523fca1c68840269027e9c06d0200eb5f5d1099c",
     "provenance": {
       "model_requested": "gpt-5.5:high",
       "model_effective": "codex:gpt-5.5:high",
@@ -26,18 +26,18 @@
   },
   "skill": {
     "name": "artifacts-builder",
-    "description": "Build multi-file React, TypeScript, Tailwind CSS, and shadcn/ui projects, then bundle them into a single HTML artifact for Claude conversations.",
-    "summary": "Create complex React-based Claude artifacts and bundle them into one shareable HTML file.",
+    "description": "Create complex Claude HTML artifacts with React, TypeScript, Vite, Tailwind CSS, and shadcn/ui components.",
+    "summary": "Build and bundle multi-component React artifacts into a single shareable HTML file.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "DYAI2025",
     "license": "Complete terms in LICENSE.txt",
     "tags": [
       "react",
-      "vite",
+      "html-artifacts",
       "tailwind-css",
       "shadcn-ui",
-      "html-artifacts"
+      "frontend-build"
     ],
     "supported_tools": [
       "claude",
@@ -53,30 +53,30 @@
     "category": "coding"
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "This skill contains legitimate setup scripts for creating and bundling React artifacts, but several confirmed risks remain because the scripts run shell commands, install public packages, modify project files, and extract an embedded archive. I did not find prompt-injection text or data-exfiltration intent in SKILL.md; most markdown backtick and hardcoded URL findings are false positives. The embedded archive appears to contain expected shadcn/ui source files after manual inspection.",
+    "summary": "The skill is a legitimate frontend artifact builder, but it runs shell scripts with package installation and file-system side effects. Most markdown, URL, and local configuration findings are false positives; the remaining concerns are supply-chain exposure, global package installation, and a packaged component archive that reduces reviewability.",
     "remediation": [
       {
-        "issue": "Unpinned and global package installation",
-        "suggestion": "Pin all package versions, avoid npm install -g when possible, and include a lockfile or checksum guidance for reproducible installs.",
-        "severity": "high"
-      },
-      {
-        "issue": "Executable scripts mutate the workspace",
-        "suggestion": "Document every file and directory that scripts create, modify, or delete. Require explicit confirmation before running them in an agent workflow.",
+        "issue": "Runtime dependency installation from public package registries",
+        "suggestion": "Pin exact package versions, avoid latest package creation commands, and ask for user confirmation before installing dependencies.",
         "severity": "medium"
       },
       {
-        "issue": "Project name is not validated",
-        "suggestion": "Accept only safe directory slugs, reject names starting with a dash, and reject absolute paths or parent-directory traversal.",
+        "issue": "Global pnpm installation when pnpm is missing",
+        "suggestion": "Avoid npm install -g in the skill script or require users to install pnpm themselves before running setup.",
         "severity": "medium"
       },
       {
-        "issue": "Embedded component archive reduces audit transparency",
-        "suggestion": "Prefer plain source files in the skill repository, or publish a manifest and checksum that is verified before extraction.",
+        "issue": "Bundled component archive is extracted into source code",
+        "suggestion": "Store component files as normal text files or verify the archive checksum and reject absolute or parent-directory paths before extraction.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Shell scripts perform project writes and build cleanup",
+        "suggestion": "Document every side effect and keep deletion limited to generated build outputs inside the current project directory.",
         "severity": "low"
       }
     ],
@@ -543,307 +543,234 @@
       {
         "id": "external_commands:scripts/bundle-artifact.sh:47:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The command substitution only runs du and cut on the generated bundle.html to print a file size. It does not include user-controlled command text or sensitive data handling."
+        "confidence": 0.92,
+        "reason": "The command substitution only calculates the size of bundle.html with du and cut. It does not evaluate user-controlled input or alter command flow."
       },
       {
         "id": "external_commands:scripts/bundle-artifact.sh:1:unix-shell-invocation",
         "verdict": "confirmed",
-        "confidence": 0.78,
+        "confidence": 0.82,
         "severity": "medium",
-        "reason": "This is an executable Bash script that installs bundling packages, removes build output, and runs Parcel commands. The behavior is intended, but it requires explicit trust before execution."
+        "reason": "This is an executable shell script that installs bundling dependencies, deletes generated build outputs, and runs Parcel commands. Those are legitimate actions, but they create external command and workspace side effects."
       },
       {
         "id": "scripts:scripts/init-artifact.sh:93:dynamic-import-expression",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "Line 93 is a TypeScript JSDoc type reference inside generated Tailwind configuration. It is not a runtime dynamic import expression."
+        "confidence": 0.98,
+        "reason": "The text is a Tailwind JSDoc type annotation inside generated configuration content. It is not a runtime dynamic import expression."
       },
       {
         "id": "external_commands:scripts/init-artifact.sh:7:shell-command-substitution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The substitution runs node -v and cut to parse the local Node major version. No untrusted input is interpolated into a shell command."
+        "reason": "The substitution runs node -v and cut to detect the local major Node version. It uses fixed commands and does not include user-controlled shell input."
       },
       {
         "id": "external_commands:scripts/init-artifact.sh:13:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The substitution only prints the current local Node version in an error message. It does not execute user-controlled command text."
+        "confidence": 0.93,
+        "reason": "The substitution prints the current Node version for an error message. It does not execute attacker-provided content."
       },
       {
         "id": "external_commands:scripts/init-artifact.sh:46:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The substitution resolves the script directory from BASH_SOURCE using quoted path operations. This is a normal shell-script pattern and does not create command injection by itself."
+        "confidence": 0.88,
+        "reason": "The substitution resolves the script directory using dirname, cd, and pwd with quoted variables. This is a standard path resolution pattern with no direct command injection vector."
       },
       {
         "id": "external_commands:scripts/init-artifact.sh:1:unix-shell-invocation",
         "verdict": "confirmed",
-        "confidence": 0.8,
+        "confidence": 0.86,
         "severity": "medium",
-        "reason": "This Bash script creates a project, installs packages, writes configuration files, and extracts an archive. Those actions are intended but materially mutate the filesystem and dependency tree."
+        "reason": "This shell script creates a project, installs dependencies, writes configuration files, and extracts an archive. The behavior is intentional, but it has real execution and workspace modification risk."
       },
       {
         "id": "network:scripts/init-artifact.sh:283:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.95,
-        "reason": "The URL is the shadcn/ui JSON schema string written into components.json. It is not used as a network request or exfiltration endpoint."
+        "reason": "The URL is a schema reference written into components.json. It is not fetched by the script and does not send data over the network."
       },
       {
         "id": "filesystem:scripts/init-artifact.sh:230:node-js-fs-operations",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "severity": "medium",
-        "reason": "The script reads tsconfig.json in the generated project before modifying it. This is expected setup behavior, but it is real filesystem access performed by an executable skill script."
+        "verdict": "false_positive",
+        "confidence": 0.84,
+        "reason": "The read targets tsconfig.json inside the newly created project to configure path aliases. It does not read secrets or arbitrary user-selected files."
       },
       {
         "id": "filesystem:scripts/init-artifact.sh:234:node-js-fs-operations",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "severity": "medium",
-        "reason": "The script writes tsconfig.json in the generated project. This intended mutation should be disclosed because it can overwrite existing config if the script is run in an unintended directory."
+        "verdict": "false_positive",
+        "confidence": 0.84,
+        "reason": "The write updates tsconfig.json inside the generated project with path alias configuration. This is expected setup behavior and not arbitrary file modification."
       },
       {
         "id": "filesystem:scripts/init-artifact.sh:242:node-js-fs-operations",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "severity": "medium",
-        "reason": "The script reads tsconfig.app.json from the generated project. This is expected setup behavior, but it is still real filesystem access inside an executable workflow."
+        "verdict": "false_positive",
+        "confidence": 0.83,
+        "reason": "The read targets the fixed file tsconfig.app.json in the generated project. The content is used only to update local TypeScript configuration."
       },
       {
         "id": "filesystem:scripts/init-artifact.sh:250:node-js-fs-operations",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "severity": "medium",
-        "reason": "The script writes tsconfig.app.json after removing comments and adding aliases. This intended mutation can affect existing files if the project directory argument is unsafe."
+        "verdict": "false_positive",
+        "confidence": 0.83,
+        "reason": "The write targets the fixed file tsconfig.app.json in the generated project. It writes path alias configuration, not attacker-controlled code."
       },
       {
         "id": "filesystem:scripts/init-artifact.sh:230:synchronous-file-operations",
-        "verdict": "confirmed",
-        "confidence": 0.7,
-        "severity": "medium",
-        "reason": "The synchronous read is part of a setup script that edits project configuration. It is not malicious by itself, but it confirms blocking filesystem access in an agent-run script."
+        "verdict": "false_positive",
+        "confidence": 0.84,
+        "reason": "The synchronous read is a local setup step for a small TypeScript config file. It does not expand file access beyond the generated project."
       },
       {
         "id": "filesystem:scripts/init-artifact.sh:234:synchronous-file-operations",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "severity": "medium",
-        "reason": "The synchronous write modifies tsconfig.json in place. It is expected for setup, but it is still a real file mutation that requires user awareness."
+        "verdict": "false_positive",
+        "confidence": 0.84,
+        "reason": "The synchronous write updates a known configuration file during project initialization. The blocking I/O pattern is not a security issue in this setup script context."
       },
       {
         "id": "filesystem:scripts/init-artifact.sh:242:synchronous-file-operations",
-        "verdict": "confirmed",
-        "confidence": 0.7,
-        "severity": "medium",
-        "reason": "The synchronous read targets tsconfig.app.json during project setup. This confirms local filesystem access even though the purpose appears legitimate."
+        "verdict": "false_positive",
+        "confidence": 0.83,
+        "reason": "The synchronous read is limited to tsconfig.app.json after project creation. It is expected configuration work, not sensitive file collection."
       },
       {
         "id": "filesystem:scripts/init-artifact.sh:250:synchronous-file-operations",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "severity": "medium",
-        "reason": "The synchronous write modifies tsconfig.app.json in place. The action is intended, but it should be treated as a confirmed filesystem mutation."
+        "verdict": "false_positive",
+        "confidence": 0.83,
+        "reason": "The synchronous write is limited to tsconfig.app.json in the generated project. It is not an arbitrary overwrite primitive."
       },
       {
         "id": "filesystem:scripts/init-artifact.sh:34:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The /dev/null access only suppresses command -v output while checking for pnpm. It is a standard shell redirection and not sensitive file access."
+        "confidence": 0.97,
+        "reason": "The /dev/null redirection suppresses output while checking whether pnpm exists. This is standard shell usage and does not access user data."
       },
       {
         "id": "external_commands:SKILL.md:10:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "severity": "medium",
-        "reason": "The instruction tells the agent to initialize a repository using scripts/init-artifact.sh. That script performs package installation and filesystem mutation, so the execution guidance is security-relevant."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The backticks are Markdown formatting around a script path. They are not Ruby backtick execution or executable code in this file."
       },
       {
         "id": "external_commands:SKILL.md:12:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.75,
-        "severity": "medium",
-        "reason": "The instruction tells the agent to bundle code with scripts/bundle-artifact.sh. That script installs bundling dependencies and runs build commands, so it is real command-execution guidance."
+        "verdict": "false_positive",
+        "confidence": 0.97,
+        "reason": "The backticks are Markdown formatting around a script path. The executable behavior is covered by the script findings, not this documentation syntax."
       },
       {
         "id": "external_commands:SKILL.md:27:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The fenced Bash example includes running scripts/init-artifact.sh with a project name. This directly instructs execution of a shell script that installs dependencies and writes files."
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line starts a fenced Markdown bash example. It documents a command for the user but is not Ruby shell execution by itself."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This finding points at the closing code fence and following feature list. The actual executable command is already covered by the line 27 finding."
+        "confidence": 0.96,
+        "reason": "This line closes a fenced Markdown command example. It is documentation formatting, not an execution mechanism."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The backticks on this section are markdown formatting around path aliases and feature names. They do not add new command-execution instructions."
+        "confidence": 0.97,
+        "reason": "The backticks format the @/ import alias in a feature list. There is no shell execution at this location."
       },
       {
         "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "severity": "medium",
-        "reason": "The fenced Bash example includes running scripts/bundle-artifact.sh. This directly instructs execution of a shell script that installs packages and runs build tooling."
+        "verdict": "false_positive",
+        "confidence": 0.96,
+        "reason": "This line starts a fenced Markdown bash example for bundling. The markdown fence itself is not executable code."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This finding points at the closing code fence after the bundle command. The executable instruction is already captured by the line 48 finding."
+        "confidence": 0.96,
+        "reason": "This line closes a fenced Markdown command example. It is not Ruby backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The inline backticks only format the filename bundle.html in prose. This is documentation text, not shell execution."
+        "confidence": 0.97,
+        "reason": "The backticks format the filename bundle.html in prose. They are not interpreted as shell syntax in Markdown."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The inline backticks only format the filename index.html in a requirement note. No command is being executed or recommended on this line."
+        "confidence": 0.97,
+        "reason": "The backticks format index.html in a requirements sentence. This is documentation text, not command execution."
       },
       {
         "id": "network:SKILL.md:74:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "The URL is a documentation link to shadcn/ui components. It is not code that performs a network request or sends data."
+        "reason": "The URL is a documentation reference to shadcn/ui component docs. It is not used by code to make network requests or transmit data."
       },
       {
         "id": "blocker:SKILL.md:20:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The line is a design-style guideline about avoiding repetitive visual patterns. It does not request system discovery, privilege changes, or audit bypass."
+        "confidence": 0.91,
+        "reason": "The line gives visual design guidance for generated artifacts. It does not request system information, credential access, or security analysis bypass."
       },
       {
         "id": "blocker:SKILL.md:70:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "The line suggests optional visualization with tools such as Playwright or Puppeteer. It does not enumerate system secrets or ask the agent to perform reconnaissance."
+        "confidence": 0.86,
+        "reason": "The line suggests optional artifact testing with tools like Playwright or Puppeteer. It does not instruct reconnaissance of the host system or hidden files."
       },
       {
         "id": "metadata:scripts/shadcn-components.tar.gz:1:unscanned-file-binary-manual-review-required",
-        "verdict": "false_positive",
-        "confidence": 0.74,
-        "reason": "Manual inspection showed the archive contains expected shadcn/ui TSX components plus lib and hooks files. I found no shell scripts, package hooks, or obvious network/process execution patterns in the archive contents."
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "severity": "low",
+        "reason": "The skill includes a compressed archive that static analysis could not inspect and the setup script later extracts it into source code. Archive listing shows expected component paths, but packaged code still reduces reviewability."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unpinned Package Installation From Public Registries",
-        "description": "The scripts install pnpm globally, create a Vite project, and add many dependencies without pinned versions or integrity checks. This exposes users to supply-chain changes when the skill is run.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 19,
-            "line_end": 19
-          },
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 36,
-            "line_end": 36
-          },
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 59,
-            "line_end": 59
-          },
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 69,
-            "line_end": 79
-          },
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 272,
-            "line_end": 273
-          },
-          {
-            "file": "scripts/bundle-artifact.sh",
-            "line_start": 21,
-            "line_end": 21
-          }
-        ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The package-install commands are explicit and several dependencies are unpinned or use latest. The risk is supply-chain exposure, not direct malicious intent."
-      },
-      {
-        "title": "Unvalidated Project Directory Argument",
-        "description": "The initialization script uses the first argument as PROJECT_NAME, passes it to create-vite, then changes into that directory before writing configuration files. It should reject path traversal and option-like names.",
+        "title": "Runtime Package Installation from Public Registries",
+        "description": "The initializer and bundler install packages during execution, including global pnpm installation when missing and frontend dependencies from npm or pnpm registries. This creates supply-chain and environment modification risk even though it appears related to the skill purpose.",
         "severity": "medium",
         "locations": [
           {
             "file": "scripts/init-artifact.sh",
-            "line_start": 45,
-            "line_end": 46
+            "line_start": 33,
+            "line_end": 37
           },
           {
             "file": "scripts/init-artifact.sh",
-            "line_start": 59,
-            "line_end": 62
-          },
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 230,
-            "line_end": 250
-          }
-        ],
-        "confidence": 0.73,
-        "confidence_reasoning": "The variable is quoted, which reduces shell injection risk, but no validation limits it to a safe local directory name. The subsequent writes make the argument safety relevant."
-      }
-    ],
-    "critical_findings": [],
-    "high_findings": [
-      {
-        "title": "Unpinned Package Installation From Public Registries",
-        "description": "The scripts install pnpm globally, create a Vite project, and add many dependencies without pinned versions or integrity checks. This exposes users to supply-chain changes when the skill is run.",
-        "locations": [
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 19,
-            "line_end": 19
-          },
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 36,
-            "line_end": 36
-          },
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 59,
-            "line_end": 59
-          },
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 69,
+            "line_start": 58,
             "line_end": 79
           },
           {
             "file": "scripts/init-artifact.sh",
-            "line_start": 272,
+            "line_start": 270,
             "line_end": 273
           },
           {
             "file": "scripts/bundle-artifact.sh",
-            "line_start": 21,
+            "line_start": 19,
             "line_end": 21
           }
         ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
         "confidence": 0.88,
-        "confidence_reasoning": "The package-install commands are explicit and several dependencies are unpinned or use latest. The risk is supply-chain exposure, not direct malicious intent."
+        "confidence_reasoning": "The package installation commands are explicit and occur automatically as part of normal setup and bundling. The risk is supply-chain exposure, not evidence of malicious intent."
+      },
+      {
+        "title": "Packaged Component Archive Extracted into Source",
+        "description": "The setup script extracts shadcn-components.tar.gz into the generated src directory. The archive listing contains expected relative component paths, but the archive format can hide source contents from normal text review and lacks checksum validation.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/init-artifact.sh",
+            "line_start": 275,
+            "line_end": 277
+          }
+        ],
+        "confidence": 0.76,
+        "confidence_reasoning": "The extraction command and bundled archive are present, and the archive is part of the published skill. Manual listing reduced concern about path traversal, but the package remains less reviewable than plain source files."
       }
     ],
+    "critical_findings": [],
+    "high_findings": [],
     "medium_findings": [
       {
         "title": "Unix shell invocation",
@@ -858,8 +785,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "This is an executable Bash script that installs bundling packages, removes build output, and runs Parcel commands. The behavior is intended, but it requires explicit trust before execution."
+        "confidence": 0.82,
+        "confidence_reasoning": "This is an executable shell script that installs bundling dependencies, deletes generated build outputs, and runs Parcel commands. Those are legitimate actions, but they create external command and workspace side effects."
       },
       {
         "title": "Unix shell invocation",
@@ -874,226 +801,55 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.8,
-        "confidence_reasoning": "This Bash script creates a project, installs packages, writes configuration files, and extracts an archive. Those actions are intended but materially mutate the filesystem and dependency tree."
+        "confidence": 0.86,
+        "confidence_reasoning": "This shell script creates a project, installs dependencies, writes configuration files, and extracts an archive. The behavior is intentional, but it has real execution and workspace modification risk."
       },
       {
-        "title": "Node.js fs operations",
-        "description": "const config = JSON.parse(fs.readFileSync('tsconfig.json', 'utf8'));",
+        "title": "Runtime Package Installation from Public Registries",
+        "description": "The initializer and bundler install packages during execution, including global pnpm installation when missing and frontend dependencies from npm or pnpm registries. This creates supply-chain and environment modification risk even though it appears related to the skill purpose.",
         "locations": [
           {
             "file": "scripts/init-artifact.sh",
-            "line_start": 230,
-            "line_end": 230
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "The script reads tsconfig.json in the generated project before modifying it. This is expected setup behavior, but it is real filesystem access performed by an executable skill script."
-      },
-      {
-        "title": "Node.js fs operations",
-        "description": "fs.writeFileSync('tsconfig.json', JSON.stringify(config, null, 2));",
-        "locations": [
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 234,
-            "line_end": 234
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.74,
-        "confidence_reasoning": "The script writes tsconfig.json in the generated project. This intended mutation should be disclosed because it can overwrite existing config if the script is run in an unintended directory."
-      },
-      {
-        "title": "Node.js fs operations",
-        "description": "const content = fs.readFileSync(path, 'utf8');",
-        "locations": [
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 242,
-            "line_end": 242
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "The script reads tsconfig.app.json from the generated project. This is expected setup behavior, but it is still real filesystem access inside an executable workflow."
-      },
-      {
-        "title": "Node.js fs operations",
-        "description": "fs.writeFileSync(path, JSON.stringify(config, null, 2));",
-        "locations": [
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 250,
-            "line_end": 250
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.74,
-        "confidence_reasoning": "The script writes tsconfig.app.json after removing comments and adding aliases. This intended mutation can affect existing files if the project directory argument is unsafe."
-      },
-      {
-        "title": "Synchronous file operations",
-        "description": "const config = JSON.parse(fs.readFileSync('tsconfig.json', 'utf8'));",
-        "locations": [
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 230,
-            "line_end": 230
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.7,
-        "confidence_reasoning": "The synchronous read is part of a setup script that edits project configuration. It is not malicious by itself, but it confirms blocking filesystem access in an agent-run script."
-      },
-      {
-        "title": "Synchronous file operations",
-        "description": "fs.writeFileSync('tsconfig.json', JSON.stringify(config, null, 2));",
-        "locations": [
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 234,
-            "line_end": 234
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "The synchronous write modifies tsconfig.json in place. It is expected for setup, but it is still a real file mutation that requires user awareness."
-      },
-      {
-        "title": "Synchronous file operations",
-        "description": "const content = fs.readFileSync(path, 'utf8');",
-        "locations": [
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 242,
-            "line_end": 242
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.7,
-        "confidence_reasoning": "The synchronous read targets tsconfig.app.json during project setup. This confirms local filesystem access even though the purpose appears legitimate."
-      },
-      {
-        "title": "Synchronous file operations",
-        "description": "fs.writeFileSync(path, JSON.stringify(config, null, 2));",
-        "locations": [
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 250,
-            "line_end": 250
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "The synchronous write modifies tsconfig.app.json in place. The action is intended, but it should be treated as a confirmed filesystem mutation."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "1. Initialize the frontend repo using `scripts/init-artifact.sh`",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 10,
-            "line_end": 10
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The instruction tells the agent to initialize a repository using scripts/init-artifact.sh. That script performs package installation and filesystem mutation, so the execution guidance is security-relevant."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "3. Bundle all code into a single HTML file using `scripts/bundle-artifact.sh`",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 12,
-            "line_end": 12
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.75,
-        "confidence_reasoning": "The instruction tells the agent to bundle code with scripts/bundle-artifact.sh. That script installs bundling dependencies and runs build commands, so it is real command-execution guidance."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 27,
-            "line_end": 30
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The fenced Bash example includes running scripts/init-artifact.sh with a project name. This directly instructs execution of a shell script that installs dependencies and writes files."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "```bash",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 48,
-            "line_end": 50
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The fenced Bash example includes running scripts/bundle-artifact.sh. This directly instructs execution of a shell script that installs packages and runs build tooling."
-      },
-      {
-        "title": "Unvalidated Project Directory Argument",
-        "description": "The initialization script uses the first argument as PROJECT_NAME, passes it to create-vite, then changes into that directory before writing configuration files. It should reject path traversal and option-like names.",
-        "locations": [
-          {
-            "file": "scripts/init-artifact.sh",
-            "line_start": 45,
-            "line_end": 46
+            "line_start": 33,
+            "line_end": 37
           },
           {
             "file": "scripts/init-artifact.sh",
-            "line_start": 59,
-            "line_end": 62
+            "line_start": 58,
+            "line_end": 79
           },
           {
             "file": "scripts/init-artifact.sh",
-            "line_start": 230,
-            "line_end": 250
+            "line_start": 270,
+            "line_end": 273
+          },
+          {
+            "file": "scripts/bundle-artifact.sh",
+            "line_start": 19,
+            "line_end": 21
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.73,
-        "confidence_reasoning": "The variable is quoted, which reduces shell injection risk, but no validation limits it to a safe local directory name. The subsequent writes make the argument safety relevant."
+        "confidence": 0.88,
+        "confidence_reasoning": "The package installation commands are explicit and occur automatically as part of normal setup and bundling. The risk is supply-chain exposure, not evidence of malicious intent."
+      },
+      {
+        "title": "Packaged Component Archive Extracted into Source",
+        "description": "The setup script extracts shadcn-components.tar.gz into the generated src directory. The archive listing contains expected relative component paths, but the archive format can hide source contents from normal text review and lacks checksum validation.",
+        "locations": [
+          {
+            "file": "scripts/init-artifact.sh",
+            "line_start": 275,
+            "line_end": 277
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.76,
+        "confidence_reasoning": "The extraction command and bundled archive are present, and the archive is part of the published skill. Manual listing reduced concern about path traversal, but the package remains less reviewable than plain source files."
       }
     ],
     "low_findings": [
@@ -1107,137 +863,137 @@
             "line_end": 1
           }
         ],
-        "review_kind": "false_positive",
+        "review_kind": "security",
         "source_category": "metadata",
         "source_severity": "low",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed metadata/low static finding; AI dismissal overridden."
+        "confidence": 0.68,
+        "confidence_reasoning": "The skill includes a compressed archive that static analysis could not inspect and the setup script later extracts it into source code. Archive listing shows expected component paths, but packaged code still reduces reviewability."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 4,
     "total_lines": 653,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T12:30:51.793Z",
+    "audited_at": "2026-07-09T16:10:06.864Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Build React HTML Artifacts",
-    "value_statement": "Complex Claude artifacts need structured React projects, component libraries, and reliable bundling. This skill creates a Vite setup and packages it into a shareable single-file HTML artifact.",
+    "value_statement": "Complex HTML artifacts need project structure, reusable components, and reliable bundling. This skill creates a React workspace and packages it into one HTML artifact for Claude conversations.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "React artifacts",
-      "Vite artifact builder",
+      "HTML artifacts",
+      "Vite React",
       "Tailwind CSS",
-      "shadcn/ui",
-      "single HTML bundle",
-      "TypeScript UI",
-      "frontend prototyping"
+      "shadcn ui",
+      "frontend bundling",
+      "AI coding skill"
     ],
     "actual_capabilities": [
-      "Creates a React 18 and TypeScript Vite project from a project name.",
-      "Adds Tailwind CSS 3.4.1 configuration with shadcn/ui theme variables.",
-      "Installs Radix UI and related shadcn/ui dependencies with pnpm.",
-      "Extracts bundled shadcn/ui components into the generated src directory.",
-      "Builds a Parcel bundle and inlines assets into bundle.html.",
-      "Documents optional local visualization with Playwright or Puppeteer."
+      "Creates a React 18 and TypeScript project with Vite.",
+      "Configures Tailwind CSS with shadcn/ui theme variables.",
+      "Adds path aliases for imports from the src directory.",
+      "Installs Radix UI and common shadcn/ui dependencies.",
+      "Extracts a prepared set of shadcn/ui component files.",
+      "Bundles the app into one inlined HTML file with Parcel."
     ],
     "limitations": [
-      "Requires Node.js 18 or newer and pnpm availability.",
-      "Runs shell scripts that install packages and modify project files.",
-      "Designed for complex React artifacts, not simple static HTML snippets.",
-      "Bundled output still needs review for size, accessibility, and browser behavior."
+      "Requires Node.js 18 or newer and pnpm-compatible package installation.",
+      "Runs shell scripts that install dependencies and modify project files.",
+      "Best suited for complex artifacts, not simple single-file snippets.",
+      "The bundled component archive should be reviewed before production use."
     ],
     "use_cases": [
       {
-        "title": "Prototype Interactive Dashboards",
-        "description": "Create a React artifact with charts, filters, state, and reusable shadcn/ui controls.",
-        "target_user": "Product designer"
+        "title": "Build Interactive Prototypes",
+        "description": "Create a structured React prototype with state, components, and styling for review in a Claude conversation.",
+        "target_user": "Product designers"
       },
       {
-        "title": "Package Client-Side Tools",
-        "description": "Build a self-contained calculator, planner, or workflow tool that can be shared as one HTML file.",
-        "target_user": "Frontend engineer"
+        "title": "Prepare Rich Demo Artifacts",
+        "description": "Generate a frontend project and bundle it into one HTML file for sharing or demonstration.",
+        "target_user": "Frontend developers"
       },
       {
-        "title": "Create Teaching Demos",
-        "description": "Turn a lesson concept into an interactive browser artifact with clear controls and responsive layout.",
-        "target_user": "Technical educator"
+        "title": "Start Component-Based Experiments",
+        "description": "Use a ready Tailwind and shadcn/ui setup when an artifact needs dialogs, forms, tables, or navigation.",
+        "target_user": "AI-assisted builders"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Start a Simple Artifact",
-        "scenario": "Beginner setup for a small React interface.",
-        "prompt": "Create a starter artifact project for a responsive task tracker. Use React, Tailwind CSS, and simple shadcn/ui controls."
+        "title": "Create a Basic Artifact",
+        "scenario": "Beginner setup for a simple React artifact project.",
+        "prompt": "Use artifacts-builder to create a React artifact project named dashboard-demo. Keep the first version simple and explain the generated files."
       },
       {
-        "title": "Build a Stateful Tool",
-        "scenario": "Intermediate artifact with local state and reusable components.",
-        "prompt": "Build a budget planning artifact with editable categories, totals, and validation. Use shadcn/ui components and bundle it as one HTML file."
+        "title": "Build with shadcn/ui",
+        "scenario": "Use installed components for a richer interface.",
+        "prompt": "Use artifacts-builder to create a task management artifact with tabs, cards, dialogs, and a responsive table using shadcn/ui components."
       },
       {
-        "title": "Design a Multi-View Experience",
-        "scenario": "Advanced artifact with navigation and richer UI patterns.",
-        "prompt": "Create a multi-view project status artifact with overview, timeline, and risks views. Use React state, Tailwind CSS, and accessible shadcn/ui components."
+        "title": "Bundle for Sharing",
+        "scenario": "Package an existing generated project into one HTML file.",
+        "prompt": "Use artifacts-builder to bundle my current React artifact project into a single HTML file and summarize what changed during bundling."
       },
       {
-        "title": "Prepare a Reviewed Delivery",
-        "scenario": "Advanced workflow with build review and handoff notes.",
-        "prompt": "Build a polished data exploration artifact, bundle it into bundle.html, and summarize dependency changes, assumptions, and manual review steps."
+        "title": "Create a Production-Style Prototype",
+        "scenario": "Advanced workflow with structure, state, and verification.",
+        "prompt": "Use artifacts-builder to create a multi-view analytics artifact with realistic state, accessible controls, responsive layout, and a final bundled HTML output."
       }
     ],
     "output_examples": [
       {
-        "input": "Build a responsive task tracker artifact.",
-        "output": "A generated React project with Tailwind styling, shadcn/ui controls, and a bundled HTML file ready for review."
+        "input": "Create a project for an analytics dashboard artifact.",
+        "output": "A React and TypeScript workspace is created with Tailwind styling, shadcn/ui components, path aliases, and development commands."
       },
       {
-        "input": "Create a multi-panel dashboard for project health.",
-        "output": "A Vite-based artifact with reusable components, tabbed views, mock data, and a single-file HTML bundle."
+        "input": "Bundle the finished project for Claude.",
+        "output": "A single HTML artifact is produced with application scripts, styles, and assets inlined for sharing in a conversation."
       },
       {
-        "input": "Package an interactive teaching demo for browser use.",
-        "output": "A self-contained artifact that combines React interaction, component styling, and inlined build assets."
+        "input": "Add a component-based interface with dialogs and tables.",
+        "output": "The artifact uses installed UI components to provide structured navigation, actions, forms, and responsive data views."
       }
     ],
     "best_practices": [
-      "Run the initialization script only in a clean working directory.",
-      "Review package changes and bundled output before sharing the artifact.",
-      "Use this skill when the artifact needs reusable components or stateful views."
+      "Review shell scripts before running them in a workspace with important files.",
+      "Use the skill for artifacts that need component structure or build tooling.",
+      "Bundle only after the artifact runs correctly in the generated project."
     ],
     "anti_patterns": [
-      "Do not use it for a single static HTML page.",
-      "Do not run scripts inside a repository with unrelated unsaved work.",
-      "Do not skip dependency review when package versions are unpinned."
+      "Do not use this skill for a tiny static HTML response.",
+      "Do not run the scripts in a directory where package changes are unexpected.",
+      "Do not publish bundled output before reviewing installed dependencies and generated files."
     ],
     "faq": [
       {
         "question": "What does this skill create?",
-        "answer": "It creates a React and TypeScript Vite project with Tailwind CSS, shadcn/ui components, and a bundling workflow."
+        "answer": "It creates a React, TypeScript, Vite, Tailwind CSS, and shadcn/ui project for building complex HTML artifacts."
       },
       {
-        "question": "Does it produce one shareable file?",
-        "answer": "Yes. The bundle script creates bundle.html with JavaScript, CSS, and assets inlined."
+        "question": "Can it make a single shareable file?",
+        "answer": "Yes. The bundling script creates one HTML file with scripts, styles, and assets inlined."
       },
       {
-        "question": "Is this useful for simple HTML snippets?",
-        "answer": "No. It is intended for complex artifacts that need React components, state, or routing-like views."
+        "question": "Does it need package installation?",
+        "answer": "Yes. The scripts install frontend dependencies with pnpm and may install pnpm globally if it is missing."
       },
       {
-        "question": "Which tools can use this skill?",
-        "answer": "The report lists support for Claude, Codex, and Claude Code workflows."
+        "question": "Is it safe for simple artifacts?",
+        "answer": "It is usually unnecessary for simple artifacts because it adds project setup and dependency installation."
       },
       {
-        "question": "Does the skill install dependencies?",
-        "answer": "Yes. Its scripts use pnpm and npm commands to install project, UI, and bundling dependencies."
+        "question": "Which tools can use it?",
+        "answer": "The report marks support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "What should users review before running it?",
-        "answer": "Users should review the shell scripts, dependency commands, project directory name, and the generated bundle output."
+        "question": "What should users review first?",
+        "answer": "Users should review the shell scripts, dependency installation steps, and bundled shadcn/ui component archive."
       }
     ]
   },
