@@ -5,6 +5,7 @@ license: MIT
 allowed-tools: "Glob Read Write Bash"
 metadata:
   author: claude-mods
+  related-skills: "repo-doctor, adr-ops"
 ---
 
 # Documentation Scanner
@@ -86,3 +87,8 @@ If none found, offer to generate AGENTS.md based on:
 For detailed patterns, load:
 - `./references/file-patterns.md` - Complete list of files to scan
 - `./references/templates.md` - AGENTS.md generation templates
+
+When generating a NEW AGENTS.md, follow the entry-doc standard in
+`rules/agentic-quality.md` (Landmines section mandatory, ~150-line budget) —
+skeleton at the repo-doctor skill's `assets/AGENTS-template.md`. To AUDIT an
+existing doc set rather than generate one, hand off to `repo-doctor`.

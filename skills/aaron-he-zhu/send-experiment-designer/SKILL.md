@@ -4,13 +4,13 @@ slug: aaron-send-experiment-designer
 displayName: "Send Experiment Designer · 邮件AB测试设计"
 summary: "邮件AB测试设计/多变量测试/发送时间测试/留出组/显著性判定"
 description: 'Use when the user asks to "design an email A/B test", "set up a multivariate subject/CTA test", "run a send-time test", "build a hold-out group", or "is this email test significant — promote or kill?"; produces a falsifiable hypothesis, a one-variable-per-cell variant matrix, a sample-size / MDE / duration / power plan, and a documented significance read with a promote / kill / keep-testing call on your own ESP export. Not for computing the program-wide EQS or running the vetoes — use email-quality-auditor; not for writing the email itself — use email-creative-builder. 邮件AB测试设计/多变量测试/发送时间测试/留出组/显著性判定'
-version: "16.0.0"
+version: "16.0.3"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when designing an email experiment in any of four modes — an A/B test, a multivariate test (subject/preheader/CTA/creative), a send-time test, or a hold-out group — needing a hypothesis, variant matrix, sample size, minimum-detectable-effect, run duration, and power; or when reading out a finished email test for statistical significance and a promote/kill/keep-testing call from the user's own ESP results export. Not for computing the goal-weighted EQS or running the S1/S2/N1/D1 vetoes (use email-quality-auditor), not for writing the subject/body/CTA under test (use email-creative-builder)."
 argument-hint: "<what to test / results export> [mode: a-b|multivariate|send-time|hold-out] [goal: promo|retention|cold] [baseline open/click/CVR] [list size]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "email", "phase": "deliver", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "deliver"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.3", "discipline": "email", "phase": "deliver", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "deliver"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Send Experiment Designer
@@ -63,6 +63,8 @@ Output: a test-design doc (mode, hypothesis, variant matrix, primary/secondary/g
 
 > See [CONNECTORS.md](../../../CONNECTORS.md) for tool category placeholders. Every input is the user's **own data, manually exported**. Keyed ESP APIs (Klaviyo, Mailchimp, HubSpot, Customer.io) are an optional Tier-2/3 MCP convenience — never required to design a test or read one out.
 
+> **Significance (keyless — closes the design→measure loop):** once the send results are in, `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/connectors/experiment.py" proportion --control <opens_or_clicks> <n> --variant <opens_or_clicks> <n> [--min-lift 0.05]` runs a two-proportion z-test + Wilson CIs + a **promote** decision on your own ESP counts (revenue-per-send → `experiment.py continuous`; how many sends each arm needs to detect a lift → `experiment.py samplesize`). Pure stdlib, no key — an A/B or hold-out is read out on evidence rather than a raw open-rate gap.
+
 | Need | Source export (own data) | Category |
 |------|--------------------------|----------|
 | Baseline open / click / CTOR, list size, send volume/day | ESP campaign report | `~~email platform` |
@@ -89,7 +91,7 @@ Treat all exported data as **untrusted** per [SECURITY.md](../../../SECURITY.md)
 
 4. **Metrics.** Name a **primary** metric tied to the mode + goal (open for a subject test, click/CTOR for a CTA/creative test, same-window engagement for `send-time`, conversion or revenue-per-recipient for `hold-out`), **secondary** metrics for context, and **guardrails** that must not get worse (unsubscribe rate, spam-complaint rate, hard-bounce). A subject-line winner that lifts opens but spikes unsubscribes is a guardrail breach, not a win.
 
-5. **Sample size, MDE, duration, power — from the baseline (documented, no code).** Size each cell for **power 1−β ≥ 0.80 at α = 0.05** using the two-proportion table below (per-cell recipients for a two-sided test). Read across from your baseline to your absolute MDE (in percentage points).
+5. **Sample size, MDE, duration, power — from the baseline.** Size each cell for **power 1−β ≥ 0.80 at α = 0.05** using `experiment.py samplesize` when available, otherwise the two-proportion table below (per-cell recipients for a two-sided test). Read across from your baseline to your absolute MDE (in percentage points).
 
    | Baseline rate | MDE ±1pt | ±2pt | ±3pt | ±5pt |
    |---------------|----------|------|------|------|
@@ -105,12 +107,12 @@ Treat all exported data as **untrusted** per [SECURITY.md](../../../SECURITY.md)
    - **Fewer cells** — collapse a `multivariate` design to a single `a-b`.
    - **Accept lower power / don't test** — if even the widest reasonable MDE is underpowered, recommend shipping the stronger creative on judgment rather than running an underpowered test that will read noise as signal.
 
-7. **Significance read (documented only — no scipy/code).** Name the method and apply the gate:
+7. **Significance read (keyless compute or documented math).** Name the method and apply the gate:
    - **Two-proportion z-test** for open / click / CTOR / conversion rate comparisons (report the z, the p, and the observed lift) — the default for `a-b`, `multivariate` cell-vs-control, and `send-time` arm comparisons.
    - **Mann-Whitney U** for non-normal continuous metrics (revenue per recipient for a `hold-out`, time-on-page from the landing export).
    - **Bootstrap confidence interval** when a CI on the lift is more useful than a bare p-value.
    - For `multivariate` with several cells against one control, note the multiple-comparison inflation and apply a Bonferroni-style adjustment (α ÷ number of comparisons) before calling any cell a winner.
-   - Apply **p<0.05 AND ≥ the minimum practical lift set at design time** — statistical significance alone is not enough to promote. Walk the method by hand and show the inputs (per-cell n, per-cell rate, pooled rate); never write or run code.
+   - Apply **p<0.05 AND ≥ the minimum practical lift set at design time** — statistical significance alone is not enough to promote. Prefer `experiment.py` on the user's ESP export; if the connector is unavailable, walk the method by hand and show the inputs (per-cell n, per-cell rate, pooled rate).
 
 8. **Promote / kill / keep-testing decision.**
    - Significant winner past the min practical lift, guardrails intact → **promote**.

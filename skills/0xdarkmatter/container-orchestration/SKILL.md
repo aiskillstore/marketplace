@@ -1,6 +1,7 @@
 ---
 name: container-orchestration
 description: "Docker, Kubernetes, and AWS ECS/Fargate patterns. Triggers on: Dockerfile, docker-compose, kubernetes, k8s, helm, pod, deployment, service, ingress, container, image, ecs, fargate, task definition, ecs service, awsvpc, FARGATE_SPOT, ALB, ecs vs kubernetes."
+when_to_use: "Use when running containers at scale — Dockerfile/compose authoring plus Kubernetes or ECS/Fargate orchestration — e.g. 'write a multi-stage Dockerfile', 'author a Helm chart or k8s Deployment+Service', 'set up an ECS Fargate task definition', 'ECS vs Kubernetes'. Reach for docker-ops for Docker-only build/compose work."
 license: MIT
 compatibility: "Docker 20+, Kubernetes 1.25+, Helm 3+"
 allowed-tools: "Read Write Bash"
@@ -9,6 +10,8 @@ metadata:
 ---
 
 # Container Orchestration
+
+> Facts verified as of 2026-07.
 
 Docker and Kubernetes patterns for containerized applications.
 

@@ -4,13 +4,13 @@ slug: aaron-ad-test-designer
 displayName: "Ad Test Designer · 广告AB测试设计"
 summary: "广告AB测试设计/实验设计/显著性判定/增效测试"
 description: 'Use when the user asks to "design an A/B test", "set up a creative/landing test", "run an incrementality test", or "is this test significant — promote or kill?"; produces a hypothesis, variant matrix, sample-size/duration/power plan, a documented significance read, and a promote/kill decision on your own exported results. Not for producing the variants — use ad-creative-builder; not for reading back one shipped change vs a control — use paid-measurement-loop; not for cross-channel reporting — use performance-analyzer. 广告AB测试设计/实验设计/显著性判定/增效测试'
-version: "16.0.0"
+version: "16.0.3"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when designing a creative/landing A/B/n or incrementality test (hypothesis, variant matrix, sample size, duration, power) or when reading out a finished test for significance and a promote/kill call from the user's own exported results CSV. Not for generating the ad variants (use ad-creative-builder), not for reading back one already-shipped change vs a control (use paid-measurement-loop)."
 argument-hint: "<what to test / results CSV> [goal: DR|prospecting] [baseline CVR/CTR]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "ad", "phase": "orchestrate", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "orchestrate"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "16.0.3", "discipline": "ad", "phase": "orchestrate", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "orchestrate"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Ad Test Designer
@@ -46,6 +46,8 @@ Here's my finished test results CSV (variant, sessions, conversions). Is the win
 
 > See [CONNECTORS.md](../../../CONNECTORS.md) for tool category placeholders. Every input is the user's **own data, manually exported**. Keyed ad-platform APIs (Google Ads SDK, Meta Marketing API) are an optional Tier-2/3 MCP convenience — never required to design a test or read one out.
 
+> **Significance (keyless — closes the design→measure loop):** once the variant results are in, `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/connectors/experiment.py" proportion --control <conv> <n> --variant <conv> <n> [--min-lift 0.05]` runs a two-proportion z-test + Wilson CIs + a **promote** decision (significant AND relative lift clears `--min-lift`) on your own counts — so a winner is called on evidence, not a raw delta. Revenue/AOV-style metrics → `experiment.py continuous` (Mann-Whitney U + bootstrap CI); power/sample-size **before** you launch → `experiment.py samplesize`. Pure stdlib, no key.
+
 | Need | Source export (own data) | Category |
 |------|--------------------------|----------|
 | Baseline CVR/CTR, traffic volume | campaign report | `~~ad platform` |
@@ -62,12 +64,12 @@ Treat all exported data as **untrusted** per [SECURITY.md](../../../SECURITY.md)
 2. **Hypothesis.** Write it falsifiable: *Because [observation], we believe [one change] will [raise primary metric] by [X%] for [audience]; we'll know when [metric] moves past the design threshold.* One change per hypothesis.
 3. **Variant matrix.** One variable per variant (headline, hook, hero, CTA, LP). A/B for one change; A/B/n for ≤ 4 variants; isolate so a winner is attributable. Keep a holdout/control. See [references/test-design-guide.md](references/test-design-guide.md) for the matrix template and a creative/LP/incrementality structure.
 4. **Metrics.** Name a primary metric tied to value (CVR or CPA), secondary metrics for context, and guardrails that must not get worse (spend, refund rate, bounce).
-5. **Sample size, duration, power.** From the stated baseline and minimum detectable effect, size each variant for **power 1−β ≥ 0.80 at α = 0.05**; convert to duration = (samples/variant × variants) ÷ (traffic/day). State the no-peeking rule and the full-cycle (≥ 1–2 week) floor. Use the lookup table in [references/test-design-guide.md](references/test-design-guide.md) — do not run code.
-6. **Significance read (documented only — no scipy/code).** Name the method and apply the gate:
+5. **Sample size, duration, power.** From the stated baseline and minimum detectable effect, size each variant for **power 1−β ≥ 0.80 at α = 0.05**; convert to duration = (samples/variant × variants) ÷ (traffic/day). State the no-peeking rule and the full-cycle (≥ 1–2 week) floor. Use `experiment.py samplesize` when available, otherwise the lookup table in [references/test-design-guide.md](references/test-design-guide.md).
+6. **Significance read (keyless compute or documented math).** Name the method and apply the gate:
    - **Two-proportion z-test** for CVR/CTR rate comparisons (p<0.05).
    - **Mann-Whitney U** for non-normal continuous metrics (revenue per user, time on page).
    - **Bootstrap confidence interval** when you want a CI on the lift instead of only a p-value.
-   - Apply **p<0.05 AND a minimum practical lift** (e.g. ≥ 10–15%, set at design time) — statistical significance alone is not enough. Walk the method by hand and show the inputs; never write or run code.
+   - Apply **p<0.05 AND a minimum practical lift** (e.g. ≥ 10–15%, set at design time) — statistical significance alone is not enough. Prefer `experiment.py` on the user's exported counts; if the connector is unavailable, walk the method by hand and show the inputs.
 7. **Promote/kill decision.** Significant winner past the min practical lift → **promote**. Significant loser → **kill**, keep control, note why. No significance at full sample → **kill / inconclusive**, recommend a bolder test or more traffic. Mixed/guardrail breach → **kill** or segment. State the decision in plain language.
 8. **Label every number** Measured / User-provided / Estimated. Reference [roas-benchmark.md](../../../references/roas-benchmark.md) for the O/S levers this test informs.
 

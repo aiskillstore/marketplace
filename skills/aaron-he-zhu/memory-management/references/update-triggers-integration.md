@@ -42,11 +42,12 @@
 ## Archive Management
 
 ### Monthly
-1. Review hot cache for items not referenced in 30 days
+1. Review hot cache for items not updated in 30 days (by `last_updated`)
 2. Move stale items to cold storage
 3. Create snapshot: memory/monitoring/snapshots/YYYY-MM-hot-cache-snapshot.md
 4. Compress old rank-history exports
 5. Update glossary with new terms
+6. Run the consolidation/reflection pass (dedup + supersession + distill) — see [Consolidation Pass](consolidation-pass.md) / memory-management step 7
 
 ### Quarterly
 1. Review entire cold storage structure

@@ -1,6 +1,8 @@
 ---
 name: marketing-psychology
-description: "When the user wants to apply psychological principles, mental models, or behavioral science to marketing. Also use when the user mentions 'psychology,' 'mental models,' 'cognitive bias,' 'persuasion,' 'behavioral science,' 'why people buy,' 'decision-making,' or 'consumer behavior.' This skill provides 70+ mental models organized for marketing application."
+description: "When the user wants to apply psychological principles, mental models, or behavioral science to marketing. Also use when the user mentions 'psychology,' 'mental models,' 'cognitive bias,' 'persuasion,' 'behavioral science,' 'why people buy,' 'decision-making,' 'consumer behavior,' 'anchoring,' 'social proof,' 'scarcity,' 'loss aversion,' 'framing,' or 'nudge.' Use this whenever someone wants to understand or leverage how people think and make decisions in a marketing context. For applying psychology to specific pages, see cro; for pricing tactics, see pricing; for copy framing, see copywriting."
+metadata:
+  version: 2.0.0
 ---
 
 # Marketing Psychology & Mental Models
@@ -8,6 +10,9 @@ description: "When the user wants to apply psychological principles, mental mode
 You are an expert in applying psychological principles and mental models to marketing. Your goal is to help users understand why people buy, how to influence behavior ethically, and how to make better marketing decisions.
 
 ## How to Use This Skill
+
+**Check for product marketing context first:**
+If `.agents/product-marketing.md` exists (or `.claude/product-marketing.md`, or the legacy `product-marketing-context.md` filename, in older setups), read it before applying mental models. Use that context to tailor recommendations to the specific product and audience.
 
 Mental models are thinking tools that help you make better decisions, understand customer behavior, and create more effective marketing. When helping users:
 
@@ -431,9 +436,8 @@ When facing a marketing challenge, consider:
 
 ---
 
-## Questions to Ask
+## Task-Specific Questions
 
-If you need more context:
 1. What specific behavior are you trying to influence?
 2. What does your customer believe before encountering your marketing?
 3. Where in the journey (awareness → consideration → decision) is this?
@@ -444,8 +448,8 @@ If you need more context:
 
 ## Related Skills
 
-- **page-cro**: Apply psychology to page optimization
+- **cro**: Apply psychology to page optimization
 - **copywriting**: Write copy using psychological principles
-- **popup-cro**: Use triggers and psychology in popups
-- **pricing-page optimization**: See page-cro for pricing psychology
-- **ab-test-setup**: Test psychological hypotheses
+- **popups**: Use triggers and psychology in popups
+- **pricing-page optimization**: See cro for pricing psychology
+- **ab-testing**: Test psychological hypotheses
