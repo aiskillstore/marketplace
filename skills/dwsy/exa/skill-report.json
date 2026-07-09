@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T12:07:09.578Z",
+    "generated_at": "2026-07-09T11:46:06.039Z",
     "slug": "dwsy-exa",
     "source_url": "https://github.com/Dwsy/agent/tree/main/skills/exa",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "c39bb2164e688907c5f6adef0676e11a2847eac4131589528175c330b1856e7a",
-    "tree_hash": "6111025bed1b454549fb3437e421b99c20ed7da86cd37564237768a1ea634c60",
+    "tree_hash": "17712eb981a981c021b4abf6857322e14b81649d1a61e5ffa3c94a2417a4521c",
     "provenance": {
       "model_requested": "gpt-5.5:high",
       "model_effective": "codex:gpt-5.5:high",
@@ -26,19 +26,18 @@
   },
   "skill": {
     "name": "exa",
-    "description": "Search the web with the Exa.ai API from an agent workflow. Requires an EXA_API_KEY environment variable.",
-    "summary": "Runs Exa neural search from a Node.js helper and returns focused search results.",
+    "description": "Use the Exa.ai API to run high quality web searches from an AI agent. Requires an EXA_API_KEY environment variable.",
+    "summary": "Run Exa.ai web searches through a simple Node.js skill wrapper.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "Dwsy",
     "license": "MIT",
-    "category": "research",
     "tags": [
       "exa",
       "web-search",
       "research",
-      "api-search",
-      "internet-search"
+      "nodejs",
+      "api"
     ],
     "supported_tools": [
       "claude",
@@ -50,28 +49,34 @@
       "network",
       "external_commands",
       "filesystem"
-    ]
+    ],
+    "category": "research"
   },
   "security_audit": {
     "risk_level": "high",
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The runtime code legitimately reads EXA_API_KEY, loads dotenv config, and uses exa-js to send searches over the network. I confirmed those environment and network capabilities, while dismissing Markdown backticks, documentation-only path references, and lockfile-only dotenv entries as false positives. No prompt injection text was found in the reviewed files.",
+    "summary": "The skill is a small Exa.ai search wrapper with legitimate but real environment-secret and network access. Most static findings in SKILL.md are Markdown documentation false positives, while the main residual risks are EXA_API_KEY handling, external query sharing, and untrusted search result output.",
     "remediation": [
       {
-        "issue": "API key access and dotenv loading",
-        "suggestion": "Keep EXA_API_KEY scoped to Exa only, document minimum permissions, and avoid printing or storing the key.",
+        "issue": "EXA_API_KEY is read directly from the environment.",
+        "suggestion": "Document exactly how the key is used, never log the key, and recommend a limited Exa key dedicated to this skill.",
         "severity": "high"
       },
       {
-        "issue": "External query transmission",
-        "suggestion": "Tell users that search queries are sent to Exa.ai and advise against including secrets or private data.",
-        "severity": "low"
+        "issue": "User queries are sent to Exa.ai.",
+        "suggestion": "Warn users not to include secrets, personal data, or confidential project details in search queries.",
+        "severity": "medium"
       },
       {
-        "issue": "Markdown setup commands and hidden path references",
-        "suggestion": "Label installation commands as optional human setup and clarify that the hidden path is only the expected install directory.",
+        "issue": "External search results are emitted directly to the agent.",
+        "suggestion": "Label returned content as untrusted search data and instruct downstream prompts to ignore instructions inside search results.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Documentation uses a hard-coded hidden installation path.",
+        "suggestion": "Describe the path as an example and add tool-neutral installation guidance where possible.",
         "severity": "low"
       }
     ],
@@ -563,216 +568,232 @@
       {
         "id": "env_access:exa.js:5:environment-variable-access-dot-notation",
         "verdict": "confirmed",
-        "confidence": 0.95,
-        "reason": "Line 5 reads process.env.EXA_API_KEY, so the skill can access a credential from the runtime environment. This is expected for Exa authentication but remains sensitive capability.",
-        "severity": "low"
+        "confidence": 0.92,
+        "severity": "medium",
+        "reason": "Line 5 directly reads process.env.EXA_API_KEY, giving the skill access to an API credential. The access is expected for Exa, but it is still real secret handling."
       },
       {
         "id": "env_access:exa.js:5:environment-variable-object",
         "verdict": "confirmed",
-        "confidence": 0.95,
-        "reason": "Line 5 accesses the process.env object to retrieve EXA_API_KEY. That gives the skill access to environment-held secrets even though the value is not printed.",
-        "severity": "low"
+        "confidence": 0.9,
+        "severity": "medium",
+        "reason": "The process.env access on line 5 reads the EXA_API_KEY value at runtime. This is legitimate configuration, but it exposes an environment secret to the script."
       },
       {
         "id": "env_access:exa.js:2:dotenv-library",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The dotenv/config import can load local .env values into process.env before the key is read. This expands the skill's access to local secret configuration.",
-        "severity": "low"
+        "confidence": 0.86,
+        "severity": "low",
+        "reason": "Line 2 imports dotenv/config, which loads environment variables from local dotenv files. This is common for API clients, but it broadens local secret access."
       },
       {
         "id": "env_access:exa.js:5:generic-api-secret-keys",
         "verdict": "confirmed",
-        "confidence": 0.93,
-        "reason": "Line 5 retrieves EXA_API_KEY, an API credential used to authenticate the Exa client. The key is needed for the service, but access to it is a real secret-handling risk.",
-        "severity": "high"
+        "confidence": 0.95,
+        "severity": "high",
+        "reason": "Line 5 reads EXA_API_KEY and line 10 uses it to instantiate the Exa client. The key is required, but direct API secret use is a real sensitive operation."
       },
       {
         "id": "env_access:exa.js:7:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Line 7 only prints an error telling the user that EXA_API_KEY is missing. It names the variable but does not read, log, or expose the secret value."
+        "confidence": 0.93,
+        "reason": "Line 7 only prints an error message naming EXA_API_KEY when the variable is missing. It does not read, log, or expose the secret value."
       },
       {
         "id": "sensitive:exa.js:5:environment-file-access",
-        "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "Line 5 reads process.env and does not directly access an environment file. dotenv file loading is already covered by the separate exa.js line 2 finding."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "severity": "high",
+        "reason": "Line 5 reads EXA_API_KEY, and the dotenv import on line 2 can populate it from a local environment file. No broader file access is shown, but sensitive local secret access is real."
       },
       {
         "id": "network:pnpm-lock.yaml:34:http-client-library",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The lockfile includes node-fetch, which supports outbound HTTP requests used through the Exa client dependency chain. The skill's purpose requires external network access.",
-        "severity": "low"
+        "confidence": 0.84,
+        "severity": "low",
+        "reason": "node-fetch appears in the dependency tree, supporting outbound HTTP behavior for the Exa client stack. Network access is expected for web search but remains a real capability."
       },
       {
         "id": "network:pnpm-lock.yaml:76:http-client-library",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The snapshot shows cross-fetch depends on node-fetch. This confirms the installed dependency graph supports outbound HTTP calls for the Exa search workflow.",
-        "severity": "low"
+        "confidence": 0.84,
+        "severity": "low",
+        "reason": "The snapshot shows cross-fetch depending on node-fetch. This confirms the installed dependencies can perform external HTTP requests for the search workflow."
       },
       {
         "id": "network:pnpm-lock.yaml:95:http-client-library",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The lockfile snapshot contains node-fetch dependency details. This is expected for a web search API wrapper, but it confirms network-capable code is present.",
-        "severity": "low"
+        "confidence": 0.84,
+        "severity": "low",
+        "reason": "The node-fetch snapshot confirms an HTTP client is installed. This is normal for Exa.ai access, but it is still network capability in the skill."
       },
       {
         "id": "env_access:pnpm-lock.yaml:11:dotenv-library",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line is dependency metadata showing dotenv is declared. The actual environment loading behavior is already represented by the exa.js line 2 import."
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "severity": "low",
+        "reason": "The importer declares dotenv as a direct dependency. Combined with exa.js line 2, this supports runtime loading of environment secrets."
       },
       {
         "id": "env_access:pnpm-lock.yaml:23:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line is a package resolution entry in the lockfile. It does not itself read environment variables or secrets."
+        "confidence": 0.82,
+        "reason": "This line is package metadata for dotenv 16.4.7 in the lockfile. By itself it is not executable behavior and does not show a new secret access path."
       },
       {
         "id": "env_access:pnpm-lock.yaml:27:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This lockfile package entry records the installed dotenv version. The executable dotenv use is captured separately in exa.js."
+        "confidence": 0.82,
+        "reason": "This line is package metadata for dotenv 17.2.3 in the lockfile. The actual runtime secret access is already captured in exa.js, so this duplicate metadata is not a separate issue."
       },
       {
         "id": "env_access:pnpm-lock.yaml:80:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This snapshot line is dependency metadata only. It does not perform environment access by itself."
+        "confidence": 0.84,
+        "reason": "This snapshot entry only records the resolved dotenv package. It does not execute code or independently access environment secrets."
       },
       {
         "id": "env_access:pnpm-lock.yaml:82:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This snapshot line only records a package in the lockfile. No secret read occurs at this location."
+        "confidence": 0.84,
+        "reason": "This snapshot entry only records the resolved dotenv package. It duplicates dependency metadata and is not a separate runtime finding."
       },
       {
         "id": "env_access:pnpm-lock.yaml:87:dotenv-library",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line shows exa-js has a dotenv dependency. It is metadata, while the direct dotenv import in exa.js covers the runtime behavior."
+        "confidence": 0.78,
+        "reason": "This line shows exa-js has a dotenv dependency, but the lockfile alone does not prove the skill invokes that transitive dotenv copy. Runtime dotenv use is already covered by exa.js line 2."
       },
       {
         "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks on this line are Markdown formatting around an install path. There is no Ruby or shell backtick execution."
+        "confidence": 0.96,
+        "reason": "The backticks on line 14 are Markdown inline formatting around an installation path. There is no Ruby backtick execution or shell command in the executable script."
       },
       {
         "id": "external_commands:SKILL.md:15:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks only format the word pi in a documentation table. The line does not execute a command."
+        "confidence": 0.96,
+        "reason": "The backticks on line 15 are Markdown formatting around the pi tool name. This documentation text does not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "This is the start of a Markdown bash code fence for human installation steps. It is documentation, not runtime shell execution by the skill."
+        "reason": "Line 19 opens a Markdown bash code fence for installation instructions. It is user-facing documentation, not runtime command execution by the skill."
       },
       {
         "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "This is the closing Markdown code fence for the install snippet. It does not execute shell commands."
+        "reason": "Line 22 closes a Markdown code fence after setup commands. The skill source does not contain Ruby-style command substitution or automatic shell execution."
       },
       {
         "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks only format the EXA_API_KEY environment variable name. The line does not perform command execution."
+        "confidence": 0.95,
+        "reason": "Line 26 uses Markdown inline code to name the EXA_API_KEY variable. It is configuration documentation and does not run a command."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format the pi tool name in usage documentation. No shell or Ruby execution is present."
+        "confidence": 0.95,
+        "reason": "Line 30 uses Markdown inline code around the pi tool name. It describes automatic activation and contains no executable shell backtick behavior."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The backticks format an installation path in Markdown. This is not code execution."
+        "confidence": 0.95,
+        "reason": "Line 35 uses Markdown inline code around a dependency path. It is documentation, not shell execution."
       },
       {
         "id": "filesystem:SKILL.md:14:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The line documents the expected skill directory under ~/.pi. It does not read from or write to a hidden directory."
+        "reason": "Line 14 documents the expected skill directory under ~/.pi. It does not show code reading or writing hidden files."
       },
       {
         "id": "filesystem:SKILL.md:20:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.86,
-        "reason": "The line is a human setup command to change into the skill directory. It does not create, read, or modify hidden files."
+        "reason": "Line 20 is a manual cd command in installation documentation. It is not programmatic filesystem access by the skill."
       },
       {
         "id": "filesystem:SKILL.md:35:hidden-file-in-home-directory",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The line documents where dependencies are located. It is a path reference, not hidden file access by the runtime skill."
+        "reason": "Line 35 documents where dependencies reside under ~/.pi. No executable code accesses hidden home-directory files at this location."
       },
       {
         "id": "filesystem:SKILL.md:14:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "This is a documentation table entry for the skill path. No filesystem operation occurs on this line."
+        "reason": "The hidden path on line 14 is part of a Markdown table describing installation location. It does not perform filesystem access."
       },
       {
         "id": "filesystem:SKILL.md:20:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.86,
-        "reason": "The cd command is an installation instruction for a human operator. It is not executed by the skill and does not access file contents."
+        "reason": "The cd command on line 20 is setup documentation for a human installer. It is not hidden file access performed by the skill at runtime."
       },
       {
         "id": "filesystem:SKILL.md:35:hidden-file-access",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The hidden path appears only as documentation for dependency location. The runtime script does not access that path."
+        "reason": "Line 35 is documentation about the dependency location. It provides no evidence of runtime hidden-file reads or writes."
       },
       {
         "id": "env_access:SKILL.md:3:generic-api-secret-keys",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "The frontmatter description states that EXA_API_KEY is required. It mentions a variable name but does not access or disclose a secret."
+        "reason": "Line 3 documents that EXA_API_KEY is required. It does not contain a secret value or perform environment access."
       },
       {
         "id": "env_access:SKILL.md:26:generic-api-secret-keys",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "This line tells the user to set EXA_API_KEY. It is configuration documentation, not secret access."
+        "reason": "Line 26 instructs users to set EXA_API_KEY. This is configuration documentation and does not expose or read the key."
       },
       {
         "id": "env_access:SKILL.md:36:generic-api-secret-keys",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "This line documents the required environment variable. It does not read, print, or transmit the API key."
+        "reason": "Line 36 documents the required EXA_API_KEY environment variable. It does not reveal credentials or add a new secret access path."
       }
     ],
     "semantic_findings": [
       {
-        "title": "External Search Query Transmission",
-        "description": "exa.js sends the user-supplied search query to the Exa service through the Exa client and prints returned results. This is expected for search, but sensitive queries leave the local environment.",
-        "severity": "low",
+        "title": "User Query Forwarded to External Search API",
+        "description": "The script collects the command-line query and sends it to Exa.ai through the Exa client. Users should treat search queries as data shared with an external provider.",
+        "severity": "medium",
         "locations": [
-          {
-            "file": "exa.js",
-            "line_start": 10,
-            "line_end": 16
-          },
           {
             "file": "exa.js",
             "line_start": 23,
             "line_end": 23
+          },
+          {
+            "file": "exa.js",
+            "line_start": 12,
+            "line_end": 16
           }
         ],
-        "confidence": 0.88,
-        "confidence_reasoning": "The query is built from command-line arguments on line 23 and passed to exa.search on line 12. The behavior is documented as an Exa.ai search wrapper, so the privacy risk is clear but expected."
+        "confidence": 0.92,
+        "confidence_reasoning": "exa.js builds the query from process.argv on line 23 and calls exa.search with that query on lines 12-16. This directly supports the external data-sharing assessment."
+      },
+      {
+        "title": "Untrusted Search Results Emitted to Agent Output",
+        "description": "Search results from the web are printed directly to stdout without labeling or filtering them as untrusted content. An agent that consumes the output could be exposed to prompt injection text from result content.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "exa.js",
+            "line_start": 12,
+            "line_end": 16
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The code prints Exa search results directly after receiving them from the external API. The exact result fields depend on the provider, so confidence is high for untrusted output exposure but lower for exploitability."
       }
     ],
     "critical_findings": [],
@@ -790,12 +811,27 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "high",
-        "confidence": 0.93,
-        "confidence_reasoning": "Line 5 retrieves EXA_API_KEY, an API credential used to authenticate the Exa client. The key is needed for the service, but access to it is a real secret-handling risk."
+        "confidence": 0.95,
+        "confidence_reasoning": "Line 5 reads EXA_API_KEY and line 10 uses it to instantiate the Exa client. The key is required, but direct API secret use is a real sensitive operation."
+      },
+      {
+        "title": "Environment file access",
+        "description": "const apiKey = process.env.EXA_API_KEY;",
+        "locations": [
+          {
+            "file": "exa.js",
+            "line_start": 5,
+            "line_end": 5
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "sensitive",
+        "source_severity": "high",
+        "confidence": 0.82,
+        "confidence_reasoning": "Line 5 reads EXA_API_KEY, and the dotenv import on line 2 can populate it from a local environment file. No broader file access is shown, but sensitive local secret access is real."
       }
     ],
-    "medium_findings": [],
-    "low_findings": [
+    "medium_findings": [
       {
         "title": "Environment variable access (dot notation)",
         "description": "const apiKey = process.env.EXA_API_KEY;",
@@ -809,8 +845,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.95,
-        "confidence_reasoning": "Line 5 reads process.env.EXA_API_KEY, so the skill can access a credential from the runtime environment. This is expected for Exa authentication but remains sensitive capability."
+        "confidence": 0.92,
+        "confidence_reasoning": "Line 5 directly reads process.env.EXA_API_KEY, giving the skill access to an API credential. The access is expected for Exa, but it is still real secret handling."
       },
       {
         "title": "Environment variable object",
@@ -825,9 +861,48 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.95,
-        "confidence_reasoning": "Line 5 accesses the process.env object to retrieve EXA_API_KEY. That gives the skill access to environment-held secrets even though the value is not printed."
+        "confidence": 0.9,
+        "confidence_reasoning": "The process.env access on line 5 reads the EXA_API_KEY value at runtime. This is legitimate configuration, but it exposes an environment secret to the script."
       },
+      {
+        "title": "User Query Forwarded to External Search API",
+        "description": "The script collects the command-line query and sends it to Exa.ai through the Exa client. Users should treat search queries as data shared with an external provider.",
+        "locations": [
+          {
+            "file": "exa.js",
+            "line_start": 23,
+            "line_end": 23
+          },
+          {
+            "file": "exa.js",
+            "line_start": 12,
+            "line_end": 16
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.92,
+        "confidence_reasoning": "exa.js builds the query from process.argv on line 23 and calls exa.search with that query on lines 12-16. This directly supports the external data-sharing assessment."
+      },
+      {
+        "title": "Untrusted Search Results Emitted to Agent Output",
+        "description": "Search results from the web are printed directly to stdout without labeling or filtering them as untrusted content. An agent that consumes the output could be exposed to prompt injection text from result content.",
+        "locations": [
+          {
+            "file": "exa.js",
+            "line_start": 12,
+            "line_end": 16
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "The code prints Exa search results directly after receiving them from the external API. The exact result fields depend on the provider, so confidence is high for untrusted output exposure but lower for exploitability."
+      }
+    ],
+    "low_findings": [
       {
         "title": "dotenv library",
         "description": "import 'dotenv/config';",
@@ -841,8 +916,8 @@
         "review_kind": "capability",
         "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.9,
-        "confidence_reasoning": "The dotenv/config import can load local .env values into process.env before the key is read. This expands the skill's access to local secret configuration."
+        "confidence": 0.86,
+        "confidence_reasoning": "Line 2 imports dotenv/config, which loads environment variables from local dotenv files. This is common for API clients, but it broadens local secret access."
       },
       {
         "title": "HTTP client library",
@@ -857,8 +932,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The lockfile includes node-fetch, which supports outbound HTTP requests used through the Exa client dependency chain. The skill's purpose requires external network access."
+        "confidence": 0.84,
+        "confidence_reasoning": "node-fetch appears in the dependency tree, supporting outbound HTTP behavior for the Exa client stack. Network access is expected for web search but remains a real capability."
       },
       {
         "title": "HTTP client library",
@@ -873,8 +948,8 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The snapshot shows cross-fetch depends on node-fetch. This confirms the installed dependency graph supports outbound HTTP calls for the Exa search workflow."
+        "confidence": 0.84,
+        "confidence_reasoning": "The snapshot shows cross-fetch depending on node-fetch. This confirms the installed dependencies can perform external HTTP requests for the search workflow."
       },
       {
         "title": "HTTP client library",
@@ -889,155 +964,149 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The lockfile snapshot contains node-fetch dependency details. This is expected for a web search API wrapper, but it confirms network-capable code is present."
+        "confidence": 0.84,
+        "confidence_reasoning": "The node-fetch snapshot confirms an HTTP client is installed. This is normal for Exa.ai access, but it is still network capability in the skill."
       },
       {
-        "title": "External Search Query Transmission",
-        "description": "exa.js sends the user-supplied search query to the Exa service through the Exa client and prints returned results. This is expected for search, but sensitive queries leave the local environment.",
+        "title": "dotenv library",
+        "description": "dotenv:",
         "locations": [
           {
-            "file": "exa.js",
-            "line_start": 10,
-            "line_end": 16
-          },
-          {
-            "file": "exa.js",
-            "line_start": 23,
-            "line_end": 23
+            "file": "pnpm-lock.yaml",
+            "line_start": 11,
+            "line_end": 11
           }
         ],
-        "review_kind": "security",
-        "source_category": "semantic",
+        "review_kind": "capability",
+        "source_category": "env_access",
         "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The query is built from command-line arguments on line 23 and passed to exa.search on line 12. The behavior is documented as an Exa.ai search wrapper, so the privacy risk is clear but expected."
+        "confidence": 0.78,
+        "confidence_reasoning": "The importer declares dotenv as a direct dependency. Combined with exa.js line 2, this supports runtime loading of environment secrets."
       }
     ],
     "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 184,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T12:07:09.578Z",
+    "audited_at": "2026-07-09T11:46:06.039Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Search the Web with Exa.ai",
-    "value_statement": "Teams need current web evidence without leaving their AI coding workflow. This skill calls Exa.ai search and returns focused results for Claude, Codex, and Claude Code.",
+    "value_statement": "AI agents often need current web results with clear search intent. This skill lets Claude, Codex, and Claude Code query Exa.ai through a simple Node.js wrapper.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "Exa.ai search",
-      "web search skill",
-      "AI research assistant",
-      "agent search API",
-      "internet research",
-      "neural search",
+      "AI web search",
+      "neural search API",
+      "research automation",
+      "Node.js search skill",
+      "agent web research",
       "EXA_API_KEY"
     ],
     "actual_capabilities": [
-      "Runs an Exa.ai neural search from the Node.js helper.",
+      "Calls the Exa.ai search API through the exa-js client.",
       "Reads EXA_API_KEY from the environment for authentication.",
-      "Accepts the search query from command-line arguments.",
-      "Requests five search results for each query.",
-      "Prints returned search results for the calling agent to use.",
-      "Documents setup with pnpm and exa-js."
+      "Accepts a search query from command-line arguments.",
+      "Requests five neural search results for each query.",
+      "Prints formatted search result data to standard output."
     ],
     "limitations": [
-      "Requires a valid Exa.ai API key before use.",
-      "Sends search queries to the external Exa.ai service.",
-      "Returns a fixed set of five results unless the script is edited.",
-      "Does not include result filtering, ranking controls, or retries."
+      "Requires a valid Exa.ai API key and network access.",
+      "Returns only five results per search request.",
+      "Does not verify claims found in search results.",
+      "Sends search queries to an external provider."
     ],
     "use_cases": [
       {
-        "title": "Verify Library Behavior",
-        "description": "A developer asks the agent to find current documentation, examples, or release notes before changing code.",
-        "target_user": "Software developers"
+        "title": "Research a Current Topic",
+        "description": "Find recent web sources for a topic before drafting a summary or brief.",
+        "target_user": "Research analyst"
       },
       {
-        "title": "Collect Web References",
-        "description": "A researcher gathers links and snippets on a topic from Exa without leaving the agent session.",
-        "target_user": "Research analysts"
+        "title": "Add Web Search to Agent Workflows",
+        "description": "Let an AI coding assistant gather public context while working in a local project.",
+        "target_user": "Software developer"
       },
       {
-        "title": "Check Product Context",
-        "description": "A product or support teammate searches public sources before drafting explanations or tickets.",
-        "target_user": "Product and support teams"
+        "title": "Collect Competitive Signals",
+        "description": "Search for public pages about products, companies, or market changes.",
+        "target_user": "Product manager"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Web Search",
-        "prompt": "Search the web for recent information about [topic] with Exa.",
-        "scenario": "Beginner search request"
+        "title": "Basic Topic Search",
+        "scenario": "Beginner search for a simple topic.",
+        "prompt": "Search Exa for recent background on [topic]. Summarize the most relevant results and include source titles."
       },
       {
-        "title": "Compare Sources",
-        "prompt": "Use Exa to find sources comparing [option A] and [option B]. Summarize the strongest differences.",
-        "scenario": "Intermediate comparison research"
+        "title": "Find Authoritative Sources",
+        "scenario": "Locate sources for a report or document.",
+        "prompt": "Use Exa to find authoritative sources about [subject]. Prefer official documentation, primary sources, and recent analysis."
       },
       {
-        "title": "Find Technical Evidence",
-        "prompt": "Use Exa to locate official docs, examples, and recent discussions for [library or API]. Cite the most relevant sources.",
-        "scenario": "Advanced technical validation"
+        "title": "Compare Market Options",
+        "scenario": "Research products, vendors, or competitors.",
+        "prompt": "Search Exa for public information about [company or product]. Compare the main claims, pricing signals, and target users."
       },
       {
-        "title": "Research With Constraints",
-        "prompt": "Use Exa to research [topic]. Prioritize primary sources, avoid low-quality summaries, and note gaps in the available evidence.",
-        "scenario": "Advanced research workflow"
+        "title": "Build a Research Brief",
+        "scenario": "Advanced multi-step synthesis.",
+        "prompt": "Run focused Exa searches for [research question]. Group results by theme, flag weak evidence, and produce a concise research brief."
       }
     ],
     "output_examples": [
       {
-        "input": "Search the web for Exa neural search API usage.",
-        "output": "A concise list of Exa-related pages, documentation links, and result summaries suitable for follow-up research."
+        "input": "Search for recent work on AI agent memory systems.",
+        "output": "A short list of relevant web results with titles, source links, and brief notes for follow-up reading."
       },
       {
-        "input": "Find current information about a JavaScript library release.",
-        "output": "Relevant search results with titles, source URLs, and short context from public pages."
+        "input": "Find public information about Exa.ai search use cases.",
+        "output": "A summarized set of pages that describe Exa.ai capabilities, developer examples, and product positioning."
       },
       {
-        "input": "Research competitors for a product idea.",
-        "output": "A focused result set that helps identify public product pages, articles, and comparison sources."
+        "input": "Research alternatives to traditional keyword search APIs.",
+        "output": "A comparison-oriented result summary covering neural search providers, API features, and evaluation points."
       }
     ],
     "best_practices": [
-      "Use specific queries with names, dates, and source types.",
-      "Keep EXA_API_KEY in a local secret manager or environment configuration.",
-      "Review returned sources before using them in user-facing answers."
+      "Use specific search terms that include the topic, entity, and time range.",
+      "Keep secrets and private customer data out of search queries.",
+      "Verify important claims against primary sources before using them."
     ],
     "anti_patterns": [
-      "Do not include passwords, tokens, or private customer data in search queries.",
-      "Do not treat search results as verified facts without source review.",
-      "Do not run the helper without confirming the API key is intended for this workspace."
+      "Do not send credentials, private code, or confidential plans as search terms.",
+      "Do not treat search results as verified facts without review.",
+      "Do not expect this skill to crawl full websites or bypass access controls."
     ],
     "faq": [
       {
-        "question": "What does this skill do?",
-        "answer": "It runs Exa.ai web search from a Node.js helper and returns search results to the agent."
+        "question": "Does this skill require an API key?",
+        "answer": "Yes. It requires EXA_API_KEY in the environment before running searches."
       },
       {
-        "question": "Does it require an API key?",
-        "answer": "Yes. It requires EXA_API_KEY in the environment before the helper can search."
+        "question": "Which AI tools can use it?",
+        "answer": "The report marks support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "Where are queries sent?",
-        "answer": "Queries are sent to Exa.ai through the exa-js client."
+        "question": "What does the skill return?",
+        "answer": "It returns formatted Exa.ai search result data for the requested query."
       },
       {
-        "question": "Can it run without network access?",
-        "answer": "No. The skill needs network access to call the external Exa.ai API."
+        "question": "Can it browse private or authenticated pages?",
+        "answer": "No. It uses the Exa.ai search API and does not manage website logins."
       },
       {
-        "question": "Does it execute shell commands?",
-        "answer": "The runtime script does not execute shell commands. The documentation includes optional human setup commands for installation."
+        "question": "Are search queries private?",
+        "answer": "Queries are sent to Exa.ai, so users should avoid sensitive or confidential text."
       },
       {
-        "question": "Is it suitable for Claude, Codex, and Claude Code?",
-        "answer": "Yes. The metadata lists Claude, Codex, and Claude Code as supported tools when Node.js dependencies are installed."
+        "question": "Does it validate the search results?",
+        "answer": "No. Users should review sources and verify important claims independently."
       }
     ]
   },

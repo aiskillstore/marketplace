@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-07T07:53:17.500Z",
+    "generated_at": "2026-07-09T12:49:40.376Z",
     "slug": "wshobson-k8s-security-policies",
     "source_url": "https://github.com/wshobson/agents/tree/main/plugins/kubernetes-operations/skills/k8s-security-policies",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "bf1e3e39aeb40bad5886b7f658ea441fef936d0a9b056adb01aa2ba595351eda",
-    "tree_hash": "89f00ce7027b98bd9fd91ba4c65f72eed8398b0565bea4a1b904632735a58a2f",
+    "tree_hash": "7f40629214a73e94efa227ca7e56ff86422918d30d1c7efab3a67ceac90ef1b5",
     "provenance": {
       "model_requested": "gpt-5.5:high",
       "model_effective": "codex:gpt-5.5:high",
@@ -26,18 +26,18 @@
   },
   "skill": {
     "name": "k8s-security-policies",
-    "description": "Build Kubernetes security policy guidance for NetworkPolicy, Pod Security Standards, RBAC, admission control, and service mesh access controls.",
-    "summary": "Create practical Kubernetes policy patterns for workload isolation, least-privilege access, and production hardening.",
+    "description": "Create and review Kubernetes NetworkPolicy, Pod Security Standards, RBAC, admission control, and service mesh security examples for production clusters.",
+    "summary": "Create Kubernetes security policies for network isolation, pod hardening, RBAC, and admission control.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "wshobson",
     "license": "MIT",
     "tags": [
       "kubernetes",
+      "security",
       "network-policy",
       "rbac",
-      "pod-security",
-      "cluster-hardening"
+      "pod-security"
     ],
     "supported_tools": [
       "claude",
@@ -51,26 +51,26 @@
     "category": "security"
   },
   "security_audit": {
-    "risk_level": "critical",
-    "is_blocked": true,
+    "risk_level": "high",
+    "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Static analysis reported network and command-execution patterns, but most hits are markdown formatting or defensive Kubernetes examples. One broad egress template and two RBAC examples remain security-relevant because users could copy permissive policies into production. No prompt injection or malicious execution path was found.",
+    "summary": "Most static findings are false positives from Markdown code fences, YAML examples, inline references, or fixed kubectl troubleshooting commands. The broad HTTPS egress template is a real policy risk. Overbroad RBAC examples could expand secret or admin access if copied into production. No prompt injection attempt was found.",
     "remediation": [
       {
-        "issue": "Broad outbound HTTPS egress example",
-        "suggestion": "Replace 0.0.0.0/0 with narrower CIDR ranges, an egress gateway, or CNI-supported domain policies where possible.",
+        "issue": "Broad HTTPS egress allows 0.0.0.0/0.",
+        "suggestion": "Replace the open CIDR example with named destination guidance, namespace-scoped egress examples, or a warning to restrict approved endpoints.",
         "severity": "medium"
       },
       {
-        "issue": "Wildcard RBAC examples presented as common patterns",
-        "suggestion": "Move wildcard resources and verbs into an anti-pattern section, or replace them with explicit resources and verbs.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Cluster-wide secret-reader ClusterRole",
-        "suggestion": "Use a namespaced Role with resourceNames and get-only access for specific secrets. Remove list and watch on secrets.",
+        "issue": "RBAC examples grant broad secret and wildcard administrative permissions.",
+        "suggestion": "Use namespace-scoped Roles, resourceNames, specific resources, and minimal verbs in default examples. Mark any admin role as break-glass only.",
         "severity": "high"
+      },
+      {
+        "issue": "Markdown fences triggered external command detection.",
+        "suggestion": "Keep examples clearly labeled as documentation and avoid unnecessary shell snippets unless the command is required for troubleshooting.",
+        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -767,350 +767,329 @@
         "id": "network:assets/network-policy-template.yaml:126:aws-azure-metadata-endpoint",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The metadata endpoint appears in an ipBlock except list with the comment that it blocks the metadata service. This is defensive policy content, not a connection to AWS or Azure metadata."
+        "reason": "The metadata endpoint appears in an ipBlock except list with a comment saying it is blocked. This is defensive network policy content, not a request to the metadata service."
       },
       {
         "id": "network:assets/network-policy-template.yaml:124:hardcoded-ip-address",
         "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "The template allows egress to 0.0.0.0/0 on HTTPS, which can weaken outbound isolation if copied into production. It is legitimate example content, but it is still a real policy risk.",
-        "severity": "medium"
+        "confidence": 0.74,
+        "severity": "medium",
+        "reason": "The template allows egress to 0.0.0.0/0 on HTTPS. That broad allow rule can enable unintended external access or data exfiltration if copied without tighter destinations."
       },
       {
         "id": "network:assets/network-policy-template.yaml:126:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The hardcoded metadata IP is used as an explicit exception that blocks access to 169.254.169.254/32. It reduces cloud metadata exposure rather than enabling it."
+        "confidence": 0.97,
+        "reason": "The hardcoded IP is the well-known cloud metadata endpoint and is listed under except. In this context it narrows egress access rather than creating a network target."
       },
       {
         "id": "blocker:assets/network-policy-template.yaml:13:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The matched terms are Kubernetes NetworkPolicy policyTypes, Ingress and Egress. They describe traffic direction in declarative policy and are not network reconnaissance instructions."
+        "confidence": 0.98,
+        "reason": "The flagged text is a Kubernetes NetworkPolicy policyTypes value. Ingress and Egress are manifest fields here, not network reconnaissance instructions."
       },
       {
         "id": "blocker:assets/network-policy-template.yaml:14:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The matched terms are Kubernetes NetworkPolicy policyTypes, Ingress and Egress. They describe traffic direction in declarative policy and are not network reconnaissance instructions."
+        "confidence": 0.98,
+        "reason": "The flagged text is a Kubernetes NetworkPolicy policyTypes value. Ingress and Egress are manifest fields here, not network reconnaissance instructions."
       },
       {
         "id": "blocker:references/rbac-patterns.md:131:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The wildcard token is shown in text that tells users to avoid wildcard permissions in production. This is warning language, not system reconnaissance behavior."
+        "confidence": 0.95,
+        "reason": "The flagged wildcard text is explanatory RBAC documentation that advises avoiding wildcard permissions in production. It is not a system reconnaissance instruction."
       },
       {
         "id": "blocker:references/rbac-patterns.md:169:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The wildcard token is shown in text that tells users to avoid wildcard permissions in production. This is warning language, not system reconnaissance behavior."
+        "confidence": 0.95,
+        "reason": "The flagged wildcard text is explanatory RBAC documentation that advises avoiding wildcard permissions in production. It is not a system reconnaissance instruction."
       },
       {
         "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:98:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:119:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:121:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The matched backticks are inline Markdown formatting around file names or related skill names. They are not command substitution and do not execute external commands."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:126:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:136:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:148:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:151:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:168:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:170:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The matched backticks are inline Markdown formatting around file names or related skill names. They are not command substitution and do not execute external commands."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:175:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:196:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:201:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:230:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:233:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:245:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:250:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:259:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:262:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:277:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.96,
+        "reason": "The detected text is a Markdown fenced YAML block or nearby documentation in SKILL.md. It provides Kubernetes manifest examples and contains no executable script path."
       },
       {
         "id": "external_commands:SKILL.md:312:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This is a fenced documentation block with kubectl troubleshooting examples. The skill does not define a script, hook, automatic execution path, or shell backtick substitution."
+        "confidence": 0.93,
+        "reason": "This is a troubleshooting example with fixed kubectl commands for a human operator. It is documentation only and does not execute automatically or interpolate untrusted input."
       },
       {
         "id": "external_commands:SKILL.md:316:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.99,
+        "reason": "The flagged text is a Markdown code fence delimiter closing a bash example. It is not executable code in the skill package."
       },
       {
         "id": "external_commands:SKILL.md:319:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This is a fenced documentation block with kubectl troubleshooting examples. The skill does not define a script, hook, automatic execution path, or shell backtick substitution."
+        "confidence": 0.93,
+        "reason": "This is a troubleshooting example with fixed kubectl commands for a human operator. It is documentation only and does not execute automatically or interpolate untrusted input."
       },
       {
         "id": "external_commands:SKILL.md:323:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The match is a Markdown code fence marker around YAML or bash examples. It is not Ruby backtick execution, shell substitution, or executable skill code."
+        "confidence": 0.99,
+        "reason": "The flagged text is a Markdown code fence delimiter closing a bash example. It is not executable code in the skill package."
       },
       {
         "id": "external_commands:SKILL.md:327:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The matched backticks are inline Markdown formatting around file names or related skill names. They are not command substitution and do not execute external commands."
+        "confidence": 0.99,
+        "reason": "The flagged text is an inline Markdown reference to a file or related skill name. It does not invoke a shell, Ruby backticks, or any external command."
       },
       {
         "id": "external_commands:SKILL.md:328:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The matched backticks are inline Markdown formatting around file names or related skill names. They are not command substitution and do not execute external commands."
+        "confidence": 0.99,
+        "reason": "The flagged text is an inline Markdown reference to a file or related skill name. It does not invoke a shell, Ruby backticks, or any external command."
       },
       {
         "id": "external_commands:SKILL.md:329:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The matched backticks are inline Markdown formatting around file names or related skill names. They are not command substitution and do not execute external commands."
+        "confidence": 0.99,
+        "reason": "The flagged text is an inline Markdown reference to a file or related skill name. It does not invoke a shell, Ruby backticks, or any external command."
       },
       {
         "id": "external_commands:SKILL.md:333:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The matched backticks are inline Markdown formatting around file names or related skill names. They are not command substitution and do not execute external commands."
+        "confidence": 0.99,
+        "reason": "The flagged text is an inline Markdown reference to a file or related skill name. It does not invoke a shell, Ruby backticks, or any external command."
       },
       {
         "id": "blocker:SKILL.md:18:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.6,
-        "reason": "No executable or malicious behavior was found at SKILL.md:18. The pattern appears in declarative Kubernetes documentation, but it should be reviewed in context."
+        "confidence": 0.97,
+        "reason": "The line describes configuring least-privilege RBAC. It is normal Kubernetes security guidance and does not instruct network reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:73:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The matched terms are Kubernetes NetworkPolicy policyTypes, Ingress and Egress. They describe traffic direction in declarative policy and are not network reconnaissance instructions."
+        "confidence": 0.98,
+        "reason": "The flagged word is the Ingress policy type inside a NetworkPolicy example. It is a declarative Kubernetes field, not reconnaissance behavior."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Overly Broad RBAC Examples",
-        "description": "The RBAC reference presents wildcard resource and verb examples as common patterns. Users could copy these broad permissions into production despite later warnings.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "references/rbac-patterns.md",
-            "line_start": 5,
-            "line_end": 28
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The file directly shows ClusterRole and Role examples with wildcard resources and verbs. The surrounding title calls them common patterns, so copy-paste risk is credible."
-      },
-      {
-        "title": "Cluster-Wide Secret Reader Example",
-        "description": "The main skill includes a ClusterRole named secret-reader that grants get, watch, and list on secrets. This is excessive for least-privilege guidance.",
+        "title": "Overbroad RBAC Examples",
+        "description": "The guide includes a cluster-wide secret-reader ClusterRole and a namespace-admin Role with wildcard resources and verbs. Users may copy these examples into production, expanding secret exposure and administrative access.",
         "severity": "high",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 138,
             "line_end": 148
+          },
+          {
+            "file": "references/rbac-patterns.md",
+            "line_start": 17,
+            "line_end": 28
           }
         ],
         "confidence": 0.88,
-        "confidence_reasoning": "The example is clearly a cluster-wide RBAC rule over secrets with list and watch permissions. That access can expose sensitive data across namespaces."
+        "confidence_reasoning": "The cited examples directly grant broad secret access and wildcard namespace permissions. The surrounding material includes least-privilege advice, so this is a risky guidance issue rather than clear malicious intent."
       }
     ],
-    "critical_findings": [
-      {
-        "title": "AWS/Azure metadata endpoint",
-        "description": "- 169.254.169.254/32  # Block metadata service",
-        "locations": [
-          {
-            "file": "assets/network-policy-template.yaml",
-            "line_start": 126,
-            "line_end": 126
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "network",
-        "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed network/critical static finding; AI dismissal overridden."
-      }
-    ],
+    "critical_findings": [],
     "high_findings": [
       {
-        "title": "Cluster-Wide Secret Reader Example",
-        "description": "The main skill includes a ClusterRole named secret-reader that grants get, watch, and list on secrets. This is excessive for least-privilege guidance.",
+        "title": "Overbroad RBAC Examples",
+        "description": "The guide includes a cluster-wide secret-reader ClusterRole and a namespace-admin Role with wildcard resources and verbs. Users may copy these examples into production, expanding secret exposure and administrative access.",
         "locations": [
           {
             "file": "SKILL.md",
             "line_start": 138,
             "line_end": 148
+          },
+          {
+            "file": "references/rbac-patterns.md",
+            "line_start": 17,
+            "line_end": 28
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
         "confidence": 0.88,
-        "confidence_reasoning": "The example is clearly a cluster-wide RBAC rule over secrets with list and watch permissions. That access can expose sensitive data across namespaces."
+        "confidence_reasoning": "The cited examples directly grant broad secret access and wildcard namespace permissions. The surrounding material includes least-privilege advice, so this is a risky guidance issue rather than clear malicious intent."
       }
     ],
     "medium_findings": [
@@ -1127,180 +1106,146 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "The template allows egress to 0.0.0.0/0 on HTTPS, which can weaken outbound isolation if copied into production. It is legitimate example content, but it is still a real policy risk."
-      },
-      {
-        "title": "Overly Broad RBAC Examples",
-        "description": "The RBAC reference presents wildcard resource and verb examples as common patterns. Users could copy these broad permissions into production despite later warnings.",
-        "locations": [
-          {
-            "file": "references/rbac-patterns.md",
-            "line_start": 5,
-            "line_end": 28
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The file directly shows ClusterRole and Role examples with wildcard resources and verbs. The surrounding title calls them common patterns, so copy-paste risk is credible."
+        "confidence": 0.74,
+        "confidence_reasoning": "The template allows egress to 0.0.0.0/0 on HTTPS. That broad allow rule can enable unintended external access or data exfiltration if copied without tighter destinations."
       }
     ],
     "low_findings": [],
-    "dangerous_patterns": [
-      {
-        "title": "AWS/Azure metadata endpoint",
-        "description": "- 169.254.169.254/32  # Block metadata service",
-        "locations": [
-          {
-            "file": "assets/network-policy-template.yaml",
-            "line_start": 126,
-            "line_end": 126
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "network",
-        "source_severity": "critical",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed network/critical static finding; AI dismissal overridden."
-      }
-    ],
+    "dangerous_patterns": [],
     "files_scanned": 3,
     "total_lines": 701,
     "audit_model": "codex",
-    "audited_at": "2026-07-07T07:53:17.500Z",
-    "agent_auto_install_policy": "blocked",
-    "manual_install_policy": "allowed_with_warning"
+    "audited_at": "2026-07-09T12:49:40.376Z",
+    "agent_auto_install_policy": "confirmation_required",
+    "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Secure Kubernetes Workloads with Policies",
-    "value_statement": "Kubernetes clusters need clear isolation, RBAC, and pod standards to reduce deployment risk. This skill provides policy patterns, templates, and review prompts for practical hardening.",
+    "user_title": "Secure Kubernetes Workloads",
+    "value_statement": "Kubernetes teams need clear policy examples that reduce network and permission risk. This skill provides reusable guidance for NetworkPolicy, Pod Security Standards, RBAC, admission control, and service mesh security.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "Kubernetes security",
       "NetworkPolicy templates",
-      "Pod Security Standards",
       "RBAC least privilege",
+      "Pod Security Standards",
       "OPA Gatekeeper",
       "Istio mTLS",
       "cluster hardening"
     ],
     "actual_capabilities": [
-      "Creates NetworkPolicy patterns for default deny, DNS, ingress, monitoring, HTTPS egress, database access, and namespace boundaries.",
-      "Applies Pod Security Standards labels for privileged, baseline, and restricted namespace modes.",
-      "Drafts RBAC roles, bindings, and service account guidance for common Kubernetes workloads.",
-      "Provides OPA Gatekeeper examples for required labels and admission control.",
-      "Outlines Istio mTLS and AuthorizationPolicy patterns for service-to-service access.",
-      "Suggests kubectl checks for NetworkPolicy and RBAC troubleshooting."
+      "Provides NetworkPolicy templates for default deny, DNS, service access, ingress, monitoring, external HTTPS, database, and cross-namespace traffic.",
+      "Explains namespace Pod Security Standards labels for privileged, baseline, and restricted modes.",
+      "Shows RBAC Roles, ClusterRoles, RoleBindings, ServiceAccount patterns, and permission troubleshooting commands.",
+      "Includes OPA Gatekeeper and Istio security policy examples.",
+      "Summarizes CIS and NIST-aligned Kubernetes security practices."
     ],
     "limitations": [
-      "It does not inspect or modify a live cluster by itself.",
-      "Examples must be adapted to each CNI, namespace model, workload label set, and compliance requirement.",
-      "PodSecurityPolicy is deprecated in modern Kubernetes, so Pod Security Standards should be preferred.",
-      "Broad egress and RBAC examples need review before production use."
+      "Does not inspect a live cluster or verify policies against deployed workloads.",
+      "Examples require adaptation for namespace names, labels, ports, and CNI behavior.",
+      "Some RBAC examples are broad and should be narrowed before production use.",
+      "Does not replace admission testing, threat modeling, or compliance review."
     ],
     "use_cases": [
       {
-        "title": "Harden a Production Namespace",
-        "description": "Create baseline pod security, default deny networking, allowed service paths, and namespace-scoped RBAC for a workload.",
-        "target_user": "Platform engineer"
+        "title": "Build a Namespace Security Baseline",
+        "target_user": "Platform engineer",
+        "description": "Create starting policies for pod restrictions, default deny networking, DNS egress, and approved service communication."
       },
       {
-        "title": "Review Cluster Access Controls",
-        "description": "Check RBAC examples for least privilege, service account boundaries, wildcard permissions, and secret access risks.",
-        "target_user": "Security engineer"
+        "title": "Review Access Controls",
+        "target_user": "Security engineer",
+        "description": "Compare RBAC examples against least-privilege goals and identify permissions that need narrower resources or verbs."
       },
       {
-        "title": "Prepare Application Deployment Guardrails",
-        "description": "Generate practical policy requirements that application teams can follow before releasing services to Kubernetes.",
-        "target_user": "Application team lead"
+        "title": "Troubleshoot Policy Failures",
+        "target_user": "Site reliability engineer",
+        "description": "Use the included checks to investigate denied traffic, missing CNI enforcement, and unexpected RBAC permission failures."
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create Starter Policies",
+        "title": "Create a Default Deny Baseline",
         "scenario": "Beginner namespace hardening",
-        "prompt": "Create Kubernetes security policy guidance for a namespace named <namespace>. Include pod security labels, default deny networking, and basic RBAC."
+        "prompt": "Help me design a default deny NetworkPolicy baseline for namespace <namespace>. Include DNS egress and explain which labels I must replace."
       },
       {
-        "title": "Review Existing Manifests",
-        "scenario": "Policy gap analysis",
-        "prompt": "Review these Kubernetes manifests for policy gaps. Focus on pod security, RBAC scope, and NetworkPolicy coverage. Explain each recommended change."
+        "title": "Harden a Workload Namespace",
+        "scenario": "Intermediate policy planning",
+        "prompt": "Create a Kubernetes security plan for a frontend, backend, and database namespace. Cover Pod Security Standards, NetworkPolicy, and least-privilege RBAC."
+      },
+      {
+        "title": "Review Existing Permissions",
+        "scenario": "Advanced RBAC review",
+        "prompt": "Review these RBAC rules for production risk. Identify wildcard verbs, secret access, cluster scope, and safer least-privilege replacements."
       },
       {
         "title": "Design Multi-Tenant Controls",
-        "scenario": "Shared cluster security design",
-        "prompt": "Design security policies for multiple teams sharing one cluster. Include namespace boundaries, service accounts, ingress rules, egress rules, and audit checks."
-      },
-      {
-        "title": "Build Compliance Hardening Plan",
-        "scenario": "Advanced production governance",
-        "prompt": "Create a production hardening plan for a regulated Kubernetes platform. Map controls to Pod Security Standards, RBAC, admission control, network isolation, and operations checks."
+        "scenario": "Advanced cluster governance",
+        "prompt": "Design a multi-tenant Kubernetes security baseline using NetworkPolicy, restricted pod settings, OPA Gatekeeper, audit logging, and service mesh authorization."
       }
     ],
     "output_examples": [
       {
-        "input": "Harden a production namespace for a payments service.",
+        "input": "Need a secure starting point for a new production namespace.",
         "output": [
-          "Recommended restricted pod security enforcement for the namespace.",
-          "Added default deny networking with explicit DNS and service-to-service allowances.",
-          "Flagged broad outbound access for review before deployment."
+          "A default deny networking plan for ingress and egress.",
+          "A DNS egress exception and service-specific allow rules.",
+          "Restricted pod settings and least-privilege RBAC review notes."
         ]
       },
       {
-        "input": "Review RBAC for a backend service account.",
+        "input": "Need to understand why a service cannot reach its database.",
         "output": [
-          "Identified permissions that should be namespace scoped.",
-          "Recommended replacing wildcard access with named resources and minimal verbs.",
-          "Suggested disabling automatic token mounting unless the workload needs API access."
+          "A checklist for CNI support, pod labels, namespace selectors, and database port rules.",
+          "Suggested permission checks for the workload service account.",
+          "Common policy gaps to verify before changing production access."
         ]
       },
       {
-        "input": "Plan admission controls for required workload labels.",
+        "input": "Need to reduce risky RBAC in a shared cluster.",
         "output": [
-          "Outlined an OPA Gatekeeper policy for required ownership and environment labels.",
-          "Explained how to roll out audit mode before enforcement.",
-          "Included validation steps for application teams."
+          "A review of broad verbs, secret access, and cluster-scoped grants.",
+          "Recommendations to use Roles, resourceNames, and dedicated ServiceAccounts.",
+          "A migration plan from broad admin access to task-specific permissions."
         ]
       }
     ],
     "best_practices": [
-      "Start with namespace-level Pod Security Standards and default deny NetworkPolicy rules.",
-      "Grant each workload a dedicated service account with explicit resources and minimal verbs.",
-      "Review all examples against the live CNI, ingress design, and compliance scope before applying them."
+      "Start with default deny network policies, then add only required DNS, service, and external egress paths.",
+      "Use restricted Pod Security Standards for production namespaces unless a documented exception is approved.",
+      "Prefer namespace Roles, specific resources, minimal verbs, and dedicated ServiceAccounts for every workload."
     ],
     "anti_patterns": [
-      "Do not copy wildcard RBAC permissions into production without a documented exception.",
-      "Do not allow broad outbound egress when a narrower destination model is available.",
-      "Do not rely on policy templates without matching labels, namespaces, and service accounts."
+      "Applying sample policies without changing namespaces, labels, ports, and workload selectors.",
+      "Granting wildcard RBAC verbs or broad secret access to application service accounts.",
+      "Assuming NetworkPolicy is enforced without confirming that the cluster CNI supports it."
     ],
     "faq": [
       {
-        "question": "Does this skill apply changes automatically?",
-        "answer": "No. It provides policy guidance and examples that a user must review before applying."
+        "question": "Can this skill apply policies to my cluster?",
+        "answer": "No. It provides guidance and examples. You must review, test, and apply policies with your own Kubernetes tooling."
       },
       {
-        "question": "Which Kubernetes controls does it cover?",
-        "answer": "It covers NetworkPolicy, Pod Security Standards, RBAC, admission control, and basic service mesh authorization patterns."
+        "question": "Does it support Pod Security Standards?",
+        "answer": "Yes. It includes namespace label examples for privileged, baseline, and restricted enforcement modes."
       },
       {
-        "question": "Can it replace a cluster security audit?",
-        "answer": "No. It helps draft and review policies, but a live cluster audit needs real configuration and runtime data."
+        "question": "Does it replace a Kubernetes security audit?",
+        "answer": "No. It is a starting point for policy design and review, not a complete audit of a live environment."
       },
       {
-        "question": "Does it support modern pod security?",
-        "answer": "Yes. It includes Pod Security Standards examples and should prefer them over deprecated PodSecurityPolicy guidance."
+        "question": "What should I customize before using the examples?",
+        "answer": "Customize namespaces, labels, ports, service accounts, resource names, and approved external destinations."
       },
       {
-        "question": "How should NetworkPolicy examples be used?",
-        "answer": "Use them as starting points, then adapt selectors, namespaces, ports, and egress destinations to the application."
+        "question": "Why are broad RBAC examples risky?",
+        "answer": "Broad verbs, wildcard resources, and secret access can expose sensitive data or expand privileges beyond the workload need."
       },
       {
-        "question": "Is it suitable for regulated environments?",
-        "answer": "It can support regulated environments, but every policy should be reviewed against the required control framework."
+        "question": "Does NetworkPolicy work in every Kubernetes cluster?",
+        "answer": "No. Enforcement depends on the cluster CNI. Confirm CNI support before relying on NetworkPolicy for isolation."
       }
     ]
   },

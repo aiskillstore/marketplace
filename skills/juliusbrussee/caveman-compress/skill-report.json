@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T17:45:31.750Z",
+    "generated_at": "2026-07-09T11:18:18.987Z",
     "slug": "juliusbrussee-caveman-compress",
     "source_url": "https://github.com/juliusbrussee/caveman/tree/main/caveman-compress/",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "2f4509b305faab0c738773f1cf48dcf24aac17dc426e685878fab2f9cb5a1691",
-    "tree_hash": "9ba28e5f9f764484f4a2bf224e7c311d5c535dfd5f39ddabbcbd7e4ffee11259",
+    "tree_hash": "60051176b59b4d1db2ff7f2e909df121fe30bbd280b331cf53e0e8c82adcca21",
     "provenance": {
       "model_requested": "gpt-5.5:high",
       "model_effective": "codex:gpt-5.5:high",
@@ -26,18 +26,18 @@
   },
   "skill": {
     "name": "caveman-compress",
-    "description": "Compresses natural language memory files such as CLAUDE.md, todos, and preferences into a shorter caveman format. It preserves code blocks, URLs, headings, and technical terms while saving a .original.md backup before overwriting.",
-    "summary": "Compress AI memory files to reduce recurring context tokens while keeping a readable backup.",
+    "description": "Compresses natural language memory files such as CLAUDE.md, todos, and preferences into shorter markdown. It preserves code blocks, URLs, headings, and paths, then saves the original as FILE.original.md.",
+    "summary": "Compress markdown memory files to reduce recurring AI context tokens.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "juliusbrussee",
     "license": "MIT",
     "tags": [
-      "token optimization",
-      "memory files",
-      "markdown compression",
-      "Claude Code",
-      "context management"
+      "memory-compression",
+      "token-optimization",
+      "markdown",
+      "claude-code",
+      "productivity"
     ],
     "supported_tools": [
       "claude",
@@ -56,27 +56,22 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Most static findings are false positives from markdown backticks, documentation, validation regexes, and protective .env skip lists. Confirmed risks are the fixed Claude CLI subprocess fallback and the intentional transmission of selected memory file content to Claude for compression. No prompt injection attempt or hidden data collection was found in the reviewed files.",
+    "summary": "Most static findings are false positives from markdown backticks, regex patterns, comments, and documented safe credential use. The meaningful residual risks are that selected files are sent to Claude and model output can overwrite future agent memory files.",
     "remediation": [
       {
-        "issue": "External transmission of memory file content",
-        "suggestion": "Warn users before compression and recommend removing secrets or private customer data from memory files.",
+        "issue": "Untrusted memory content can influence the replacement file.",
+        "suggestion": "Delimit source content clearly, instruct the model to ignore instructions inside source text, and scan output for new agent directives before writing.",
+        "severity": "high"
+      },
+      {
+        "issue": "Selected file content is submitted to an external LLM service.",
+        "suggestion": "Show a preflight warning before submission and recommend removing secrets from memory files before compression.",
         "severity": "medium"
       },
       {
-        "issue": "Claude CLI subprocess fallback",
-        "suggestion": "Document the trusted CLI requirement and consider verifying the resolved claude executable before invoking it.",
+        "issue": "Readable backups may retain sensitive content beside the compressed file.",
+        "suggestion": "Warn users that FILE.original.md may be committed and recommend adding backup patterns to project ignore rules.",
         "severity": "medium"
-      },
-      {
-        "issue": "In-place overwrite after compression",
-        "suggestion": "Write compressed output to a temporary file and replace the target atomically only after validation succeeds.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Broad user-supplied file paths",
-        "suggestion": "Add confirmation for absolute paths outside the current project before reading and rewriting files.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -553,208 +548,230 @@
         "id": "blocker:scripts/benchmark.py:38:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "Line 38 only prints a benchmark table header. It does not inspect the system or gather host information."
+        "reason": "Line 38 only prints a markdown benchmark table header. It does not inspect the system or collect host information."
       },
       {
         "id": "filesystem:scripts/cli.py:48:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "Line 48 only prints a status message before compression. The snippet contains no path traversal sequence or file access."
+        "confidence": 0.97,
+        "reason": "Line 48 only prints a status message before compression. There is no path traversal sequence or filesystem access on that line."
       },
       {
         "id": "external_commands:scripts/compress.py:53:python-subprocess-run",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "severity": "medium",
-        "reason": "The code launches the external claude CLI and passes file-derived prompt content through stdin. Arguments are fixed and shell=False, so injection risk is limited, but external command execution remains real."
+        "verdict": "false_positive",
+        "confidence": 0.87,
+        "reason": "The subprocess call uses a fixed argument list, [\"claude\", \"--print\"], with user content passed through stdin. No shell interpolation or user-controlled executable path is present."
       },
       {
         "id": "external_commands:scripts/compress.py:16:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks are inside a regular expression for detecting markdown fences. They are not Ruby or shell execution."
+        "confidence": 0.95,
+        "reason": "The backticks appear inside a regular expression for markdown fence detection. They are not shell backticks and do not execute commands."
       },
       {
         "id": "external_commands:scripts/compress.py:21:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "The backticks appear in a docstring that describes markdown fence handling. No code execution occurs on this line."
+        "reason": "The backticks are part of a docstring describing markdown fence stripping. This is documentation text, not executable shell syntax."
       },
       {
         "id": "external_commands:scripts/compress.py:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is prompt text instructing Claude not to modify markdown code blocks. It does not execute shell or Ruby commands."
+        "confidence": 0.96,
+        "reason": "The backticks are in a prompt rule telling Claude to preserve markdown code blocks. They are data inside a string, not command execution."
       },
       {
         "id": "env_access:scripts/compress.py:37:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The code reads ANTHROPIC_API_KEY for normal SDK authentication. The key is not logged, written to disk, or included in prompts."
+        "confidence": 0.88,
+        "reason": "The environment lookup reads ANTHROPIC_API_KEY only to authenticate the Anthropic SDK. The key is not printed, written to disk, or passed to an arbitrary endpoint."
       },
       {
         "id": "env_access:scripts/compress.py:44:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "CAVEMAN_MODEL is a model selector, not a secret. Reading it only changes which Claude model is requested."
+        "confidence": 0.9,
+        "reason": "CAVEMAN_MODEL is read as an optional model selector with a fixed default. This does not expose secrets or create a command injection path."
       },
       {
         "id": "env_access:scripts/compress.py:37:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "ANTHROPIC_API_KEY is accessed for authentication to the expected Anthropic client. I found no evidence that the secret is exposed or exfiltrated."
+        "confidence": 0.87,
+        "reason": "The API key variable is used for the documented Anthropic client initialization. There is no evidence that the secret is logged, persisted, or sent outside Anthropic authentication."
       },
       {
         "id": "env_access:scripts/compress.py:38:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "Line 38 only checks whether the API key variable is present. It does not read, print, or transmit the secret value."
+        "confidence": 0.9,
+        "reason": "The line only checks whether the API key exists before choosing SDK or CLI behavior. It does not reveal or transform the secret."
       },
       {
         "id": "env_access:scripts/compress.py:42:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The key is passed to the official Anthropic SDK constructor for authentication. No unrelated destination or logging path is present."
+        "confidence": 0.86,
+        "reason": "The API key is passed directly to the official Anthropic client constructor for authentication. This is expected credential use, not secret exfiltration."
       },
       {
         "id": "sensitive:scripts/detect.py:14:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The .env extension is listed in SKIP_EXTENSIONS to prevent compression. This is a protective filter, not environment file access."
+        "confidence": 0.95,
+        "reason": "The .env string is listed among extensions that should be skipped. This prevents compression of environment files rather than accessing them."
       },
       {
         "id": "sensitive:scripts/detect.py:74:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The .env string is used to classify environment files as configuration. The function does not open or parse .env files here."
+        "confidence": 0.95,
+        "reason": "The line classifies .env as config based on extension. It avoids reading or modifying environment files in the normal classification path."
       },
       {
         "id": "blocker:scripts/detect.py:38:system-reconnaissance",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "Line 38 is a docstring for a JSON content check. It performs no host, network, or system reconnaissance."
+        "reason": "Line 38 is a docstring for JSON content detection. It does not query system state or enumerate host details."
       },
       {
         "id": "external_commands:scripts/validate.py:6:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.95,
-        "reason": "The backticks are part of a markdown fence regular expression. The validator parses text and does not execute commands."
+        "reason": "The backticks are part of a regex that parses markdown code fences during validation. The expression does not execute shell commands."
       },
       {
         "id": "filesystem:scripts/validate.py:11:path-traversal-sequence",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "Line 11 is a comment describing path-like text detection for validation. It does not construct or traverse filesystem paths."
+        "reason": "The path traversal strings appear in a comment explaining path matching for validation. The regex extracts paths from text and does not open those paths."
       },
       {
         "id": "blocker:scripts/validate.py:17:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "Line 17 initializes a validation status boolean. It is unrelated to system reconnaissance."
+        "confidence": 0.97,
+        "reason": "The line initializes a validation result flag. It has no relation to host inspection or reconnaissance."
       },
       {
         "id": "blocker:scripts/validate.py:22:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "Line 22 marks a validation result as invalid. It does not inspect the host system."
+        "confidence": 0.97,
+        "reason": "The line marks validation as failed when an error is added. It does not collect system information."
       },
       {
         "id": "external_commands:SECURITY.md:9:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is documentation describing the subprocess fallback, not executable code. The actual subprocess call is adjudicated separately in scripts/compress.py."
+        "confidence": 0.92,
+        "reason": "This is documentation describing the subprocess fallback and its fixed arguments. The documented behavior does not use shell interpolation."
       },
       {
         "id": "env_access:SECURITY.md:9:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The line documents fallback behavior when ANTHROPIC_API_KEY is absent. It does not access or expose a secret."
+        "confidence": 0.9,
+        "reason": "This documentation mentions ANTHROPIC_API_KEY to explain authentication behavior. It is not code that reads or exposes a credential."
       },
       {
         "id": "env_access:SECURITY.md:23:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is documentation of expected authentication behavior. It contains no executable secret handling path."
+        "confidence": 0.9,
+        "reason": "This line documents that the SDK uses ANTHROPIC_API_KEY when present. It does not contain a secret value or implement unsafe handling."
       },
       {
         "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The line describes compression behavior and includes inline markdown formatting. It does not instruct shell or Ruby execution."
+        "confidence": 0.94,
+        "reason": "The backticks format a backup filename in markdown prose. They are not command syntax and do not trigger execution."
       },
       {
         "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The inline text is a slash-command trigger for the skill, not a shell command. It is user-facing usage documentation."
+        "confidence": 0.94,
+        "reason": "The backticks format the user-facing slash command in documentation. No shell command is executed from this markdown text."
       },
       {
         "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The backticked value is a local path used to locate the skill scripts. The line itself does not perform shell interpolation or execution."
+        "confidence": 0.94,
+        "reason": "The backticks mark file paths in markdown instructions. This is documentation formatting, not shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The triple backticks are markdown fence syntax listed as content to preserve. They are not execution syntax in this context."
+        "confidence": 0.96,
+        "reason": "The triple backticks describe fenced code blocks that must be preserved. They are markdown examples, not executable shell constructs."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The line discusses inline code formatting. It is not command execution."
+        "confidence": 0.96,
+        "reason": "The backticks identify inline code formatting that should be preserved. This is markdown syntax and cannot execute a command."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The line shows example file paths that must be preserved during compression. It does not access those paths."
+        "confidence": 0.94,
+        "reason": "The backticks wrap example file paths in documentation. They are not Ruby or shell execution syntax."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The commands are examples of text that must be preserved in documents. The skill instruction does not say to run them."
+        "confidence": 0.94,
+        "reason": "The backticks wrap example commands that the compressor should preserve as text. The skill file is documenting preservation rules, not running those commands."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The environment variable examples are content-preservation examples. They are not read from the runtime environment."
+        "confidence": 0.95,
+        "reason": "The backticks format environment variable examples in markdown. There is no command execution path in this line."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a markdown preservation rule for fenced code blocks. It does not trigger command execution."
+        "confidence": 0.96,
+        "reason": "The triple backticks are markdown fence examples in a rule about preserving code blocks. They are not shell backticks."
       },
       {
         "id": "sensitive:SKILL.md:107:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The line explicitly says never to modify .env files. This is a safety boundary, not sensitive file access."
+        "confidence": 0.95,
+        "reason": "The .env extension appears in a rule that says never to modify such files. This is a safety boundary, not evidence of environment file access."
       },
       {
         "id": "blocker:SKILL.md:30:network-reconnaissance",
-        "verdict": "confirmed",
+        "verdict": "false_positive",
         "confidence": 0.88,
-        "severity": "medium",
-        "reason": "The skill explicitly calls Claude to compress file content. This is an expected external AI service call, but it is still a real network and privacy boundary."
+        "reason": "The line says the workflow calls Claude to compress, which is expected LLM use. It does not describe probing networks, scanning hosts, or gathering network topology."
       },
       {
         "id": "blocker:SKILL.md:66:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "Line 66 is a markdown section heading named Compress. It contains no network scanning or reconnaissance behavior."
+        "confidence": 0.97,
+        "reason": "Line 66 is a markdown heading for compression rules. It contains no network behavior or reconnaissance instruction."
       }
     ],
     "semantic_findings": [
       {
-        "title": "External LLM Transmission of File Contents",
-        "description": "The compression prompt embeds the original file content and sends it to Claude. This is expected behavior, but it is a privacy risk for memory files containing secrets or sensitive notes.",
+        "title": "External LLM Submission of Local File Content",
+        "description": "The selected file content is embedded in a Claude prompt and sent through the Anthropic SDK or Claude CLI. Users can disclose sensitive memory notes if they compress confidential files.",
         "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/compress.py",
+            "line_start": 43,
+            "line_end": 47
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 79,
+            "line_end": 80
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 141,
+            "line_end": 143
+          }
+        ],
+        "confidence": 0.86,
+        "confidence_reasoning": "The data flow is direct: original file text is inserted into the prompt and submitted to Claude. The risk depends on user-selected file sensitivity, but the external submission is clear."
+      },
+      {
+        "title": "Persistent Prompt Injection Through Compressed Memory",
+        "description": "The model output is written back to the original memory file after compressing untrusted file text. A hostile source file could influence the model to add future agent instructions to CLAUDE.md.",
+        "severity": "high",
         "locations": [
           {
             "file": "scripts/compress.py",
@@ -763,58 +780,19 @@
           },
           {
             "file": "scripts/compress.py",
-            "line_start": 141,
-            "line_end": 144
-          },
-          {
-            "file": "scripts/compress.py",
-            "line_start": 170,
-            "line_end": 174
+            "line_start": 145,
+            "line_end": 147
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "scripts/compress.py inserts original text into the Claude prompt and calls call_claude during compression. The retry path sends original and compressed content again for targeted fixes."
+        "confidence": 0.78,
+        "confidence_reasoning": "The prompt includes the original content and the resulting text overwrites the memory file. Exploitation requires malicious content in the selected file, so confidence is high but not absolute."
       }
     ],
     "critical_findings": [],
     "high_findings": [
       {
-        "title": "Python subprocess.run",
-        "description": "result = subprocess.run(",
-        "locations": [
-          {
-            "file": "scripts/compress.py",
-            "line_start": 53,
-            "line_end": 53
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.72,
-        "confidence_reasoning": "The code launches the external claude CLI and passes file-derived prompt content through stdin. Arguments are fixed and shell=False, so injection risk is limited, but external command execution remains real."
-      }
-    ],
-    "medium_findings": [
-      {
-        "title": "Network reconnaissance",
-        "description": "- call Claude to compress",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 30,
-            "line_end": 31
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The skill explicitly calls Claude to compress file content. This is an expected external AI service call, but it is still a real network and privacy boundary."
-      },
-      {
-        "title": "External LLM Transmission of File Contents",
-        "description": "The compression prompt embeds the original file content and sends it to Claude. This is expected behavior, but it is a privacy risk for memory files containing secrets or sensitive notes.",
+        "title": "Persistent Prompt Injection Through Compressed Memory",
+        "description": "The model output is written back to the original memory file after compressing untrusted file text. A hostile source file could influence the model to add future agent instructions to CLAUDE.md.",
         "locations": [
           {
             "file": "scripts/compress.py",
@@ -823,164 +801,169 @@
           },
           {
             "file": "scripts/compress.py",
-            "line_start": 141,
-            "line_end": 144
+            "line_start": 145,
+            "line_end": 147
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.78,
+        "confidence_reasoning": "The prompt includes the original content and the resulting text overwrites the memory file. Exploitation requires malicious content in the selected file, so confidence is high but not absolute."
+      }
+    ],
+    "medium_findings": [
+      {
+        "title": "External LLM Submission of Local File Content",
+        "description": "The selected file content is embedded in a Claude prompt and sent through the Anthropic SDK or Claude CLI. Users can disclose sensitive memory notes if they compress confidential files.",
+        "locations": [
+          {
+            "file": "scripts/compress.py",
+            "line_start": 43,
+            "line_end": 47
           },
           {
             "file": "scripts/compress.py",
-            "line_start": 170,
-            "line_end": 174
+            "line_start": 79,
+            "line_end": 80
+          },
+          {
+            "file": "scripts/compress.py",
+            "line_start": 141,
+            "line_end": 143
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "scripts/compress.py inserts original text into the Claude prompt and calls call_claude during compression. The retry path sends original and compressed content again for targeted fixes."
+        "confidence": 0.86,
+        "confidence_reasoning": "The data flow is direct: original file text is inserted into the prompt and submitted to Claude. The risk depends on user-selected file sensitivity, but the external submission is clear."
       }
     ],
     "low_findings": [],
-    "dangerous_patterns": [
-      {
-        "title": "Network reconnaissance",
-        "description": "- call Claude to compress",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 30,
-            "line_end": 31
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "blocker",
-        "source_severity": "low",
-        "confidence": 0.88,
-        "confidence_reasoning": "The skill explicitly calls Claude to compress file content. This is an expected external AI service call, but it is still a real network and privacy boundary."
-      }
-    ],
+    "dangerous_patterns": [],
     "files_scanned": 10,
     "total_lines": 964,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T17:45:31.750Z",
+    "audited_at": "2026-07-09T11:18:18.987Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Compress Memory Files for Token Savings",
-    "value_statement": "Large memory files consume tokens every AI session. This skill compresses natural language files while preserving technical details and saving a readable backup.",
+    "user_title": "Compress Project Memory Files",
+    "value_statement": "Large project memory files consume tokens every time an AI coding session starts. This skill compresses prose memory files while preserving technical details and saving a readable backup.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "memory file compression",
-      "token optimization",
-      "CLAUDE.md compression",
+      "memory compression",
+      "token reduction",
+      "CLAUDE.md",
       "markdown compression",
-      "AI context management",
-      "caveman-compress",
-      "developer productivity"
+      "AI skill",
+      "context optimization"
     ],
     "actual_capabilities": [
-      "Compresses natural language files with .md, .txt, .markdown, and .rst extensions.",
-      "Detects and skips common code, configuration, environment, lock, and backup files.",
-      "Saves the original file beside the compressed file as a .original.md backup.",
-      "Preserves headings, code blocks, inline code, URLs, file paths, commands, and technical terms.",
-      "Validates compressed output for headings, code blocks, URLs, paths, and bullet count changes.",
-      "Retries targeted Claude fixes up to two times when validation errors are found."
+      "Detects natural language files and skips common code or configuration extensions.",
+      "Compresses markdown, text, and extensionless prose through Claude.",
+      "Preserves headings, code blocks, URLs, paths, commands, and inline code during validation.",
+      "Creates a FILE.original.md backup before replacing the selected file.",
+      "Retries targeted fixes up to two times when validation errors occur.",
+      "Rejects files larger than 500 KB before any Claude call."
     ],
     "limitations": [
-      "It sends selected file content to Claude through the Anthropic SDK or Claude CLI.",
-      "It overwrites the target file after creating a backup, so interrupted runs need review.",
-      "It is not intended for code, structured configuration, environment files, or lock files.",
-      "It requires Python 3.10 and working Claude or Anthropic authentication."
+      "Requires an Anthropic API key or an authenticated Claude CLI session.",
+      "Sends the selected file content to Claude for compression.",
+      "Designed for prose memory files, not source code or configuration files.",
+      "Validation cannot prove that every natural language nuance is preserved."
     ],
     "use_cases": [
       {
-        "title": "Reduce Project Memory Cost",
-        "description": "Compress a large CLAUDE.md file so future AI sessions load fewer recurring tokens.",
-        "target_user": "Developers who use AI memory files daily"
+        "title": "Reduce Recurring Project Context",
+        "description": "Compress CLAUDE.md so each Claude Code or Codex session loads fewer repeated tokens.",
+        "target_user": "AI coding assistant user"
       },
       {
-        "title": "Archive Preferences Compactly",
-        "description": "Shorten long preference notes while preserving technical terms, commands, and important structure.",
-        "target_user": "Power users with detailed assistant instructions"
+        "title": "Maintain Compact Team Notes",
+        "description": "Shorten project preferences, todo files, and onboarding notes while keeping links and commands intact.",
+        "target_user": "Engineering team lead"
       },
       {
-        "title": "Prepare Team Notes for Agents",
-        "description": "Compress markdown todos or project notes before they become shared context for AI coding tools.",
-        "target_user": "Engineering teams maintaining agent context"
+        "title": "Prepare Memory Files for Long Projects",
+        "description": "Trim large prose memory files before starting long-running tasks that need stable context.",
+        "target_user": "Developer working on large repositories"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Compress Main Memory",
-        "scenario": "Beginner compression of one memory file",
-        "prompt": "Compress CLAUDE.md with caveman-compress. Preserve headings, URLs, file paths, commands, and code blocks."
+        "title": "Compress One Memory File",
+        "scenario": "Beginner use on a known memory file.",
+        "prompt": "Use caveman-compress on CLAUDE.md and tell me where the backup was saved."
       },
       {
-        "title": "Compress Preferences",
-        "scenario": "Compress a specific notes file and confirm validation",
-        "prompt": "Compress docs/preferences.md. Tell me whether validation passed and where the backup was saved."
+        "title": "Compress Project Notes",
+        "scenario": "Compress a markdown note file with validation feedback.",
+        "prompt": "Compress docs/project-notes.md, preserve headings and links, and report any validation warnings."
       },
       {
-        "title": "Compress With Recovery",
-        "scenario": "Use the retry flow for files that may contain mixed prose",
-        "prompt": "Compress todos.md. If validation fails, use targeted fixes only and leave the original content safe."
+        "title": "Check Before Compression",
+        "scenario": "Verify that a target file is suitable before changing it.",
+        "prompt": "Check whether todos.md is a safe natural language target, then compress it only if it passes detection."
       },
       {
-        "title": "Assess Then Compress",
-        "scenario": "Advanced review before modifying a project memory file",
-        "prompt": "Check whether project-notes.md is natural language. Compress it only if suitable, then report validation warnings."
+        "title": "Plan Memory Cleanup",
+        "scenario": "Advanced cleanup across several project memory files.",
+        "prompt": "Find project memory files that are safe compression candidates, explain the order, and compress selected files one at a time with validation."
       }
     ],
     "output_examples": [
       {
-        "input": "A user asks to compress a large project memory file.",
-        "output": "The skill reports that compression completed and identifies the compressed file plus the readable backup file."
+        "input": "Compress CLAUDE.md.",
+        "output": "Compression completed. CLAUDE.md now contains compressed instructions, and CLAUDE.original.md contains the readable backup."
       },
       {
-        "input": "A user provides a configuration file by mistake.",
-        "output": "The skill skips the file because it is not natural language and leaves the file unchanged."
+        "input": "Compress project-notes.md with validation.",
+        "output": "Compressed file saved after validation. Headings, links, code blocks, and paths were preserved."
       },
       {
-        "input": "Validation finds a missing URL after compression.",
-        "output": "The skill asks Claude to fix only the missing URL, validates again, and reports the final result."
+        "input": "Try to compress a configuration file.",
+        "output": "The file was skipped because it was classified as code or configuration, not natural language prose."
       }
     ],
     "best_practices": [
-      "Review memory files for secrets before compression because file content is sent to Claude.",
-      "Edit the readable backup first, then rerun compression when memory instructions change.",
-      "Use the skill for prose-heavy markdown and text files, not code or structured configuration."
+      "Review the readable backup before committing compressed memory changes.",
+      "Remove secrets and private notes before sending a file for compression.",
+      "Use the skill on focused memory files instead of broad mixed-content documents."
     ],
     "anti_patterns": [
-      "Do not compress files that contain credentials, tokens, or private customer data.",
-      "Do not use the compressed file as the only editable source of important instructions.",
-      "Do not force compression on code, environment files, lock files, or machine-readable configuration."
+      "Do not use it to compress source code, environment files, or configuration files.",
+      "Do not ignore validation warnings when paths, links, or bullets changed unexpectedly.",
+      "Do not run it on untrusted memory files without reviewing the output first."
     ],
     "faq": [
       {
-        "question": "What files can this skill compress?",
-        "answer": "It supports natural language markdown, text, markdown, and reStructuredText files. It also handles extensionless prose files."
+        "question": "What files should I use with this skill?",
+        "answer": "Use it with markdown, text, or extensionless prose files that store project memory, preferences, or todo notes."
       },
       {
-        "question": "Does it keep a backup?",
-        "answer": "Yes. It writes the original content to a .original.md file beside the compressed file."
+        "question": "Does it preserve code blocks?",
+        "answer": "Yes. The validation checks compare fenced code blocks and report errors if they changed."
       },
       {
-        "question": "Does it modify code blocks?",
-        "answer": "It instructs Claude to preserve code blocks and inline code exactly, then validates code block preservation."
+        "question": "Where is the original file saved?",
+        "answer": "The original content is saved beside the target file as FILE.original.md before replacement."
       },
       {
-        "question": "Does it send file content outside my machine?",
-        "answer": "Yes. It sends selected file content to Claude through the Anthropic SDK or Claude CLI."
+        "question": "Can it run without an API key?",
+        "answer": "Yes. If ANTHROPIC_API_KEY is not set, it uses the authenticated Claude CLI fallback."
       },
       {
-        "question": "What happens if validation fails?",
-        "answer": "The skill retries targeted fixes up to two times. If validation still fails, it restores the original file."
+        "question": "Will it compress code or configuration?",
+        "answer": "No. It skips common code and configuration extensions, including environment files and lock files."
       },
       {
-        "question": "Can I use it with Codex?",
-        "answer": "Yes. The marketplace metadata lists support for Claude, Codex, and Claude Code workflows."
+        "question": "Is the file content sent outside my machine?",
+        "answer": "Yes. The selected file content is sent to Claude through the Anthropic SDK or Claude CLI."
       }
     ]
   },

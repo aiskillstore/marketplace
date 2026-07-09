@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T03:36:50.501Z",
+    "generated_at": "2026-07-09T11:53:18.081Z",
     "slug": "barissozen-iterative-runner",
     "source_url": "https://github.com/BarisSozen/claude/tree/main/.claude/skills/iterative-runner",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "be62e029e85e831859464c9bc482219871899a0aadc5c45abf6fb215e7eaef91",
-    "tree_hash": "ed6e3e346ebad863a20ea3c342a64252d7e9409409c9fd09d80d134ffc47ace5",
+    "tree_hash": "9e40db01bb3932cc95c524eab323d5fbb12ae1f2e899294ac58f5a5f8017423e",
     "provenance": {
       "model_requested": "gpt-5.5:high",
       "model_effective": "codex:gpt-5.5:high",
@@ -26,18 +26,19 @@
   },
   "skill": {
     "name": "iterative-runner",
-    "description": "Run bounded AI coding retry loops for TDD, test fixes, and long tasks. The skill helps define success criteria, iteration limits, and blocker reports.",
-    "summary": "Guide Claude, Codex, or Claude Code through bounded retry loops until clear completion criteria are met.",
+    "description": "Guides Claude, Codex, or Claude Code through bounded retry loops until tests pass, lint errors are fixed, or completion criteria are met.",
+    "summary": "Run bounded AI coding iterations until defined success criteria are met.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "BarisSozen",
     "license": "MIT",
+    "category": "coding",
     "tags": [
-      "tdd",
       "retry-loop",
+      "tdd",
       "test-automation",
-      "agent-workflows",
-      "claude-code"
+      "claude-code",
+      "coding-workflow"
     ],
     "supported_tools": [
       "claude",
@@ -46,24 +47,28 @@
     ],
     "risk_factors": [
       "external_commands"
-    ],
-    "category": "coding"
+    ]
   },
   "security_audit": {
     "risk_level": "medium",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The main confirmed issue is an unbounded shell loop example that repeatedly invokes the Claude CLI. The remaining static findings are markdown fences, inline literals, bounded examples, or unrelated prose with no hidden execution or network reconnaissance evidence.",
+    "summary": "The main real risk is that the skill demonstrates repeated agent execution through shell commands, including one unbounded loop example. Most static findings are Markdown fence or inline-code false positives, and I found no prompt injection or data-exfiltration intent.",
     "remediation": [
       {
-        "issue": "Unbounded shell loop example",
-        "suggestion": "Replace the raw `while :` loop with a bounded iterative-runner example that always includes `--max-iterations` and blocker reporting.",
+        "issue": "Unbounded retry loop example",
+        "suggestion": "Replace the core infinite loop example with a bounded command that uses --max-iterations and a clear stop condition.",
         "severity": "medium"
       },
       {
-        "issue": "Command examples need execution boundaries",
-        "suggestion": "State that users should run examples only in approved workspaces with clear success criteria and explicit iteration limits.",
+        "issue": "Autonomous command execution guidance",
+        "suggestion": "Warn users to run iterative commands only in trusted repositories with clean version control and reviewed prompts.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Ambiguous Markdown command blocks",
+        "suggestion": "Label command blocks as examples and keep non-command prompt templates outside bash-style fences.",
         "severity": "low"
       }
     ],
@@ -195,54 +200,70 @@
       {
         "id": "external_commands:SKILL.md:19:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "severity": "medium",
-        "reason": "The markdown block explicitly recommends `while :; do cat PROMPT.md | claude; done`, an unbounded shell loop. It can repeatedly invoke an AI CLI and consume resources until interrupted."
+        "confidence": 0.86,
+        "reason": "The reported range includes a bash loop that repeatedly invokes the Claude CLI with PROMPT.md. The example has no iteration guard at the point shown, so it can run until interrupted.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:21:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This span is a closing markdown fence and completion-criteria prose, not Ruby backtick execution. No command or automatic execution path appears here."
+        "confidence": 0.88,
+        "reason": "The matched line is the closing Markdown fence and the surrounding text defines completion criteria. No separate executable command or Ruby backtick execution appears in this range beyond context already covered by the prior finding."
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The backticks wrap a literal output marker example, not executable shell syntax. The nearby text only describes how to define completion criteria."
+        "confidence": 0.93,
+        "reason": "The backticks wrap a completion marker example, not shell syntax. This is documentation text and does not execute commands."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The inline backticks document the `--max-iterations` safety flag. This guidance reduces loop risk and does not execute a command by itself."
+        "confidence": 0.95,
+        "reason": "The inline code marks --max-iterations as a safety option. It recommends limiting loops and does not create a command execution path."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.76,
-        "reason": "This is a documented command example that includes explicit maximum iterations, not hidden backtick execution. It still requires a user or agent to choose to run the command."
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "reason": "The fenced bash examples instruct users to run an iterative-runner command that repeatedly drives an AI coding agent. The examples are bounded, but they still direct external command execution and autonomous retries.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The finding lands on a markdown fence around best-practice prose. The text recommends clear criteria and an escape hatch rather than executing commands."
+        "confidence": 0.91,
+        "reason": "The matched range contains a closing fence and prompt-writing guidance. It does not introduce an additional executable shell command."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This is a fenced prompt template with requirements and success criteria. It contains no shell command, code execution, or backtick-evaluation pattern."
+        "confidence": 0.9,
+        "reason": "The fenced block is a plain prompt template with requirements and success criteria. It is not marked as shell code and contains no executable command."
       },
       {
         "id": "blocker:SKILL.md:12:network-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "Line 12 describes TDD loops until tests pass. I found no network scanning, host discovery, port probing, or reconnaissance intent in this location."
+        "confidence": 0.96,
+        "reason": "The phrase TDD loops refers to test-driven development workflow loops. There is no network scanning, probing, or reconnaissance instruction in the cited lines."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Unbounded Autonomous Retry Loop",
+        "description": "The core concept demonstrates an infinite loop that repeatedly invokes an AI agent. This can consume resources or repeat file-changing actions unless users add limits before running it.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 19,
+            "line_end": 20
+          }
+        ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The cited lines directly show an infinite shell loop around the Claude CLI. Later guidance recommends limits, but the core example itself is unbounded."
+      }
+    ],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [
@@ -259,8 +280,40 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The reported range includes a bash loop that repeatedly invokes the Claude CLI with PROMPT.md. The example has no iteration guard at the point shown, so it can run until interrupted."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 40,
+            "line_end": 53
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
         "confidence": 0.78,
-        "confidence_reasoning": "The markdown block explicitly recommends `while :; do cat PROMPT.md | claude; done`, an unbounded shell loop. It can repeatedly invoke an AI CLI and consume resources until interrupted."
+        "confidence_reasoning": "The fenced bash examples instruct users to run an iterative-runner command that repeatedly drives an AI coding agent. The examples are bounded, but they still direct external command execution and autonomous retries."
+      },
+      {
+        "title": "Unbounded Autonomous Retry Loop",
+        "description": "The core concept demonstrates an infinite loop that repeatedly invokes an AI agent. This can consume resources or repeat file-changing actions unless users add limits before running it.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 19,
+            "line_end": 20
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.88,
+        "confidence_reasoning": "The cited lines directly show an infinite shell loop around the Claude CLI. Later guidance recommends limits, but the core example itself is unbounded."
       }
     ],
     "low_findings": [],
@@ -268,137 +321,125 @@
     "files_scanned": 1,
     "total_lines": 81,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T03:36:50.501Z",
+    "audited_at": "2026-07-09T11:53:18.081Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Run Bounded AI Coding Loops",
-    "value_statement": "Long coding tasks can stall when tests fail or completion criteria are vague. This skill structures bounded retry loops for Claude, Codex, and Claude Code.",
+    "user_title": "Run Iterative Coding Loops Safely",
+    "value_statement": "Long coding tasks often fail because tests, lint checks, or completion criteria are not retried consistently. This skill provides a bounded loop pattern for Claude, Codex, and Claude Code workflows.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "iterative runner",
       "TDD loop",
-      "retry automation",
       "AI coding agent",
-      "test automation",
+      "test retry automation",
       "completion criteria",
-      "max iterations"
+      "max iterations",
+      "coding workflow automation"
     ],
     "actual_capabilities": [
-      "Guides repeat-until-complete workflows for AI coding agents.",
-      "Defines success criteria such as passing tests and clean lint results.",
-      "Encourages maximum iteration limits to prevent runaway loops.",
-      "Provides a TDD loop pattern for test-first implementation.",
-      "Includes blocker reporting after repeated failed attempts."
+      "Provides a retry-loop workflow for AI-assisted coding tasks.",
+      "Shows how to define completion promises and success criteria.",
+      "Recommends max-iteration limits to reduce runaway loops.",
+      "Supports TDD-style cycles that write tests, implement fixes, and rerun checks.",
+      "Includes a reusable prompt template for feature implementation loops."
     ],
     "limitations": [
-      "It does not include an executable iterative-runner program.",
-      "It depends on clear prompts and measurable success criteria.",
-      "High iteration limits can consume time, tokens, and compute.",
-      "It cannot make flaky tests or unstable services deterministic."
+      "Does not include an executable runner script in this package.",
+      "Requires users to supply safe prompts, tests, and stop criteria.",
+      "May repeat mistakes if the underlying agent lacks new feedback.",
+      "Can consume compute or API quota during long runs."
     ],
     "use_cases": [
       {
-        "title": "Drive a TDD implementation",
-        "description": "Run a bounded loop that writes tests, implements code, and repeats until the test suite passes.",
-        "target_user": "Software engineer"
+        "title": "TDD Feature Delivery",
+        "description": "Use the workflow to keep retrying fixes until tests pass or a bounded iteration limit is reached.",
+        "target_user": "Software engineers"
       },
       {
-        "title": "Retry a long build task",
-        "description": "Keep an AI agent focused on a complex implementation while requiring clear stop conditions and blocker notes.",
-        "target_user": "Technical lead"
+        "title": "Overnight Build Recovery",
+        "description": "Run a controlled agent loop that attempts build repairs and reports blockers when the limit is reached.",
+        "target_user": "DevOps engineers"
       },
       {
-        "title": "Stabilize failing checks",
-        "description": "Iterate on test and lint failures with a fixed attempt limit and a final summary of remaining problems.",
-        "target_user": "QA engineer"
+        "title": "Flaky Task Retrying",
+        "description": "Give teams a repeatable pattern for complex tasks that need several repair and verification cycles.",
+        "target_user": "Technical leads"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Bounded first run",
-        "scenario": "Beginner prompt for a small task.",
-        "prompt": "Use iterative-runner for this task: [task]. Stop after 10 iterations. Finish only when [success criteria] is true."
+        "title": "Run a Simple Test Loop",
+        "prompt": "Use iterative-runner to fix the failing test. Stop when all tests pass. Use a maximum of 10 iterations.",
+        "scenario": "Beginner test repair"
       },
       {
-        "title": "Make tests pass",
-        "scenario": "Use this when tests already exist.",
-        "prompt": "Run a retry loop until all tests pass. After each failure, inspect the cause, make the smallest fix, and test again."
+        "title": "Define Completion Criteria",
+        "prompt": "Implement the requested feature. Treat all tests passing and no linter errors as completion. Output the completion marker only after verification.",
+        "scenario": "Clear success criteria"
       },
       {
-        "title": "Refactor with checks",
-        "scenario": "Use this for controlled code cleanup.",
-        "prompt": "Refactor [area] without changing behavior. Repeat until tests and lint pass. Stop after 20 iterations and report blockers."
+        "title": "Plan a TDD Cycle",
+        "prompt": "Build the feature with TDD. First add a failing test, then implement, run checks, and revise within 25 iterations.",
+        "scenario": "Intermediate feature work"
       },
       {
-        "title": "Multi-phase delivery loop",
-        "scenario": "Advanced prompt for larger implementation work.",
-        "prompt": "Complete [feature] in phases: tests, implementation, verification, and cleanup. Continue until all criteria pass or 30 iterations fail."
+        "title": "Run a Bounded Multi-Phase Migration",
+        "prompt": "Use an iterative loop for this migration. Complete schema changes, tests, and documentation in phases. After 30 failed iterations, summarize blockers.",
+        "scenario": "Advanced multi-step change"
       }
     ],
     "output_examples": [
       {
-        "input": "Implement account settings with tests and a 20 iteration limit.",
-        "output": [
-          "Defines passing tests and clean lint as completion criteria.",
-          "Runs each iteration against the same verification steps.",
-          "Stops when checks pass or reports remaining blockers."
-        ]
+        "input": "Fix a failing unit test with a 10 iteration limit.",
+        "output": "The agent describes each attempt, applies focused changes, reruns the test, and stops when the suite passes."
       },
       {
-        "input": "Fix a flaky integration test without changing public behavior.",
-        "output": [
-          "Investigates repeated failure causes before editing.",
-          "Applies small fixes and reruns the target checks.",
-          "Summarizes unresolved instability when the limit is reached."
-        ]
+        "input": "Implement a feature using TDD completion criteria.",
+        "output": "The agent reports added tests, implementation changes, verification results, and a final completion marker."
       },
       {
-        "input": "Refactor a module overnight with strict stop criteria.",
-        "output": [
-          "Uses a fixed maximum iteration count.",
-          "Requires evidence that tests and lint passed.",
-          "Produces a concise blocker report if completion fails."
-        ]
+        "input": "Continue an overnight build until a bounded success condition.",
+        "output": "The workflow records attempts, stops at the maximum iteration count, and lists blockers if success is not reached."
       }
     ],
     "best_practices": [
-      "Define observable success criteria before starting the loop.",
-      "Set a maximum iteration count for every run.",
-      "Require blocker notes after repeated failed attempts."
+      "Set a maximum iteration count before starting any loop.",
+      "Define observable success criteria such as tests passing or lint checks passing.",
+      "Review prompts and repository state before allowing repeated agent actions."
     ],
     "anti_patterns": [
-      "Running open-ended loops with no iteration limit.",
-      "Using vague completion criteria such as make it better.",
-      "Letting the agent make broad changes without tests or review."
+      "Running an unbounded loop without a stop condition.",
+      "Using vague completion criteria such as done or looks good.",
+      "Pointing the loop at secrets, production systems, or unreviewed prompts."
     ],
     "faq": [
       {
-        "question": "What does this skill do?",
-        "answer": "It helps structure retry loops for AI coding tasks until clear completion criteria are met."
+        "question": "Does this skill run code by itself?",
+        "answer": "No. It provides instructions and examples. Users decide whether to run any command."
       },
       {
-        "question": "Does it run commands automatically?",
-        "answer": "The skill file provides instructions and examples. It does not include executable files by itself."
+        "question": "Which tools are supported?",
+        "answer": "It is written for Claude and can inform Codex or Claude Code workflows."
       },
       {
-        "question": "How do I avoid infinite loops?",
-        "answer": "Always set a maximum iteration count and define a clear stop condition before starting."
+        "question": "Why should I set max iterations?",
+        "answer": "A limit prevents runaway loops, quota waste, and repeated unwanted changes."
       },
       {
-        "question": "Can I use it with Codex?",
-        "answer": "Yes. The report lists support for Claude, Codex, and Claude Code workflows."
+        "question": "Can it replace human review?",
+        "answer": "No. Review code changes, test results, and failure summaries before merging."
       },
       {
-        "question": "What success criteria work best?",
-        "answer": "Use measurable checks, such as passing tests, clean lint output, or an explicit completion marker."
+        "question": "What completion criteria work best?",
+        "answer": "Use measurable checks, such as tests passing, lint passing, or a specific completion marker."
       },
       {
-        "question": "Can it fix flaky tests?",
-        "answer": "It can guide repeated investigation and fixes, but it cannot guarantee deterministic external systems."
+        "question": "Is it suitable for production systems?",
+        "answer": "Use it only with careful review and safe environments. Avoid direct changes to production resources."
       }
     ]
   },

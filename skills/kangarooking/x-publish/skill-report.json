@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T17:49:46.056Z",
+    "generated_at": "2026-07-09T11:22:31.760Z",
     "slug": "kangarooking-x-publish",
     "source_url": "https://github.com/kangarooking/x-skills/tree/main/x-publish",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "0e4d0a6962a9a7bc60264da7ba54c9eade92091bd6d26e37240e85041f834e0c",
-    "tree_hash": "cf07a5d33ce08da5d4144a18174a008687709fc5b707d7c1e7bd833d39bc0528",
+    "tree_hash": "e295b28497f29fb2e55afd8543cbc9a1b779422fbf7a41b353bcf6138eea7cb4",
     "provenance": {
       "model_requested": "gpt-5.5:high",
       "model_effective": "codex:gpt-5.5:high",
@@ -26,18 +26,18 @@
   },
   "skill": {
     "name": "x-publish",
-    "description": "Create X tweet and thread drafts with Playwright browser automation, using clipboard helpers and draft-only safeguards.",
-    "summary": "Prepare X tweets and threads, paste them into compose, and save them as drafts for manual review.",
+    "description": "Save X posts and threads as drafts through browser automation. The skill copies prepared text, opens X compose, pastes content, and saves drafts for manual review.",
+    "summary": "Save X posts and threads as reviewable drafts using browser automation.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "kangarooking",
     "license": "MIT",
     "tags": [
       "x",
-      "twitter",
       "social-media",
       "drafts",
-      "browser-automation"
+      "browser-automation",
+      "clipboard"
     ],
     "supported_tools": [
       "claude",
@@ -56,21 +56,26 @@
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most static findings are false positives from Markdown fences, inline examples, fixed X URLs, or fixed clipboard subprocess calls without shell interpolation. The confirmed issue is the documented use of predictable /tmp/tweet.txt files for draft content, which can expose unpublished text on shared systems. No prompt injection or hidden exfiltration intent was found in the reviewed files.",
+    "summary": "Most Markdown backtick detections are false positives from documentation and examples, and the Linux subprocess calls use fixed command arrays without shell interpolation. Confirmed risks remain around local helper execution, temporary file staging, authenticated browser automation against X, and writing post text to the system clipboard.",
     "remediation": [
       {
-        "issue": "Predictable temporary file for draft content",
-        "suggestion": "Use stdin, a securely created user-owned temporary file, or a workspace-local file with restricted permissions. Delete draft files after copying.",
+        "issue": "Authenticated X account state changes",
+        "suggestion": "Keep the no-auto-publish rule and require clear user confirmation before opening X or saving drafts in an authenticated browser session.",
         "severity": "medium"
       },
       {
-        "issue": "Clipboard helper depends on PATH-resolved Linux tools",
-        "suggestion": "Document trusted xclip or xsel installation requirements, and prefer resolved absolute paths when running in managed environments.",
-        "severity": "low"
+        "issue": "System clipboard exposure",
+        "suggestion": "Warn users that post text is copied to the clipboard, and prefer direct browser fill APIs when reliable.",
+        "severity": "medium"
       },
       {
-        "issue": "Authenticated social account automation",
-        "suggestion": "Keep the draft-only rule and require explicit user confirmation before any future workflow can publish a post.",
+        "issue": "Temporary file staging in /tmp",
+        "suggestion": "Use secure per-user temporary files with restrictive permissions, delete them after copying, or pass content through stdin instead.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Shell examples in documentation",
+        "suggestion": "Clarify which commands are optional examples and avoid shell redirection examples for draft text when a safer helper path exists.",
         "severity": "low"
       }
     ],
@@ -327,31 +332,6 @@
             "file": "SKILL.md",
             "line_start": 238,
             "line_end": 241
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 241,
-            "line_end": 244
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 244,
-            "line_end": 247
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 247,
-            "line_end": 250
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 250,
-            "line_end": 255
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 255,
-            "line_end": 263
           }
         ]
       },
@@ -1128,422 +1108,475 @@
         "id": "external_commands:scripts/copy_to_clipboard.py:74:python-subprocess-popen",
         "verdict": "false_positive",
         "confidence": 0.88,
-        "reason": "Popen invokes fixed clipboard tools with shell disabled and passes tweet text only through stdin. No user-controlled command string or shell interpolation is present."
+        "reason": "subprocess.Popen is called with a fixed argv list for xclip or xsel and sends tweet text through stdin. There is no shell=True use or user-controlled command string."
       },
       {
         "id": "external_commands:scripts/copy_to_clipboard.py:85:python-subprocess-popen",
         "verdict": "false_positive",
         "confidence": 0.88,
-        "reason": "Popen invokes fixed clipboard tools with shell disabled and passes tweet text only through stdin. No user-controlled command string or shell interpolation is present."
+        "reason": "subprocess.Popen is called with a fixed argv list for xclip or xsel and sends tweet text through stdin. There is no shell=True use or user-controlled command string."
       },
       {
         "id": "filesystem:scripts/copy_to_clipboard.py:10:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "The workflow uses the predictable path /tmp/tweet.txt for draft content. On shared systems this can expose unpublished text or allow local file clobbering.",
+        "confidence": 0.82,
+        "reason": "The workflow documents staging tweet text in /tmp before copying it. Temporary files can expose draft content or leave it behind after the workflow finishes.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:15:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "This Markdown section instructs the agent to run local shell or Python helper commands during the draft workflow. The command use is bounded, but it is still an external command side effect.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "This Markdown section instructs the agent to run local shell or Python helper commands during the draft workflow. The command use is bounded, but it is still an external command side effect.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:84:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:90:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:93:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:98:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "This Markdown section instructs the agent to run local shell or Python helper commands during the draft workflow. The command use is bounded, but it is still an external command side effect.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:101:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:104:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:111:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:114:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:117:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:120:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:122:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:130:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:136:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:141:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:159:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:161:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "This Markdown section instructs the agent to run local shell or Python helper commands during the draft workflow. The command use is bounded, but it is still an external command side effect.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:164:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:166:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:179:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:183:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:185:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:195:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:198:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:203:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:205:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "This Markdown section instructs the agent to run local shell or Python helper commands during the draft workflow. The command use is bounded, but it is still an external command side effect.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:230:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:235:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:238:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:241:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:244:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:247:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:250:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:255:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is Markdown inline text or a fenced example, not Ruby backtick execution. The skill file does not execute this syntax as code."
+        "confidence": 0.86,
+        "reason": "The static pattern matched Markdown backticks, code-fence delimiters, browser-action prose, or user examples. This is not Ruby backtick execution and does not itself execute a shell command."
       },
       {
         "id": "network:SKILL.md:59:hardcoded-url",
-        "verdict": "false_positive",
+        "verdict": "confirmed",
         "confidence": 0.9,
-        "reason": "The URL points to x.com compose or drafts pages, matching the declared purpose of the skill. No alternate domain, tracking endpoint, or exfiltration endpoint is shown."
+        "reason": "The skill directs browser automation to open the X compose page in an authenticated browser session. This is intended, but it is a real external network and account-state interaction.",
+        "severity": "low"
       },
       {
         "id": "network:SKILL.md:77:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The URL points to x.com compose or drafts pages, matching the declared purpose of the skill. No alternate domain, tracking endpoint, or exfiltration endpoint is shown."
+        "confidence": 0.8,
+        "reason": "This occurrence is a user-facing X drafts link in a status message, not a hidden request or data transfer. The URL matches the advertised service domain."
       },
       {
         "id": "network:SKILL.md:94:hardcoded-url",
-        "verdict": "false_positive",
+        "verdict": "confirmed",
         "confidence": 0.9,
-        "reason": "The URL points to x.com compose or drafts pages, matching the declared purpose of the skill. No alternate domain, tracking endpoint, or exfiltration endpoint is shown."
+        "reason": "The skill directs browser automation to open the X compose page in an authenticated browser session. This is intended, but it is a real external network and account-state interaction.",
+        "severity": "low"
       },
       {
         "id": "network:SKILL.md:121:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The URL points to x.com compose or drafts pages, matching the declared purpose of the skill. No alternate domain, tracking endpoint, or exfiltration endpoint is shown."
+        "confidence": 0.8,
+        "reason": "This occurrence is a user-facing X drafts link in a status message, not a hidden request or data transfer. The URL matches the advertised service domain."
       },
       {
         "id": "network:SKILL.md:168:hardcoded-url",
-        "verdict": "false_positive",
+        "verdict": "confirmed",
         "confidence": 0.9,
-        "reason": "The URL points to x.com compose or drafts pages, matching the declared purpose of the skill. No alternate domain, tracking endpoint, or exfiltration endpoint is shown."
+        "reason": "The skill directs browser automation to open the X compose page in an authenticated browser session. This is intended, but it is a real external network and account-state interaction.",
+        "severity": "low"
       },
       {
         "id": "network:SKILL.md:178:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The URL points to x.com compose or drafts pages, matching the declared purpose of the skill. No alternate domain, tracking endpoint, or exfiltration endpoint is shown."
+        "confidence": 0.8,
+        "reason": "This occurrence is a user-facing X drafts link in a status message, not a hidden request or data transfer. The URL matches the advertised service domain."
       },
       {
         "id": "network:SKILL.md:207:hardcoded-url",
-        "verdict": "false_positive",
+        "verdict": "confirmed",
         "confidence": 0.9,
-        "reason": "The URL points to x.com compose or drafts pages, matching the declared purpose of the skill. No alternate domain, tracking endpoint, or exfiltration endpoint is shown."
+        "reason": "The skill directs browser automation to open the X compose page in an authenticated browser session. This is intended, but it is a real external network and account-state interaction.",
+        "severity": "low"
       },
       {
         "id": "network:SKILL.md:229:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The URL points to x.com compose or drafts pages, matching the declared purpose of the skill. No alternate domain, tracking endpoint, or exfiltration endpoint is shown."
+        "confidence": 0.8,
+        "reason": "This occurrence is a user-facing X drafts link in a status message, not a hidden request or data transfer. The URL matches the advertised service domain."
       },
       {
         "id": "network:SKILL.md:260:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The URL points to x.com compose or drafts pages, matching the declared purpose of the skill. No alternate domain, tracking endpoint, or exfiltration endpoint is shown."
+        "confidence": 0.8,
+        "reason": "This occurrence is a user-facing X drafts link in a status message, not a hidden request or data transfer. The URL matches the advertised service domain."
       },
       {
         "id": "filesystem:SKILL.md:41:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The workflow uses the predictable path /tmp/tweet.txt for draft content. On shared systems this can expose unpublished text or allow local file clobbering.",
+        "confidence": 0.82,
+        "reason": "The workflow documents staging tweet text in /tmp before copying it. Temporary files can expose draft content or leave it behind after the workflow finishes.",
         "severity": "medium"
       },
       {
         "id": "filesystem:SKILL.md:51:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The workflow uses the predictable path /tmp/tweet.txt for draft content. On shared systems this can expose unpublished text or allow local file clobbering.",
+        "confidence": 0.82,
+        "reason": "The workflow documents staging tweet text in /tmp before copying it. Temporary files can expose draft content or leave it behind after the workflow finishes.",
         "severity": "medium"
       },
       {
         "id": "filesystem:SKILL.md:54:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The workflow uses the predictable path /tmp/tweet.txt for draft content. On shared systems this can expose unpublished text or allow local file clobbering.",
+        "confidence": 0.82,
+        "reason": "The workflow documents staging tweet text in /tmp before copying it. Temporary files can expose draft content or leave it behind after the workflow finishes.",
         "severity": "medium"
       },
       {
         "id": "blocker:SKILL.md:126:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is a workflow heading about avoiding unnecessary waits. It contains no host, process, account, or network reconnaissance instruction."
+        "confidence": 0.97,
+        "reason": "The line is a heading about avoiding unnecessary waits in browser automation. It does not perform system reconnaissance or collect host information."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Authenticated X Draft Creation",
+        "description": "The skill uses browser automation in a logged-in X session to paste content and save drafts. It avoids auto-publish, but it still changes state in the user account.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 23
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 77
+          }
+        ],
+        "confidence": 0.92,
+        "confidence_reasoning": "The workflow explicitly requires a logged-in X session and includes compose, paste, close, and save-draft steps. The intent and account-side effect are clear."
+      },
+      {
+        "title": "System Clipboard Modification",
+        "description": "The helper script writes user-provided post content to the operating system clipboard. Other local applications may read clipboard contents before the user replaces them.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 22,
+            "line_end": 29
+          },
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 41,
+            "line_end": 45
+          },
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 67,
+            "line_end": 90
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The platform-specific implementations directly clear or write clipboard contents using AppKit, pyperclip, win32clipboard, xclip, or xsel."
+      }
+    ],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [
@@ -1560,8 +1593,88 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "The workflow uses the predictable path /tmp/tweet.txt for draft content. On shared systems this can expose unpublished text or allow local file clobbering."
+        "confidence": 0.82,
+        "confidence_reasoning": "The workflow documents staging tweet text in /tmp before copying it. Temporary files can expose draft content or leave it behind after the workflow finishes."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 36,
+            "line_end": 42
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "This Markdown section instructs the agent to run local shell or Python helper commands during the draft workflow. The command use is bounded, but it is still an external command side effect."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 49,
+            "line_end": 55
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "This Markdown section instructs the agent to run local shell or Python helper commands during the draft workflow. The command use is bounded, but it is still an external command side effect."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 98,
+            "line_end": 100
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "This Markdown section instructs the agent to run local shell or Python helper commands during the draft workflow. The command use is bounded, but it is still an external command side effect."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 161,
+            "line_end": 164
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "This Markdown section instructs the agent to run local shell or Python helper commands during the draft workflow. The command use is bounded, but it is still an external command side effect."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 205,
+            "line_end": 230
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "This Markdown section instructs the agent to run local shell or Python helper commands during the draft workflow. The command use is bounded, but it is still an external command side effect."
       },
       {
         "title": "Temp directory access",
@@ -1576,8 +1689,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The workflow uses the predictable path /tmp/tweet.txt for draft content. On shared systems this can expose unpublished text or allow local file clobbering."
+        "confidence": 0.82,
+        "confidence_reasoning": "The workflow documents staging tweet text in /tmp before copying it. Temporary files can expose draft content or leave it behind after the workflow finishes."
       },
       {
         "title": "Temp directory access",
@@ -1592,8 +1705,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The workflow uses the predictable path /tmp/tweet.txt for draft content. On shared systems this can expose unpublished text or allow local file clobbering."
+        "confidence": 0.82,
+        "confidence_reasoning": "The workflow documents staging tweet text in /tmp before copying it. Temporary files can expose draft content or leave it behind after the workflow finishes."
       },
       {
         "title": "Temp directory access",
@@ -1608,135 +1721,247 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The workflow uses the predictable path /tmp/tweet.txt for draft content. On shared systems this can expose unpublished text or allow local file clobbering."
+        "confidence": 0.82,
+        "confidence_reasoning": "The workflow documents staging tweet text in /tmp before copying it. Temporary files can expose draft content or leave it behind after the workflow finishes."
+      },
+      {
+        "title": "Authenticated X Draft Creation",
+        "description": "The skill uses browser automation in a logged-in X session to paste content and save drafts. It avoids auto-publish, but it still changes state in the user account.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 18,
+            "line_end": 23
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 77
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.92,
+        "confidence_reasoning": "The workflow explicitly requires a logged-in X session and includes compose, paste, close, and save-draft steps. The intent and account-side effect are clear."
+      },
+      {
+        "title": "System Clipboard Modification",
+        "description": "The helper script writes user-provided post content to the operating system clipboard. Other local applications may read clipboard contents before the user replaces them.",
+        "locations": [
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 22,
+            "line_end": 29
+          },
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 41,
+            "line_end": 45
+          },
+          {
+            "file": "scripts/copy_to_clipboard.py",
+            "line_start": 67,
+            "line_end": 90
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.95,
+        "confidence_reasoning": "The platform-specific implementations directly clear or write clipboard contents using AppKit, pyperclip, win32clipboard, xclip, or xsel."
       }
     ],
-    "low_findings": [],
+    "low_findings": [
+      {
+        "title": "Hardcoded URL",
+        "description": "browser_navigate: https://x.com/compose/post",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 59,
+            "line_end": 59
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.9,
+        "confidence_reasoning": "The skill directs browser automation to open the X compose page in an authenticated browser session. This is intended, but it is a real external network and account-state interaction."
+      },
+      {
+        "title": "Hardcoded URL",
+        "description": "browser_navigate: https://x.com/compose/post",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 94,
+            "line_end": 94
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.9,
+        "confidence_reasoning": "The skill directs browser automation to open the X compose page in an authenticated browser session. This is intended, but it is a real external network and account-state interaction."
+      },
+      {
+        "title": "Hardcoded URL",
+        "description": "browser_navigate: https://x.com/compose/post",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 168,
+            "line_end": 168
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.9,
+        "confidence_reasoning": "The skill directs browser automation to open the X compose page in an authenticated browser session. This is intended, but it is a real external network and account-state interaction."
+      },
+      {
+        "title": "Hardcoded URL",
+        "description": "browser_navigate: https://x.com/compose/post",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 207,
+            "line_end": 207
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "network",
+        "source_severity": "low",
+        "confidence": 0.9,
+        "confidence_reasoning": "The skill directs browser automation to open the X compose page in an authenticated browser session. This is intended, but it is a real external network and account-state interaction."
+      }
+    ],
     "dangerous_patterns": [],
     "files_scanned": 2,
     "total_lines": 413,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T17:49:46.056Z",
+    "audited_at": "2026-07-09T11:22:31.760Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Save X Posts as Drafts",
-    "value_statement": "Posting draft tweets through browser steps can be repetitive and error prone. This skill prepares tweets, opens X compose, pastes content, and saves drafts for manual review.",
+    "user_title": "Draft X Posts and Threads",
+    "value_statement": "Posting AI-written threads manually can be slow and error prone. This skill opens X, pastes prepared content, and saves drafts for review.",
     "seo_keywords": [
-      "Claude X publishing",
-      "Codex X drafts",
-      "Claude Code tweet workflow",
-      "X draft automation",
-      "Twitter thread drafts",
-      "Playwright browser automation",
-      "social media publishing assistant",
-      "tweet draft helper",
-      "AI content publishing",
-      "X compose automation"
+      "Claude",
+      "Codex",
+      "Claude Code",
+      "X publishing skill",
+      "Twitter draft automation",
+      "tweet thread drafts",
+      "social media workflow",
+      "browser automation",
+      "clipboard publishing",
+      "AI social media assistant"
     ],
     "actual_capabilities": [
-      "Copies short tweet text to the system clipboard for pasting into X compose.",
+      "Copies short post text to the system clipboard for pasting into X compose.",
       "Opens the X compose page through browser automation.",
-      "Supports multi-post thread workflows with separate tweet segments.",
-      "Pastes prepared content into compose fields and adds thread posts.",
-      "Closes compose and saves the result as an X draft.",
-      "Reports the draft location and common login or network errors."
+      "Pastes one short post into the compose text box.",
+      "Builds multi-post threads by adding more compose entries.",
+      "Closes the compose window and saves the content as a draft.",
+      "Reports the X drafts page for manual review after saving."
     ],
     "limitations": [
-      "Requires Playwright browser automation and an active X login session.",
-      "Does not publish posts automatically by design.",
-      "Depends on local clipboard support and platform-specific Python packages.",
-      "Cannot guarantee X interface labels remain stable across product updates."
+      "Requires the user to already be logged in to X in the browser session.",
+      "Depends on Playwright browser automation and platform clipboard libraries.",
+      "Saves drafts only and does not publish posts automatically.",
+      "May need updates if X changes compose labels or page structure."
     ],
     "use_cases": [
       {
-        "title": "Draft a short announcement",
-        "description": "Prepare one tweet, paste it into X compose, and save it for a final human review.",
-        "target_user": "Founder or product marketer"
+        "title": "Save a Launch Announcement",
+        "description": "Stage a short product update in X drafts so it can be reviewed before posting.",
+        "target_user": "Founder"
       },
       {
-        "title": "Stage a technical thread",
-        "description": "Turn segmented thread text into separate X compose entries without publishing immediately.",
+        "title": "Prepare a Campaign Thread",
+        "description": "Convert prepared campaign copy into a connected X thread draft.",
+        "target_user": "Social media manager"
+      },
+      {
+        "title": "Stage Technical Notes",
+        "description": "Move a concise research or engineering note into X drafts without manual copy and paste.",
         "target_user": "Developer advocate"
-      },
-      {
-        "title": "Prepare localized social updates",
-        "description": "Save bilingual or localized draft posts so a reviewer can check tone before publication.",
-        "target_user": "Community manager"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Save One Tweet",
-        "scenario": "Beginner request for a single draft.",
-        "prompt": "Use x-publish to save this as an X draft: [tweet text]. Do not publish it."
+        "title": "Save a Short Draft",
+        "scenario": "Beginner request for one post.",
+        "prompt": "Use x-publish to save this as an X draft: [post text]. Do not publish it."
       },
       {
-        "title": "Save a Thread",
-        "scenario": "Intermediate request with prepared thread segments.",
-        "prompt": "Use x-publish to create an X thread draft from these numbered posts. Save it as a draft only: [thread text]."
+        "title": "Save a Thread Draft",
+        "scenario": "Intermediate request for several connected posts.",
+        "prompt": "Use x-publish to save this thread as X drafts. Keep each post under 280 characters: [thread text]."
       },
       {
-        "title": "Check Length Before Drafting",
-        "scenario": "Intermediate request that needs length handling.",
-        "prompt": "Review this post for the X character limit, split it into a thread if needed, then save it as a draft: [content]."
+        "title": "Review Then Draft",
+        "scenario": "Intermediate workflow with a quick content check.",
+        "prompt": "Check this post for length and obvious formatting issues, then use x-publish to save it as an X draft: [post text]."
       },
       {
-        "title": "Prepare Review-Ready Campaign Drafts",
-        "scenario": "Advanced request for controlled publishing workflow.",
-        "prompt": "Create review-ready X drafts for these campaign messages. Keep each post clear, save drafts only, and report how many drafts were prepared: [messages]."
+        "title": "Stage Campaign Copy",
+        "scenario": "Advanced workflow for prepared campaign material.",
+        "prompt": "Use x-publish to stage these approved campaign posts as an X thread draft. Preserve order and report the draft location: [numbered posts]."
       }
     ],
     "output_examples": [
       {
-        "input": "Save this launch announcement as an X draft.",
-        "output": "Draft saved. Review it in the X drafts area before publishing."
+        "input": "Save a one-post announcement as an X draft.",
+        "output": "Draft saved. Review it in X drafts before publishing."
       },
       {
-        "input": "Create a three-post thread draft from this outline.",
-        "output": "Thread draft saved with three posts. Please review order, links, and wording in X drafts."
+        "input": "Save a three-part product thread as a draft.",
+        "output": "Thread draft saved with three posts. Review the thread in X drafts."
       },
       {
-        "input": "This post is too long. Prepare it for X.",
-        "output": "The content was split into a thread draft. Review each post for context and final wording."
+        "input": "Try to draft a post while the browser is not logged in.",
+        "output": "Please log in to X first, then run the draft workflow again."
       }
     ],
     "best_practices": [
-      "Review every saved draft manually before publishing from X.",
-      "Use secure temporary storage or stdin for sensitive draft text.",
-      "Keep thread segments numbered so order is easy to verify."
+      "Review every draft in X before manual publication.",
+      "Keep sensitive or embargoed information out of clipboard-based workflows.",
+      "Confirm each post is within the X character limit before saving a draft."
     ],
     "anti_patterns": [
-      "Do not ask the skill to publish automatically.",
-      "Do not store confidential draft text in shared temporary paths.",
-      "Do not run the workflow when the active X account is not confirmed."
+      "Do not use the skill to publish automatically or bypass final human review.",
+      "Do not place secrets, tokens, or private customer data in post text.",
+      "Do not rely on the workflow when X compose elements have changed."
     ],
     "faq": [
       {
-        "question": "Does this skill publish tweets automatically?",
-        "answer": "No. It is designed to save posts as drafts for manual review and publishing."
+        "question": "Does this skill publish posts automatically?",
+        "answer": "No. It saves content as an X draft and expects the user to publish manually."
       },
       {
-        "question": "What tools are required?",
-        "answer": "It requires Playwright browser automation, Python, clipboard dependencies, and an active X login session."
+        "question": "Does it support threads?",
+        "answer": "Yes. It can add multiple posts to a thread draft when the content is split into separate posts."
       },
       {
-        "question": "Can it create threads?",
-        "answer": "Yes. It supports prepared thread content split into separate posts."
+        "question": "What browser access is required?",
+        "answer": "It requires browser automation access and an X session where the user is already logged in."
       },
       {
-        "question": "Does it work without logging in to X?",
-        "answer": "No. The browser session must already be logged in before drafts can be created."
+        "question": "Why does it use the clipboard?",
+        "answer": "The helper script copies prepared text so browser automation can paste it into X compose."
       },
       {
-        "question": "Can it handle posts over 280 characters?",
-        "answer": "It can split long content into a thread or warn before saving the draft."
+        "question": "Can it upload media?",
+        "answer": "No. The documented workflow handles text posts and text threads only."
       },
       {
-        "question": "Is draft text sent to another service?",
-        "answer": "No evidence found. The reviewed workflow copies text locally and opens X compose pages."
+        "question": "Can it validate content policy or legal risk?",
+        "answer": "No. Users must review drafts for accuracy, policy, legal, and brand requirements."
       }
     ]
   },

@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T21:22:19.251Z",
+    "generated_at": "2026-07-09T12:03:38.737Z",
     "slug": "runcomfy-com-codex-pet",
     "source_url": "https://github.com/runcomfy-com/skills/tree/main/codex-pet/",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "a8edce28bceb3cf6c85532cf4ff679b8aeb790cb42dbb2d5a8a871fa691f1a6d",
-    "tree_hash": "035625cbf5844638cdae53a9cd63dc287a1d384e743d90822caf2f771983eae3",
+    "tree_hash": "8736fb425bb67978c71c1e9cdb8e1ef330d9e969c0dc072253aa77a689bb0b30",
     "provenance": {
       "model_requested": "gpt-5.5:high",
       "model_effective": "codex:gpt-5.5:high",
@@ -26,8 +26,8 @@
   },
   "skill": {
     "name": "codex-pet",
-    "description": "Creates Codex-compatible custom pets from a reference image using RunComfy GPT Image 2 and ImageMagick. It guides canonical pose generation, sprite atlas assembly, manifest creation, and local installation.",
-    "summary": "Generate a Codex Pet sprite atlas and manifest from one reference image.",
+    "description": "Create Codex-compatible custom pet spritesheets from a public reference image using RunComfy, GPT Image 2, and ImageMagick assembly steps.",
+    "summary": "Generates a Codex Pet spritesheet and manifest from one reference image with RunComfy and ImageMagick.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "runcomfy-com",
@@ -36,7 +36,7 @@
       "codex-pet",
       "runcomfy",
       "image-generation",
-      "spritesheet",
+      "spritesheets",
       "imagemagick"
     ],
     "supported_tools": [
@@ -53,36 +53,26 @@
     "category": "design"
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most static detections are Markdown false positives, but the workflow still performs real external CLI, network, credential, and hidden filesystem operations. Confirmed risks include global package installation, RunComfy token use, image processing through third-party services, and writes into Codex configuration paths. I found no prompt injection attempt in the skill text.",
+    "summary": "Most static alerts are Markdown formatting false positives, not executable Ruby backticks or hidden behavior. The skill intentionally asks users to run RunComfy and ImageMagick commands, sends a source image URL to a third-party service, and writes assets into the Codex pets directory. The main actionable issue is unvalidated PET_NAME usage in local paths.",
     "remediation": [
       {
-        "issue": "Pet names are used directly in filesystem paths.",
-        "suggestion": "Validate pet names with a strict slug rule and reject slashes, dots, empty names, and path traversal text before creating paths.",
+        "issue": "Pet names are used directly in run and install paths.",
+        "suggestion": "Accept only simple pet names such as lowercase letters, numbers, hyphens, and underscores. Reject slashes, dot segments, and shell metacharacters.",
         "severity": "medium"
       },
       {
-        "issue": "The workflow depends on RUNCOMFY_TOKEN and local token storage.",
-        "suggestion": "Document token scope, revocation, and log hygiene. Prefer environment variables for CI and avoid printing token-bearing commands.",
-        "severity": "high"
-      },
-      {
-        "issue": "The skill instructs global package installation and external CLI execution.",
-        "suggestion": "Require explicit user confirmation, pin trusted package versions where possible, and show commands before execution.",
+        "issue": "Source image URLs are processed by a third-party service.",
+        "suggestion": "Ask for explicit user consent before remote generation. Warn users not to provide private images, signed URLs, or confidential project assets.",
         "severity": "medium"
       },
       {
-        "issue": "Source image URLs are sent to a third-party service.",
-        "suggestion": "Warn users not to provide confidential images and request consent before sending any URL to RunComfy.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Generated files are written into hidden Codex configuration paths.",
-        "suggestion": "Resolve the destination path, confirm it remains under CODEX_HOME/pets, and ask before overwriting existing pet files.",
-        "severity": "medium"
+        "issue": "pet.json is written with shell-expanded values.",
+        "suggestion": "Generate the manifest with a JSON writer or escaping step so quotes and newlines cannot corrupt the file.",
+        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -338,36 +328,6 @@
             "file": "SKILL.md",
             "line_start": 343,
             "line_end": 345
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 345,
-            "line_end": 345
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 127,
-            "line_end": 127
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 179,
-            "line_end": 179
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 183,
-            "line_end": 183
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 111,
-            "line_end": 129
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 153,
-            "line_end": 202
           }
         ]
       },
@@ -1333,554 +1293,520 @@
       {
         "id": "external_commands:SKILL.md:7:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:13:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "The skill advertises running the RunComfy CLI for image generation. This is expected functionality, but it crosses an external command and network boundary.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:15:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:30:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The snippet instructs a global skill install through npx, which executes package manager code from an external source. Community package installation should require explicit user confirmation.",
+        "confidence": 0.8,
+        "reason": "The fenced shell block instructs a global skill install through npx from a community repository. It is user-visible, but it can modify the local Codex skills environment and should require confirmation.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:41:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:49:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The text requires the runcomfy and magick binaries plus a RunComfy token. Running credentialed third-party CLIs is a real security boundary.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:93:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The prerequisite tells users to install the RunComfy CLI globally with npm. Global package installation can modify the host environment and carries supply-chain risk.",
+        "confidence": 0.76,
+        "reason": "This prerequisite asks the user to install a global CLI package. Package installation is expected, but it executes third-party installer code on the host.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The prerequisite instructs running runcomfy login or using RUNCOMFY_TOKEN. That invokes a local CLI with API credentials.",
+        "confidence": 0.78,
+        "reason": "This prerequisite invokes runcomfy login or a token environment variable. It is documented, but it handles credentials and should not be automated without user consent.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
         "verdict": "confirmed",
         "confidence": 0.74,
-        "reason": "The line instructs installing ImageMagick through system package managers. These commands alter the host environment and should require user confirmation.",
+        "reason": "This prerequisite asks the user to install ImageMagick through system package managers. It is expected setup, but it changes system packages and should be user-approved.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.77,
-        "reason": "The pipeline calls runcomfy run against a remote image generation model. This is intentional, but it is still external command execution with network effects.",
+        "confidence": 0.78,
+        "reason": "This describes a RunComfy CLI call that sends a source image request to a remote model endpoint. It is core functionality, but it is a real external command and network action.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:105:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.66,
-        "reason": "The pipeline step describes writing a manifest and copying files into the Codex pet directory. It is expected, but it mutates the local filesystem.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:111:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The bash block runs runcomfy with user-provided image input and writes output files. This is a real command execution path with network and filesystem effects.",
+        "confidence": 0.85,
+        "reason": "The fenced shell recipe executes runcomfy with user-supplied SOURCE_URL and writes output to RUN_DIR. The action is explicit, but it performs remote processing and local file writes.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:129:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:135:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.83,
-        "reason": "The bash block runs ImageMagick on generated image files and writes a normalized cell. Image processing through an external binary is intentional but real command execution.",
+        "confidence": 0.74,
+        "reason": "The fenced shell recipe runs ImageMagick on generated image files. It is local intended processing, but it executes an external binary against image input.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:145:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:153:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The bash block defines helpers that run magick and cp while creating animation frames. These commands process files and write many artifacts locally.",
+        "confidence": 0.78,
+        "reason": "The fenced shell recipe defines ImageMagick helper functions and copies generated frames. It is intended local processing, but it executes external commands across user-named paths.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:202:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:210:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "The bash block runs ImageMagick to compose and convert the final atlas. This is expected, but it executes external binaries on generated files.",
+        "confidence": 0.75,
+        "reason": "The fenced shell recipe composes the sprite atlas with ImageMagick and writes output files. This is expected, but it executes an external binary on generated assets.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:224:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:228:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "The bash block writes pet.json through a shell heredoc. It is part of the intended workflow, but it creates local files from shell variables.",
+        "confidence": 0.69,
+        "reason": "The fenced shell recipe writes pet.json using shell-expanded variables. It is intended output generation, but unescaped values can create malformed local configuration.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:237:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:241:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The install block runs mkdir and cp into the Codex pets directory. This mutates hidden local configuration and should validate the destination path.",
+        "confidence": 0.84,
+        "reason": "The fenced shell recipe creates DEST and copies generated files into the Codex pets directory. This is expected behavior, but it modifies hidden application state in the user's home directory.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:246:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:256:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:273:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:274:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:275:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:276:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:282:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:284:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:292:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:298:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:303:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:309:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:315:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:320:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:326:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "The workflow summary states the skill calls runcomfy with the source image. This confirms external command execution and third-party image processing.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:330:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:334:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:338:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:342:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "The security section documents runcomfy login storing an API token locally. Credentialed CLI execution and token persistence are real security concerns.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:343:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:345:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This finding matches Markdown inline code, a code fence boundary, or descriptive prose at this location. It is not itself an executable shell command."
+        "confidence": 0.9,
+        "reason": "This is Markdown inline code or a fenced code marker, not Ruby backtick execution. The referenced text does not execute when the skill file is loaded."
       },
       {
         "id": "external_commands:SKILL.md:127:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "The command substitution runs a fixed ls and head pipeline to select a generated PNG. It does not execute user-controlled text as a command."
+        "confidence": 0.86,
+        "reason": "This user-run snippet selects the first generated PNG from a local run directory. It does not execute untrusted output as a command, and the directory variable is quoted."
       },
       {
         "id": "external_commands:SKILL.md:179:shell-command-substitution",
         "verdict": "false_positive",
         "confidence": 0.95,
-        "reason": "This is shell arithmetic increment syntax, not command substitution. It does not invoke a subprocess or execute untrusted input."
+        "reason": "This is shell arithmetic used to increment a loop counter in a documented recipe. It is not command substitution or external input execution."
       },
       {
         "id": "external_commands:SKILL.md:183:shell-command-substitution",
         "verdict": "false_positive",
         "confidence": 0.95,
-        "reason": "This is shell arithmetic increment syntax, not command substitution. It does not invoke a subprocess or execute untrusted input."
+        "reason": "This is shell arithmetic used to increment a loop counter in a documented recipe. It is not command substitution or external input execution."
       },
       {
         "id": "external_commands:SKILL.md:111:template-literal-with-command-substitution",
-        "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The ${...} sequences are quoted shell variable interpolation, not command substitution. The actual external commands are covered by separate confirmed findings."
+        "verdict": "confirmed",
+        "confidence": 0.83,
+        "reason": "The shell recipe interpolates SOURCE_URL, RUN_DIR, and CHROMA into the RunComfy CLI payload. It is visible and intended, but unsafe values can affect remote processing inputs and output paths.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:153:template-literal-with-command-substitution",
-        "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The ${...} sequences are quoted shell variable interpolation, not command substitution. The actual external commands are covered by separate confirmed findings."
+        "verdict": "confirmed",
+        "confidence": 0.77,
+        "reason": "The shell recipe interpolates variables into ImageMagick and copy operations. It is intended automation, but the paths depend on user-selected names and should be constrained.",
+        "severity": "medium"
       },
       {
         "id": "network:SKILL.md:20:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a documentation or attribution link, not a runtime network request carrying user data or credentials. No automated fetch is instructed on this line."
+        "confidence": 0.92,
+        "reason": "This is homepage metadata, not a runtime request or hidden exfiltration endpoint."
       },
       {
         "id": "network:SKILL.md:26:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a documentation or attribution link, not a runtime network request carrying user data or credentials. No automated fetch is instructed on this line."
+        "confidence": 0.92,
+        "reason": "These are public documentation and product links in Markdown. They do not make network requests by themselves."
       },
       {
         "id": "network:SKILL.md:47:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a documentation or attribution link, not a runtime network request carrying user data or credentials. No automated fetch is instructed on this line."
+        "confidence": 0.92,
+        "reason": "This is a documentation link to the official hatch-pet skill. It is not a runtime network call."
       },
       {
         "id": "network:SKILL.md:114:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "SOURCE_URL is a placeholder for a publicly fetchable image passed to RunComfy. The placeholder is not malicious, but the workflow depends on external network retrieval.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.92,
+        "reason": "This is a placeholder for the user-provided source image URL, not a hardcoded destination. The remote-processing privacy risk is covered separately."
       },
       {
         "id": "network:SKILL.md:322:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a documentation or attribution link, not a runtime network request carrying user data or credentials. No automated fetch is instructed on this line."
+        "confidence": 0.92,
+        "reason": "This is a troubleshooting documentation link. It does not cause the skill to contact that URL automatically."
       },
       {
         "id": "network:SKILL.md:334:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a documentation or attribution link, not a runtime network request carrying user data or credentials. No automated fetch is instructed on this line."
+        "confidence": 0.92,
+        "reason": "This is an attribution link to the reference skill. It is not a runtime network action."
       },
       {
         "id": "filesystem:SKILL.md:114:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched sequence is the ellipsis in https://.../source.png, not a filesystem path traversal. No local path is constructed on this line."
+        "confidence": 0.94,
+        "reason": "The detected sequence is the ellipsis in a placeholder URL, not filesystem traversal. No local path is built on this line."
       },
       {
         "id": "filesystem:SKILL.md:342:hidden-file-in-home-directory",
-        "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The skill documents token storage in ~/.config/runcomfy/token.json. Persisted API credentials in hidden files are sensitive even with restrictive permissions.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.94,
+        "reason": "This documents where the RunComfy CLI stores its own token with mode 0600. The skill content does not read, write, or exfiltrate that token file."
       },
       {
         "id": "filesystem:SKILL.md:7:hidden-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.68,
-        "reason": "The description tells users to place generated artifacts under ${CODEX_HOME:-$HOME/.codex}/pets. This is intended, but it writes into hidden Codex configuration.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This mentions the intended Codex Pet install location in documentation, not a hidden read or covert file operation. The actionable install command is assessed separately."
       },
       {
         "id": "filesystem:SKILL.md:28:hidden-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.68,
-        "reason": "The introduction repeats the hidden Codex pets path as the install target. It is expected functionality, but it mutates a hidden application directory.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This mentions the intended Codex Pet install location in documentation, not a hidden read or covert file operation. The actionable install command is assessed separately."
       },
       {
         "id": "filesystem:SKILL.md:36:hidden-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.62,
-        "reason": "The line documents custom Codex Pets as folders under ${CODEX_HOME:-$HOME/.codex}/pets. This confirms hidden directory use, though it is descriptive.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This mentions the intended Codex Pet install location in documentation, not a hidden read or covert file operation. The actionable install command is assessed separately."
       },
       {
         "id": "filesystem:SKILL.md:47:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The dot occurs inside a GitHub URL path or inline skill name, not a local hidden file access. This line does not read or write a hidden file."
+        "confidence": 0.88,
+        "reason": "This mentions the intended Codex Pet install location in documentation, not a hidden read or covert file operation. The actionable install command is assessed separately."
       },
       {
         "id": "filesystem:SKILL.md:105:hidden-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "The pipeline explicitly says the manifest and sprite sheet are copied into ${CODEX_HOME:-$HOME/.codex}/pets. That is a hidden local configuration write.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This mentions the intended Codex Pet install location in documentation, not a hidden read or covert file operation. The actionable install command is assessed separately."
       },
       {
         "id": "filesystem:SKILL.md:242:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The install command builds DEST under ${CODEX_HOME:-$HOME/.codex}/pets/${PET_NAME}. This hidden-path write should validate PET_NAME and the resolved destination.",
+        "confidence": 0.88,
+        "reason": "DEST points under ${CODEX_HOME:-$HOME/.codex} and includes PET_NAME before mkdir and cp. This is an intended install path, but without pet-name validation it can write outside the expected pets directory.",
         "severity": "medium"
       },
       {
         "id": "filesystem:SKILL.md:282:hidden-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.62,
-        "reason": "The FAQ states custom pets live under ${CODEX_HOME:-$HOME/.codex}/pets/<name>. It is expected, but confirms reliance on hidden Codex configuration.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This mentions the intended Codex Pet install location in documentation, not a hidden read or covert file operation. The actionable install command is assessed separately."
       },
       {
         "id": "filesystem:SKILL.md:292:hidden-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.7,
-        "reason": "The FAQ instructs copying pet files into ${CODEX_HOME:-$HOME/.codex}/pets/<pet-name>. That is a hidden directory write and should require user consent.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This mentions the intended Codex Pet install location in documentation, not a hidden read or covert file operation. The actionable install command is assessed separately."
       },
       {
         "id": "filesystem:SKILL.md:330:hidden-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "The workflow summary says both files are copied into ${CODEX_HOME:-$HOME/.codex}/pets/<name>. This confirms local hidden configuration mutation.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This mentions the intended Codex Pet install location in documentation, not a hidden read or covert file operation. The actionable install command is assessed separately."
       },
       {
         "id": "filesystem:SKILL.md:334:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "The dot occurs inside a GitHub URL path or inline skill name, not a local hidden file access. This line does not read or write a hidden file."
+        "confidence": 0.88,
+        "reason": "This mentions the intended Codex Pet install location in documentation, not a hidden read or covert file operation. The actionable install command is assessed separately."
       },
       {
         "id": "filesystem:SKILL.md:342:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This match is descriptive text or an unrelated dotted path, not a local hidden-file operation. No filesystem access is instructed at this location."
+        "confidence": 0.88,
+        "reason": "This mentions the intended Codex Pet install location in documentation, not a hidden read or covert file operation. The actionable install command is assessed separately."
       },
       {
         "id": "filesystem:SKILL.md:347:hidden-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "reason": "The security section states the final pet writes to ${CODEX_HOME:-$HOME/.codex}/pets/<pet-name>. This is intended but still a hidden application directory write.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This mentions the intended Codex Pet install location in documentation, not a hidden read or covert file operation. The actionable install command is assessed separately."
       },
       {
         "id": "env_access:SKILL.md:16:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The description says RUNCOMFY_TOKEN is required. No secret value is embedded, but the workflow depends on a live API credential.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.91,
+        "reason": "This line names required environment variables and token concepts, but it does not contain a secret value. No evidence shows credential collection or exfiltration in the skill file."
       },
       {
         "id": "env_access:SKILL.md:49:generic-api-secret-keys",
-        "verdict": "confirmed",
-        "confidence": 0.8,
-        "reason": "The skill requires RUNCOMFY_TOKEN for the RunComfy CLI. Using a community workflow with an API token is a real credential-handling risk.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.91,
+        "reason": "This line names required environment variables and token concepts, but it does not contain a secret value. No evidence shows credential collection or exfiltration in the skill file."
       },
       {
         "id": "blocker:SKILL.md:59:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The matched text is style guidance or FAQ wording, not system reconnaissance. No command queries host identity, files, processes, or environment details."
+        "confidence": 0.93,
+        "reason": "The matched text is normal instructional or style language, not system reconnaissance. No host probing, identity checks, or privilege discovery are requested here."
       },
       {
         "id": "blocker:SKILL.md:121:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The matched text is style guidance or FAQ wording, not system reconnaissance. No command queries host identity, files, processes, or environment details."
+        "confidence": 0.93,
+        "reason": "The matched text is normal instructional or style language, not system reconnaissance. No host probing, identity checks, or privilege discovery are requested here."
       },
       {
         "id": "blocker:SKILL.md:258:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The matched text is style guidance or FAQ wording, not system reconnaissance. No command queries host identity, files, processes, or environment details."
+        "confidence": 0.93,
+        "reason": "The matched text is normal instructional or style language, not system reconnaissance. No host probing, identity checks, or privilege discovery are requested here."
       },
       {
         "id": "blocker:SKILL.md:262:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The matched text is style guidance or FAQ wording, not system reconnaissance. No command queries host identity, files, processes, or environment details."
+        "confidence": 0.93,
+        "reason": "The matched text is normal instructional or style language, not system reconnaissance. No host probing, identity checks, or privilege discovery are requested here."
       },
       {
         "id": "blocker:SKILL.md:303:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The matched text is style guidance or FAQ wording, not system reconnaissance. No command queries host identity, files, processes, or environment details."
+        "confidence": 0.93,
+        "reason": "The matched text is normal instructional or style language, not system reconnaissance. No host probing, identity checks, or privilege discovery are requested here."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unsanitized Pet Name Used in Filesystem Paths",
-        "description": "PET_NAME is interpolated into RUN_DIR and DEST without validation. A name containing path traversal text could write generated files outside the intended pet folder.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 112,
-            "line_end": 115
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 242,
-            "line_end": 244
-          }
-        ],
-        "confidence": 0.82,
-        "confidence_reasoning": "The shell snippets use PET_NAME directly in directory paths and copy commands. The example value is safe, but the skill gives no validation rule for user-supplied names."
-      },
-      {
-        "title": "Third-Party Image Processing Boundary",
-        "description": "The workflow sends a user-provided source image URL to RunComfy for remote GPT Image 2 processing. Confidential images or image-based prompt injection can cross this boundary.",
+        "title": "Third-Party Image Processing Requires Consent",
+        "description": "The RunComfy command sends the source image URL and prompt to a remote model service. Private images or signed URLs could leave the local trust boundary.",
         "severity": "medium",
         "locations": [
           {
@@ -1894,78 +1820,32 @@
             "line_end": 345
           }
         ],
+        "confidence": 0.88,
+        "confidence_reasoning": "The command includes SOURCE_URL in the RunComfy request, and the security notes state that the RunComfy server fetches third-party content. The behavior is disclosed, but it is still a privacy boundary."
+      },
+      {
+        "title": "Unvalidated Pet Name Controls Install Path",
+        "description": "PET_NAME is inserted into RUN_DIR and DEST without validation. A name containing path separators can move writes outside the intended pet folder.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 112,
+            "line_end": 115
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 242,
+            "line_end": 244
+          }
+        ],
         "confidence": 0.86,
-        "confidence_reasoning": "The runcomfy command passes SOURCE_URL as image input, and the security section states external URLs are fetched by RunComfy. This is intentional but security-relevant."
+        "confidence_reasoning": "The shell recipe builds directories directly from PET_NAME and then runs mkdir and cp. The default value is safe, but the instructions do not constrain user-supplied names."
       }
     ],
     "critical_findings": [],
-    "high_findings": [
-      {
-        "title": "Hidden file in home directory",
-        "description": "- **Token storage**: `runcomfy login` writes the API token to `~/.config/runcomfy/token.json` with m",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 342,
-            "line_end": 342
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "The skill documents token storage in ~/.config/runcomfy/token.json. Persisted API credentials in hidden files are sensitive even with restrictive permissions."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "OPENAI_API_KEY required, only RUNCOMFY_TOKEN. Triggers on \"codex pet\",",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 16,
-            "line_end": 16
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.78,
-        "confidence_reasoning": "The description says RUNCOMFY_TOKEN is required. No secret value is embedded, but the workflow depends on a live API credential."
-      },
-      {
-        "title": "Generic API/secret keys",
-        "description": "**This Codex Pet skill is a drop-in alternative that runs via the RunComfy CLI**: a single `RUNCOMFY",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 49,
-            "line_end": 49
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "high",
-        "confidence": 0.8,
-        "confidence_reasoning": "The skill requires RUNCOMFY_TOKEN for the RunComfy CLI. Using a community workflow with an API token is a real credential-handling risk."
-      }
-    ],
+    "high_findings": [],
     "medium_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "`runcomfy run openai/gpt-image-2/edit` to produce a canonical Codex",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 13,
-            "line_end": 13
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The skill advertises running the RunComfy CLI for image generation. This is expected functionality, but it crosses an external command and network boundary."
-      },
       {
         "title": "Ruby/shell backtick execution",
         "description": "```bash",
@@ -1979,24 +1859,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The snippet instructs a global skill install through npx, which executes package manager code from an external source. Community package installation should require explicit user confirmation."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "**This Codex Pet skill is a drop-in alternative that runs via the RunComfy CLI**: a single `RUNCOMFY",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 49,
-            "line_end": 49
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.78,
-        "confidence_reasoning": "The text requires the runcomfy and magick binaries plus a RunComfy token. Running credentialed third-party CLIs is a real security boundary."
+        "confidence": 0.8,
+        "confidence_reasoning": "The fenced shell block instructs a global skill install through npx from a community repository. It is user-visible, but it can modify the local Codex skills environment and should require confirmation."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -2011,8 +1875,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The prerequisite tells users to install the RunComfy CLI globally with npm. Global package installation can modify the host environment and carries supply-chain risk."
+        "confidence": 0.76,
+        "confidence_reasoning": "This prerequisite asks the user to install a global CLI package. Package installation is expected, but it executes third-party installer code on the host."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -2027,8 +1891,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The prerequisite instructs running runcomfy login or using RUNCOMFY_TOKEN. That invokes a local CLI with API credentials."
+        "confidence": 0.78,
+        "confidence_reasoning": "This prerequisite invokes runcomfy login or a token environment variable. It is documented, but it handles credentials and should not be automated without user consent."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -2044,7 +1908,7 @@
         "source_category": "external_commands",
         "source_severity": "medium",
         "confidence": 0.74,
-        "confidence_reasoning": "The line instructs installing ImageMagick through system package managers. These commands alter the host environment and should require user confirmation."
+        "confidence_reasoning": "This prerequisite asks the user to install ImageMagick through system package managers. It is expected setup, but it changes system packages and should be user-approved."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -2059,24 +1923,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.77,
-        "confidence_reasoning": "The pipeline calls runcomfy run against a remote image generation model. This is intentional, but it is still external command execution with network effects."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "6. **Manifest + install** — write `pet.json`, copy both files into `${CODEX_HOME:-$HOME/.codex}/pets",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 105,
-            "line_end": 105
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.66,
-        "confidence_reasoning": "The pipeline step describes writing a manifest and copying files into the Codex pet directory. It is expected, but it mutates the local filesystem."
+        "confidence": 0.78,
+        "confidence_reasoning": "This describes a RunComfy CLI call that sends a source image request to a remote model endpoint. It is core functionality, but it is a real external command and network action."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -2091,8 +1939,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The bash block runs runcomfy with user-provided image input and writes output files. This is a real command execution path with network and filesystem effects."
+        "confidence": 0.85,
+        "confidence_reasoning": "The fenced shell recipe executes runcomfy with user-supplied SOURCE_URL and writes output to RUN_DIR. The action is explicit, but it performs remote processing and local file writes."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -2107,8 +1955,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.83,
-        "confidence_reasoning": "The bash block runs ImageMagick on generated image files and writes a normalized cell. Image processing through an external binary is intentional but real command execution."
+        "confidence": 0.74,
+        "confidence_reasoning": "The fenced shell recipe runs ImageMagick on generated image files. It is local intended processing, but it executes an external binary against image input."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -2123,8 +1971,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The bash block defines helpers that run magick and cp while creating animation frames. These commands process files and write many artifacts locally."
+        "confidence": 0.78,
+        "confidence_reasoning": "The fenced shell recipe defines ImageMagick helper functions and copies generated frames. It is intended local processing, but it executes external commands across user-named paths."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -2139,8 +1987,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.84,
-        "confidence_reasoning": "The bash block runs ImageMagick to compose and convert the final atlas. This is expected, but it executes external binaries on generated files."
+        "confidence": 0.75,
+        "confidence_reasoning": "The fenced shell recipe composes the sprite atlas with ImageMagick and writes output files. This is expected, but it executes an external binary on generated assets."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -2155,8 +2003,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The bash block writes pet.json through a shell heredoc. It is part of the intended workflow, but it creates local files from shell variables."
+        "confidence": 0.69,
+        "confidence_reasoning": "The fenced shell recipe writes pet.json using shell-expanded variables. It is intended output generation, but unescaped values can create malformed local configuration."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -2171,104 +2019,40 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The install block runs mkdir and cp into the Codex pets directory. This mutates hidden local configuration and should validate the destination path."
+        "confidence": 0.84,
+        "confidence_reasoning": "The fenced shell recipe creates DEST and copies generated files into the Codex pets directory. This is expected behavior, but it modifies hidden application state in the user's home directory."
       },
       {
-        "title": "Ruby/shell backtick execution",
-        "description": "1. The skill calls `runcomfy run openai/gpt-image-2/edit` once with the user's source image and a ti",
+        "title": "Template literal with command substitution",
+        "description": "```bash",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 326,
-            "line_end": 330
+            "line_start": 111,
+            "line_end": 129
           }
         ],
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The workflow summary states the skill calls runcomfy with the source image. This confirms external command execution and third-party image processing."
+        "confidence": 0.83,
+        "confidence_reasoning": "The shell recipe interpolates SOURCE_URL, RUN_DIR, and CHROMA into the RunComfy CLI payload. It is visible and intended, but unsafe values can affect remote processing inputs and output paths."
       },
       {
-        "title": "Ruby/shell backtick execution",
-        "description": "- **Token storage**: `runcomfy login` writes the API token to `~/.config/runcomfy/token.json` with m",
+        "title": "Template literal with command substitution",
+        "description": "```bash",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 342,
-            "line_end": 342
+            "line_start": 153,
+            "line_end": 202
           }
         ],
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The security section documents runcomfy login storing an API token locally. Credentialed CLI execution and token persistence are real security concerns."
-      },
-      {
-        "title": "Hidden file access",
-        "description": "into `${CODEX_HOME:-$HOME/.codex}/pets/<name>/` and Codex picks it up",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 7,
-            "line_end": 7
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.68,
-        "confidence_reasoning": "The description tells users to place generated artifacts under ${CODEX_HOME:-$HOME/.codex}/pets. This is intended, but it writes into hidden Codex configuration."
-      },
-      {
-        "title": "Hidden file access",
-        "description": "**Codex Pet generator on RunComfy.** Turn one source image into a Codex-compatible custom Codex Pet ",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 28,
-            "line_end": 28
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.68,
-        "confidence_reasoning": "The introduction repeats the hidden Codex pets path as the install target. It is expected functionality, but it mutates a hidden application directory."
-      },
-      {
-        "title": "Hidden file access",
-        "description": "OpenAI Codex Pets (released May 2026) are pixel-art animated companions that float over your desktop",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 36,
-            "line_end": 36
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.62,
-        "confidence_reasoning": "The line documents custom Codex Pets as folders under ${CODEX_HOME:-$HOME/.codex}/pets. This confirms hidden directory use, though it is descriptive."
-      },
-      {
-        "title": "Hidden file access",
-        "description": "6. **Manifest + install** — write `pet.json`, copy both files into `${CODEX_HOME:-$HOME/.codex}/pets",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 105,
-            "line_end": 105
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "The pipeline explicitly says the manifest and sprite sheet are copied into ${CODEX_HOME:-$HOME/.codex}/pets. That is a hidden local configuration write."
+        "confidence": 0.77,
+        "confidence_reasoning": "The shell recipe interpolates variables into ImageMagick and copy operations. It is intended automation, but the paths depend on user-selected names and should be constrained."
       },
       {
         "title": "Hidden file access",
@@ -2283,97 +2067,12 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The install command builds DEST under ${CODEX_HOME:-$HOME/.codex}/pets/${PET_NAME}. This hidden-path write should validate PET_NAME and the resolved destination."
+        "confidence": 0.88,
+        "confidence_reasoning": "DEST points under ${CODEX_HOME:-$HOME/.codex} and includes PET_NAME before mkdir and cp. This is an intended install path, but without pet-name validation it can write outside the expected pets directory."
       },
       {
-        "title": "Hidden file access",
-        "description": "**What is a Codex Pet?** OpenAI Codex Pets are pixel-art animated companions launched May 2026 that ",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 282,
-            "line_end": 282
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.62,
-        "confidence_reasoning": "The FAQ states custom pets live under ${CODEX_HOME:-$HOME/.codex}/pets/<name>. It is expected, but confirms reliance on hidden Codex configuration."
-      },
-      {
-        "title": "Hidden file access",
-        "description": "**How do I install my Codex Pet?** Copy `pet.json` and `spritesheet.webp` into `${CODEX_HOME:-$HOME/",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 292,
-            "line_end": 292
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.7,
-        "confidence_reasoning": "The FAQ instructs copying pet files into ${CODEX_HOME:-$HOME/.codex}/pets/<pet-name>. That is a hidden directory write and should require user consent."
-      },
-      {
-        "title": "Hidden file access",
-        "description": "5. A `pet.json` manifest is written; both files are copied into `${CODEX_HOME:-$HOME/.codex}/pets/<n",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 330,
-            "line_end": 330
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "The workflow summary says both files are copied into ${CODEX_HOME:-$HOME/.codex}/pets/<name>. This confirms local hidden configuration mutation."
-      },
-      {
-        "title": "Hidden file access",
-        "description": "- **Local install path**: the final Codex Pet writes to `${CODEX_HOME:-$HOME/.codex}/pets/<pet-name>",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 347,
-            "line_end": 347
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "medium",
-        "confidence": 0.74,
-        "confidence_reasoning": "The security section states the final pet writes to ${CODEX_HOME:-$HOME/.codex}/pets/<pet-name>. This is intended but still a hidden application directory write."
-      },
-      {
-        "title": "Unsanitized Pet Name Used in Filesystem Paths",
-        "description": "PET_NAME is interpolated into RUN_DIR and DEST without validation. A name containing path traversal text could write generated files outside the intended pet folder.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 112,
-            "line_end": 115
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 242,
-            "line_end": 244
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The shell snippets use PET_NAME directly in directory paths and copy commands. The example value is safe, but the skill gives no validation rule for user-supplied names."
-      },
-      {
-        "title": "Third-Party Image Processing Boundary",
-        "description": "The workflow sends a user-provided source image URL to RunComfy for remote GPT Image 2 processing. Confidential images or image-based prompt injection can cross this boundary.",
+        "title": "Third-Party Image Processing Requires Consent",
+        "description": "The RunComfy command sends the source image URL and prompt to a remote model service. Private images or signed URLs could leave the local trust boundary.",
         "locations": [
           {
             "file": "SKILL.md",
@@ -2389,39 +2088,43 @@
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The runcomfy command passes SOURCE_URL as image input, and the security section states external URLs are fetched by RunComfy. This is intentional but security-relevant."
-      }
-    ],
-    "low_findings": [
+        "confidence": 0.88,
+        "confidence_reasoning": "The command includes SOURCE_URL in the RunComfy request, and the security notes state that the RunComfy server fetches third-party content. The behavior is disclosed, but it is still a privacy boundary."
+      },
       {
-        "title": "Hardcoded URL",
-        "description": "SOURCE_URL=\"https://.../source.png\"",
+        "title": "Unvalidated Pet Name Controls Install Path",
+        "description": "PET_NAME is inserted into RUN_DIR and DEST without validation. A name containing path separators can move writes outside the intended pet folder.",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 114,
-            "line_end": 114
+            "line_start": 112,
+            "line_end": 115
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 242,
+            "line_end": 244
           }
         ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.76,
-        "confidence_reasoning": "SOURCE_URL is a placeholder for a publicly fetchable image passed to RunComfy. The placeholder is not malicious, but the workflow depends on external network retrieval."
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.86,
+        "confidence_reasoning": "The shell recipe builds directories directly from PET_NAME and then runs mkdir and cp. The default value is safe, but the instructions do not constrain user-supplied names."
       }
     ],
+    "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 1,
     "total_lines": 348,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T21:22:19.251Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-09T12:03:38.737Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Create Codex Pets with RunComfy",
-    "value_statement": "Custom Codex Pets need a precise atlas and manifest. This skill turns one reference image into a compatible sprite sheet with RunComfy and ImageMagick.",
+    "user_title": "Create Codex Pet Sprites with RunComfy",
+    "value_statement": "Custom Codex Pet sprites require a precise atlas and manifest. This skill turns one reference image into a RunComfy-generated pet package for Codex.",
     "seo_keywords": [
       "Claude",
       "Codex",
@@ -2429,111 +2132,112 @@
       "Codex Pet",
       "RunComfy",
       "GPT Image 2",
-      "ImageMagick",
       "spritesheet.webp",
       "pet.json",
+      "ImageMagick",
       "custom desktop pet"
     ],
     "actual_capabilities": [
-      "Guides setup for the RunComfy CLI and ImageMagick.",
-      "Calls GPT Image 2 edit once through the RunComfy CLI.",
-      "Normalizes a generated image into transparent 192x208 cells.",
-      "Builds a 1536x1872 atlas with nine Codex animation rows.",
-      "Creates a pet manifest and installs files in the Codex pets folder."
+      "Generates a canonical pet image through the RunComfy GPT Image 2 edit endpoint.",
+      "Normalizes the generated image into transparent 192x208 Codex Pet cells.",
+      "Assembles a 1536x1872 spritesheet with nine required animation rows.",
+      "Creates a pet.json manifest for Codex custom pet loading.",
+      "Installs output into the Codex pets directory when the shell steps are approved.",
+      "Documents frame counts, tuning options, and RunComfy troubleshooting codes."
     ],
     "limitations": [
-      "Requires RunComfy CLI, ImageMagick, and a RUNCOMFY_TOKEN.",
-      "Sends the source image URL to a third-party image service.",
-      "Creates subtle animation from one pose, not unique generated frames.",
-      "Does not add audio, behavior logic, or a Codex client extension."
+      "Requires the RunComfy CLI, a RunComfy account token, and ImageMagick.",
+      "Sends the source image URL to RunComfy for remote image processing.",
+      "Uses one generated pose, so animation is subtle and transform-based.",
+      "Pet names should be sanitized before using the install path."
     ],
     "use_cases": [
       {
-        "title": "Build a Personal Codex Companion",
-        "description": "Create a local Codex Pet from a reference image and install it in the Codex pet folder.",
-        "target_user": "Codex desktop users"
+        "title": "Create a Personal Coding Companion",
+        "description": "Turn a public mascot or avatar image into a custom Codex Pet package.",
+        "target_user": "Individual developers"
       },
       {
-        "title": "Prepare Contest Assets",
-        "description": "Generate a compliant sprite atlas and manifest for a Codex Pet design submission.",
-        "target_user": "Designers"
+        "title": "Prepare Contest Submissions",
+        "description": "Generate Codex-compatible pet assets with the required atlas size and animation rows.",
+        "target_user": "Designers and contest participants"
       },
       {
-        "title": "Convert Mascot Concepts",
-        "description": "Turn team mascot references into repeatable Codex Pet artifacts with a documented pipeline.",
-        "target_user": "Developer tooling teams"
+        "title": "Batch Pet Concepts",
+        "description": "Use repeated runs to compare multiple source images with consistent output structure.",
+        "target_user": "Developer teams"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a First Pet",
-        "scenario": "Beginner setup from one image URL.",
-        "prompt": "Create a Codex Pet named sprint-helper from this image URL. Use the default RunComfy and ImageMagick pipeline."
+        "title": "Generate a Basic Pet",
+        "scenario": "Beginner request with default settings.",
+        "prompt": "Create a Codex Pet from this public image URL: [URL]. Use the default name my-pet and explain each generated file."
       },
       {
-        "title": "Tune Style Details",
-        "scenario": "Adjust the generated identity and visual style.",
-        "prompt": "Generate a Codex Pet from this reference. Preserve the glasses, blue jacket, and friendly expression in the chibi style."
+        "title": "Generate and Install After Approval",
+        "scenario": "Intermediate request with a custom name.",
+        "prompt": "Create a Codex Pet named build-buddy from [URL]. Preserve the source identity and install it only after I approve."
       },
       {
-        "title": "Install and Verify",
-        "scenario": "Create the files and place them in Codex.",
-        "prompt": "Build the Codex Pet, create the manifest, install it under CODEX_HOME, and report the final file paths."
+        "title": "Tune the Chroma Key",
+        "scenario": "Advanced request when magenta conflicts with the subject.",
+        "prompt": "Generate the pet package from [URL]. Change the chroma-key to cyan and keep all atlas dimensions compatible with Codex."
       },
       {
-        "title": "Batch and Harden",
-        "scenario": "Advanced batch workflow with safer names.",
-        "prompt": "Create Codex Pets from these source URLs. Validate each pet name as a slug and keep all outputs inside CODEX_HOME."
+        "title": "Batch Multiple Pets",
+        "scenario": "Advanced workflow for several public image URLs.",
+        "prompt": "Batch create three Codex Pets from these public image URLs. Use sanitized names, separate run directories, and summarize any failed generations."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a Codex Pet from a mascot image URL named sprint-helper.",
-        "output": "A generated sprite sheet, a matching pet manifest, and installation notes for the Codex pets folder."
+        "input": "A user provides a public mascot image URL and asks for a pet named build-buddy.",
+        "output": "The skill produces a canonical pose, normalized frames, a spritesheet.webp atlas, and a pet.json manifest."
       },
       {
-        "input": "Make the idle animation more visible without changing the atlas size.",
-        "output": "Small movement adjustments and a rebuilt atlas that keeps the required Codex row contract."
+        "input": "A designer requests stronger jumping and review motion.",
+        "output": "The skill identifies row changes, adjusts transform values, and keeps the required frame counts for Codex."
       },
       {
-        "input": "Check why the generated pet still has magenta edges.",
-        "output": "A diagnosis of chroma-key settings and recommended fuzz adjustments for cleaner transparency."
+        "input": "A developer asks to install the finished pet.",
+        "output": "The skill copies the manifest and atlas into the Codex pets folder after confirming the target name and path."
       }
     ],
     "best_practices": [
-      "Use non-confidential source images because the image URL is processed by an external service.",
-      "Validate pet names as simple slugs before using them in local paths.",
-      "Confirm RunComfy authentication and ImageMagick availability before starting generation."
+      "Confirm the RunComfy token and external image URL before running remote generation.",
+      "Use simple lowercase pet names with hyphens and no path separators.",
+      "Keep a separate run directory for each pet to avoid overwriting outputs."
     ],
     "anti_patterns": [
-      "Do not use private source images without consent for third-party processing.",
-      "Do not install pets with names that contain slashes, dots, or path traversal text.",
-      "Do not change atlas dimensions or row order unless the Codex contract is preserved."
+      "Run the shell recipe with a private or expiring image URL without consent.",
+      "Use unsanitized pet names that contain slashes, dots, or shell metacharacters.",
+      "Change atlas dimensions or row frame counts after generation."
     ],
     "faq": [
       {
         "question": "What does this skill create?",
-        "answer": "It creates a Codex Pet sprite sheet and a pet manifest for local Codex installation."
+        "answer": "It creates a Codex Pet package with spritesheet.webp and pet.json files for local Codex loading."
       },
       {
-        "question": "Which tools are required?",
-        "answer": "It requires the RunComfy CLI, ImageMagick, and a valid RUNCOMFY_TOKEN."
+        "question": "Does it require Codex Pro?",
+        "answer": "No. It uses a RunComfy token and CLI instead of the Codex imagegen skill."
       },
       {
-        "question": "Does it need Codex Pro?",
-        "answer": "No. The workflow uses RunComfy GPT Image 2 instead of the Codex imagegen skill."
+        "question": "What tools must be installed?",
+        "answer": "The workflow needs the RunComfy CLI and ImageMagick available on the local machine."
       },
       {
         "question": "Where are files installed?",
-        "answer": "The final files are copied into the local Codex pets folder under CODEX_HOME."
+        "answer": "The install step writes into CODEX_HOME or the default HOME .codex pets directory."
+      },
+      {
+        "question": "Is my source image sent to a third party?",
+        "answer": "Yes. The source image URL is processed through RunComfy and related model services."
       },
       {
         "question": "Can I customize animation?",
-        "answer": "Yes. The ImageMagick transform values can be adjusted while keeping the fixed atlas contract."
-      },
-      {
-        "question": "What privacy boundary should I know?",
-        "answer": "The source image URL is sent to RunComfy for remote image generation."
+        "answer": "Yes. Adjust ImageMagick transform values while keeping the required dimensions and frame counts."
       }
     ]
   },

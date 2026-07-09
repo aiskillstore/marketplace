@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T02:34:15.391Z",
+    "generated_at": "2026-07-09T12:44:18.124Z",
     "slug": "akabanakk-remove-git-worktree",
     "source_url": "https://github.com/AKABANAKK/claude-code-marketplace/tree/main/akb7/skills/remove-git-worktree",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "08eb6db13f4cfb3b6430e29ae37fb2c7cb6e26ba38e04170072f82e3d3a0f556",
-    "tree_hash": "e865f57dc583a00b6e10cf318b37c4c4e10030af985134e577a8b6ebef3b37c4",
+    "tree_hash": "ab39c46196f4950f7691a755df0fdd35937d0fc36a8684d77129bd825c60ab78",
     "provenance": {
       "model_requested": "gpt-5.5:high",
       "model_effective": "codex:gpt-5.5:high",
@@ -26,8 +26,8 @@
   },
   "skill": {
     "name": "remove-git-worktree",
-    "description": "Removes a Git worktree and its matching local branch after repository work is complete.",
-    "summary": "Clean up a named Git worktree and local branch.",
+    "description": "Removes a Git worktree for a named branch and deletes the matching local branch after cleanup.",
+    "summary": "Clean up a Git worktree and its local branch from a repository.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "AKABANAKK",
@@ -36,7 +36,7 @@
     "tags": [
       "git",
       "worktree",
-      "repository-cleanup",
+      "cleanup",
       "branch-management"
     ],
     "supported_tools": [
@@ -50,25 +50,25 @@
     ]
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The skill is a small Bash helper for deleting a computed Git worktree and then force-deleting the matching local branch. Most static external-command hits are benign command substitutions or Markdown formatting, but the parent-directory path construction and destructive cleanup flow warrant review. No prompt-injection or data-exfiltration intent was found.",
+    "summary": "Most command-execution findings are expected for a Git cleanup script and are false positives because commands are hardcoded and quoted. The parent-relative worktree path and later delete operations are real risks because the skill can remove a sibling worktree directory and force-delete a local branch without confirmation. No evidence found for prompt injection or network behavior.",
     "remediation": [
       {
-        "issue": "Worktree path is constructed outside the repository root.",
-        "suggestion": "Canonicalize the target path, reject dot segments, and require it to remain under the expected worktrees directory before removal.",
+        "issue": "Parent-relative worktree deletion",
+        "suggestion": "Resolve and validate the canonical path, require it to stay inside the expected worktrees directory, and reject unexpected names before removal.",
         "severity": "high"
       },
       {
-        "issue": "Cleanup runs without confirmation or dry-run output.",
-        "suggestion": "Add an explicit confirmation step and a dry-run mode that prints the worktree path and branch before deletion.",
+        "issue": "No confirmation before destructive operations",
+        "suggestion": "Show the resolved worktree path and branch name, then require explicit user confirmation before removing the worktree or deleting the branch.",
         "severity": "medium"
       },
       {
-        "issue": "Branch input is not validated before Git deletion commands.",
-        "suggestion": "Validate the branch name with Git reference checks and use argument delimiters before branch names.",
+        "issue": "Branch name is not validated",
+        "suggestion": "Validate input with Git branch-name checks and reject values that do not match an existing local branch.",
         "severity": "medium"
       }
     ],
@@ -180,60 +180,55 @@
       {
         "id": "external_commands:scripts/remove-worktree.sh:12:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This command substitution only transforms a quoted branch name by replacing slashes with hyphens. It does not evaluate the branch name as shell syntax, so no command injection is evident."
+        "confidence": 0.86,
+        "reason": "The command substitution uses hardcoded echo and tr commands with the branch name quoted. It only converts slashes to hyphens and does not evaluate user input as shell syntax."
       },
       {
         "id": "external_commands:scripts/remove-worktree.sh:13:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The command runs hardcoded git rev-parse to find the repository root. No user-controlled argument is passed to the command."
+        "confidence": 0.88,
+        "reason": "The git rev-parse command is hardcoded and only discovers the repository root. No user-controlled command or argument is injected into this substitution."
       },
       {
         "id": "external_commands:scripts/remove-worktree.sh:14:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The command runs basename on a quoted repository path returned by Git. The value is not executed as code, and the command is ordinary path derivation."
+        "confidence": 0.87,
+        "reason": "The basename command is hardcoded and receives the quoted repository path from Git. This is normal path extraction, not shell execution from untrusted input."
       },
       {
         "id": "external_commands:scripts/remove-worktree.sh:1:unix-shell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.78,
-        "reason": "The shebang identifies this as a Bash helper, but the shell invocation itself is not hidden or suspicious. Risk comes from later destructive operations, which are covered separately."
+        "confidence": 0.92,
+        "reason": "The shebang declares that the helper script runs with Bash. It is not by itself a hidden command-execution behavior or injection vector."
       },
       {
         "id": "filesystem:scripts/remove-worktree.sh:15:path-traversal-sequence",
         "verdict": "confirmed",
-        "confidence": 0.68,
-        "reason": "The deletion target is built with a parent-directory segment that moves outside the repository root before later removal. The branch component is only partially normalized, so the computed filesystem target should be validated before destructive use.",
-        "severity": "high"
+        "confidence": 0.78,
+        "severity": "high",
+        "reason": "The script builds a parent-relative path outside the repository root and later removes that worktree path. This is intended cleanup behavior, but it is still a real filesystem deletion risk."
       },
       {
         "id": "external_commands:SKILL.md:13:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.94,
-        "reason": "The flagged text is a Markdown code fence showing a usage command. It is documentation, not Ruby backtick execution."
+        "reason": "The flagged text is the opening fence of a Markdown command example. It is not Ruby backtick execution and does not execute by itself."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Destructive Git Cleanup Without Confirmation",
-        "description": "The script removes the computed worktree and force deletes the matching local branch without confirmation, dry-run output, or target-state validation.",
+        "title": "Destructive Cleanup Runs Without Confirmation",
+        "description": "The script removes the computed worktree and then force-deletes a matching local branch when it exists. It does not ask for confirmation before the destructive operations.",
         "severity": "medium",
         "locations": [
           {
             "file": "scripts/remove-worktree.sh",
             "line_start": 25,
-            "line_end": 25
-          },
-          {
-            "file": "scripts/remove-worktree.sh",
-            "line_start": 29,
-            "line_end": 29
+            "line_end": 30
           }
         ],
-        "confidence": 0.92,
-        "confidence_reasoning": "Lines 25 and 29 perform direct worktree removal and force branch deletion after only path existence checks. This is intended cleanup behavior, but it can cause irreversible local data loss."
+        "confidence": 0.88,
+        "confidence_reasoning": "The file directly invokes git worktree remove and git branch -D on the selected branch context. The behavior is intended by the skill but can delete local work."
       }
     ],
     "critical_findings": [],
@@ -251,31 +246,26 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "high",
-        "confidence": 0.68,
-        "confidence_reasoning": "The deletion target is built with a parent-directory segment that moves outside the repository root before later removal. The branch component is only partially normalized, so the computed filesystem target should be validated before destructive use."
+        "confidence": 0.78,
+        "confidence_reasoning": "The script builds a parent-relative path outside the repository root and later removes that worktree path. This is intended cleanup behavior, but it is still a real filesystem deletion risk."
       }
     ],
     "medium_findings": [
       {
-        "title": "Destructive Git Cleanup Without Confirmation",
-        "description": "The script removes the computed worktree and force deletes the matching local branch without confirmation, dry-run output, or target-state validation.",
+        "title": "Destructive Cleanup Runs Without Confirmation",
+        "description": "The script removes the computed worktree and then force-deletes a matching local branch when it exists. It does not ask for confirmation before the destructive operations.",
         "locations": [
           {
             "file": "scripts/remove-worktree.sh",
             "line_start": 25,
-            "line_end": 25
-          },
-          {
-            "file": "scripts/remove-worktree.sh",
-            "line_start": 29,
-            "line_end": 29
+            "line_end": 30
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
-        "confidence": 0.92,
-        "confidence_reasoning": "Lines 25 and 29 perform direct worktree removal and force branch deletion after only path existence checks. This is intended cleanup behavior, but it can cause irreversible local data loss."
+        "confidence": 0.88,
+        "confidence_reasoning": "The file directly invokes git worktree remove and git branch -D on the selected branch context. The behavior is intended by the skill but can delete local work."
       }
     ],
     "low_findings": [],
@@ -283,125 +273,125 @@
     "files_scanned": 2,
     "total_lines": 52,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T02:34:15.391Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-09T12:44:18.124Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Remove Git Worktrees Safely",
-    "value_statement": "Old Git worktrees and branches can clutter local repositories after feature work. This skill runs a focused cleanup helper for a named branch.",
+    "value_statement": "Abandoned Git worktrees can leave stale files and local branches behind. This skill runs a focused cleanup script for a named branch.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "Git worktree cleanup",
+      "git worktree cleanup",
       "remove git worktree",
       "delete local branch",
+      "developer productivity",
+      "Git automation",
       "repository cleanup",
-      "developer workflow",
-      "Bash git helper",
-      "DevOps automation"
+      "worktree management"
     ],
     "actual_capabilities": [
-      "Accepts a branch name as the cleanup target.",
-      "Builds the expected sibling worktree directory name.",
-      "Checks whether the computed worktree directory exists.",
-      "Runs Git worktree removal for the computed path.",
+      "Shows the command for removing a worktree by branch name.",
+      "Converts branch slashes to hyphens for the expected worktree folder name.",
+      "Finds the current repository root with Git.",
+      "Removes the matching worktree with Git worktree commands.",
       "Deletes the matching local branch when it exists."
     ],
     "limitations": [
-      "Only supports repositories that use the expected sibling worktrees directory pattern.",
-      "Does not prompt for confirmation before removal.",
-      "Does not check remote branches or pull request status.",
-      "Requires Bash and Git on the local machine."
+      "Assumes worktrees live in a sibling directory named after the repository.",
+      "Does not ask for confirmation before removing the worktree.",
+      "Does not check for uncommitted changes before cleanup.",
+      "Does not delete remote branches or remote tracking references."
     ],
     "use_cases": [
       {
-        "title": "Clean Finished Feature Branches",
-        "description": "Remove a local worktree after a feature branch has been merged or abandoned.",
-        "target_user": "Feature developer"
+        "title": "Clean Up Completed Feature Work",
+        "description": "Remove a feature worktree and its local branch after merge work is finished.",
+        "target_user": "Application developers"
       },
       {
-        "title": "Keep Worktree Folders Organized",
-        "description": "Clear stale sibling worktree directories that follow the repository naming convention.",
-        "target_user": "Repository maintainer"
+        "title": "Recover From Accidental Worktree Creation",
+        "description": "Delete a mistakenly created worktree that follows the repository worktree naming convention.",
+        "target_user": "Individual contributors"
       },
       {
-        "title": "Automate Local Repository Cleanup",
-        "description": "Give an AI coding agent a repeatable cleanup command for known branch names.",
-        "target_user": "AI coding agent operator"
+        "title": "Keep Local Repositories Tidy",
+        "description": "Standardize cleanup of old local worktrees during repository maintenance.",
+        "target_user": "DevOps engineers"
       }
     ],
     "prompt_templates": [
       {
         "title": "Remove One Worktree",
-        "scenario": "Beginner cleanup for a known branch.",
-        "prompt": "Remove the Git worktree for branch feature/example using this skill. Show the target branch before running it."
+        "prompt": "Use the remove-git-worktree skill to remove the worktree for branch feature/new-login.",
+        "scenario": "Beginner cleanup for one known branch."
       },
       {
         "title": "Clean After Merge",
-        "scenario": "Routine cleanup after a merged branch.",
-        "prompt": "Use this skill to clean up the local worktree for my merged branch. Confirm the branch name with me first."
+        "prompt": "After confirming branch feature/cart-checkout is merged, remove its local worktree and matching local branch.",
+        "scenario": "Routine cleanup after a completed pull request."
       },
       {
-        "title": "Verify The Target Path",
-        "scenario": "Safer cleanup when the worktree path matters.",
-        "prompt": "Before removing the worktree, compute the expected path and ask me to confirm it matches my intended branch."
+        "title": "Verify Path Before Removal",
+        "prompt": "For branch bugfix/header-layout, show the resolved worktree path first. Continue only if it matches the expected sibling worktrees directory.",
+        "scenario": "Safer cleanup when the repository layout matters."
       },
       {
         "title": "Review Cleanup Risk",
-        "scenario": "Advanced use before destructive cleanup.",
-        "prompt": "Inspect the branch name, explain what local data will be removed, then run the worktree cleanup only after approval."
+        "prompt": "Before removing branch experiment/payment-flow, check whether local work may be lost and explain the cleanup impact.",
+        "scenario": "Advanced review before destructive local cleanup."
       }
     ],
     "output_examples": [
       {
-        "input": "Remove the worktree for feature/search-ui.",
-        "output": "The assistant identifies the branch, displays the expected worktree path, removes the worktree, and deletes the local branch if present."
+        "input": "Remove the worktree for feature/new-login.",
+        "output": "The feature/new-login worktree was removed from the expected sibling worktrees directory. The matching local branch was also deleted."
       },
       {
-        "input": "Clean up the abandoned experiment branch.",
-        "output": "The assistant asks for the exact branch name, checks the computed worktree location, and performs cleanup after confirmation."
+        "input": "Clean up bugfix/header-layout after merge.",
+        "output": "The cleanup completed for bugfix/header-layout. The local worktree and local branch are no longer present."
       },
       {
-        "input": "Remove a branch worktree from the wrong repository directory.",
-        "output": "The assistant warns that the command should run from the main repository and asks the user to switch directories first."
+        "input": "Verify the path before removing experiment/payment-flow.",
+        "output": "The resolved path matched the expected worktrees directory. Cleanup can continue after user confirmation."
       }
     ],
     "best_practices": [
-      "Run from the main repository, not from an unrelated directory.",
-      "Confirm the branch has been merged or backed up before cleanup.",
-      "Review the printed worktree path before allowing removal."
+      "Run the skill from the correct Git repository.",
+      "Confirm the branch name and resolved worktree path before cleanup.",
+      "Commit, stash, or back up local changes before removing a worktree."
     ],
     "anti_patterns": [
-      "Do not use the skill for unknown branch names from untrusted text.",
-      "Do not run it when the worktree has uncommitted changes.",
-      "Do not assume it removes remote branches or pull requests."
+      "Do not run cleanup with a guessed or partial branch name.",
+      "Do not use this skill on worktrees that may contain unsaved work.",
+      "Do not expect this skill to remove remote branches."
     ],
     "faq": [
       {
         "question": "What does this skill remove?",
-        "answer": "It removes a computed local Git worktree and deletes the matching local branch when it exists."
+        "answer": "It removes a local Git worktree for a named branch and deletes the matching local branch when present."
       },
       {
-        "question": "Does it delete remote branches?",
+        "question": "Does it remove remote branches?",
         "answer": "No. It only targets local worktrees and local branches."
       },
       {
-        "question": "Can I use it outside a Git repository?",
-        "answer": "No. It needs Git to identify the current repository root."
+        "question": "Where does it expect worktrees to exist?",
+        "answer": "It expects a sibling worktrees directory based on the current repository name."
       },
       {
-        "question": "Does it ask before deleting files?",
-        "answer": "No. The current script removes the worktree without an interactive confirmation step."
+        "question": "Does it protect uncommitted work?",
+        "answer": "No. Users should commit, stash, or back up local changes before running cleanup."
       },
       {
-        "question": "Which worktree layout does it expect?",
-        "answer": "It expects sibling worktree folders that use the repository name followed by a worktrees suffix."
+        "question": "Can Claude, Codex, or Claude Code use it?",
+        "answer": "Yes. The report declares support for Claude, Codex, and Claude Code."
       },
       {
-        "question": "Is it safe for unmerged branches?",
-        "answer": "Use caution. Confirm important commits are merged or backed up before removing a worktree or deleting a branch."
+        "question": "When should I use it?",
+        "answer": "Use it after a branch worktree is no longer needed and local cleanup is safe."
       }
     ]
   },
