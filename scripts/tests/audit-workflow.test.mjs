@@ -19,3 +19,11 @@ test('audit workflow wires risk-level filtering from dispatch input to CLI shard
 	assert.match(workflow, /\$RISK_LEVEL_FLAG \\\n\s+--offset \$\{\{ matrix\.offset \}\}/);
 	assert.match(workflow, /\| Risk Filter \| \\\`\$\{RISK_LEVEL:-all\}\\\` \|/);
 });
+
+test('audit workflow skips PR creation when no skills were successfully updated', () => {
+	const workflow = readFileSync(AUDIT_WORKFLOW, 'utf8');
+
+	assert.match(workflow, /if \[ "\$TOTAL_UPDATED" -eq 0 \]; then/);
+	assert.match(workflow, /No successfully updated skills; skipping audit PR to avoid timestamp-only failed-analysis churn/);
+	assert.match(workflow, /echo "has_changes=false" >> \$GITHUB_OUTPUT/);
+});

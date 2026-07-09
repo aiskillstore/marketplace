@@ -388,15 +388,14 @@ test('download action invalidates stale local CLI cache entries', () => {
 	assert.match(action, /cache-hit=false/, 'stale local cache must flip cache-hit back to false');
 });
 
-test('source monitor requires checkout-cache-capable CLI before scanning', () => {
+test('source monitor warns and falls back when checkout-cache support is unavailable', () => {
 	const workflow = readFileSync(MONITOR_WORKFLOW, 'utf8');
 	assert.match(workflow, /version: latest/, 'source monitor must always download the latest CLI');
 	assert.doesNotMatch(workflow, /cli_version:/, 'source monitor must not expose a fixed CLI version input');
 	assert.doesNotMatch(workflow, /inputs\.cli_version/, 'source monitor must not consume a fixed CLI version input');
 	assert.match(workflow, /MONITOR_HELP=/, 'workflow must feature-probe monitor-upstream once before building the command');
 	assert.match(workflow, /grep -q -- '--checkoutCacheDir' <<<"\$MONITOR_HELP"/, 'workflow must check for checkout cache support');
-	assert.match(workflow, /Latest Skillstore CLI does not support --checkoutCacheDir/, 'old latest CLI must fail before expensive upstream downloads');
-	assert.match(workflow, /Older CLI versions re-download upstream checkouts and burn runner\/network traffic/, 'old CLI must fail before expensive upstream downloads');
-	assert.match(workflow, /exit 1/, 'missing checkout cache support must stop the scan');
-	assert.doesNotMatch(workflow, /upstream checkouts will not use the persistent runner cache/, 'workflow must not silently continue without checkout caching');
+	assert.match(workflow, /Downloaded Skillstore CLI does not support --checkoutCacheDir; continuing without checkout cache/, 'missing checkout cache support must be visible in workflow logs');
+	assert.match(workflow, /This only affects runtime and network usage/, 'fallback warning must explain the tradeoff');
+	assert.doesNotMatch(workflow, /Latest Skillstore CLI does not support --checkoutCacheDir/, 'workflow must not hard-fail when the latest release lags checkout-cache support');
 });

@@ -65,6 +65,15 @@ test('audit batch supervisor can require structured audit verdicts before markin
 	}
 });
 
+test('audit batch supervisor refuses to retrigger an unchanged stale batch', () => {
+	const source = readFileSync(SUPERVISOR, 'utf8');
+
+	assert.match(source, /function batchSlugSignature\(batch\)/);
+	assert.match(source, /lastTriggeredBatchSignature/);
+	assert.match(source, /No audit progress detected for the same stale batch/);
+	assert.match(source, /avoid an empty audit PR loop/);
+});
+
 function writeReport(root, owner, slug, report) {
 	const dir = join(root, 'skills', owner, slug);
 	mkdirSync(dir, { recursive: true });
