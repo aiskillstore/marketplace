@@ -417,6 +417,10 @@ function triggerAuditBatch(batch) {
   return startedAfterMs;
 }
 
+function batchSlugSignature(batch) {
+  return batch.map((item) => item.slug).join('\n');
+}
+
 async function waitForAuditRunToAppear(startedAfterMs) {
   for (let attempt = 1; attempt <= 30; attempt += 1) {
     const candidates = listWorkflowRuns('Audit Skills', 10)
@@ -495,6 +499,8 @@ async function main() {
   }
 
   let triggered = 0;
+  let lastTriggeredBatchSignature = '';
+  let lastTriggeredStaleCount = -1;
   while (true) {
     await waitForNoActiveAuditRuns();
     const pendingPrs = await waitForOpenAuditPrsToSurface();
@@ -514,8 +520,18 @@ async function main() {
     }
 
     const batch = state.stale.slice(0, batchSize);
+    const signature = batchSlugSignature(batch);
+    if (signature === lastTriggeredBatchSignature && state.stale.length === lastTriggeredStaleCount) {
+      const sample = batch.slice(0, 5).map((item) => item.slug).join(', ');
+      throw new Error(
+        `No audit progress detected for the same stale batch (${batch.length} skills: ${sample}${batch.length > 5 ? ', ...' : ''}). Refusing to retrigger Audit Skills to avoid an empty audit PR loop.`,
+      );
+    }
+
     const startedAfterMs = triggerAuditBatch(batch);
     if (startedAfterMs !== null) {
+      lastTriggeredBatchSignature = signature;
+      lastTriggeredStaleCount = state.stale.length;
       await waitForAuditRunToAppear(startedAfterMs);
     }
     triggered += dryRun ? 0 : 1;
