@@ -96,6 +96,6 @@ For complete patterns, load:
 - `./references/js-ts-patterns.md` - JavaScript/TypeScript patterns
 - `./references/python-patterns.md` - Python patterns
 - `./references/go-rust-patterns.md` - Go and Rust patterns
-- `./references/security-ops.md` - Security vulnerability detection
+- `./references/security-patterns.md` - Security vulnerability detection
 - `./references/advanced-usage.md` - YAML rules and tool integration
 - `./assets/rule-template.yaml` - Starter template for custom rules

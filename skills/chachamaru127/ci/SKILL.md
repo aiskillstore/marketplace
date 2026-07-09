@@ -1,13 +1,12 @@
 ---
 name: ci
-description: "Diagnoses and fixes CI/CD pipeline failures. Use when user mentions 'CI', 'GitHub Actions', 'GitLab CI', 'ビルドエラー', 'テスト失敗', 'パイプライン', 'CIが落ちた', or asks to analyze build/test failures. Do NOT load for: ローカルビルド, 通常の実装作業, レビュー, セットアップ."
-allowed-tools: ["Read", "Grep", "Bash", "Task"]
+description: "CI red? Call us. Pipeline fire brigade deploys. Use when user mentions CI failures, build errors, test failures, or pipeline issues. Do NOT load for: local builds, standard implementation work, reviews, or setup."
+description-en: "CI red? Call us. Pipeline fire brigade deploys. Use when user mentions CI failures, build errors, test failures, or pipeline issues. Do NOT load for: local builds, standard implementation work, reviews, or setup."
+description-ja: "CIが赤くなったら呼んで。パイプライン消防隊、出動します。Use when user mentions CI failures, build errors, test failures, or pipeline issues. Do NOT load for: local builds, standard implementation work, reviews, or setup."
+allowed-tools: ["Read", "Grep", "Bash", "Task", "Monitor"]
+user-invocable: true
 context: fork
-metadata:
-  skillport:
-    category: ci
-    tags: [ci-cd, github-actions, pipeline, debugging]
-    alwaysApply: false
+argument-hint: "[analyze|fix|run]"
 ---
 
 # CI/CD Skills
@@ -24,36 +23,12 @@ CI/CD パイプラインに関する問題を解決するスキル群です。
 
 ---
 
-## 含まれる小スキル
+## 機能詳細
 
-| スキル | 用途 | トリガー |
-|--------|------|----------|
-| ci-analyze-failures | 失敗原因の分析 | 「ログを見て」「原因を調べて」 |
-| ci-fix-failing-tests | テスト修正の提案 | 「テストを直して」「修正案を出して」 |
-
----
-
-## ルーティングロジック
-
-ユーザーの意図に応じて適切な小スキルを選択:
-
-### 分析・調査が必要な場合
-
-→ `ci-analyze-failures/doc.md` を参照
-
-例:
-- 「CIが落ちた原因を教えて」
-- 「GitHub Actionsのログを見て」
-- 「なんでビルドが失敗したの？」
-
-### 修正・対応が必要な場合
-
-→ `ci-fix-failing-tests/doc.md` を参照
-
-例:
-- 「テストを直して」
-- 「エラーを修正して」
-- 「パイプラインを通るようにして」
+| 機能 | 詳細 | トリガー |
+|------|------|----------|
+| **失敗分析** | See [references/analyzing-failures.md](${CLAUDE_SKILL_DIR}/references/analyzing-failures.md) | 「ログを見て」「原因を調べて」 |
+| **テスト修正** | See [references/fixing-tests.md](${CLAUDE_SKILL_DIR}/references/fixing-tests.md) | 「テストを直して」「修正案を出して」 |
 
 ---
 
@@ -62,7 +37,7 @@ CI/CD パイプラインに関する問題を解決するスキル群です。
 1. **テスト vs 実装判定**（Step 0）
 2. ユーザーの意図を分類（分析 or 修正）
 3. 複雑度を判定（下記参照）
-4. 適切な小スキルの doc.md を読む、または ci-cd-fixer サブエージェント起動
+4. 上記の「機能詳細」から適切な参照ファイルを読む、または ci-cd-fixer サブエージェント起動
 5. 結果を確認し、必要に応じて再実行
 
 ### Step 0: テスト vs 実装判定（品質判定ゲート）
@@ -130,6 +105,52 @@ CI 失敗報告
 - [ ] 実装の修正で解決できないか確認した
 
 ユーザーの明示的な承認を待つ
+```
+
+### Git log 拡張フラグの活用（CC 2.1.49+）
+
+CI 失敗時の原因コミット特定に構造化ログを活用します。
+
+#### 原因コミットの特定
+
+```bash
+# 構造化フォーマットでコミット分析
+git log --format="%h|%s|%an|%ad" --date=short -10
+
+# トポロジカル順序で時系列分析
+git log --topo-order --oneline -20
+
+# 変更ファイルと原因の紐付け
+git log --raw --oneline -5
+```
+
+#### 主な活用場面
+
+| 用途 | フラグ | 効果 |
+|------|--------|------|
+| **失敗原因の特定** | `--format="%h|%s"` | コミット一覧の構造化 |
+| **時系列での追跡** | `--topo-order` | マージ順序を考慮した追跡 |
+| **変更影響の把握** | `--raw` | ファイル変更の詳細表示 |
+| **マージ除外分析** | `--cherry-pick --no-merges` | 実コミットのみを抽出 |
+
+#### 出力例
+
+```markdown
+🔍 CI 失敗原因分析
+
+最近のコミット（構造化）:
+| Hash | Subject | Author | Date |
+|------|---------|--------|------|
+| a1b2c3d | feat: update API | Alice | 2026-02-04 |
+| e4f5g6h | test: add tests | Bob | 2026-02-03 |
+
+変更ファイル（--raw）:
+├── src/api/endpoint.ts (Modified) ← 型エラー発生
+├── tests/api.test.ts (Modified)
+└── package.json (Modified)
+
+→ a1b2c3d のコミットが原因の可能性大
+  型エラー: src/api/endpoint.ts:42
 ```
 
 ## サブエージェント連携

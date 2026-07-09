@@ -1,22 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-09T01:11:54.056Z",
+    "generated_at": "2026-07-09T15:09:30.407Z",
     "slug": "davila7-code-reviewer",
     "source_url": "https://github.com/davila7/claude-code-templates/tree/main/cli-tool/components/skills/development/code-reviewer",
     "source_ref": "main",
-    "model": "claude",
+    "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "ea70e2b429a2020a64d928ce272f011888ef89fe61c96b120d3b30d68e99106c",
-    "tree_hash": "b3f0aea877b835090f44b2ffbaf8a81191fc5e49724bcae3ca83f97c156d6bb7",
+    "content_hash": "777841d763d199f85c64e3fd38189443505db6e1443e0a7e8a52a5f228c43ab1",
+    "tree_hash": "fc05ffc33ca91af58b1731771280d2bee5aea08d86fe85bf34b52f9f80aae975",
     "provenance": {
-      "model_requested": "claude-sonnet-4.6",
-      "model_effective": "claude:claude-sonnet-4.6",
+      "model_effective": "codex",
       "fallback_chain": [
         {
-          "agent": "claude",
-          "model": "claude-sonnet-4.6",
+          "agent": "codex",
           "outcome": "success"
         }
       ],
@@ -25,18 +23,18 @@
   },
   "skill": {
     "name": "code-reviewer",
-    "description": "Review code changes with checklist-driven guidance, lightweight Python analyzers, and report generation for common quality, security, and maintainability concerns.",
-    "summary": "Checklist-driven code review helper with Python scripts for analysis and review report output.",
+    "description": "Review code and pull requests with Python CLI scaffolds, checklist references, and quality guidance for common application stacks.",
+    "summary": "Supports structured code review workflows with CLI scripts and reference checklists.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "davila7",
     "license": "MIT",
     "tags": [
       "code-review",
-      "quality",
-      "security-review",
       "pull-requests",
-      "automation"
+      "quality-checks",
+      "security-review",
+      "developer-tools"
     ],
     "supported_tools": [
       "claude",
@@ -54,16 +52,16 @@
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The static findings are false positives in context. The shell-command matches are Markdown examples or reference links, the file-write matches are explicit user-requested report exports, and the environment-file match is setup documentation rather than secret access. No prompt injection, exfiltration intent, or covert execution behavior was found in the reviewed files.",
+    "summary": "Most static detections are false positives from markdown headings, code fences, and setup examples. The real concern is that each Python script can write JSON output to an unconstrained user supplied path. No prompt injection, credential exfiltration, or malicious intent was found in the reviewed files.",
     "remediation": [
       {
-        "issue": "Generic command examples include deployment commands that may affect shared environments if copied without review.",
-        "suggestion": "Label destructive or environment-changing examples clearly and recommend dry-run or staging use before production commands.",
-        "severity": "low"
+        "issue": "Unrestricted output file paths in Python scripts",
+        "suggestion": "Validate --output paths, reject parent traversal or unsafe absolute paths, and warn before overwriting existing files.",
+        "severity": "medium"
       },
       {
-        "issue": "Report scripts allow writing to any user-provided output path.",
-        "suggestion": "Document that --output overwrites the destination file, or add an overwrite confirmation in future versions.",
+        "issue": "Command examples can be mistaken for automatic execution",
+        "suggestion": "State that shell commands are examples for user approval, and remove deployment commands that are not required for review workflows.",
         "severity": "low"
       }
     ],
@@ -540,332 +538,388 @@
       {
         "id": "blocker:references/code_review_checklist.md:81:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The cited lines are a documentation section titled \"Anti-Patterns to Avoid\" with placeholder anti-pattern text. They do not instruct system probing, host enumeration, or reconnaissance."
+        "confidence": 0.93,
+        "reason": "The referenced line is a generic \"Anti-Patterns to Avoid\" documentation heading. It contains no system reconnaissance instruction, command, or data collection behavior."
       },
       {
         "id": "blocker:references/coding_standards.md:81:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The cited lines are a generic documentation heading about anti-patterns. No commands or instructions for system reconnaissance are present."
+        "confidence": 0.93,
+        "reason": "The referenced line is a generic \"Anti-Patterns to Avoid\" documentation heading. It contains no system reconnaissance instruction, command, or data collection behavior."
       },
       {
         "id": "blocker:references/common_antipatterns.md:81:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The cited lines describe generic anti-pattern documentation. The content does not request discovery of system information or sensitive environment details."
+        "confidence": 0.93,
+        "reason": "The referenced line is a generic \"Anti-Patterns to Avoid\" documentation heading. It contains no system reconnaissance instruction, command, or data collection behavior."
       },
       {
         "id": "filesystem:scripts/code_quality_checker.py:107:python-file-write-append",
-        "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The script writes JSON results only when the user passes --json and --output. This is an expected report export path and there is no hidden file write or data exfiltration behavior."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "code_quality_checker.py writes JSON results to a user supplied --output path without constraining the directory or checking overwrite behavior. This is a real filesystem write capability that could overwrite local files if invoked with an unsafe path.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:scripts/pr_analyzer.py:107:python-file-write-append",
-        "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The script writes JSON results only to a user-specified --output destination. The behavior is visible CLI output functionality, not stealth persistence or unauthorized modification."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "pr_analyzer.py writes JSON results to a user supplied --output path without constraining the directory or checking overwrite behavior. This is a real filesystem write capability that could overwrite local files if invoked with an unsafe path.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:scripts/review_report_generator.py:107:python-file-write-append",
-        "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The script writes JSON results only when explicitly requested with --output. This is normal report generation and does not target sensitive files by default."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "review_report_generator.py writes JSON results to a user supplied --output path without constraining the directory or checking overwrite behavior. This is a real filesystem write capability that could overwrite local files if invoked with an unsafe path.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:16:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:57:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:70:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:98:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:119:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:127:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:131:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:137:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:142:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:143:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:144:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:174:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:189:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:195:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:206:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:207:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "external_commands:SKILL.md:208:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The finding points to Markdown fenced command examples or inline reference paths in SKILL.md. These are documentation snippets for user-invoked development workflows, not code that executes automatically."
+        "confidence": 0.84,
+        "reason": "The detected text is inside SKILL.md markdown command examples or inline file references. No executable Ruby backtick code or automatic shell execution is present in the skill file."
       },
       {
         "id": "sensitive:SKILL.md:126:environment-file-access",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The cited line copies .env.example to .env as setup documentation. It does not read existing secrets, print environment values, or transmit sensitive data."
+        "confidence": 0.86,
+        "reason": "The line copies .env.example to .env as a setup example and does not read, print, or transmit existing secrets. It is markdown documentation, not automatic environment file access."
       },
       {
         "id": "blocker:SKILL.md:83:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The cited line is a bullet saying \"Anti-patterns to avoid\" in reference documentation. It is not a reconnaissance instruction or command."
+        "confidence": 0.92,
+        "reason": "The line is a bullet that points readers to anti-pattern guidance. It does not instruct the agent to inspect the host system or collect environment details."
       }
     ],
     "semantic_findings": [],
     "critical_findings": [],
     "high_findings": [],
-    "medium_findings": [],
+    "medium_findings": [
+      {
+        "title": "Python file write/append",
+        "description": "with open(args.output, 'w') as f:",
+        "locations": [
+          {
+            "file": "scripts/code_quality_checker.py",
+            "line_start": 107,
+            "line_end": 107
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "code_quality_checker.py writes JSON results to a user supplied --output path without constraining the directory or checking overwrite behavior. This is a real filesystem write capability that could overwrite local files if invoked with an unsafe path."
+      },
+      {
+        "title": "Python file write/append",
+        "description": "with open(args.output, 'w') as f:",
+        "locations": [
+          {
+            "file": "scripts/pr_analyzer.py",
+            "line_start": 107,
+            "line_end": 107
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "pr_analyzer.py writes JSON results to a user supplied --output path without constraining the directory or checking overwrite behavior. This is a real filesystem write capability that could overwrite local files if invoked with an unsafe path."
+      },
+      {
+        "title": "Python file write/append",
+        "description": "with open(args.output, 'w') as f:",
+        "locations": [
+          {
+            "file": "scripts/review_report_generator.py",
+            "line_start": 107,
+            "line_end": 107
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "review_report_generator.py writes JSON results to a user supplied --output path without constraining the directory or checking overwrite behavior. This is a real filesystem write capability that could overwrite local files if invoked with an unsafe path."
+      }
+    ],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 7,
     "total_lines": 867,
-    "audit_model": "claude",
-    "audited_at": "2026-07-09T01:11:54.056Z",
+    "audit_model": "codex",
+    "audited_at": "2026-07-09T15:09:30.407Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Review Code Changes with Structured Guidance",
-    "value_statement": "Code reviews can miss quality, security, and maintainability issues when teams lack a consistent checklist. This skill provides review prompts, reference guidance, and simple scripts for repeatable review reports.",
+    "user_title": "Review Code Across Multiple Stacks",
+    "value_statement": "Code reviews often miss consistency, security, and maintainability issues across varied stacks. This skill provides review scripts, checklists, and structured guidance for Claude, Codex, and Claude Code workflows.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "code review",
+      "code reviewer",
+      "code review automation",
       "pull request review",
-      "code quality",
-      "security review",
-      "review checklist",
-      "Python analyzer",
-      "developer productivity"
+      "Python review scripts",
+      "TypeScript review",
+      "JavaScript code quality",
+      "security scanning"
     ],
     "actual_capabilities": [
-      "Provides a checklist-based workflow for reviewing pull requests and local changes.",
-      "Includes Python scripts that validate a target path and emit basic JSON results.",
-      "Documents review areas for code quality, performance, security, and maintainability.",
-      "Generates simple terminal reports with target, status, and finding counts.",
-      "Supports common development stacks through language and framework guidance."
+      "Provides three Python CLI scripts for PR analysis, code quality checks, and review report generation.",
+      "Validates that the supplied target path exists before running a script.",
+      "Can print JSON results or save them through the --json and --output options.",
+      "Includes reference documents for review checklists, coding standards, and common antipatterns.",
+      "Lists review coverage for TypeScript, JavaScript, Python, Go, Swift, Kotlin, and common web stacks."
     ],
     "limitations": [
-      "The included scripts are lightweight templates and do not perform deep static analysis.",
-      "Users must interpret findings and verify issues against the actual codebase.",
-      "Command examples are generic and may need adjustment for each project.",
-      "The skill does not replace specialized security scanners or CI policy checks."
+      "The included scripts are scaffolds and do not perform deep source analysis.",
+      "Automated fixes are described in documentation but are not implemented in the scripts.",
+      "Output file paths are not constrained, so users should choose safe destinations.",
+      "Reference documents contain generic guidance rather than framework-specific rules."
     ],
     "use_cases": [
       {
-        "title": "Prepare a Pull Request Review",
-        "description": "Use the checklist to organize feedback before approving or requesting changes on a pull request.",
-        "target_user": "Software engineers"
+        "title": "Review a pull request before merge",
+        "description": "Use the PR analyzer and checklist guidance to structure findings before approving a change.",
+        "target_user": "Software engineer"
       },
       {
-        "title": "Standardize Team Review Criteria",
-        "description": "Apply shared quality, security, and maintainability questions across reviewers and repositories.",
-        "target_user": "Engineering leads"
+        "title": "Prepare team review standards",
+        "description": "Use the coding standards references to create shared expectations for readability, tests, and security.",
+        "target_user": "Engineering manager"
       },
       {
-        "title": "Create a Lightweight Review Report",
-        "description": "Run the included scripts to produce a simple report that can be attached to a review workflow.",
-        "target_user": "Developer productivity teams"
+        "title": "Create a lightweight review report",
+        "description": "Use the report generator scaffold to produce a simple status and findings summary for a target path.",
+        "target_user": "Technical lead"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Review Checklist",
-        "scenario": "Beginner review of a small change",
-        "prompt": "Review this change using the code-reviewer checklist. Focus on correctness, readability, tests, and obvious security issues."
+        "title": "Review a Small Change",
+        "scenario": "Beginner review of a focused change set.",
+        "prompt": "Use the code-reviewer skill to review this small change. Focus on correctness, readability, tests, and security issues."
       },
       {
-        "title": "Pull Request Risk Review",
-        "scenario": "Review a medium pull request before merge",
-        "prompt": "Review this pull request for regressions, missing tests, unsafe inputs, performance risks, and maintainability concerns. Return prioritized findings with file references."
+        "title": "Check Pull Request Readiness",
+        "scenario": "Intermediate review before merge.",
+        "prompt": "Use the PR analyzer guidance to assess this pull request. Summarize blockers, non-blocking suggestions, and missing tests."
       },
       {
-        "title": "Security and Quality Pass",
-        "scenario": "Review code that handles external input or sensitive data",
-        "prompt": "Use the code-reviewer guidance to inspect this change for input validation, authentication, authorization, secret handling, and error handling risks."
+        "title": "Assess Code Quality Across a Folder",
+        "scenario": "Intermediate review of a project area.",
+        "prompt": "Use the code quality checker workflow for this target folder. Report maintainability risks, performance concerns, and security observations."
       },
       {
-        "title": "Release Readiness Review",
-        "scenario": "Advanced review before production release",
-        "prompt": "Perform a release readiness review using the checklist and reference guidance. Include correctness risks, operational risks, migration concerns, test gaps, and recommended follow-up actions."
+        "title": "Produce a Release Review Report",
+        "scenario": "Advanced review for release readiness.",
+        "prompt": "Use the review report generator approach to prepare a release review. Include risk ranking, test gaps, ownership questions, and recommended next steps."
       }
     ],
     "output_examples": [
       {
-        "input": "Review a pull request that changes an API handler and adds a database query.",
+        "input": "Review a TypeScript pull request that changes authentication flow.",
         "output": [
-          "High priority: verify authorization before returning user records.",
-          "Medium priority: add tests for empty result and permission-denied paths.",
-          "Low priority: simplify duplicated response formatting."
+          "Summary: The change is understandable but needs stronger session handling tests.",
+          "Findings: Validate token expiry paths, add negative authorization tests, and document migration effects.",
+          "Recommendation: Do not merge until the authentication edge cases are covered."
         ]
       },
       {
-        "input": "Run a lightweight quality check for a local project path.",
-        "output": "The report identifies the reviewed target, confirms the run status, and lists the number of findings for follow-up."
+        "input": "Assess a Python service folder for code quality concerns.",
+        "output": [
+          "Summary: The folder is organized clearly, but error handling is inconsistent.",
+          "Findings: Normalize logging, add input validation near external boundaries, and reduce duplicated parsing logic.",
+          "Recommendation: Address the validation and logging items before broad rollout."
+        ]
       },
       {
-        "input": "Prepare feedback for a team review meeting.",
+        "input": "Generate a review report for a release candidate.",
         "output": [
-          "Correctness risks are grouped first.",
-          "Security and performance concerns are separated from style feedback.",
-          "Action items are written as clear reviewer comments."
+          "Summary: Release risk is moderate because tests do not cover rollback paths.",
+          "Findings: Add deployment verification, define owner signoff, and confirm database migration reversibility.",
+          "Recommendation: Complete release checklist items before production deployment."
         ]
       }
     ],
     "best_practices": [
-      "Use the checklist before merge and verify each issue against the actual diff.",
-      "Prioritize correctness, security, and data safety before style feedback.",
-      "Run project tests or CI checks after applying review suggestions."
+      "Run scripts only against repositories and folders you intend to review.",
+      "Review generated findings manually before treating them as merge blockers.",
+      "Use safe output paths and avoid overwriting important project files."
     ],
     "anti_patterns": [
-      "Do not treat generic script output as proof that a codebase is secure.",
-      "Do not copy deployment commands into production without environment review.",
-      "Do not approve changes based only on automated checks when logic changed."
+      "Do not use the scaffold scripts as a substitute for real test execution.",
+      "Do not run deployment commands from examples during a code review session.",
+      "Do not assume the reference documents cover every framework-specific rule."
     ],
     "faq": [
       {
-        "question": "Does this skill automatically review my pull request?",
-        "answer": "It provides guidance and lightweight scripts, but the user or agent must inspect the actual changes and apply judgment."
+        "question": "Does this skill automatically fix code?",
+        "answer": "No. The documentation mentions automated fixes, but the included scripts do not implement code changes."
       },
       {
-        "question": "Can it find security vulnerabilities?",
-        "answer": "It can guide a security-focused review, but it is not a complete vulnerability scanner."
+        "question": "Can it review multiple programming languages?",
+        "answer": "Yes. The skill is written for common stacks including TypeScript, JavaScript, Python, Go, Swift, and Kotlin."
       },
       {
-        "question": "Which languages does it cover?",
-        "answer": "The documentation mentions TypeScript, JavaScript, Python, Go, Swift, Kotlin, and common web frameworks."
+        "question": "Does it require network access?",
+        "answer": "No evidence of network access was found in the reviewed files."
       },
       {
-        "question": "Does it modify source code?",
-        "answer": "The included scripts do not modify source files. They can write a JSON report when the user provides an output path."
+        "question": "Can it write files?",
+        "answer": "Yes. Each Python script can save JSON output when the --output option is provided."
       },
       {
-        "question": "Can I use it with Claude Code and Codex?",
-        "answer": "Yes. The report lists support for Claude, Codex, and Claude Code workflows."
+        "question": "Is it suitable for security review?",
+        "answer": "It can guide security checks, but it does not replace dedicated security scanners or expert review."
       },
       {
-        "question": "Should this replace CI checks?",
-        "answer": "No. Use it with tests, linters, type checks, security scanners, and human review."
+        "question": "Which AI tools are supported?",
+        "answer": "The report lists support for Claude, Codex, and Claude Code."
       }
     ]
   },

@@ -1,6 +1,8 @@
 ---
 name: copy-editing
-description: "When the user wants to edit, review, or improve existing marketing copy. Also use when the user mentions 'edit this copy,' 'review my copy,' 'copy feedback,' 'proofread,' 'polish this,' 'make this better,' or 'copy sweep.' This skill provides a systematic approach to editing marketing copy through multiple focused passes."
+description: "When the user wants to edit, review, or improve existing marketing copy, or refresh outdated content. Also use when the user mentions 'edit this copy,' 'review my copy,' 'copy feedback,' 'proofread,' 'polish this,' 'make this better,' 'copy sweep,' 'tighten this up,' 'this reads awkwardly,' 'clean up this text,' 'too wordy,' 'sharpen the messaging,' 'refresh this content,' 'update this page,' 'this content is outdated,' or 'content audit.' Use this when the user already has copy and wants it improved or refreshed rather than rewritten from scratch. For writing new copy, see copywriting."
+metadata:
+  version: 2.0.0
 ---
 
 # Copy Editing
@@ -8,6 +10,9 @@ description: "When the user wants to edit, review, or improve existing marketing
 You are an expert copy editor specializing in marketing and conversion copy. Your goal is to systematically improve existing copy through focused editing passes while preserving the core message.
 
 ## Core Philosophy
+
+**Check for product marketing context first:**
+If `.agents/product-marketing.md` exists (or `.claude/product-marketing.md`, or the legacy `product-marketing-context.md` filename, in older setups), read it before editing. Use brand voice and customer language from that context to guide your edits.
 
 Good copy editing isn't about rewriting—it's about enhancing. Each pass focuses on one dimension, catching issues that get missed when you try to fix everything at once.
 
@@ -251,6 +256,57 @@ For every statement, ask "Okay, so what?" If the copy doesn't answer that questi
 
 ---
 
+## Expert Panel Scoring
+
+Use this after completing the Seven Sweeps for an additional quality gate. For high-stakes copy (landing pages, launch emails, sales pages), a multi-persona expert review catches issues that a single perspective misses.
+
+### How It Works
+
+1. **Assemble 3-5 expert personas** relevant to the copy type
+2. **Each persona scores the copy 1-10** on their area of expertise
+3. **Collect specific critiques** — not just scores, but what to fix
+4. **Revise based on feedback** — address the lowest-scoring areas first
+5. **Re-score after revisions** — iterate until all personas score 7+, with an average of 8+ across the panel
+
+### Recommended Expert Panels
+
+**Landing page copy:**
+- Conversion copywriter (clarity, CTA strength, benefit hierarchy)
+- UX writer (scannability, cognitive load, user flow)
+- Target customer persona (does this speak to me? do I trust it?)
+- Brand strategist (voice consistency, positioning accuracy)
+
+**Email sequence:**
+- Email marketing specialist (subject lines, open/click optimization)
+- Copywriter (hooks, storytelling, persuasion)
+- Spam filter analyst (deliverability red flags, trigger words)
+- Target customer persona (relevance, value, unsubscribe risk)
+
+**Sales page / long-form:**
+- Direct response copywriter (offer structure, objection handling, urgency)
+- Skeptical buyer persona (proof gaps, trust issues, red flags)
+- Editor (flow, readability, conciseness)
+- SEO specialist (keyword coverage, search intent alignment)
+
+### Scoring Rubric
+
+| Score | Meaning |
+|-------|---------|
+| 9-10 | Publish-ready. No meaningful improvements. |
+| 7-8 | Strong. Minor tweaks only. |
+| 5-6 | Functional but has clear gaps. Needs another pass. |
+| 3-4 | Significant issues. Major revision needed. |
+| 1-2 | Fundamentally broken. Rethink approach. |
+
+### When to Use
+
+- **Always** for launch copy, pricing pages, and high-traffic landing pages
+- **Recommended** for email sequences, sales pages, and ad copy
+- **Optional** for blog posts, social content, and internal docs
+- **Skip** for quick updates, minor edits, and low-stakes content
+
+---
+
 ## Quick-Pass Editing Checks
 
 Use these for faster reviews when a full seven-sweep process isn't needed.
@@ -302,59 +358,7 @@ Use these for faster reviews when a full seven-sweep process isn't needed.
 
 ## Copy Editing Checklist
 
-### Before You Start
-- [ ] Understand the goal of this copy
-- [ ] Know the target audience
-- [ ] Identify the desired action
-- [ ] Read through once without editing
-
-### Clarity (Sweep 1)
-- [ ] Every sentence is immediately understandable
-- [ ] No jargon without explanation
-- [ ] Pronouns have clear references
-- [ ] No sentences trying to do too much
-
-### Voice & Tone (Sweep 2)
-- [ ] Consistent formality level throughout
-- [ ] Brand personality maintained
-- [ ] No jarring shifts in mood
-- [ ] Reads well aloud
-
-### So What (Sweep 3)
-- [ ] Every feature connects to a benefit
-- [ ] Claims answer "why should I care?"
-- [ ] Benefits connect to real desires
-- [ ] No impressive-but-empty statements
-
-### Prove It (Sweep 4)
-- [ ] Claims are substantiated
-- [ ] Social proof is specific and attributed
-- [ ] Numbers and stats have sources
-- [ ] No unearned superlatives
-
-### Specificity (Sweep 5)
-- [ ] Vague words replaced with concrete ones
-- [ ] Numbers and timeframes included
-- [ ] Generic statements made specific
-- [ ] Filler content removed
-
-### Heightened Emotion (Sweep 6)
-- [ ] Copy evokes feeling, not just information
-- [ ] Pain points feel real
-- [ ] Aspirations feel achievable
-- [ ] Emotion serves the message authentically
-
-### Zero Risk (Sweep 7)
-- [ ] Objections addressed near CTA
-- [ ] Trust signals present
-- [ ] Next steps are crystal clear
-- [ ] Risk reversals stated (guarantee, trial, etc.)
-
-### Final Checks
-- [ ] No typos or grammatical errors
-- [ ] Consistent formatting
-- [ ] Links work (if applicable)
-- [ ] Core message preserved through all edits
+For a final QA pass before delivering edits, work through the full checklist in [references/checklist.md](references/checklist.md) — covering all seven sweeps plus pre-start and final-check items.
 
 ---
 
@@ -408,24 +412,38 @@ This iterative process ensures each edit doesn't create new problems while respe
 
 ---
 
-## Questions to Ask
+## References
 
-If you need more context:
+- [Plain English Alternatives](references/plain-english-alternatives.md): Replace complex words with simpler alternatives
+- [Content Refresh](references/content-refresh.md): Full checklist, refresh vs. rewrite matrix, and cadence guide
+- [Copy Editing Checklist](references/checklist.md): Full QA checklist across all seven sweeps
+
+---
+
+## Content Refresh Editing
+
+Copy editing isn't just for new content. Existing pages decay over time — outdated stats, stale examples, and drifted brand voice. Use the content refresh framework when traffic is declining, data is stale, or the product has changed.
+
+**For the full refresh checklist, refresh vs. rewrite decision matrix, and cadence guide**: See [references/content-refresh.md](references/content-refresh.md)
+
+---
+
+## Task-Specific Questions
+
 1. What's the goal of this copy? (Awareness, conversion, retention)
-2. Who's the target audience?
-3. What action should readers take?
-4. What's the brand voice? (Casual, professional, playful, authoritative)
-5. Are there specific concerns or known issues?
-6. What proof/evidence do you have available?
+2. What action should readers take?
+3. Are there specific concerns or known issues?
+4. What proof/evidence do you have available?
+5. Is this new copy or a refresh of existing content?
 
 ---
 
 ## Related Skills
 
 - **copywriting**: For writing new copy from scratch (use this skill to edit after your first draft is complete)
-- **page-cro**: For broader page optimization beyond copy
+- **cro**: For broader page optimization beyond copy
 - **marketing-psychology**: For understanding why certain edits improve conversion
-- **ab-test-setup**: For testing copy variations
+- **ab-testing**: For testing copy variations
 
 ---
 
@@ -436,4 +454,4 @@ If you need more context:
 | Writing new page copy from scratch | copywriting |
 | Reviewing and improving existing copy | copy-editing (this skill) |
 | Editing copy you just wrote | copy-editing (this skill) |
-| Structural or strategic page changes | page-cro |
+| Structural or strategic page changes | cro |

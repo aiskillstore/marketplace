@@ -2,11 +2,6 @@
 name: migrate-workflow-files
 description: "既存プロジェクトのAGENTS.md/CLAUDE.md/Plans.mdを、既存内容を精査して対話で引き継ぎ項目を確定しつつ、新フォーマットへ移行（バックアップ付き・Plansはタスク保持マージ）。"
 allowed-tools: ["Read", "Write", "Edit", "Bash"]
-metadata:
-  skillport:
-    category: core
-    tags: [migrate, workflow, merge, preserve, agents, claude, plans]
-    alwaysApply: false
 ---
 
 # Migrate Workflow Files (Interactive Merge)
