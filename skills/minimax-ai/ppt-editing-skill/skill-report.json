@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-06T18:42:27.559Z",
+    "generated_at": "2026-07-09T15:22:59.818Z",
     "slug": "minimax-ai-ppt-editing-skill",
     "source_url": "https://github.com/MiniMax-AI/skills/tree/main/plugins/pptx-plugin/skills/ppt-editing-skill",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "936245e6da462b1426c542d293b1dd4fb68c0542fa0e05849ff4bf5b24ab4634",
-    "tree_hash": "01275e6864c8e93250cc0b4dde72c237653f57ac7cb5af3b3db71b8fa3223a3a",
+    "tree_hash": "773ae1cf48830637163f9454be25d03bc5555e9aaa22b75de1317eb0d9e3b2d8",
     "provenance": {
       "model_requested": "gpt-5.5:high",
       "model_effective": "codex:gpt-5.5:high",
@@ -26,8 +26,8 @@
   },
   "skill": {
     "name": "ppt-editing-skill",
-    "description": "Edit existing PowerPoint files or templates with XML-safe workflows for slide mapping, XML text updates, cleanup, and validated PPTX repacking.",
-    "summary": "Guide XML-safe editing of existing PowerPoint templates and repack the finished PPTX.",
+    "description": "Guides safe editing of existing PowerPoint PPTX files through template analysis, slide mapping, XML edits, cleanup, and validated repacking.",
+    "summary": "Update existing PowerPoint templates while preserving PPTX structure and layout integrity.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "MiniMax-AI",
@@ -37,7 +37,7 @@
       "pptx",
       "presentation-editing",
       "templates",
-      "office-automation"
+      "xml"
     ],
     "supported_tools": [
       "claude",
@@ -51,26 +51,26 @@
     "category": "office"
   },
   "security_audit": {
-    "risk_level": "medium",
+    "risk_level": "safe",
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most static findings are false positives caused by Markdown code fences, inline code, or XML examples in SKILL.md. I confirmed one medium issue: the workflow tells users to stage output in /tmp without secure temporary file guidance. No prompt injection, exfiltration intent, or malicious instructions were found.",
+    "summary": "Most static findings are false positives caused by Markdown backticks, XML examples, and code fences. I confirmed limited operational risks where the skill instructs external tools, helper scripts, temp-file writes, and PPTX archive handling on user-provided files.",
     "remediation": [
       {
-        "issue": "Unsafe temporary file guidance",
-        "suggestion": "Use a unique per-run temporary directory, restrict permissions, and validate final output paths before copying from /tmp.",
+        "issue": "External tools process user-provided PPTX files.",
+        "suggestion": "Require user confirmation before command execution, quote all paths, and run conversions in an isolated working directory.",
         "severity": "medium"
       },
       {
-        "issue": "Shell examples lack path quoting guidance",
-        "suggestion": "Show quoted paths or argument-array execution for cp and markitdown commands that handle user-provided filenames.",
-        "severity": "low"
+        "issue": "Temporary output is directed to /tmp without unique-directory guidance.",
+        "suggestion": "Use a per-run directory from a secure temp API and copy final outputs atomically after validation.",
+        "severity": "medium"
       },
       {
-        "issue": "Referenced helper scripts are not included",
-        "suggestion": "Publish the helper scripts or state where they come from, and document their archive extraction safeguards.",
-        "severity": "low"
+        "issue": "PPTX archive handling lacks documented traversal safeguards.",
+        "suggestion": "Document checks that reject absolute paths, parent-directory entries, and unsafe symlinks during unpack and repack.",
+        "severity": "medium"
       }
     ],
     "risk_factor_evidence": [
@@ -810,298 +810,418 @@
     "finding_verdicts": [
       {
         "id": "external_commands:SKILL.md:14:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a Markdown bash code fence that introduces documented local PPTX workflow commands, not Ruby backtick execution. The example would benefit from path quoting guidance, but the static signal is not an executable backtick call."
+        "verdict": "confirmed",
+        "confidence": 0.82,
+        "reason": "The fenced bash block instructs copying a user-provided PPTX and running python -m markitdown on it. This is expected workflow behavior, but it is real external command execution on untrusted input.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:17:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a Markdown code fence or documentation delimiter, not executable Ruby or shell code. It cannot execute commands by itself."
+        "confidence": 0.9,
+        "reason": "This is the closing marker of a Markdown code fence. It does not contain a shell command or Ruby backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:18:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line tells the user to review a Markdown extraction file. The backticks mark a filename and do not execute anything."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This is PPTX XML terminology inside Markdown inline code. It describes editing slide IDs, not running a command."
       },
       {
         "id": "external_commands:SKILL.md:39:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "verdict": "confirmed",
+        "confidence": 0.7,
+        "reason": "The workflow tells the agent to duplicate slides with add_slide.py. Running helper scripts that modify PPTX internals is a real command-execution risk if the script or input is untrusted.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This is a reference to the PPTX slide ID list element. The inline code is documentation, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line describes editing slide XML filenames. The backticks identify a file pattern and do not execute a command."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line describes a destination filename for a copied template. The inline code is a literal filename, not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This is a Markdown bash code fence that introduces documented local PPTX workflow commands, not Ruby backtick execution. The example would benefit from path quoting guidance, but the static signal is not an executable backtick call."
+        "verdict": "confirmed",
+        "confidence": 0.78,
+        "reason": "The fenced bash block copies a user-provided path into the working directory. It is a legitimate operation, but path handling and shell quoting still require care.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a Markdown code fence or documentation delimiter, not executable Ruby or shell code. It cannot execute commands by itself."
+        "confidence": 0.9,
+        "reason": "This is the closing marker of a Markdown code fence. It does not contain executable content."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a Markdown code fence or documentation delimiter, not executable Ruby or shell code. It cannot execute commands by itself."
+        "confidence": 0.9,
+        "reason": "This is a Markdown text fence used to show the expected output tree. It is not a shell command."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a Markdown code fence or documentation delimiter, not executable Ruby or shell code. It cannot execute commands by itself."
+        "confidence": 0.9,
+        "reason": "This is the closing marker of a Markdown text fence. It has no command execution behavior."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line names the expected output file. The backticks are Markdown formatting around a filename."
       },
       {
         "id": "external_commands:SKILL.md:74:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The snippet names helper scripts or tools in documentation, not Ruby backtick execution. SKILL.md does not show dynamic shell construction or user-controlled command interpolation at this location."
+        "reason": "This table row names unpack.py and describes its purpose. It is a script reference, not an execution instruction at this location."
       },
       {
         "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The snippet names helper scripts or tools in documentation, not Ruby backtick execution. SKILL.md does not show dynamic shell construction or user-controlled command interpolation at this location."
+        "reason": "This table row names add_slide.py and describes its purpose. Actual use is covered by separate confirmed findings."
       },
       {
         "id": "external_commands:SKILL.md:76:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The snippet names helper scripts or tools in documentation, not Ruby backtick execution. SKILL.md does not show dynamic shell construction or user-controlled command interpolation at this location."
+        "reason": "This table row names clean.py and describes its purpose. Actual execution guidance is covered by a separate confirmed finding."
       },
       {
         "id": "external_commands:SKILL.md:77:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The snippet names helper scripts or tools in documentation, not Ruby backtick execution. SKILL.md does not show dynamic shell construction or user-controlled command interpolation at this location."
+        "reason": "This table row names pack.py and describes its purpose. The Markdown backticks around the filename are not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:80:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line describes cleanup behavior for PPTX internals. The inline XML element is documentation, not a command."
       },
       {
         "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The snippet contains inline Markdown references to /tmp and Python zipfile, not shell backtick execution. The separate temp-directory finding covers the real filesystem concern at this line."
+        "confidence": 0.9,
+        "reason": "This finding is about Markdown inline code around /tmp, zipfile, and seek. The filesystem concern is handled by separate filesystem verdicts."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line documents PPTX XML paths and elements. Inline code is used for markup names, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:93:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line describes rearranging PPTX XML elements. The inline tag name is not an executable command."
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The snippet names helper scripts or tools in documentation, not Ruby backtick execution. SKILL.md does not show dynamic shell construction or user-controlled command interpolation at this location."
+        "verdict": "confirmed",
+        "confidence": 0.72,
+        "reason": "The instruction says to run clean.py after deleting slides. That helper script changes the unpacked PPTX file tree, so execution should be treated as a real operational risk.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The snippet names helper scripts or tools in documentation, not Ruby backtick execution. SKILL.md does not show dynamic shell construction or user-controlled command interpolation at this location."
+        "verdict": "confirmed",
+        "confidence": 0.74,
+        "reason": "The instruction requires use of add_slide.py for slide creation. This is legitimate tooling, but it is still script execution against user-controlled presentation content.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:117:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line documents XML attributes used for formatting. The inline snippets are markup examples, not shell commands."
       },
       {
         "id": "external_commands:SKILL.md:121:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line documents PowerPoint bullet XML elements. It is markup guidance and does not invoke a command."
       },
       {
         "id": "external_commands:SKILL.md:122:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line documents PowerPoint bullet XML elements. The inline code is not command execution."
       },
       {
         "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The snippet names helper scripts or tools in documentation, not Ruby backtick execution. SKILL.md does not show dynamic shell construction or user-controlled command interpolation at this location."
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The instruction tells the agent to run markitdown for content QA. External conversion tools processing user-supplied presentations can expose parser and file-handling risk.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:138:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The snippet names helper scripts or tools in documentation, not Ruby backtick execution. SKILL.md does not show dynamic shell construction or user-controlled command interpolation at this location."
+        "verdict": "confirmed",
+        "confidence": 0.68,
+        "reason": "The instruction tells the agent to verify changes with markitdown. This is a reasonable workflow step, but it still invokes an external parser on presentation content.",
+        "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:145:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line discusses XML paragraph elements. The backticks mark XML tags and do not execute code."
       },
       {
         "id": "external_commands:SKILL.md:148:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a Markdown code fence or documentation delimiter, not executable Ruby or shell code. It cannot execute commands by itself."
+        "confidence": 0.9,
+        "reason": "This is a Markdown XML code fence marker. It starts an example block and does not execute commands."
       },
       {
         "id": "external_commands:SKILL.md:152:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a Markdown code fence or documentation delimiter, not executable Ruby or shell code. It cannot execute commands by itself."
+        "confidence": 0.9,
+        "reason": "This is the closing marker of a Markdown XML example. It has no command execution behavior."
       },
       {
         "id": "external_commands:SKILL.md:155:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a Markdown code fence or documentation delimiter, not executable Ruby or shell code. It cannot execute commands by itself."
+        "confidence": 0.9,
+        "reason": "This is a Markdown XML code fence marker. It introduces documentation examples, not executable shell syntax."
       },
       {
         "id": "external_commands:SKILL.md:169:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a Markdown code fence or documentation delimiter, not executable Ruby or shell code. It cannot execute commands by itself."
+        "confidence": 0.9,
+        "reason": "This is the closing marker of a Markdown XML example. It does not contain a command."
       },
       {
         "id": "external_commands:SKILL.md:171:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line documents XML tags and attributes for formatting. The inline snippets are not command syntax."
       },
       {
         "id": "external_commands:SKILL.md:179:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a Markdown code fence or documentation delimiter, not executable Ruby or shell code. It cannot execute commands by itself."
+        "confidence": 0.9,
+        "reason": "This is a Markdown XML code fence marker. It introduces an XML entity example, not executable content."
       },
       {
         "id": "external_commands:SKILL.md:181:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This line is a Markdown code fence or documentation delimiter, not executable Ruby or shell code. It cannot execute commands by itself."
+        "confidence": 0.9,
+        "reason": "This is the closing marker of a Markdown XML example. It does not execute anything."
       },
       {
         "id": "external_commands:SKILL.md:185:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This table row shows quote characters and XML entities. The backticks are Markdown formatting, not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:186:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This table row shows quote characters and XML entities. It is documentation and does not run code."
       },
       {
         "id": "external_commands:SKILL.md:187:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This table row shows quote characters and XML entities. It is not a command execution pattern."
       },
       {
         "id": "external_commands:SKILL.md:188:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This table row shows quote characters and XML entities. The inline code is documentation only."
       },
       {
         "id": "external_commands:SKILL.md:192:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The snippet is Markdown inline code or prose describing PPTX XML conventions, not Ruby backtick execution. I found no evidence of dynamic shell construction or command injection at this location."
+        "confidence": 0.9,
+        "reason": "This line documents an XML attribute for whitespace handling. The inline XML snippet is not executable syntax."
       },
       {
         "id": "external_commands:SKILL.md:193:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.9,
-        "reason": "The snippet names helper scripts or tools in documentation, not Ruby backtick execution. SKILL.md does not show dynamic shell construction or user-controlled command interpolation at this location."
+        "reason": "This line recommends a Python XML parsing library. It does not itself execute a command or load untrusted code."
       },
       {
         "id": "filesystem:SKILL.md:150:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The detected sequence is an XML placeholder ellipsis inside a documentation example, not a filesystem path. It does not instruct traversal outside the workspace or use ../ against user-controlled paths."
+        "confidence": 0.9,
+        "reason": "The ellipsis appears inside an XML formatting example. It is not a filesystem path and does not express parent-directory traversal."
       },
       {
         "id": "filesystem:SKILL.md:158:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The detected sequence is an XML placeholder ellipsis inside a documentation example, not a filesystem path. It does not instruct traversal outside the workspace or use ../ against user-controlled paths."
+        "confidence": 0.9,
+        "reason": "The ellipsis appears inside an XML attribute example. It is placeholder notation, not a path traversal sequence."
       },
       {
         "id": "filesystem:SKILL.md:162:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The detected sequence is an XML placeholder ellipsis inside a documentation example, not a filesystem path. It does not instruct traversal outside the workspace or use ../ against user-controlled paths."
+        "confidence": 0.9,
+        "reason": "The ellipsis appears inside an XML attribute example. It does not reference a file path or archive entry."
       },
       {
         "id": "filesystem:SKILL.md:166:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The detected sequence is an XML placeholder ellipsis inside a documentation example, not a filesystem path. It does not instruct traversal outside the workspace or use ../ against user-controlled paths."
+        "confidence": 0.9,
+        "reason": "The ellipsis appears inside an XML attribute example. It is documentation shorthand, not filesystem traversal."
       },
       {
         "id": "filesystem:SKILL.md:83:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.56,
-        "reason": "SKILL.md explicitly instructs writing to /tmp before copying to the final output. Without unique per-run temp paths and destination validation, this can create overwrite, race, or data exposure risk in shared environments.",
+        "confidence": 0.62,
+        "reason": "The skill instructs writing intermediate output to /tmp before copying to the final path. This can be safe, but the guidance does not specify unique temp directories or symlink protections.",
         "severity": "medium"
       },
       {
         "id": "filesystem:SKILL.md:83:python-archive-libraries",
-        "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The line only mentions Python zipfile behavior to explain output staging; it does not show archive extraction, extractall, or path handling logic. I did not find enough evidence in SKILL.md to confirm unsafe archive handling."
+        "verdict": "confirmed",
+        "confidence": 0.56,
+        "reason": "The skill discusses Python zipfile behavior while processing PPTX archives. Archive handling is legitimate here, but the reviewed file does not document path traversal checks during unpacking.",
+        "severity": "medium"
       }
     ],
     "semantic_findings": [],
     "critical_findings": [],
     "high_findings": [],
     "medium_findings": [
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 14,
+            "line_end": 17
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The fenced bash block instructs copying a user-provided PPTX and running python -m markitdown on it. This is expected workflow behavior, but it is real external command execution on untrusted input."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "- Duplicate slides you want to reuse (`add_slide.py`)",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 40
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.7,
+        "confidence_reasoning": "The workflow tells the agent to duplicate slides with add_slide.py. Running helper scripts that modify PPTX internals is a real command-execution risk if the script or input is untrusted."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```bash",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 54,
+            "line_end": 56
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "The fenced bash block copies a user-provided path into the working directory. It is a legitimate operation, but path handling and shell quoting still require care."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "**Delete**: Remove `<p:sldId>`, then run `clean.py`.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 95,
+            "line_end": 95
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.72,
+        "confidence_reasoning": "The instruction says to run clean.py after deleting slides. That helper script changes the unpacked PPTX file tree, so execution should be treated as a real operational risk."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "**Add**: Use `add_slide.py`. Never manually copy slide files—the script handles notes references, Co",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 97,
+            "line_end": 117
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.74,
+        "confidence_reasoning": "The instruction requires use of add_slide.py for slide creation. This is legitimate tooling, but it is still script execution against user-controlled presentation content."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "- Run content QA with `markitdown` to catch mismatched counts",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 133,
+            "line_end": 138
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.68,
+        "confidence_reasoning": "The instruction tells the agent to run markitdown for content QA. External conversion tools processing user-supplied presentations can expose parser and file-handling risk."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "- Verify with `markitdown` after text changes",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 138,
+            "line_end": 145
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.68,
+        "confidence_reasoning": "The instruction tells the agent to verify changes with markitdown. This is a reasonable workflow step, but it still invokes an external parser on presentation content."
+      },
       {
         "title": "Temp directory access",
         "description": "Always write to `/tmp/` first, then copy to the final path. Python's `zipfile` module uses `seek` in",
@@ -1115,8 +1235,24 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
+        "confidence": 0.62,
+        "confidence_reasoning": "The skill instructs writing intermediate output to /tmp before copying to the final path. This can be safe, but the guidance does not specify unique temp directories or symlink protections."
+      },
+      {
+        "title": "Python archive libraries",
+        "description": "Always write to `/tmp/` first, then copy to the final path. Python's `zipfile` module uses `seek` in",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 83,
+            "line_end": 83
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
         "confidence": 0.56,
-        "confidence_reasoning": "SKILL.md explicitly instructs writing to /tmp before copying to the final output. Without unique per-run temp paths and destination validation, this can create overwrite, race, or data exposure risk in shared environments."
+        "confidence_reasoning": "The skill discusses Python zipfile behavior while processing PPTX archives. Archive handling is legitimate here, but the reviewed file does not document path traversal checks during unpacking."
       }
     ],
     "low_findings": [],
@@ -1124,122 +1260,126 @@
     "files_scanned": 1,
     "total_lines": 194,
     "audit_model": "codex",
-    "audited_at": "2026-07-06T18:42:27.559Z",
+    "audited_at": "2026-07-09T15:22:59.818Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Edit PowerPoint Decks Safely",
-    "value_statement": "PowerPoint template edits can break layouts, relationships, and XML formatting. This skill gives a structured workflow for safe PPTX updates, cleanup, and validation.",
+    "value_statement": "Manual PPTX edits can break layouts, relationships, or XML. This skill gives Claude, Codex, and Claude Code a structured workflow for template-based deck updates.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "PowerPoint editing",
-      "PPTX automation",
-      "presentation templates",
-      "slide XML",
+      "PPTX template editing",
+      "presentation automation",
+      "slide XML workflow",
       "deck cleanup",
-      "office productivity",
-      "template workflow"
+      "markitdown",
+      "ppt editing skill"
     ],
     "actual_capabilities": [
-      "Guides copying a user PPTX template to template.pptx before edits.",
-      "Uses markitdown output to inspect slide text and structure.",
-      "Explains how to reorder, delete, and duplicate slides through presentation XML and add_slide.py.",
-      "Provides XML text formatting rules for bold labels, bullets, smart quotes, and preserved whitespace.",
-      "Describes cleanup and repack steps for orphaned files, relationships, and media.",
-      "Advises parallel slide XML editing after structural changes are complete."
+      "Copies a user-provided PPTX into a predictable working template file.",
+      "Extracts presentation text and structure for slide planning with markitdown.",
+      "Maps source content to varied template layouts before editing begins.",
+      "Sequences slide deletion, duplication, and reordering before XML content edits.",
+      "Guides safe slide XML text replacement, bullet formatting, and smart quote handling.",
+      "Describes cleanup and validated repacking into an edited PPTX deliverable."
     ],
     "limitations": [
-      "It is documentation only; helper scripts are referenced but not included in this package.",
-      "It assumes the user supplies an existing PPTX template.",
-      "It cannot verify visual layout without opening or rendering the final presentation.",
-      "Manual XML edits can still break a deck if relationships or namespaces are wrong."
+      "Requires a usable existing PPTX file or template.",
+      "References helper scripts that must be available in the runtime environment.",
+      "Needs visual QA because long replacement text can overflow slide layouts.",
+      "Does not provide a full design system for creating decks from a blank canvas."
     ],
     "use_cases": [
       {
-        "title": "Refresh Client Presentations",
-        "description": "Update a branded PowerPoint template with new business content while preserving approved layouts.",
-        "target_user": "Consultants"
+        "title": "Refresh Client Proposal Decks",
+        "description": "Replace placeholder sections, reorder slides, and keep the approved template structure intact.",
+        "target_user": "Consultants and sales teams"
       },
       {
-        "title": "Adapt Campaign Decks",
-        "description": "Reuse an existing marketing deck, swap messages, remove unused slides, and keep visual variety.",
-        "target_user": "Marketing teams"
+        "title": "Adapt Internal Report Templates",
+        "description": "Convert recurring content into a polished deck while preserving layout, bullets, and section hierarchy.",
+        "target_user": "Operations and analytics teams"
       },
       {
-        "title": "Convert Training Outlines",
-        "description": "Map structured training content into an existing slide template with clean bullets and section flow.",
-        "target_user": "Enablement teams"
+        "title": "Localize Presentation Content",
+        "description": "Update slide text and captions across an existing presentation without rebuilding the file manually.",
+        "target_user": "Content and localization teams"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Edit a Template Deck",
-        "scenario": "Beginner update with supplied content.",
-        "prompt": "Use ppt-editing-skill to update my supplied PPTX with this content. Preserve the template style and create edited.pptx."
+        "title": "Update a Template Deck",
+        "scenario": "Beginner workflow for a small deck refresh.",
+        "prompt": "Use ppt-editing-skill to update this PPTX template with the provided content. Preserve the original file and create edited.pptx."
       },
       {
-        "title": "Map Content to Layouts",
-        "scenario": "Intermediate planning before edits.",
-        "prompt": "Analyze the template.md output and map each content section to varied slide layouts. Show the slide plan before XML edits."
+        "title": "Map Content to Slides",
+        "scenario": "Plan slide choices before editing XML.",
+        "prompt": "Analyze the extracted template structure, map each content section to a varied slide layout, then summarize the planned slide order."
       },
       {
-        "title": "Rebuild Slide Order",
-        "scenario": "Advanced structural deck changes.",
-        "prompt": "Delete unused slides, duplicate needed layouts, and reorder the deck. Complete structure changes before editing slide text."
+        "title": "Replace Placeholder Content",
+        "scenario": "Edit slide XML while preserving formatting.",
+        "prompt": "Replace all placeholder titles, body text, captions, and list items in the selected slides. Preserve bullets, spacing, and XML entities."
       },
       {
-        "title": "Perform XML-Safe Cleanup",
-        "scenario": "Advanced validation and cleanup.",
-        "prompt": "After replacing text and images, run cleanup and repack validation. Report orphaned assets, relationship fixes, and content QA results."
+        "title": "Rebuild and QA a Deck",
+        "scenario": "Advanced workflow with structural edits and validation.",
+        "prompt": "Duplicate needed template slides, remove unused slides, update the XML content, clean orphaned assets, repack the deck, and verify the output."
       }
     ],
     "output_examples": [
       {
-        "input": "A user provides a branded sales template and a new quarterly update.",
-        "output": "The skill produces an edited.pptx plan with selected layouts, updated slide text, cleaned unused assets, and validation notes."
+        "input": "A five-slide sales template and new customer-specific proposal copy.",
+        "output": "An edited PPTX with copied source preserved, refreshed slide text, reordered sections, and a final QA note."
       },
       {
-        "input": "A team has a long outline that must fit an existing training deck.",
-        "output": "The skill maps sections to varied slide layouts, splits dense lists, and preserves template formatting rules."
+        "input": "A quarterly report template with fewer metrics than the original placeholder deck.",
+        "output": "A cleaned presentation with excess visual groups removed, consistent bullets, and no orphaned slide assets."
+      },
+      {
+        "input": "A presentation that needs localized headings, captions, and quoted legal terms.",
+        "output": "A repacked deck with updated text, preserved smart quotes, and layout checks for text overflow."
       }
     ],
     "best_practices": [
-      "Complete slide deletes, duplicates, and ordering before changing text.",
-      "Use varied layouts so the final deck does not repeat one dense slide style.",
-      "Validate content with extracted text after edits, then inspect the final presentation visually."
+      "Complete slide deletion, duplication, and ordering before editing slide content.",
+      "Use varied template layouts so the final deck does not become text-heavy.",
+      "Run extraction and visual QA after edits to catch overflow and missing content."
     ],
     "anti_patterns": [
-      "Editing the original PPTX instead of working on a copy.",
-      "Concatenating multiple list items into one paragraph inside a slide.",
-      "Clearing unused placeholders while leaving orphaned shapes or media."
+      "Do not edit the original user-provided PPTX in place.",
+      "Do not clear unused placeholders while leaving their shapes and images behind.",
+      "Do not combine multiple list items into one XML paragraph."
     ],
     "faq": [
       {
-        "question": "Does this skill create presentations from scratch?",
-        "answer": "No. It is designed for editing an existing PowerPoint file or template."
+        "question": "Can this skill create a deck from scratch?",
+        "answer": "It is optimized for editing existing PowerPoint files and templates, not blank-deck design."
       },
       {
-        "question": "Does it include helper scripts?",
-        "answer": "The reviewed package lists only SKILL.md. It references helper scripts but does not include them."
+        "question": "What output should I expect?",
+        "answer": "The expected deliverable is an edited PPTX file, usually named edited.pptx."
       },
       {
-        "question": "Can it preserve formatting?",
-        "answer": "It gives XML rules for bullets, bold labels, smart quotes, and whitespace to preserve template styling."
+        "question": "Does it preserve the original presentation?",
+        "answer": "Yes. The workflow copies the user-provided file before making changes."
       },
       {
-        "question": "Can Claude Code or Codex use it?",
-        "answer": "Yes. The skill declares support for Claude, Codex, and Claude Code."
+        "question": "Why does it edit XML directly?",
+        "answer": "Direct XML editing preserves PowerPoint relationships, layout details, and formatting when done carefully."
       },
       {
-        "question": "Is it safe for sensitive decks?",
-        "answer": "Use local files only and avoid unnecessary copies. Review temporary file handling before processing confidential presentations."
+        "question": "Does it support parallel work?",
+        "answer": "Yes. Separate slide XML files can be edited in parallel after structural changes are complete."
       },
       {
-        "question": "Does it validate the final PPTX?",
-        "answer": "It describes cleanup, repacking, markitdown checks, and final edited.pptx output validation."
+        "question": "What tools does it reference?",
+        "answer": "It references markitdown, Python zipfile behavior, and helper scripts for unpacking, adding slides, cleaning, and packing."
       }
     ]
   },
