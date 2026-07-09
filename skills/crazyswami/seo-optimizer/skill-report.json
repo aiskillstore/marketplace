@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T07:56:58.838Z",
+    "generated_at": "2026-07-09T11:17:15.161Z",
     "slug": "crazyswami-seo-optimizer",
     "source_url": "https://github.com/CrazySwami/wordpress-dev-skills/tree/main/skills/seo-optimizer",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "67c38cdbf80aec7e525dff2ba7595428decfa067a612d1985dd5d13028c5366b",
-    "tree_hash": "286c198f6cd3b0cd6a3b6eebdc9c42cf5994fad6d362203357e93d27b5484313",
+    "tree_hash": "fd09373fd341d9bfbc1e573b12d7871c1c497b18962db4bd5a7659ff90f2b9ae",
     "provenance": {
       "model_requested": "gpt-5.5:high",
       "model_effective": "codex:gpt-5.5:high",
@@ -26,8 +26,8 @@
   },
   "skill": {
     "name": "seo-optimizer",
-    "description": "Audit WordPress SEO metadata for Yoast SEO or Rank Math, including focus keywords, meta descriptions, and featured images. The skill reports issues and guides reviewed fixes using WordPress data and Unsplash image searches.",
-    "summary": "Audit WordPress SEO fields and featured images, then produce prioritized fixes.",
+    "description": "Audits WordPress SEO fields for Yoast or Rank Math, then reports missing keywords, meta descriptions, and featured images.",
+    "summary": "Audit WordPress SEO metadata and image readiness for Yoast or Rank Math sites.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "CrazySwami",
@@ -37,7 +37,7 @@
       "seo",
       "yoast",
       "rank-math",
-      "content-audit"
+      "content-optimization"
     ],
     "supported_tools": [
       "claude",
@@ -56,31 +56,31 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The audit confirms real risk from external command execution, direct WordPress database access, a hardcoded default site URL, and a hidden Claude MCP configuration reference. Many Markdown fences, documentation links, and WordPress metadata references are false positives rather than shell execution or system reconnaissance. No prompt injection attempt was found in the reviewed files.",
+    "summary": "The skill has legitimate WordPress SEO audit behavior, but it also executes local Docker and curl commands, queries the database directly, and references hidden Claude configuration. No prompt injection was found, but the database access and auto-fix guidance require safeguards before broad marketplace publication.",
     "remediation": [
       {
-        "issue": "External command execution for Docker, MySQL, and curl",
-        "suggestion": "Use Python database and HTTP libraries with strict URL validation, clear user confirmation, and no command wrappers.",
+        "issue": "External commands access Docker, mysql, and curl.",
+        "suggestion": "Replace subprocess calls with vetted Python clients where possible, validate all inputs, and require confirmation before local database access.",
         "severity": "high"
       },
       {
-        "issue": "Hardcoded default WordPress URL and database credentials",
-        "suggestion": "Require explicit user configuration or environment variables, and avoid contacting any default external target.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Direct WordPress database write guidance",
-        "suggestion": "Use WordPress REST APIs or SEO plugin APIs for updates, and require preview approval before modifying metadata.",
+        "issue": "Database queries use hard-coded credentials and interpolated SQL.",
+        "suggestion": "Move credentials to user-supplied configuration and use parameterized queries or authenticated WordPress APIs.",
         "severity": "high"
       },
       {
-        "issue": "Hidden Claude MCP configuration reference",
-        "suggestion": "Remove the /root/.claude/.mcp.json dependency and document explicit Unsplash setup without private config access.",
+        "issue": "The default base URL points to a real external site.",
+        "suggestion": "Remove the default URL or use a neutral placeholder that fails until the user provides a site.",
+        "severity": "low"
+      },
+      {
+        "issue": "The documentation references a hidden root Claude MCP config path.",
+        "suggestion": "Document a user-configured MCP setup without reading or depending on hidden root configuration files.",
         "severity": "medium"
       },
       {
-        "issue": "Automated external image upload workflow",
-        "suggestion": "Add user review for selected images, license checks, and explicit approval before uploading media to WordPress.",
+        "issue": "Auto-fix steps can change live WordPress content.",
+        "suggestion": "Add dry-run mode, explicit confirmation, backups, and a clear rollback plan before uploads or metadata updates.",
         "severity": "medium"
       }
     ],
@@ -552,209 +552,255 @@
       {
         "id": "external_commands:audit.py:39:python-subprocess-run",
         "verdict": "confirmed",
-        "confidence": 0.78,
+        "confidence": 0.86,
         "severity": "high",
-        "reason": "The script executes docker and mysql through subprocess.run with local database credentials. Arguments are not shell-expanded, but the skill gains direct WordPress database access through an external command."
+        "reason": "This runs docker exec mysql against a local WordPress database with hard-coded credentials and generated SQL. shell=False reduces command injection risk, but the command grants database read access and uses unparameterized queries."
       },
       {
         "id": "external_commands:audit.py:94:python-subprocess-run",
         "verdict": "confirmed",
-        "confidence": 0.82,
+        "confidence": 0.78,
         "severity": "high",
-        "reason": "The script invokes curl through subprocess.run against a URL derived from the base URL argument. This creates arbitrary outbound network access through an external command."
+        "reason": "This launches curl against a URL derived from the base URL argument. It is not shell injection, but it enables arbitrary outbound requests from the agent environment."
       },
       {
         "id": "network:audit.py:11:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL appears only in the module usage docstring. It is an example command, not executable network behavior."
+        "confidence": 0.95,
+        "reason": "The URL appears only in a usage docstring. This line does not perform a network request or configure runtime behavior."
       },
       {
         "id": "network:audit.py:12:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL appears only in the module usage docstring. It documents a sample invocation and does not trigger a request by itself."
+        "confidence": 0.95,
+        "reason": "The URL appears only in a usage docstring example. It is not executed by the script."
       },
       {
         "id": "network:audit.py:13:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The URL appears only in the module usage docstring. It is not active code and does not create a network connection."
+        "confidence": 0.95,
+        "reason": "The URL appears only in a usage docstring example. It does not create active network behavior."
       },
       {
         "id": "network:audit.py:355:hardcoded-url",
         "verdict": "confirmed",
-        "confidence": 0.86,
+        "confidence": 0.78,
         "severity": "low",
-        "reason": "The CLI default base URL points to a specific WordPress host. Running the script without an explicit base URL will contact that site."
+        "reason": "The default base URL points to a real external WordPress site. Running the script without an explicit base URL will contact that site."
       },
       {
         "id": "blocker:audit.py:55:system-reconnaissance",
-        "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "This line filters WordPress post metadata by post_id for the SEO audit. It is application metadata access, not host or system reconnaissance."
+        "verdict": "confirmed",
+        "confidence": 0.66,
+        "severity": "medium",
+        "reason": "The post_id value is interpolated directly into a SQL query sent to mysql. It normally comes from WordPress page IDs, but the script does not validate it before query construction."
       },
       {
         "id": "blocker:audit.py:76:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The SQL join reads WordPress attachment ALT metadata for featured image checks. It does not inspect the operating system or host environment."
+        "confidence": 0.9,
+        "reason": "This line references a standard WordPress attachment metadata table join. It is not host reconnaissance and stays within the declared SEO audit purpose."
       },
       {
         "id": "blocker:audit.py:77:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The SQL join reads a WordPress attachment file path from postmeta for image reporting. This is site content metadata, not system reconnaissance."
+        "confidence": 0.9,
+        "reason": "This line joins standard WordPress attachment file metadata. It is not collecting host or system details outside the WordPress database."
       },
       {
         "id": "blocker:audit.py:123:system-reconnaissance",
-        "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The code reads a WordPress page ID from a REST response. This is normal application data handling, not reconnaissance."
+        "verdict": "confirmed",
+        "confidence": 0.58,
+        "severity": "low",
+        "reason": "This assigns an ID from REST API data that is later used in SQL query construction. The risk is indirect and depends on untrusted API data, so confidence is moderate."
       },
       {
         "id": "blocker:audit.py:216:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The code reads the _thumbnail_id SEO metadata value to assess featured images. This is expected WordPress audit behavior, not system reconnaissance."
+        "confidence": 0.86,
+        "reason": "The thumbnail ID is WordPress SEO metadata used to audit featured images. It is converted to int before media lookup, reducing injection risk at this point."
       },
       {
         "id": "external_commands:SKILL.md:50:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The matched text is a Markdown code fence around Yoast meta key documentation. It is not Ruby backtick execution or shell execution."
+        "reason": "This is a Markdown code fence for listing Yoast meta keys. It is not Ruby backtick execution or a shell command."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The matched text is a Markdown fence boundary in documentation. There is no executable command associated with it."
+        "reason": "This is a Markdown code fence boundary. No executable shell content is present at this location."
       },
       {
         "id": "external_commands:SKILL.md:58:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The matched text opens a Markdown block listing Rank Math meta keys. It is documentation, not shell execution."
+        "reason": "This is a Markdown code fence for Rank Math metadata names. It is documentation, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.97,
-        "reason": "The matched text closes a Markdown documentation block. It does not execute Ruby or shell code."
+        "reason": "This is a Markdown code fence boundary. It does not invoke Ruby or the shell."
       },
       {
         "id": "external_commands:SKILL.md:66:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.96,
-        "reason": "The matched block documents REST API endpoint shapes. It is not an executable shell command block."
+        "reason": "This fenced block lists REST API endpoints. It is endpoint documentation, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched text is the end of a Markdown endpoint list. No backtick shell execution is present."
+        "confidence": 0.97,
+        "reason": "This is the closing Markdown fence for API endpoint examples. It is not executable content."
       },
       {
         "id": "external_commands:SKILL.md:75:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.93,
-        "reason": "The matched text is a fenced SQL example. It is not Ruby backtick execution, although the database write risk is addressed separately."
+        "reason": "This is a fenced SQL example, not Ruby backtick execution. The unsafe database guidance is handled separately as a semantic finding."
       },
       {
         "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched text closes the SQL documentation block. It is not an executable shell instruction."
+        "confidence": 0.97,
+        "reason": "This is a Markdown code fence boundary after SQL examples. It does not execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched text starts a JSON example for audit output. JSON documentation is not shell or Ruby execution."
+        "confidence": 0.97,
+        "reason": "This is a fenced JSON example used to show report shape. It is not executable shell or Ruby code."
       },
       {
         "id": "external_commands:SKILL.md:120:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched text closes a JSON example. There is no executable command in this location."
+        "confidence": 0.97,
+        "reason": "This is a Markdown code fence boundary. There is no shell command execution at this line."
       },
       {
         "id": "external_commands:SKILL.md:130:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The matched inline backticks wrap a file path, not a shell expression. The hidden configuration path is covered by the filesystem finding."
+        "confidence": 0.9,
+        "reason": "The backticks format a filesystem path in prose, not a shell command. The hidden configuration path risk is covered by the filesystem finding."
       },
       {
         "id": "external_commands:SKILL.md:138:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The matched text starts a sample report block. It contains example output, not Ruby or shell execution."
+        "confidence": 0.97,
+        "reason": "This is a Markdown fence for example audit output. It does not run code or invoke a command interpreter."
       },
       {
         "id": "network:SKILL.md:171:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a reference link to Yoast documentation. It is not code that makes a network request."
+        "confidence": 0.96,
+        "reason": "This URL is a documentation link to Yoast REST API material. It is not an automatic outbound request by the skill."
       },
       {
         "id": "network:SKILL.md:172:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a reference link to Yoast documentation. It does not create runtime network behavior."
+        "confidence": 0.96,
+        "reason": "This URL is a documentation source link. It does not configure or trigger runtime network access."
       },
       {
         "id": "network:SKILL.md:173:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a reference link to a Rank Math related GitHub project. It is documentation, not an outbound call."
+        "confidence": 0.95,
+        "reason": "This URL points to a referenced Rank Math API Manager repository. It is documentation, not active code behavior."
       },
       {
         "id": "network:SKILL.md:174:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a reference link for WordPress REST API guidance. It is not active network code."
+        "confidence": 0.96,
+        "reason": "This URL is a WordPress REST API article listed as a source. It is not fetched automatically by the skill."
       },
       {
         "id": "filesystem:SKILL.md:130:hidden-file-access",
         "verdict": "confirmed",
-        "confidence": 0.84,
+        "confidence": 0.88,
         "severity": "medium",
-        "reason": "The skill references /root/.claude/.mcp.json, a hidden Claude configuration path that may contain MCP server configuration or credentials. Marketplace skills should not rely on or direct access to private root-level config files."
+        "reason": "The skill references a root-owned hidden Claude MCP configuration path. Such files may contain server configuration or tokens and should not be assumed by a marketplace skill."
       },
       {
         "id": "blocker:SKILL.md:54:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line documents the WordPress _thumbnail_id meta key. It is a content metadata label, not system reconnaissance."
+        "confidence": 0.93,
+        "reason": "The text names a WordPress featured image metadata key. It is documentation for SEO auditing, not system reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:62:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line documents the WordPress _thumbnail_id meta key for Rank Math context. It does not request host or system information."
+        "confidence": 0.93,
+        "reason": "The text names a WordPress featured image metadata key. It does not disclose host system information."
       },
       {
         "id": "blocker:SKILL.md:78:system-reconnaissance",
-        "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The SQL example reads a Yoast focus keyword for a post. This is SEO application data, not system reconnaissance."
+        "verdict": "confirmed",
+        "confidence": 0.75,
+        "severity": "medium",
+        "reason": "The documentation shows direct SQL using an interpolated post ID. This can encourage unsafe database access when copied into automation."
       },
       {
         "id": "blocker:SKILL.md:82:system-reconnaissance",
         "verdict": "confirmed",
-        "confidence": 0.8,
+        "confidence": 0.82,
         "severity": "medium",
-        "reason": "The SQL example writes wp_postmeta directly with an interpolated description value. This bypasses WordPress and plugin validation and can modify site content metadata."
+        "reason": "The documentation shows a direct SQL update with an interpolated meta description. This bypasses WordPress APIs and can corrupt data or enable SQL injection if copied."
       },
       {
         "id": "blocker:SKILL.md:133:network-reconnaissance",
         "verdict": "confirmed",
-        "confidence": 0.68,
+        "confidence": 0.72,
         "severity": "medium",
-        "reason": "The Unsplash workflow includes uploading downloaded media to WordPress. It is not reconnaissance, but it is a network write and site modification that needs explicit user approval."
+        "reason": "This directs the agent to upload media to WordPress as part of an auto-fix flow. It is a state-changing network operation that needs explicit authorization and scope limits."
       }
     ],
-    "semantic_findings": [],
+    "semantic_findings": [
+      {
+        "title": "Hard-Coded Database Credentials",
+        "description": "audit.py defines the WordPress database container, user, password, and database name in source code.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "audit.py",
+            "line_start": 24,
+            "line_end": 28
+          }
+        ],
+        "confidence": 0.95,
+        "confidence_reasoning": "The credential constants are plainly defined in the script. They appear to be local defaults, but publishing them still encourages credential reuse and privileged database access."
+      },
+      {
+        "title": "Direct Database Write Guidance",
+        "description": "SKILL.md recommends direct WordPress database access and shows an UPDATE statement with interpolated values.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 74,
+            "line_end": 82
+          }
+        ],
+        "confidence": 0.9,
+        "confidence_reasoning": "The documented workflow bypasses WordPress APIs and uses string-style placeholders in SQL. This creates clear data integrity and injection risk if automated."
+      },
+      {
+        "title": "State-Changing Auto-Fix Workflow Without Safeguards",
+        "description": "The skill describes uploading images, setting featured media, and updating meta descriptions without requiring dry runs, backups, or explicit confirmation.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 122,
+            "line_end": 126
+          }
+        ],
+        "confidence": 0.82,
+        "confidence_reasoning": "The workflow is explicitly state-changing and affects live WordPress content. The file does not document approval gates or rollback safeguards for those changes."
+      }
+    ],
     "critical_findings": [],
     "high_findings": [
       {
@@ -770,8 +816,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.78,
-        "confidence_reasoning": "The script executes docker and mysql through subprocess.run with local database credentials. Arguments are not shell-expanded, but the skill gains direct WordPress database access through an external command."
+        "confidence": 0.86,
+        "confidence_reasoning": "This runs docker exec mysql against a local WordPress database with hard-coded credentials and generated SQL. shell=False reduces command injection risk, but the command grants database read access and uses unparameterized queries."
       },
       {
         "title": "Python subprocess.run",
@@ -786,11 +832,43 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.82,
-        "confidence_reasoning": "The script invokes curl through subprocess.run against a URL derived from the base URL argument. This creates arbitrary outbound network access through an external command."
+        "confidence": 0.78,
+        "confidence_reasoning": "This launches curl against a URL derived from the base URL argument. It is not shell injection, but it enables arbitrary outbound requests from the agent environment."
+      },
+      {
+        "title": "Direct Database Write Guidance",
+        "description": "SKILL.md recommends direct WordPress database access and shows an UPDATE statement with interpolated values.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 74,
+            "line_end": 82
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.9,
+        "confidence_reasoning": "The documented workflow bypasses WordPress APIs and uses string-style placeholders in SQL. This creates clear data integrity and injection risk if automated."
       }
     ],
     "medium_findings": [
+      {
+        "title": "System reconnaissance",
+        "description": "WHERE post_id = {post_id}",
+        "locations": [
+          {
+            "file": "audit.py",
+            "line_start": 55,
+            "line_end": 55
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "blocker",
+        "source_severity": "low",
+        "confidence": 0.66,
+        "confidence_reasoning": "The post_id value is interpolated directly into a SQL query sent to mysql. It normally comes from WordPress page IDs, but the script does not validate it before query construction."
+      },
       {
         "title": "Hidden file access",
         "description": "Uses the Unsplash MCP server configured at `/root/.claude/.mcp.json`:",
@@ -804,8 +882,24 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.84,
-        "confidence_reasoning": "The skill references /root/.claude/.mcp.json, a hidden Claude configuration path that may contain MCP server configuration or credentials. Marketplace skills should not rely on or direct access to private root-level config files."
+        "confidence": 0.88,
+        "confidence_reasoning": "The skill references a root-owned hidden Claude MCP configuration path. Such files may contain server configuration or tokens and should not be assumed by a marketplace skill."
+      },
+      {
+        "title": "System reconnaissance",
+        "description": "WHERE post_id = {id} AND meta_key = '_yoast_wpseo_focuskw';",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 78,
+            "line_end": 78
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "blocker",
+        "source_severity": "low",
+        "confidence": 0.75,
+        "confidence_reasoning": "The documentation shows direct SQL using an interpolated post ID. This can encourage unsafe database access when copied into automation."
       },
       {
         "title": "System reconnaissance",
@@ -820,8 +914,8 @@
         "review_kind": "security",
         "source_category": "blocker",
         "source_severity": "low",
-        "confidence": 0.8,
-        "confidence_reasoning": "The SQL example writes wp_postmeta directly with an interpolated description value. This bypasses WordPress and plugin validation and can modify site content metadata."
+        "confidence": 0.82,
+        "confidence_reasoning": "The documentation shows a direct SQL update with an interpolated meta description. This bypasses WordPress APIs and can corrupt data or enable SQL injection if copied."
       },
       {
         "title": "Network reconnaissance",
@@ -836,8 +930,40 @@
         "review_kind": "security",
         "source_category": "blocker",
         "source_severity": "low",
-        "confidence": 0.68,
-        "confidence_reasoning": "The Unsplash workflow includes uploading downloaded media to WordPress. It is not reconnaissance, but it is a network write and site modification that needs explicit user approval."
+        "confidence": 0.72,
+        "confidence_reasoning": "This directs the agent to upload media to WordPress as part of an auto-fix flow. It is a state-changing network operation that needs explicit authorization and scope limits."
+      },
+      {
+        "title": "Hard-Coded Database Credentials",
+        "description": "audit.py defines the WordPress database container, user, password, and database name in source code.",
+        "locations": [
+          {
+            "file": "audit.py",
+            "line_start": 24,
+            "line_end": 28
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.95,
+        "confidence_reasoning": "The credential constants are plainly defined in the script. They appear to be local defaults, but publishing them still encourages credential reuse and privileged database access."
+      },
+      {
+        "title": "State-Changing Auto-Fix Workflow Without Safeguards",
+        "description": "The skill describes uploading images, setting featured media, and updating meta descriptions without requiring dry runs, backups, or explicit confirmation.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 122,
+            "line_end": 126
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.82,
+        "confidence_reasoning": "The workflow is explicitly state-changing and affects live WordPress content. The file does not document approval gates or rollback safeguards for those changes."
       }
     ],
     "low_findings": [
@@ -854,11 +980,75 @@
         "review_kind": "capability",
         "source_category": "network",
         "source_severity": "low",
-        "confidence": 0.86,
-        "confidence_reasoning": "The CLI default base URL points to a specific WordPress host. Running the script without an explicit base URL will contact that site."
+        "confidence": 0.78,
+        "confidence_reasoning": "The default base URL points to a real external WordPress site. Running the script without an explicit base URL will contact that site."
+      },
+      {
+        "title": "System reconnaissance",
+        "description": "page_id = page['id']",
+        "locations": [
+          {
+            "file": "audit.py",
+            "line_start": 123,
+            "line_end": 123
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "blocker",
+        "source_severity": "low",
+        "confidence": 0.58,
+        "confidence_reasoning": "This assigns an ID from REST API data that is later used in SQL query construction. The risk is indirect and depends on untrusted API data, so confidence is moderate."
       }
     ],
     "dangerous_patterns": [
+      {
+        "title": "System reconnaissance",
+        "description": "WHERE post_id = {post_id}",
+        "locations": [
+          {
+            "file": "audit.py",
+            "line_start": 55,
+            "line_end": 55
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "blocker",
+        "source_severity": "low",
+        "confidence": 0.66,
+        "confidence_reasoning": "The post_id value is interpolated directly into a SQL query sent to mysql. It normally comes from WordPress page IDs, but the script does not validate it before query construction."
+      },
+      {
+        "title": "System reconnaissance",
+        "description": "page_id = page['id']",
+        "locations": [
+          {
+            "file": "audit.py",
+            "line_start": 123,
+            "line_end": 123
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "blocker",
+        "source_severity": "low",
+        "confidence": 0.58,
+        "confidence_reasoning": "This assigns an ID from REST API data that is later used in SQL query construction. The risk is indirect and depends on untrusted API data, so confidence is moderate."
+      },
+      {
+        "title": "System reconnaissance",
+        "description": "WHERE post_id = {id} AND meta_key = '_yoast_wpseo_focuskw';",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 78,
+            "line_end": 78
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "blocker",
+        "source_severity": "low",
+        "confidence": 0.75,
+        "confidence_reasoning": "The documentation shows direct SQL using an interpolated post ID. This can encourage unsafe database access when copied into automation."
+      },
       {
         "title": "System reconnaissance",
         "description": "WHERE post_id = {id} AND meta_key = '_yoast_wpseo_metadesc';",
@@ -872,8 +1062,8 @@
         "review_kind": "security",
         "source_category": "blocker",
         "source_severity": "low",
-        "confidence": 0.8,
-        "confidence_reasoning": "The SQL example writes wp_postmeta directly with an interpolated description value. This bypasses WordPress and plugin validation and can modify site content metadata."
+        "confidence": 0.82,
+        "confidence_reasoning": "The documentation shows a direct SQL update with an interpolated meta description. This bypasses WordPress APIs and can corrupt data or enable SQL injection if copied."
       },
       {
         "title": "Network reconnaissance",
@@ -888,141 +1078,132 @@
         "review_kind": "security",
         "source_category": "blocker",
         "source_severity": "low",
-        "confidence": 0.68,
-        "confidence_reasoning": "The Unsplash workflow includes uploading downloaded media to WordPress. It is not reconnaissance, but it is a network write and site modification that needs explicit user approval."
+        "confidence": 0.72,
+        "confidence_reasoning": "This directs the agent to upload media to WordPress as part of an auto-fix flow. It is a state-changing network operation that needs explicit authorization and scope limits."
       }
     ],
     "files_scanned": 2,
     "total_lines": 574,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T07:56:58.838Z",
+    "audited_at": "2026-07-09T11:17:15.161Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Audit WordPress SEO Metadata",
-    "value_statement": "WordPress teams need fast checks for SEO metadata, featured images, and keyword coverage. This skill audits Yoast or Rank Math pages and produces actionable recommendations.",
+    "value_statement": "WordPress SEO gaps are hard to find across many pages. This skill audits metadata, keywords, and featured images for clear fixes.",
     "seo_keywords": [
-      "WordPress SEO audit",
-      "Yoast SEO optimization",
-      "Rank Math audit",
-      "meta description checker",
-      "featured image SEO",
       "Claude",
       "Codex",
       "Claude Code",
-      "SEO content workflow",
-      "WordPress metadata audit"
+      "WordPress SEO",
+      "Yoast SEO audit",
+      "Rank Math optimization",
+      "meta description audit",
+      "featured image SEO",
+      "SEO content workflow"
     ],
     "actual_capabilities": [
-      "Audits WordPress pages and optional custom post types through the REST API.",
-      "Reads Yoast SEO metadata from wp_postmeta through Docker MySQL commands.",
-      "Checks focus keyword presence, title usage, and meta description usage.",
-      "Scores meta description length against 120 to 160 character guidance.",
-      "Checks featured image IDs, titles, ALT text, and file paths.",
-      "Prints human-readable reports or machine-readable audit output from audit.py."
+      "Audits WordPress pages through REST API page listings.",
+      "Reads Yoast SEO metadata from the WordPress database.",
+      "Checks focus keywords, meta descriptions, and featured image metadata.",
+      "Scores each audited page and lists recommended fixes.",
+      "Can include posts or a configured custom post type.",
+      "Provides a documented workflow for Unsplash image selection."
     ],
     "limitations": [
-      "Requires a matching local Docker database container and WordPress schema.",
-      "Uses hardcoded default database credentials and site URL unless changed.",
-      "The provided script audits and reports; documented fixes need separate execution.",
-      "Unsplash and WordPress upload steps require valid API access and user review."
+      "Requires a matching local Docker database container and credentials.",
+      "The script focuses on Yoast metadata and only documents Rank Math fields.",
+      "Unsplash upload and WordPress media changes are described, not fully implemented in audit.py.",
+      "The default base URL should be changed before use."
     ],
     "use_cases": [
       {
-        "title": "Audit a WordPress Launch",
-        "description": "Check pages before release for missing focus keywords, weak descriptions, and incomplete featured image metadata.",
-        "target_user": "WordPress developer"
+        "title": "Review page SEO before launch",
+        "description": "Find pages with missing keywords, short descriptions, or weak featured image metadata before publishing.",
+        "target_user": "WordPress site owners"
       },
       {
-        "title": "Prepare Content Updates",
-        "description": "Find pages that need improved meta descriptions or better keyword placement before a publishing cycle.",
-        "target_user": "Content marketer"
+        "title": "Prepare content cleanup tasks",
+        "description": "Generate a clear list of SEO metadata fixes for editors or developers.",
+        "target_user": "Content teams"
       },
       {
-        "title": "Review Client SEO Health",
-        "description": "Generate a structured issue list for Yoast or Rank Math sites and prioritize fixes by page score.",
-        "target_user": "SEO consultant"
+        "title": "Audit custom property posts",
+        "description": "Check a property post type for SEO completeness across descriptions, keywords, and images.",
+        "target_user": "Real estate marketing teams"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Audit All Pages",
-        "scenario": "Beginner site audit",
-        "prompt": "Run the SEO optimizer against my WordPress site and summarize missing focus keywords, meta descriptions, and featured images."
+        "title": "Run a basic SEO audit",
+        "scenario": "Beginner audit for all pages.",
+        "prompt": "Audit all WordPress pages for SEO metadata. Report missing focus keywords, meta descriptions, and featured images."
       },
       {
-        "title": "Check One Page",
-        "scenario": "Focused page review",
-        "prompt": "Audit the about page only. Report its SEO score, missing fields, and the safest next changes."
+        "title": "Check one page",
+        "scenario": "Focused review for a specific page.",
+        "prompt": "Audit the about page only. Explain its SEO score and list the highest priority fixes first."
       },
       {
-        "title": "Review Custom Posts",
-        "scenario": "Intermediate content audit",
-        "prompt": "Audit pages and property posts. Group recommendations by focus keyword, meta description, and featured image issues."
+        "title": "Create an editor task list",
+        "scenario": "Turn audit results into content work.",
+        "prompt": "Run the SEO audit and convert the results into editor tasks with page names, issues, and recommended wording changes."
       },
       {
-        "title": "Plan Safe Remediation",
-        "scenario": "Advanced controlled update",
-        "prompt": "Review the audit results, separate API-safe fixes from database-only fixes, and create a plan that requires approval before writes."
+        "title": "Audit custom posts safely",
+        "scenario": "Advanced review with scope controls.",
+        "prompt": "Audit pages and property posts in dry-run mode. Do not upload images or change metadata without my approval."
       }
     ],
     "output_examples": [
       {
-        "input": "Audit all pages before launch.",
-        "output": [
-          "Home scores 85 because the focus keyword and description are present.",
-          "Portfolio scores 0 because the focus keyword, meta description, and featured image are missing.",
-          "Next action: add metadata to Portfolio before changing lower scoring image ALT text."
-        ]
+        "input": "Audit all pages for SEO completeness.",
+        "output": "A page-by-page report with scores, missing fields, description length issues, and recommended fixes."
       },
       {
-        "input": "Check the about page for image SEO.",
-        "output": "The about page has a featured image, but the ALT text does not include the focus keyword. Update the ALT text before publication."
+        "input": "Check the portfolio page and suggest improvements.",
+        "output": "A focused review that identifies the focus keyword status, meta description quality, image ALT text, and next actions."
       },
       {
-        "input": "Summarize fixes after a client audit.",
-        "output": [
-          "Three pages need focus keywords.",
-          "Two pages have meta descriptions shorter than 120 characters.",
-          "One featured image needs a title that matches the focus keyword."
-        ]
+        "input": "Prepare fixes for missing featured images.",
+        "output": "A prioritized action list with suggested search terms, image metadata needs, and approval steps before changes."
       }
     ],
     "best_practices": [
-      "Run the audit in a staging environment before checking production content.",
-      "Review every proposed metadata or media change before applying it.",
-      "Replace hardcoded URLs and credentials with project-specific configuration."
+      "Run an audit first and review results before making changes.",
+      "Use explicit base URLs and confirm the target WordPress site.",
+      "Back up content and metadata before applying fixes."
     ],
     "anti_patterns": [
-      "Do not run database updates without a recent backup and explicit approval.",
-      "Do not accept Unsplash image choices without license and relevance review.",
-      "Do not use the default site URL for unrelated WordPress projects."
+      "Do not run the script against an unknown default site.",
+      "Do not copy raw SQL updates into production without parameterization.",
+      "Do not upload or replace images without editor approval."
     ],
     "faq": [
       {
-        "question": "Does this skill work with Yoast SEO?",
-        "answer": "Yes. It checks Yoast focus keywords, meta descriptions, SEO titles, and featured image metadata."
+        "question": "Does this skill support Yoast SEO?",
+        "answer": "Yes. The audit script reads Yoast focus keywords, descriptions, SEO titles, and featured image IDs."
       },
       {
-        "question": "Does this skill work with Rank Math?",
-        "answer": "Yes. The instructions document Rank Math metadata fields, although the script focuses on Yoast database keys."
+        "question": "Does this skill support Rank Math?",
+        "answer": "The documentation lists Rank Math fields, but audit.py primarily reads Yoast metadata."
       },
       {
-        "question": "Can it update my WordPress site automatically?",
-        "answer": "The script mainly audits and reports. Any metadata or image update should require review and approval first."
+        "question": "Can it change my WordPress site?",
+        "answer": "The script audits and reports. The skill documentation also describes state-changing fix workflows that need approval."
       },
       {
-        "question": "What access does it need?",
-        "answer": "It needs WordPress REST API access and local database access through the configured Docker MySQL container."
+        "question": "Does it need network access?",
+        "answer": "Yes. It fetches WordPress REST API data and may use Unsplash or WordPress media workflows."
       },
       {
-        "question": "Can I use it with Claude, Codex, or Claude Code?",
-        "answer": "Yes. The skill declares support for Claude, Codex, and Claude Code workflows."
+        "question": "Does it need database access?",
+        "answer": "Yes. audit.py uses Docker and mysql to read WordPress metadata from a local database."
       },
       {
-        "question": "What should I configure before use?",
-        "answer": "Set the correct site URL, database container, database credentials, and any approved image search integration."
+        "question": "What should I verify before use?",
+        "answer": "Confirm the target URL, database container, credentials, backup status, and whether changes are allowed."
       }
     ]
   },

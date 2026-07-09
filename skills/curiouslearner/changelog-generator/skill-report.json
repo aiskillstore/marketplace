@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T08:03:35.827Z",
+    "generated_at": "2026-07-09T11:52:19.865Z",
     "slug": "curiouslearner-changelog-generator",
     "source_url": "https://github.com/CuriousLearner/devkit/tree/main/skills/changelog-generator",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "59a1d7ed68537cc861662f0e4f221bc4f5d1aea6bf75898d20f12470b0127c68",
-    "tree_hash": "ffc333fce72ed5ff83b81d57c7b7e3504259430c1b0086fee9f0c9527a96eae4",
+    "tree_hash": "81ef3a079c7c6a563aecd4397259861b20f70b389a87799262b102e5327a22d0",
     "provenance": {
       "model_requested": "gpt-5.5:high",
       "model_effective": "codex:gpt-5.5:high",
@@ -26,8 +26,8 @@
   },
   "skill": {
     "name": "changelog-generator",
-    "description": "Generate changelogs from git history using conventional commits, semantic versioning, and Keep a Changelog formatting.",
-    "summary": "Create structured release notes from conventional commits and version history.",
+    "description": "Generate release changelogs from git commit history using Conventional Commits, Keep a Changelog sections, and semantic version guidance.",
+    "summary": "Turns git commits into structured release notes and version recommendations.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "CuriousLearner",
@@ -37,7 +37,7 @@
       "release-notes",
       "conventional-commits",
       "semantic-versioning",
-      "documentation"
+      "git"
     ],
     "supported_tools": [
       "claude",
@@ -53,36 +53,26 @@
     "category": "documentation"
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Most static alerts are false positives from Markdown fences, sample links, template literals, and expected changelog file access. Confirmed issues involve shell command construction around git tag ranges and unquoted tag expansion in copied shell examples. Semantic review also found unescaped commit text and fragile GitHub output handling in generated release notes.",
+    "summary": "The skill is mostly release documentation guidance, but it includes executable Bash, Node.js, Python, and GitHub Actions examples. The main risks are shell command construction with unquoted git references and scripts that write CHANGELOG.md. I found no prompt injection attempt or malicious exfiltration intent.",
     "remediation": [
       {
-        "issue": "Shell command strings include git refs.",
-        "suggestion": "Use execFileSync or spawn with argument arrays for git commands. Validate refs with git check-ref-format before use.",
+        "issue": "Unquoted git reference interpolation in shell commands",
+        "suggestion": "Pass git arguments as arrays, validate tag names, and quote shell expansions before execution.",
         "severity": "high"
       },
       {
-        "issue": "Shell examples expand tag names unquoted.",
-        "suggestion": "Quote variables, reject unsafe tag names, and build revision ranges without shell interpolation.",
+        "issue": "Direct writes to CHANGELOG.md",
+        "suggestion": "Require explicit user confirmation and provide a dry-run or backup before overwriting files.",
         "severity": "medium"
       },
       {
-        "issue": "Generated Markdown includes raw commit text.",
-        "suggestion": "Escape Markdown and HTML control characters in commit subjects and bodies before publishing release notes.",
+        "issue": "Unescaped commit text in generated release notes",
+        "suggestion": "Escape Markdown metacharacters and review generated links before publishing release notes.",
         "severity": "medium"
-      },
-      {
-        "issue": "GitHub output uses a fixed delimiter.",
-        "suggestion": "Use a unique delimiter or write release notes through a temporary file instead of fixed EOF markers.",
-        "severity": "medium"
-      },
-      {
-        "issue": "Automation overwrites CHANGELOG.md directly.",
-        "suggestion": "Add dry-run, backup, or confirmation steps before writing release notes to an existing file.",
-        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -338,41 +328,6 @@
             "file": "SKILL.md",
             "line_start": 170,
             "line_end": 170
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 172,
-            "line_end": 172
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 783,
-            "line_end": 783
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 787,
-            "line_end": 787
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 789,
-            "line_end": 789
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 156,
-            "line_end": 249
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 762,
-            "line_end": 809
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 157,
-            "line_end": 157
           }
         ]
       },
@@ -1353,513 +1308,520 @@
       {
         "id": "external_commands:SKILL.md:375:node-js-child-process-module",
         "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The Node.js example imports child_process and later uses execSync on a command string built from a tag value. The import is part of a shell execution path that can be unsafe if copied into automation.",
+        "confidence": 0.86,
+        "reason": "The Node.js example imports child_process and uses execSync later in the same script. This enables shell execution when the generated script is copied or run.",
         "severity": "high"
       },
       {
         "id": "external_commands:SKILL.md:400:synchronous-process-execution",
         "verdict": "confirmed",
         "confidence": 0.94,
-        "reason": "execSync runs a git command assembled as a shell string. The tag path can include user-supplied --since values, which creates command injection risk without validation or argument arrays.",
+        "reason": "The script passes a template-built git command to execSync through a shell. The tag value can come from --since, so crafted input can alter execution.",
         "severity": "high"
       },
       {
         "id": "external_commands:SKILL.md:543:synchronous-process-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This execSync call runs a fixed git describe command with no user-controlled shell interpolation. It reads repository metadata for changelog generation."
+        "confidence": 0.8,
+        "reason": "This execSync call runs a fixed git describe command with no user-controlled arguments. It is read-only local repository metadata access."
       },
       {
         "id": "external_commands:SKILL.md:664:python-subprocess-run",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The Python example uses subprocess.run with an argument list and shell=False by default. The tag range is passed as one git argument, not interpreted by a shell."
+        "confidence": 0.84,
+        "reason": "The Python example uses subprocess.run with an argument list and shell=False by default. It reads git log output and does not invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is inline Markdown text or an example changelog entry. It is not shell or Ruby execution."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:56:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:88:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is inline Markdown text or an example changelog entry. It is not shell or Ruby execution."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This is inline Markdown text or an example changelog entry. It is not shell or Ruby execution."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:150:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:156:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:249:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:253:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:266:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:269:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:279:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:283:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:302:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:305:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:326:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:331:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:365:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:371:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:396:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "This JavaScript template literal interpolates tag into a git log command that is executed by execSync. A malicious tag or --since value could alter the shell command.",
+        "confidence": 0.88,
+        "reason": "Although this is a JavaScript template literal, it inserts tag text into a shell command that is executed at line 400. This creates a command injection risk.",
         "severity": "high"
       },
       {
         "id": "external_commands:SKILL.md:397:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This template literal contains a fixed git log command string. The dynamic tag branch and execSync sink are assessed separately."
+        "confidence": 0.84,
+        "reason": "This is a JavaScript template literal for a fixed git log command, not Ruby backtick execution. The executable risk is covered by the execSync verdict."
       },
       {
         "id": "external_commands:SKILL.md:467:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:475:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:479:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:500:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:515:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:520:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:523:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:527:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:556:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:561:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:564:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:606:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:607:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:608:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:609:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a JavaScript template literal used to format changelog Markdown or console output. It is not passed to a shell at this location."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:617:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:620:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:629:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:633:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:756:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:762:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.91,
+        "reason": "The detected backticks are Markdown fences, inline Markdown, or JavaScript template strings. They are not Ruby shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:161:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The command substitution runs a fixed git describe command and redirects errors to /dev/null. It does not execute user-controlled text."
+        "confidence": 0.82,
+        "reason": "This command substitution runs a fixed git describe command and redirects errors to /dev/null. It is read-only metadata access."
       },
       {
         "id": "external_commands:SKILL.md:165:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The command substitution calls date to print the release date. It does not process user-controlled input or secrets."
+        "confidence": 0.9,
+        "reason": "This substitution only formats the current date for a changelog heading. It does not run attacker-controlled input."
       },
       {
         "id": "external_commands:SKILL.md:170:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "This command substitution runs a fixed git log command. It reads local commit history and does not interpolate untrusted shell content."
+        "confidence": 0.85,
+        "reason": "This command substitution runs a fixed git log command for changelog generation. It has no interpolated user input at this line."
       },
       {
         "id": "external_commands:SKILL.md:172:shell-command-substitution",
         "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "The bash example expands PREV_TAG unquoted inside a git revision range. A malicious or unusual tag name from the repository could affect shell parsing.",
+        "confidence": 0.72,
+        "reason": "The Bash example expands PREV_TAG into a git log command without quotes. In an untrusted repository, crafted ref text could affect shell parsing.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:783:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The command substitution runs a fixed git describe command and redirects errors to /dev/null. It does not execute user-controlled text."
+        "confidence": 0.82,
+        "reason": "This command substitution runs a fixed git describe command and redirects errors to /dev/null. It is read-only metadata access."
       },
       {
         "id": "external_commands:SKILL.md:787:shell-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "This command substitution runs a fixed git log command. It reads local commit history and does not interpolate untrusted shell content."
+        "confidence": 0.85,
+        "reason": "This command substitution runs a fixed git log command for changelog generation. It has no interpolated user input at this line."
       },
       {
         "id": "external_commands:SKILL.md:789:shell-command-substitution",
         "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "The GitHub Actions example expands PREV_TAG unquoted in a shell command. Repository tag names can influence this command when the workflow is copied.",
+        "confidence": 0.72,
+        "reason": "The GitHub Actions example expands PREV_TAG into a shell command without quotes. This is risky when workflow code runs on untrusted repository metadata.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:156:template-literal-with-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.93,
+        "reason": "The finding points to a Markdown code fence, not an executable template command. Specific commands inside the block are adjudicated separately."
       },
       {
         "id": "external_commands:SKILL.md:762:template-literal-with-command-substitution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This finding points at a Markdown code fence marker. The marker does not execute commands; specific executable lines inside examples are assessed separately."
+        "confidence": 0.93,
+        "reason": "The finding points to a Markdown code fence, not an executable template command. Specific commands inside the block are adjudicated separately."
       },
       {
         "id": "external_commands:SKILL.md:157:unix-shell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.8,
-        "reason": "The shebang identifies the example script as bash. It is not a command execution sink by itself, and specific risky shell lines are assessed separately."
+        "confidence": 0.88,
+        "reason": "This is a shebang for an example Bash script. The shebang itself is not hidden execution or command injection."
       },
       {
         "id": "network:SKILL.md:74:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The URL is a documentation, example GitHub, or public npm registry link. The skill text does not use it to send data or make hidden network requests."
+        "confidence": 0.95,
+        "reason": "The URL is a documentation reference for changelog or semantic versioning standards. It does not perform a network request or exfiltrate data."
       },
       {
         "id": "network:SKILL.md:75:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The URL is a documentation, example GitHub, or public npm registry link. The skill text does not use it to send data or make hidden network requests."
+        "confidence": 0.95,
+        "reason": "The URL is a documentation reference for changelog or semantic versioning standards. It does not perform a network request or exfiltrate data."
       },
       {
         "id": "network:SKILL.md:145:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.93,
-        "reason": "The URL is a documentation, example GitHub, or public npm registry link. The skill text does not use it to send data or make hidden network requests."
+        "reason": "The URL is sample GitHub changelog link text. It is not code that sends data to an external service."
       },
       {
         "id": "network:SKILL.md:146:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.93,
-        "reason": "The URL is a documentation, example GitHub, or public npm registry link. The skill text does not use it to send data or make hidden network requests."
+        "reason": "The URL is sample GitHub changelog link text. It is not code that sends data to an external service."
       },
       {
         "id": "network:SKILL.md:147:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.93,
-        "reason": "The URL is a documentation, example GitHub, or public npm registry link. The skill text does not use it to send data or make hidden network requests."
+        "reason": "The URL is sample GitHub changelog link text. It is not code that sends data to an external service."
       },
       {
         "id": "network:SKILL.md:148:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.93,
-        "reason": "The URL is a documentation, example GitHub, or public npm registry link. The skill text does not use it to send data or make hidden network requests."
+        "reason": "The URL is sample GitHub changelog link text. It is not code that sends data to an external service."
       },
       {
         "id": "network:SKILL.md:149:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.93,
-        "reason": "The URL is a documentation, example GitHub, or public npm registry link. The skill text does not use it to send data or make hidden network requests."
+        "reason": "The URL is sample GitHub changelog link text. It is not code that sends data to an external service."
       },
       {
         "id": "network:SKILL.md:356:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "The URL is a documentation, example GitHub, or public npm registry link. The skill text does not use it to send data or make hidden network requests."
+        "confidence": 0.86,
+        "reason": "This is an npm registry setting in a release workflow example. It is expected package publishing configuration, not a hidden endpoint."
       },
       {
         "id": "filesystem:SKILL.md:590:node-js-fs-operations",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The script reads or writes the expected CHANGELOG.md file in the current project. The path is hardcoded and not derived from user input."
+        "confidence": 0.79,
+        "reason": "The example reads a fixed CHANGELOG.md path in the current project. There is no arbitrary path input or traversal at this read site."
       },
       {
         "id": "filesystem:SKILL.md:604:node-js-fs-operations",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The script reads or writes the expected CHANGELOG.md file in the current project. The path is hardcoded and not derived from user input."
+        "verdict": "confirmed",
+        "confidence": 0.85,
+        "reason": "The Node.js example writes directly to CHANGELOG.md in the working tree. This can overwrite release documentation without a dry-run or confirmation step.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:SKILL.md:590:synchronous-file-operations",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The script reads or writes the expected CHANGELOG.md file in the current project. The path is hardcoded and not derived from user input."
+        "confidence": 0.79,
+        "reason": "The example reads a fixed CHANGELOG.md path in the current project. There is no arbitrary path input or traversal at this read site."
       },
       {
         "id": "filesystem:SKILL.md:604:synchronous-file-operations",
-        "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The script reads or writes the expected CHANGELOG.md file in the current project. The path is hardcoded and not derived from user input."
+        "verdict": "confirmed",
+        "confidence": 0.83,
+        "reason": "The synchronous write overwrites CHANGELOG.md as part of the generated script. The fixed path limits scope, but it is still a local file modification risk.",
+        "severity": "medium"
       },
       {
         "id": "filesystem:SKILL.md:187:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The ../../ sequence is used inside Markdown commit links for release notes. It is not used as a filesystem path or file access target."
+        "confidence": 0.96,
+        "reason": "The ../../ sequence appears inside generated Markdown commit links. It is not used as a filesystem path or file access target."
       },
       {
         "id": "filesystem:SKILL.md:190:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The ../../ sequence is used inside Markdown commit links for release notes. It is not used as a filesystem path or file access target."
+        "confidence": 0.96,
+        "reason": "The ../../ sequence appears inside generated Markdown commit links. It is not used as a filesystem path or file access target."
       },
       {
         "id": "filesystem:SKILL.md:193:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The ../../ sequence is used inside Markdown commit links for release notes. It is not used as a filesystem path or file access target."
+        "confidence": 0.96,
+        "reason": "The ../../ sequence appears inside generated Markdown commit links. It is not used as a filesystem path or file access target."
       },
       {
         "id": "filesystem:SKILL.md:196:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The ../../ sequence is used inside Markdown commit links for release notes. It is not used as a filesystem path or file access target."
+        "confidence": 0.96,
+        "reason": "The ../../ sequence appears inside generated Markdown commit links. It is not used as a filesystem path or file access target."
       },
       {
         "id": "filesystem:SKILL.md:199:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The ../../ sequence is used inside Markdown commit links for release notes. It is not used as a filesystem path or file access target."
+        "confidence": 0.96,
+        "reason": "The ../../ sequence appears inside generated Markdown commit links. It is not used as a filesystem path or file access target."
       },
       {
         "id": "filesystem:SKILL.md:202:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The ../../ sequence is used inside Markdown commit links for release notes. It is not used as a filesystem path or file access target."
+        "confidence": 0.96,
+        "reason": "The ../../ sequence appears inside generated Markdown commit links. It is not used as a filesystem path or file access target."
       },
       {
         "id": "filesystem:SKILL.md:475:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The ../../ sequence is used inside Markdown commit links for release notes. It is not used as a filesystem path or file access target."
+        "confidence": 0.96,
+        "reason": "The ../../ sequence appears inside generated Markdown commit links. It is not used as a filesystem path or file access target."
       },
       {
         "id": "filesystem:SKILL.md:523:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The ../../ sequence is used inside Markdown commit links for release notes. It is not used as a filesystem path or file access target."
+        "confidence": 0.96,
+        "reason": "The ../../ sequence appears inside generated Markdown commit links. It is not used as a filesystem path or file access target."
       },
       {
         "id": "filesystem:SKILL.md:723:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The ../../ sequence is used inside Markdown commit links for release notes. It is not used as a filesystem path or file access target."
+        "confidence": 0.96,
+        "reason": "The ../../ sequence appears inside generated Markdown commit links. It is not used as a filesystem path or file access target."
       },
       {
         "id": "filesystem:SKILL.md:733:path-traversal-sequence",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The ../../ sequence is used inside Markdown commit links for release notes. It is not used as a filesystem path or file access target."
+        "confidence": 0.96,
+        "reason": "The ../../ sequence appears inside generated Markdown commit links. It is not used as a filesystem path or file access target."
       },
       {
         "id": "filesystem:SKILL.md:161:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The /dev/null reference only discards stderr from git describe. It does not access sensitive device files."
+        "confidence": 0.93,
+        "reason": "The /dev/null use only suppresses git describe errors in an example script. It does not read sensitive device data."
       },
       {
         "id": "filesystem:SKILL.md:783:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "The /dev/null reference only discards stderr from git describe. It does not access sensitive device files."
+        "confidence": 0.93,
+        "reason": "The /dev/null use only suppresses git describe errors in an example script. It does not read sensitive device data."
       },
       {
         "id": "env_access:SKILL.md:800:git-platform-tokens",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "The workflow passes the standard GitHub Actions token to the release action. It is not printed, uploaded, or sent to an unauthorized endpoint."
+        "confidence": 0.84,
+        "reason": "The workflow passes GitHub Actions GITHUB_TOKEN to a release action and does not print or send it elsewhere. This is normal scoped CI credential use."
       },
       {
         "id": "obfuscation:SKILL.md:1:heuristic-multiple-bracket-chains-6-jsfuck-obfus",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "Line 1 is YAML front matter, not obfuscated JavaScript. The apparent bracket-chain signal comes from Markdown links and template examples elsewhere in the document."
+        "confidence": 0.99,
+        "reason": "Line 1 is the YAML frontmatter delimiter for SKILL.md. There is no obfuscated JavaScript or encoded payload at this location."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Unescaped Commit Text in Generated Changelogs",
-        "description": "The examples insert commit descriptions and breaking-change text into Markdown without escaping. A repository with malicious commit text could inject misleading links or HTML into generated release notes.",
+        "title": "Unescaped Commit Text in Release Notes",
+        "description": "The examples copy commit subjects and bodies into changelog entries and release bodies without escaping Markdown. A crafted commit message could create misleading links, mentions, or rendered content in published release notes.",
         "severity": "medium",
         "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 184,
+            "line_end": 205
+          },
           {
             "file": "SKILL.md",
             "line_start": 475,
@@ -1867,31 +1829,12 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 520,
-            "line_end": 527
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 723,
-            "line_end": 733
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The cited lines directly append commit descriptions and body-derived text to Markdown output. Legitimate rendering may sanitize HTML, but the examples do not escape or neutralize commit-controlled content."
-      },
-      {
-        "title": "Fixed GitHub Output Delimiter for Release Notes",
-        "description": "The workflow writes commit-derived changelog text to GITHUB_OUTPUT using a fixed EOF delimiter. A changelog line equal to EOF could terminate the output block and inject additional workflow outputs.",
-        "severity": "medium",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 787,
-            "line_end": 795
+            "line_start": 793,
+            "line_end": 806
           }
         ],
         "confidence": 0.78,
-        "confidence_reasoning": "The workflow builds CHANGELOG from git log output and writes it between fixed EOF markers. This is a known fragile pattern when content can contain the delimiter."
+        "confidence_reasoning": "Commit messages are parsed as text and appended directly to Markdown or GitHub release output. Impact depends on the renderer, so confidence is high for the behavior but moderate for exploitability."
       }
     ],
     "critical_findings": [],
@@ -1909,8 +1852,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.78,
-        "confidence_reasoning": "The Node.js example imports child_process and later uses execSync on a command string built from a tag value. The import is part of a shell execution path that can be unsafe if copied into automation."
+        "confidence": 0.86,
+        "confidence_reasoning": "The Node.js example imports child_process and uses execSync later in the same script. This enables shell execution when the generated script is copied or run."
       },
       {
         "title": "Synchronous process execution",
@@ -1926,7 +1869,7 @@
         "source_category": "external_commands",
         "source_severity": "high",
         "confidence": 0.94,
-        "confidence_reasoning": "execSync runs a git command assembled as a shell string. The tag path can include user-supplied --since values, which creates command injection risk without validation or argument arrays."
+        "confidence_reasoning": "The script passes a template-built git command to execSync through a shell. The tag value can come from --since, so crafted input can alter execution."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -1941,8 +1884,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.84,
-        "confidence_reasoning": "This JavaScript template literal interpolates tag into a git log command that is executed by execSync. A malicious tag or --since value could alter the shell command."
+        "confidence": 0.88,
+        "confidence_reasoning": "Although this is a JavaScript template literal, it inserts tag text into a shell command that is executed at line 400. This creates a command injection risk."
       }
     ],
     "medium_findings": [
@@ -1959,8 +1902,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The bash example expands PREV_TAG unquoted inside a git revision range. A malicious or unusual tag name from the repository could affect shell parsing."
+        "confidence": 0.72,
+        "confidence_reasoning": "The Bash example expands PREV_TAG into a git log command without quotes. In an untrusted repository, crafted ref text could affect shell parsing."
       },
       {
         "title": "Shell command substitution",
@@ -1975,13 +1918,50 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The GitHub Actions example expands PREV_TAG unquoted in a shell command. Repository tag names can influence this command when the workflow is copied."
+        "confidence": 0.72,
+        "confidence_reasoning": "The GitHub Actions example expands PREV_TAG into a shell command without quotes. This is risky when workflow code runs on untrusted repository metadata."
       },
       {
-        "title": "Unescaped Commit Text in Generated Changelogs",
-        "description": "The examples insert commit descriptions and breaking-change text into Markdown without escaping. A repository with malicious commit text could inject misleading links or HTML into generated release notes.",
+        "title": "Node.js fs operations",
+        "description": "fs.writeFileSync('CHANGELOG.md', newLines.join('\\n'));",
         "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 604,
+            "line_end": 604
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.85,
+        "confidence_reasoning": "The Node.js example writes directly to CHANGELOG.md in the working tree. This can overwrite release documentation without a dry-run or confirmation step."
+      },
+      {
+        "title": "Synchronous file operations",
+        "description": "fs.writeFileSync('CHANGELOG.md', newLines.join('\\n'));",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 604,
+            "line_end": 604
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.83,
+        "confidence_reasoning": "The synchronous write overwrites CHANGELOG.md as part of the generated script. The fixed path limits scope, but it is still a local file modification risk."
+      },
+      {
+        "title": "Unescaped Commit Text in Release Notes",
+        "description": "The examples copy commit subjects and bodies into changelog entries and release bodies without escaping Markdown. A crafted commit message could create misleading links, mentions, or rendered content in published release notes.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 184,
+            "line_end": 205
+          },
           {
             "file": "SKILL.md",
             "line_start": 475,
@@ -1989,36 +1969,15 @@
           },
           {
             "file": "SKILL.md",
-            "line_start": 520,
-            "line_end": 527
-          },
-          {
-            "file": "SKILL.md",
-            "line_start": 723,
-            "line_end": 733
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The cited lines directly append commit descriptions and body-derived text to Markdown output. Legitimate rendering may sanitize HTML, but the examples do not escape or neutralize commit-controlled content."
-      },
-      {
-        "title": "Fixed GitHub Output Delimiter for Release Notes",
-        "description": "The workflow writes commit-derived changelog text to GITHUB_OUTPUT using a fixed EOF delimiter. A changelog line equal to EOF could terminate the output block and inject additional workflow outputs.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 787,
-            "line_end": 795
+            "line_start": 793,
+            "line_end": 806
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "medium",
         "confidence": 0.78,
-        "confidence_reasoning": "The workflow builds CHANGELOG from git log output and writes it between fixed EOF markers. This is a known fragile pattern when content can contain the delimiter."
+        "confidence_reasoning": "Commit messages are parsed as text and appended directly to Markdown or GitHub release output. Impact depends on the renderer, so confidence is high for the behavior but moderate for exploitability."
       }
     ],
     "low_findings": [],
@@ -2026,125 +1985,130 @@
     "files_scanned": 1,
     "total_lines": 849,
     "audit_model": "codex",
-    "audited_at": "2026-07-05T08:03:35.827Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-09T11:52:19.865Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
     "user_title": "Generate Release Changelogs",
-    "value_statement": "Manual release notes take time and often miss important changes. This skill turns git commits into clear changelog sections with version guidance.",
+    "value_statement": "Release notes take time and can miss important commit details. This skill groups git commits into clear changelog sections with version guidance.",
     "seo_keywords": [
       "Claude changelog generator",
-      "Codex changelog skill",
+      "Codex changelog automation",
       "Claude Code release notes",
-      "conventional commits changelog",
-      "semantic versioning",
+      "changelog generator",
+      "Conventional Commits",
       "Keep a Changelog",
-      "release notes automation",
-      "git changelog",
-      "developer documentation",
-      "AI changelog generator"
+      "semantic versioning",
+      "git release notes",
+      "release documentation",
+      "automated changelog"
     ],
     "actual_capabilities": [
-      "Groups conventional commit types into changelog sections.",
-      "Highlights breaking changes before other release notes.",
-      "Suggests semantic version bumps from commit history.",
-      "Formats output using Keep a Changelog conventions.",
-      "Includes example workflows for local scripts and GitHub releases."
+      "Classifies Conventional Commit types into changelog sections.",
+      "Highlights breaking changes and deprecations before other changes.",
+      "Suggests major, minor, or patch version changes.",
+      "Produces Keep a Changelog style Markdown entries.",
+      "Shows Bash, Node.js, Python, and GitHub Actions automation examples.",
+      "Supports hash, author, version, and since-tag options in examples."
     ],
     "limitations": [
-      "Quality depends on clear and consistent commit messages.",
-      "Generated notes still need human review before release.",
-      "Repository-specific release rules may need manual adjustment.",
-      "Example automation can run git commands and write CHANGELOG.md."
+      "Works best when commit messages follow Conventional Commits.",
+      "Generated entries still need human release review.",
+      "Example scripts may modify CHANGELOG.md if copied and run.",
+      "Shell examples need hardening before use with untrusted repositories."
     ],
     "use_cases": [
       {
-        "title": "Prepare a Library Release",
-        "description": "Create user-facing notes from conventional commits before publishing a new package version.",
-        "target_user": "Open source maintainer"
+        "title": "Prepare Release Notes",
+        "description": "Create a release-ready changelog from recent git commits and group changes by user impact.",
+        "target_user": "Release manager"
       },
       {
-        "title": "Summarize Sprint Changes",
-        "description": "Turn recent feature and fix commits into a readable internal change summary.",
-        "target_user": "Engineering manager"
+        "title": "Automate Changelog Updates",
+        "description": "Add repeatable changelog generation to package scripts or CI release workflows.",
+        "target_user": "DevOps engineer"
       },
       {
-        "title": "Standardize Release Notes",
-        "description": "Apply the same changelog format across services and repositories.",
-        "target_user": "Platform engineer"
+        "title": "Assess Version Impact",
+        "description": "Review commit history for breaking changes and choose a semantic version bump.",
+        "target_user": "Maintainer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a Basic Changelog",
-        "scenario": "Beginner release notes from recent commits.",
-        "prompt": "Generate a changelog for the current repository using conventional commits. Group changes by type and highlight breaking changes."
+        "title": "Create Basic Changelog",
+        "scenario": "Beginner release preparation",
+        "prompt": "Generate a Keep a Changelog entry from commits since the latest tag. Group changes by type and flag breaking changes."
       },
       {
-        "title": "Generate Since a Tag",
-        "scenario": "Release notes for a specific version range.",
-        "prompt": "Generate release notes for changes since v1.2.0. Use Keep a Changelog sections and suggest the next semantic version."
+        "title": "Add Release Metadata",
+        "scenario": "Include traceability details",
+        "prompt": "Create release notes for version 1.4.0. Include commit hashes, authors, dates, and separate sections for fixes and features."
       },
       {
-        "title": "Review Before Publishing",
-        "scenario": "Human review of generated release notes.",
-        "prompt": "Draft a changelog for version 2.0.0, then list entries that need manual review because they affect migration or security."
+        "title": "Recommend Version Bump",
+        "scenario": "Plan semantic versioning",
+        "prompt": "Analyze commits since v1.3.2 and recommend the next semantic version. Explain any breaking changes and migration notes."
       },
       {
-        "title": "Design a Release Workflow",
-        "scenario": "Advanced automation planning.",
-        "prompt": "Create a changelog workflow for a monorepo with packages, scoped commits, breaking changes, and GitHub release notes."
+        "title": "Design Safe Automation",
+        "scenario": "Advanced CI workflow planning",
+        "prompt": "Draft a secure changelog automation workflow. Include dry-run review, safe git argument handling, and explicit approval before file writes."
       }
     ],
     "output_examples": [
       {
-        "input": "Commits include new login support, a payment bug fix, and one breaking API change.",
-        "output": "A changelog with breaking changes first, then Added and Fixed sections with concise user-facing entries."
+        "input": "Commits include feature export support, timezone fixes, and setup documentation updates.",
+        "output": "Added: export support. Fixed: timezone parsing. Documentation: setup guide updates. Suggested version: minor."
       },
       {
-        "input": "A maintainer asks for changes since v1.4.0 and wants a version recommendation.",
-        "output": "Release notes for that range plus a suggested minor, patch, or major version based on commit types."
+        "input": "A release contains a breaking authentication change and a token refresh fix.",
+        "output": "Breaking changes appear first with migration notes. The suggested version is a major release."
       },
       {
-        "input": "A team needs consistent notes for a GitHub release.",
-        "output": "A release summary organized by change type, with warnings for entries that need manual editing."
+        "input": "A maintainer asks for unreleased changes since v2.1.0 with authors included.",
+        "output": [
+          "Changes are grouped by type.",
+          "Each item includes author attribution.",
+          "The release owner receives a review-ready draft."
+        ]
       }
     ],
     "best_practices": [
-      "Use conventional commits consistently before relying on automation.",
-      "Review generated entries for accuracy, security impact, and user value.",
-      "Validate tag names and escape commit text before publishing notes."
+      "Review generated entries for customer impact before release.",
+      "Use Conventional Commits consistently with clear scopes.",
+      "Run automation on a test branch before writing CHANGELOG.md."
     ],
     "anti_patterns": [
-      "Publishing generated release notes without human review.",
-      "Using unclear commit messages that hide user-visible changes.",
-      "Running copied automation in untrusted repositories without reviewing commands first."
+      "Do not publish raw commit subjects without editing unclear wording.",
+      "Do not run shell snippets against untrusted tags without quoting.",
+      "Do not treat version suggestions as final without release owner review."
     ],
     "faq": [
       {
-        "question": "Does this skill create a full CHANGELOG.md file?",
-        "answer": "It can guide creation of a changelog and includes examples that write CHANGELOG.md."
+        "question": "Does this require Conventional Commits?",
+        "answer": "It works best with Conventional Commits, but it can group other commit messages under general change sections."
       },
       {
-        "question": "Does it require conventional commits?",
-        "answer": "It works best with conventional commits, but it can place unknown messages in an other changes section."
+        "question": "Can it update an existing changelog?",
+        "answer": "The examples show how to insert new entries into CHANGELOG.md, but changes should be reviewed before saving."
       },
       {
-        "question": "Can it suggest semantic versions?",
-        "answer": "Yes. It maps breaking changes, features, and fixes to major, minor, and patch suggestions."
+        "question": "Does it choose the next version?",
+        "answer": "It suggests a semantic version bump based on features, fixes, and breaking changes."
       },
       {
-        "question": "Can Claude, Codex, and Claude Code use it?",
-        "answer": "Yes. The report lists support for Claude, Codex, and Claude Code."
+        "question": "Can it run in CI?",
+        "answer": "Yes. The skill includes GitHub Actions examples for release notes and package publishing workflows."
       },
       {
-        "question": "Should generated notes be reviewed?",
-        "answer": "Yes. Review them for accuracy, sensitive details, and migration guidance before release."
+        "question": "Does it fetch data from the internet?",
+        "answer": "The skill itself is guidance. Some examples reference GitHub, npm, or release actions when used in CI."
       },
       {
-        "question": "Does the skill access external services?",
-        "answer": "The skill text includes public documentation links and CI examples. The core examples focus on local git history."
+        "question": "Is the generated output ready to publish?",
+        "answer": "No. A maintainer should review wording, links, breaking changes, and version decisions before release."
       }
     ]
   },
