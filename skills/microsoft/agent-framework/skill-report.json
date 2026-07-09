@@ -1,23 +1,22 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-05T20:50:43.853Z",
+    "generated_at": "2026-07-09T04:17:55.422Z",
     "slug": "microsoft-agent-framework",
     "source_url": "https://github.com/microsoft/github-copilot-for-azure/tree/main/plugin/skills/microsoft-foundry/foundry-agent/create/agent-framework",
     "source_ref": "main",
-    "model": "codex",
+    "model": "claude",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "c14f54d51fbb011a5435fbabf406e6c206599ac5301be7f2d3bd4016c76310f5",
-    "tree_hash": "6f2c15c0a1919620297099514c4d5d6007388bff8652049876608b7f24174503",
+    "tree_hash": "3a78489fe1ba83671bd5a2227860f66aa7cee3df52e0a080db112c1ed8a1dbf5",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_requested": "claude-sonnet-4.6",
+      "model_effective": "claude:claude-sonnet-4.6",
       "fallback_chain": [
         {
-          "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
+          "agent": "claude",
+          "model": "claude-sonnet-4.6",
           "outcome": "success"
         }
       ],
@@ -26,8 +25,8 @@
   },
   "skill": {
     "name": "agent-framework",
-    "description": "Create Python AI agents and multi-agent workflows with Microsoft Agent Framework, Azure AI Foundry, HTTP server mode, and local debugging support.",
-    "summary": "Scaffold Microsoft Agent Framework agents, workflows, server mode, and debug configuration.",
+    "description": "Scaffold Python agents and multi-agent workflows with Microsoft Agent Framework, Azure AI Foundry, HTTP server mode, and VS Code debugging support.",
+    "summary": "Build Microsoft Agent Framework agents, workflows, server wrappers, and local debug configurations.",
     "icon": "📦",
     "version": "1.0.0",
     "author": "microsoft",
@@ -35,9 +34,9 @@
     "tags": [
       "agent-framework",
       "azure-ai-foundry",
-      "ai-agents",
+      "multi-agent",
       "python",
-      "workflows"
+      "debugging"
     ],
     "supported_tools": [
       "claude",
@@ -57,27 +56,17 @@
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "The reviewed files are mostly Markdown guidance and code samples, and most static hits are false positives from formatting, Python imports, or loopback debug addresses. Confirmed risks remain around .env handling, generated debug shell tasks, runtime package installation, and an unpinned npx MCP sample. No prompt injection attempt was found.",
+    "summary": "Most static findings are false positives caused by Markdown backticks, Python async syntax, VS Code task variables, and local loopback debug addresses. One configuration-handling concern remains: the skill tells agents to always create or update a .env file with real project values, which should require user confirmation and avoid overwriting existing secrets.",
     "remediation": [
       {
-        "issue": "Environment file handling",
-        "suggestion": "Do not always overwrite .env. Preserve existing values, ask for confirmation, and document that load_dotenv(override=True) can shadow deployment variables.",
-        "severity": "high"
-      },
-      {
-        "issue": "Unpinned MCP package execution",
-        "suggestion": "Pin @playwright/mcp to a reviewed version or require user confirmation before generating npx -y @latest commands.",
-        "severity": "high"
-      },
-      {
-        "issue": "Generated shell debug tasks",
-        "suggestion": "Generate VS Code shell tasks only after the user confirms the entrypoint and ports. Keep debugpy bound to localhost.",
+        "issue": "The skill instructs agents to always create or update .env files.",
+        "suggestion": "Change the guidance to ask for confirmation before modifying .env, preserve existing values, and use placeholders unless the user explicitly provides project configuration.",
         "severity": "medium"
       },
       {
-        "issue": "Autonomous startup verification",
-        "suggestion": "Ask before running generated apps or installing dependencies. Separate code generation from execution in default workflows.",
-        "severity": "medium"
+        "issue": "Dependency installation guidance includes pip commands in troubleshooting text.",
+        "suggestion": "Keep commands explicit and scoped to the active virtual environment, and avoid automatic installation without user approval.",
+        "severity": "low"
       }
     ],
     "risk_factor_evidence": [
@@ -782,352 +771,297 @@
     "finding_verdicts": [
       {
         "id": "env_access:references/agent-as-server.md:49:dotenv-library",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The guidance recommends loading configuration from a .env file with override enabled. This is legitimate setup guidance, but it can let local file values shadow trusted environment variables.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The line only documents load_dotenv override behavior for deployed environments. It does not read, print, or exfiltrate secret values from an environment file."
       },
       {
         "id": "env_access:references/agent-as-server.md:49:python-dotenv-loader",
-        "verdict": "confirmed",
-        "confidence": 0.78,
-        "reason": "The line explicitly references Python dotenv loading with override=True. It is a real environment configuration behavior and should be disclosed and controlled.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "This is documentation for using python-dotenv in generated server code. No credential harvesting or unauthorized environment access is present."
       },
       {
         "id": "sensitive:references/agent-as-server.md:49:environment-file-access",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "The reference recommends load_dotenv(override=True), which can override deployed environment settings from a local .env file. That creates a sensitive configuration integrity risk.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.82,
+        "reason": "The referenced .env guidance is limited to normal configuration loading. It does not ask the agent to inspect existing secrets or transmit environment contents."
       },
       {
         "id": "blocker:references/agent-as-server.md:28:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This is a comment about pinning package versions to avoid compatibility problems. It does not gather host, user, network, or system information."
+        "confidence": 0.97,
+        "reason": "The text is a package version pinning comment in requirements.txt. It is not reconnaissance or host inspection."
       },
       {
         "id": "blocker:references/agent-as-server.md:83:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This is dependency version guidance for Agent Framework naming changes. No reconnaissance or host inspection behavior is present."
+        "confidence": 0.97,
+        "reason": "The line recommends pinning Agent Framework to avoid breaking API renames. It does not gather system information."
       },
       {
         "id": "blocker:references/agent-as-server.md:67:llm-role-tokens-injection",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "Role.ASSISTANT is a Python enum check inside a response handling example. It is not injecting LLM role tokens into a prompt or user-controlled message."
+        "confidence": 0.93,
+        "reason": "The code checks an SDK Role.ASSISTANT enum while forwarding assistant output. It is not injecting role tokens into a prompt or attempting prompt escalation."
       },
       {
         "id": "scripts:references/agent-samples.md:68:with-statement-deprecated-scope-confusion",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The code uses Python async with for async resource management. This is not the deprecated JavaScript with statement or a scope confusion pattern."
+        "confidence": 0.95,
+        "reason": "This is Python async context-manager syntax, not a JavaScript with statement. It manages Azure credentials and agent lifetime in a documented sample."
       },
       {
         "id": "network:references/agent-samples.md:36:hardcoded-url",
-        "verdict": "confirmed",
-        "confidence": 0.74,
-        "reason": "The sample hardcodes the Microsoft Learn MCP endpoint, so generated code may make external network calls. The endpoint is transparent and official, but the network behavior is real.",
-        "severity": "low"
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "The URL points to Microsoft Learn MCP documentation service and is explicitly described as trusted documentation. No user data or secrets are sent in the snippet."
       },
       {
         "id": "blocker:references/agent-samples.md:91:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "The line introduces implementation tips for stability and common errors. It does not instruct the agent to enumerate system properties or security controls."
+        "confidence": 0.97,
+        "reason": "The line introduces stability tips for Agent Framework usage. It does not perform system reconnaissance."
       },
       {
         "id": "external_commands:references/debug-setup.md:90:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.77,
-        "reason": "The VS Code task template uses a shell command to run debugpy, agentdev, and the generated entrypoint. It is legitimate debugging support, but it is real command execution.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The `${command:python.interpreterPath}` text is VS Code variable substitution in a launch task template. It is not Ruby backtick execution."
       },
       {
         "id": "external_commands:references/debug-setup.md:119:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.76,
-        "reason": "The alternate VS Code task template runs the selected Python interpreter with debugpy and the entrypoint. This is expected debug behavior, but it executes local code.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.93,
+        "reason": "The command is a VS Code task template for running debugpy with the selected Python interpreter. It contains no shell interpolation from untrusted input."
       },
       {
         "id": "external_commands:references/debug-setup.md:147:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "This location is a comment and VS Code command input configuration for opening or terminating tasks. It is not Ruby backtick execution or direct OS shell execution."
+        "confidence": 0.96,
+        "reason": "The line is a comment about matching the Agent Inspector port. It is not command execution."
       },
       {
         "id": "network:references/debug-setup.md:56:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The address is 127.0.0.1 for local debugpy binding. It is loopback-only debugging guidance, not external network communication."
+        "confidence": 0.94,
+        "reason": "The address is loopback 127.0.0.1 for local debugpy listening. It does not expose a remote network endpoint."
       },
       {
         "id": "network:references/debug-setup.md:62:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "The address is 127.0.0.1 for a local debug listener. This does not expose a remote service or beacon to an external host."
+        "confidence": 0.94,
+        "reason": "The address is loopback 127.0.0.1 for local CLI debugging. It is local-only and appropriate for VS Code debugging."
       },
       {
         "id": "network:references/debug-setup.md:91:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The hardcoded address appears inside a local VS Code debug task and binds debugpy to loopback. The command execution aspect is reviewed separately."
+        "confidence": 0.94,
+        "reason": "The address is loopback 127.0.0.1 inside a VS Code task template. It supports local debugging and is not an external callback."
       },
       {
         "id": "network:references/debug-setup.md:120:hardcoded-ip-address",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The hardcoded address appears inside a local debug task for CLI mode. It uses loopback and is not an external network endpoint."
+        "confidence": 0.94,
+        "reason": "The address is loopback 127.0.0.1 in a local debug task. It does not enable remote access."
       },
       {
         "id": "scripts:references/workflow-agents.md:12:dynamic-import-expression",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The snippet is a normal Python from-import statement. It is not a dynamic import expression and does not load attacker-controlled code."
+        "confidence": 0.95,
+        "reason": "The snippet is a static Python import block from agent_framework. There is no dynamic import expression or runtime-loaded module path."
       },
       {
         "id": "scripts:references/workflow-foundry.md:14:dynamic-import-expression",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The snippet is a normal Python from-import statement from agent_framework. It is not a dynamic import expression."
+        "confidence": 0.95,
+        "reason": "The snippet is a normal Python import block for Agent Framework types. It is not dynamic module loading."
       },
       {
         "id": "scripts:references/workflow-foundry.md:69:with-statement-deprecated-scope-confusion",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The code uses Python async with to manage credentials and agent resources. It is not the deprecated JavaScript with statement."
+        "confidence": 0.95,
+        "reason": "This is Python async with syntax for resource management. It is not the deprecated JavaScript with statement and does not create scope confusion."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line contains an inline Markdown package version. It does not execute shell code or invoke Ruby backticks."
+        "confidence": 0.98,
+        "reason": "The backticks are Markdown formatting around a version string. No shell command is executed."
       },
       {
         "id": "external_commands:SKILL.md:51:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is a recommendation to search a GitHub repository for examples. The backticks are Markdown formatting, not command execution."
+        "confidence": 0.98,
+        "reason": "The backticks are Markdown formatting around a GitHub repository name. No command execution occurs."
       },
       {
         "id": "external_commands:SKILL.md:55:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line names another skill in Markdown formatting. It does not contain an executable command."
+        "confidence": 0.98,
+        "reason": "The text names a related skill in Markdown backticks. It is not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This table row names an MCP tool. It is documentation of a tool capability, not OS command execution."
+        "confidence": 0.98,
+        "reason": "The backticked text is an MCP tool name in a table. It is descriptive documentation, not execution."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This table row names an MCP tool used to list deployments. It is not a shell command."
+        "confidence": 0.98,
+        "reason": "The backticked text is an MCP tool name in a table. It does not invoke the tool by itself."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This table row names an MCP tool used to get a project endpoint. It is not a shell command."
+        "confidence": 0.98,
+        "reason": "The backticked text is an MCP tool name in a table. It is not Ruby or shell syntax."
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This workflow item references generated code and .vscode configuration. The direct shell task templates are reviewed in debug-setup.md, so this line is not itself command execution."
+        "confidence": 0.98,
+        "reason": "The backticks format a .vscode path in Markdown. The line describes generated configs, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:78:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line tells the agent to read a debug setup reference and generate configuration files. It does not directly execute a command."
+        "confidence": 0.98,
+        "reason": "The backticks format a .vscode path in Markdown. No command execution is present."
       },
       {
         "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "This line describes using a Foundry model catalog through another skill. It is not Ruby backtick execution or a shell command."
+        "confidence": 0.98,
+        "reason": "The backticked text is a skill name. It is not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is a recommendation to search GitHub for advanced patterns. It does not define or execute a shell command."
+        "confidence": 0.94,
+        "reason": "The line suggests searching the public Microsoft Agent Framework repository for advanced patterns. It is not an executable command."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line describes model selection through the microsoft-foundry skill. It does not invoke an operating system command."
+        "confidence": 0.98,
+        "reason": "The backticked text is a skill name used for model selection. It is not shell syntax."
       },
       {
         "id": "external_commands:SKILL.md:93:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.86,
-        "reason": "This line instructs the agent to create or update a .env file, which is handled as a sensitive file issue. It is not shell command execution."
+        "confidence": 0.96,
+        "reason": "The backticks format the .env filename in Markdown. The security concern is configuration writing, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a fenced Markdown block containing environment variable names and placeholders. It does not execute those values as shell code."
+        "confidence": 0.97,
+        "reason": "The bash code fence contains environment variable placeholders only. It does not contain executable shell commands."
       },
       {
         "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "This location is Markdown fence text and adjacent implementation guidance. It is not Ruby backtick execution or a command string."
+        "confidence": 0.99,
+        "reason": "This is only the closing Markdown fence for an example block. It is not command execution."
       },
       {
         "id": "external_commands:SKILL.md:107:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line references the HTTP server pattern documentation. It does not run a process or invoke a shell."
+        "confidence": 0.98,
+        "reason": "The backticks format a reference filename in Markdown. It describes using a server pattern, not running a shell command."
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This line instructs generation of VS Code configuration files. The executable task commands are reviewed in debug-setup.md."
+        "confidence": 0.98,
+        "reason": "The backticks format file paths and a reference filename. No command is executed by this line."
       },
       {
         "id": "external_commands:SKILL.md:114:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "This line directs generation of requirements.txt, not execution of pip or a shell command."
+        "confidence": 0.98,
+        "reason": "The backticks format requirements.txt. The line instructs file generation, not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:115:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a fenced requirements.txt package list. It is not an executable shell block."
+        "confidence": 0.98,
+        "reason": "This opens a Markdown text block for dependency names. It is not shell execution."
       },
       {
         "id": "external_commands:SKILL.md:129:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This location is a Markdown fence boundary and nearby virtual environment guidance. It does not execute commands."
+        "confidence": 0.99,
+        "reason": "This is only a closing Markdown fence. It is not executable content."
       },
       {
         "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "This warning advises using the virtual environment Python or pip path. It is not itself a command execution instruction."
+        "confidence": 0.92,
+        "reason": "The line warns users to avoid bare python or pip and use venv paths. The examples are safety guidance, not hidden shell execution."
       },
       {
         "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.82,
-        "reason": "The skill instructs the agent to run the generated main entrypoint with the virtual environment Python during verification. That is real local code execution and should require user awareness.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.88,
+        "reason": "The line gives example local startup commands for generated projects. They are transparent developer commands, not arbitrary or obfuscated execution."
       },
       {
         "id": "external_commands:SKILL.md:153:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.83,
-        "reason": "This location describes creating README documentation and a troubleshooting table. It is not a direct shell command; the explicit pip command is covered by the separate line 159 finding."
+        "confidence": 0.98,
+        "reason": "The backticks format README.md. It describes documentation output, not command execution."
       },
       {
         "id": "external_commands:SKILL.md:159:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "The troubleshooting table recommends running pip install for a pinned Agent Framework package. The command is legitimate, but it installs external dependencies.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.9,
+        "reason": "The pip install text is explicit troubleshooting guidance for missing SDK packages. It is not hidden execution or command injection."
       },
       {
         "id": "external_commands:SKILL.md:160:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This troubleshooting row recommends pinning an SDK version. It does not instruct command execution."
+        "confidence": 0.98,
+        "reason": "The backticks format an SDK version and class names. No shell execution is present."
       },
       {
         "id": "external_commands:SKILL.md:162:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This troubleshooting row gives an import correction for Azure credentials. It does not execute shell code."
+        "confidence": 0.98,
+        "reason": "The backticks format Python import paths. It is not shell execution."
       },
       {
         "id": "sensitive:SKILL.md:93:environment-file-access",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "The instruction says to always create or update a .env file with project values. This can overwrite existing local configuration and persist environment data unexpectedly.",
-        "severity": "high"
+        "confidence": 0.62,
+        "reason": "The skill explicitly instructs agents to always create or update a .env file with real project configuration. This is a legitimate setup step, but environment files can contain sensitive configuration and should be handled with user confirmation.",
+        "severity": "medium"
       },
       {
         "id": "blocker:SKILL.md:116:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This is a requirements.txt comment about pinning versions. It does not collect system information."
+        "confidence": 0.98,
+        "reason": "The line is a dependency comment about pinning versions. It is not system reconnaissance."
       },
       {
         "id": "blocker:SKILL.md:131:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.95,
-        "reason": "This line recommends using a virtual environment to avoid global package pollution. It is normal isolation guidance, not reconnaissance."
+        "confidence": 0.98,
+        "reason": "The line recommends using a virtual environment. It does not inspect host state or enumerate the system."
       },
       {
         "id": "blocker:SKILL.md:161:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "This troubleshooting row describes allowed agent name characters. It does not inspect the host or enumerate security-relevant system data."
+        "confidence": 0.98,
+        "reason": "The line documents valid agent naming rules. It is not system reconnaissance."
       }
     ],
-    "semantic_findings": [
-      {
-        "title": "Unpinned MCP Tool Execution",
-        "description": "The MCP tools sample runs npx with @playwright/mcp@latest. This can download and execute the latest package at runtime without a reviewed pinned version.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "references/agent-samples.md",
-            "line_start": 27,
-            "line_end": 31
-          }
-        ],
-        "confidence": 0.86,
-        "confidence_reasoning": "The sample explicitly sets command=\"npx\" and args with -y and @playwright/mcp@latest. This is a clear unpinned external package execution pattern."
-      }
-    ],
+    "semantic_findings": [],
     "critical_findings": [],
     "high_findings": [
-      {
-        "title": "Environment file access",
-        "description": "- If loading env variables from `.env` file, like `load_dotenv()`, make sure set `override=True` to ",
-        "locations": [
-          {
-            "file": "references/agent-as-server.md",
-            "line_start": 49,
-            "line_end": 49
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "sensitive",
-        "source_severity": "high",
-        "confidence": 0.76,
-        "confidence_reasoning": "The reference recommends load_dotenv(override=True), which can override deployed environment settings from a local .env file. That creates a sensitive configuration integrity risk."
-      },
-      {
-        "title": "LLM role tokens injection",
-        "description": "if message.role == Role.ASSISTANT:",
-        "locations": [
-          {
-            "file": "references/agent-as-server.md",
-            "line_start": 67,
-            "line_end": 67
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "blocker",
-        "source_severity": "high",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed blocker/high static finding; AI dismissal overridden."
-      },
       {
         "title": "Environment file access",
         "description": "**ALWAYS create/update `.env` file**:",
@@ -1141,289 +1075,148 @@
         "review_kind": "security",
         "source_category": "sensitive",
         "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "The instruction says to always create or update a .env file with project values. This can overwrite existing local configuration and persist environment data unexpectedly."
-      },
-      {
-        "title": "Unpinned MCP Tool Execution",
-        "description": "The MCP tools sample runs npx with @playwright/mcp@latest. This can download and execute the latest package at runtime without a reviewed pinned version.",
-        "locations": [
-          {
-            "file": "references/agent-samples.md",
-            "line_start": 27,
-            "line_end": 31
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.86,
-        "confidence_reasoning": "The sample explicitly sets command=\"npx\" and args with -y and @playwright/mcp@latest. This is a clear unpinned external package execution pattern."
+        "confidence": 0.62,
+        "confidence_reasoning": "The skill explicitly instructs agents to always create or update a .env file with real project configuration. This is a legitimate setup step, but environment files can contain sensitive configuration and should be handled with user confirmation."
       }
     ],
-    "medium_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "// use `${command:python.interpreterPath}` to point to current user's python env",
-        "locations": [
-          {
-            "file": "references/debug-setup.md",
-            "line_start": 90,
-            "line_end": 119
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.77,
-        "confidence_reasoning": "The VS Code task template uses a shell command to run debugpy, agentdev, and the generated entrypoint. It is legitimate debugging support, but it is real command execution."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "// use `${command:python.interpreterPath}` to point to current user's python env",
-        "locations": [
-          {
-            "file": "references/debug-setup.md",
-            "line_start": 119,
-            "line_end": 147
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.76,
-        "confidence_reasoning": "The alternate VS Code task template runs the selected Python interpreter with debugpy and the entrypoint. This is expected debug behavior, but it executes local code."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "1. Run the main entrypoint using the venv's Python (e.g., `.venv/Scripts/python main.py` on Windows,",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 139,
-            "line_end": 139
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.82,
-        "confidence_reasoning": "The skill instructs the agent to run the generated main entrypoint with the virtual environment Python during verification. That is real local code execution and should require user awareness."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "| `ModuleNotFoundError` | Missing SDK | Run `pip install agent-framework-azure-ai==1.0.0b260107` in ",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 159,
-            "line_end": 159
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "The troubleshooting table recommends running pip install for a pinned Agent Framework package. The command is legitimate, but it installs external dependencies."
-      }
-    ],
-    "low_findings": [
-      {
-        "title": "dotenv library",
-        "description": "- If loading env variables from `.env` file, like `load_dotenv()`, make sure set `override=True` to ",
-        "locations": [
-          {
-            "file": "references/agent-as-server.md",
-            "line_start": 49,
-            "line_end": 49
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The guidance recommends loading configuration from a .env file with override enabled. This is legitimate setup guidance, but it can let local file values shadow trusted environment variables."
-      },
-      {
-        "title": "Python dotenv loader",
-        "description": "- If loading env variables from `.env` file, like `load_dotenv()`, make sure set `override=True` to ",
-        "locations": [
-          {
-            "file": "references/agent-as-server.md",
-            "line_start": 49,
-            "line_end": 49
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "env_access",
-        "source_severity": "low",
-        "confidence": 0.78,
-        "confidence_reasoning": "The line explicitly references Python dotenv loading with override=True. It is a real environment configuration behavior and should be disclosed and controlled."
-      },
-      {
-        "title": "Hardcoded URL",
-        "description": "url=\"https://learn.microsoft.com/api/mcp\",",
-        "locations": [
-          {
-            "file": "references/agent-samples.md",
-            "line_start": 36,
-            "line_end": 36
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "network",
-        "source_severity": "low",
-        "confidence": 0.74,
-        "confidence_reasoning": "The sample hardcodes the Microsoft Learn MCP endpoint, so generated code may make external network calls. The endpoint is transparent and official, but the network behavior is real."
-      }
-    ],
-    "dangerous_patterns": [
-      {
-        "title": "LLM role tokens injection",
-        "description": "if message.role == Role.ASSISTANT:",
-        "locations": [
-          {
-            "file": "references/agent-as-server.md",
-            "line_start": 67,
-            "line_end": 67
-          }
-        ],
-        "review_kind": "false_positive",
-        "source_category": "blocker",
-        "source_severity": "high",
-        "confidence": 1,
-        "confidence_reasoning": "Force-confirmed blocker/high static finding; AI dismissal overridden."
-      }
-    ],
+    "medium_findings": [],
+    "low_findings": [],
+    "dangerous_patterns": [],
     "files_scanned": 7,
     "total_lines": 785,
-    "audit_model": "codex",
-    "audited_at": "2026-07-05T20:50:43.853Z",
+    "audit_model": "claude",
+    "audited_at": "2026-07-09T04:17:55.422Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Build Microsoft Agent Framework Apps",
-    "value_statement": "Agent teams need a reliable way to scaffold Microsoft Agent Framework projects. This skill guides Python agents, workflows, HTTP server mode, and debugging setup.",
+    "user_title": "Build Microsoft Agent Framework Agents",
+    "value_statement": "Teams need repeatable patterns for building Agent Framework apps without missing server and debug setup. This skill guides Claude Code, Codex, and Claude through scaffolding agents, workflows, dependencies, and VS Code launch files.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
       "Microsoft Agent Framework",
       "Azure AI Foundry",
-      "Python AI agents",
-      "multi-agent workflows",
+      "multi-agent workflow",
+      "Python agent SDK",
+      "agent debugging",
       "MCP tools",
-      "VS Code debugging",
-      "agent HTTP server"
+      "HTTP agent server"
     ],
     "actual_capabilities": [
-      "Guides creation of Python Agent Framework agents and multi-agent workflows.",
-      "Shows HTTP server wrapping with Azure AI Agent Server packages.",
-      "Provides VS Code debug task and launch configuration templates.",
-      "Includes Foundry model selection and environment configuration guidance.",
-      "Includes sample patterns for MCP tools, threads, streaming, and workflow edges.",
-      "Recommends pinned SDK package versions for compatibility."
+      "Guides creation of Python agents using Microsoft Agent Framework SDK patterns.",
+      "Provides reference patterns for single agents, MCP tools, threads, and workflow executors.",
+      "Explains how to wrap an Agent Framework app as an HTTP server.",
+      "Generates dependency guidance for pinned Agent Framework and agent server packages.",
+      "Provides VS Code task and launch configuration templates for local debugging.",
+      "Recommends Azure AI Foundry model selection through related Foundry tooling."
     ],
     "limitations": [
-      "It does not deploy agents to Azure or evaluate existing agents.",
-      "It assumes Python and Microsoft Agent Framework beta package versions.",
-      "Generated projects still require valid Azure AI Foundry credentials and endpoints.",
-      "Advanced workflow patterns may require consulting Microsoft examples."
+      "Does not deploy agents to Azure or other hosting environments.",
+      "Does not evaluate agent quality or safety after creation.",
+      "Assumes Python and Microsoft Agent Framework SDK usage.",
+      "Requires users to provide or configure valid Azure AI Foundry project details."
     ],
     "use_cases": [
       {
-        "title": "Start an Enterprise Agent",
-        "description": "Create a Python Agent Framework project with Foundry model settings, server mode, and setup notes.",
-        "target_user": "Application developers"
+        "title": "Create a Foundry-backed assistant",
+        "description": "Scaffold a Python agent that connects to an Azure AI Foundry project and uses the recommended SDK imports.",
+        "target_user": "Application developer"
       },
       {
-        "title": "Prototype Multi-Agent Workflows",
-        "description": "Build workflow patterns that connect agents, executors, streaming events, and typed message edges.",
-        "target_user": "AI engineers"
+        "title": "Prototype a multi-agent workflow",
+        "description": "Build a workflow where multiple chat agents exchange messages through Agent Framework executors.",
+        "target_user": "AI engineer"
       },
       {
-        "title": "Prepare Local Debugging",
-        "description": "Generate VS Code debug tasks and launch settings for Agent Inspector based testing.",
-        "target_user": "Developer experience engineers"
+        "title": "Prepare local debugging",
+        "description": "Add VS Code task and launch configuration guidance for Agent Inspector and debugpy workflows.",
+        "target_user": "Developer experience engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a Basic Agent",
-        "scenario": "Beginner setup for one Python agent.",
-        "prompt": "Create a Python Microsoft Agent Framework agent that uses my Foundry project endpoint and deployment name. Include requirements and a README."
+        "title": "Create a basic agent",
+        "scenario": "Beginner agent scaffold",
+        "prompt": "Create a Python Microsoft Agent Framework agent for my project. Use Azure AI Foundry and include the required environment placeholders."
       },
       {
-        "title": "Add Server Mode",
-        "scenario": "Intermediate request for HTTP hosting.",
-        "prompt": "Update my existing Agent Framework project to run as an HTTP server by default. Preserve CLI mode only if it already exists."
+        "title": "Add MCP tools",
+        "scenario": "Tool-enabled agent",
+        "prompt": "Create an Agent Framework agent that can use MCP tools. Include the Microsoft Learn MCP reference and show where I can add more tools."
       },
       {
-        "title": "Build a Workflow",
-        "scenario": "Advanced multi-agent orchestration.",
-        "prompt": "Create a multi-agent workflow with writer and reviewer agents. Use streaming events and explain how each executor passes messages."
+        "title": "Build a workflow",
+        "scenario": "Multi-agent orchestration",
+        "prompt": "Build a two-agent Microsoft Agent Framework workflow with separate writer and reviewer executors. Include streaming output handling."
       },
       {
-        "title": "Prepare Debug Workflow",
-        "scenario": "Advanced local validation and debugging.",
-        "prompt": "Generate VS Code debug configuration for my Agent Framework server. Use localhost ports and explain what I must review before running it."
+        "title": "Prepare server and debugging support",
+        "scenario": "Advanced local development",
+        "prompt": "Convert this Agent Framework workflow into the HTTP server pattern and add VS Code debug tasks for Agent Inspector and debugpy."
       }
     ],
     "output_examples": [
       {
-        "input": "Create a single Foundry-backed agent with server mode.",
+        "input": "Create a simple Foundry-backed agent.",
         "output": [
-          "A Python project outline with an agent entrypoint, package requirements, environment placeholders, and server-mode guidance.",
-          "A README section that explains setup, configuration, startup, and local testing steps."
+          "A Python entrypoint using Microsoft Agent Framework and AzureAIClient.",
+          "A requirements list with pinned Agent Framework packages.",
+          "Environment placeholders for the Foundry project endpoint and model deployment name."
         ]
       },
       {
-        "input": "Add debugging support for an Agent Framework workflow.",
+        "input": "Add debugging support for my agent.",
         "output": [
-          "VS Code task and launch guidance for running the workflow with debugpy and Agent Inspector.",
-          "A short checklist for confirming ports, entrypoint names, and virtual environment paths before execution."
+          "VS Code task guidance for running the HTTP server under debugpy.",
+          "Launch configuration guidance for attaching the debugger.",
+          "Agent Inspector port settings that match the server command."
         ]
       },
       {
-        "input": "Create a two-agent review workflow.",
-        "output": "A workflow design that names each agent, describes message flow, and explains expected streaming events."
+        "input": "Build a workflow with two agents.",
+        "output": [
+          "Executor classes for each agent role.",
+          "A workflow graph with start executor and edges.",
+          "Streaming event handling for output and error events."
+        ]
       }
     ],
     "best_practices": [
-      "Confirm the Foundry endpoint and model deployment before writing environment configuration.",
-      "Review generated .env and .vscode files before running any debug task.",
-      "Pin package versions and update them only after compatibility testing."
+      "Pin the Agent Framework package versions recommended by the skill before running generated projects.",
+      "Use virtual environments and venv-specific Python or pip commands for dependency installation.",
+      "Run the generated entrypoint once and fix startup errors before documenting the project."
     ],
     "anti_patterns": [
-      "Do not store secrets directly in generated examples or shared documentation.",
-      "Do not run generated agents against production services before local review.",
-      "Do not rely on latest MCP packages without pinning or dependency review."
+      "Do not use this skill for deployment workflows; use a deployment-specific skill instead.",
+      "Do not skip HTTP server or debug configuration unless the user asks for a minimal setup.",
+      "Do not place credentials in generated examples; use placeholders when real project values are unavailable."
     ],
     "faq": [
       {
         "question": "What does this skill create?",
-        "answer": "It helps create Python Agent Framework agents, workflows, HTTP server entrypoints, and local debug configuration."
+        "answer": "It creates guidance for Python agents, workflows, HTTP server wrappers, dependencies, and VS Code debugging support."
       },
       {
-        "question": "Does it deploy agents?",
-        "answer": "No. It prepares project code and setup files, but deployment is outside this skill."
+        "question": "Does it deploy the agent?",
+        "answer": "No. It prepares code and local development setup, but deployment is out of scope."
       },
       {
-        "question": "Can I use it with Claude, Codex, or Claude Code?",
-        "answer": "Yes. The report declares support for Claude, Codex, and Claude Code."
+        "question": "Which SDK does it target?",
+        "answer": "It targets Microsoft Agent Framework for Python with Azure AI Foundry integration examples."
+      },
+      {
+        "question": "Can it build multi-agent workflows?",
+        "answer": "Yes. The references include executor-based workflow patterns, streaming events, and bidirectional agent loops."
       },
       {
         "question": "Does it require Azure AI Foundry?",
-        "answer": "Most Foundry examples require a project endpoint, a model deployment name, and valid Azure credentials."
+        "answer": "Most examples use Azure AI Foundry project endpoints and model deployments, so valid project configuration is expected."
       },
       {
-        "question": "What should I review before running output?",
-        "answer": "Review environment files, package versions, generated shell tasks, ports, and any MCP tool commands."
-      },
-      {
-        "question": "Is it only for Python?",
-        "answer": "Yes. The included instructions and references target the Python Microsoft Agent Framework SDK."
+        "question": "Can Claude Code use this skill?",
+        "answer": "Yes. The report lists Claude Code, Claude, and Codex as supported tools."
       }
     ]
   },
