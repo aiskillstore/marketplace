@@ -27,3 +27,10 @@ test('audit workflow skips PR creation when no skills were successfully updated'
 	assert.match(workflow, /No successfully updated skills; skipping audit PR to avoid timestamp-only failed-analysis churn/);
 	assert.match(workflow, /echo "has_changes=false" >> \$GITHUB_OUTPUT/);
 });
+
+test('audit workflow treats needs-review reports as successful writes', () => {
+	const workflow = readFileSync(AUDIT_WORKFLOW, 'utf8');
+
+	assert.match(workflow, /UPDATED=\$\(grep -Ec "✅ updated\|⚠️  needs-review" audit-output-\$\{\{ matrix\.shard \}\}\.log/);
+	assert.match(workflow, /COUNT=\$\(grep -Ec "✅ updated\|⚠️  needs-review" "\$log"/);
+});
