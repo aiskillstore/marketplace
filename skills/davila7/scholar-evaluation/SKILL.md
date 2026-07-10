@@ -1,3 +1,9 @@
+---
+name: scholar-evaluation
+description: Evaluate academic papers, research proposals, literature reviews, and scholarly writing with a structured ScholarEval rubric.
+license: MIT
+---
+
 # Scholar Evaluation
 
 ## Overview
