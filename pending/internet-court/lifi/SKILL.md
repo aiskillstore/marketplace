@@ -1,22 +1,14 @@
 ---
 name: lifi
-description: |
-  LI.FI REST API for cross-chain and same-chain token swaps, bridging, DeFi deposits (Composer), yield discovery (Earn), and intent-based execution (Intents).
-
-  USE THIS SKILL WHEN USER WANTS TO:
-  - Swap tokens between different blockchains (e.g., "swap USDC on Ethereum to ETH on Arbitrum")
-  - Bridge tokens to another chain (e.g., "move my ETH from mainnet to Optimism")
-  - Swap tokens on the same chain with best rates (e.g., "swap ETH to USDC on Polygon")
-  - Find the best route or quote for a token swap across chains
-  - Deposit into DeFi vaults/lending/staking in one click, including cross-chain (Composer: Aave, Morpho, Pendle, EtherFi, Yearn, etc.)
-  - Discover yield opportunities, vault APY/TVL data, or track DeFi positions (Earn)
-  - Execute gasless or intent-based transfers via a solver network (LI.FI Intents)
-  - Move stablecoins cheaply with optimized defaults (stablecoin preset)
-  - Build multi-chain payment flows (accept any token, settle in specific token)
-  - Check supported chains, tokens, bridges, or gas prices
-  - Track status of a cross-chain transaction, recover from failed/partial transfers
-  - Query transfer history/analytics or withdraw collected integrator fees
-  - Build backends, bots, or AI agents (any language) that need cross-chain functionality
+description: >-
+  Use the LI.FI REST API for cross-chain and same-chain token swaps, bridging, DeFi deposits
+  through Composer, yield discovery and position tracking through Earn, and solver-based
+  Intents. Use to find routes or quotes, move assets between chains, execute same-chain swaps,
+  deposit into vaults or lending and staking protocols, inspect APY and TVL, run gasless or
+  optimized stablecoin transfers, build multi-chain payments, query supported chains, tokens,
+  bridges, and gas prices, track or recover transactions, inspect transfer history and
+  analytics, withdraw integrator fees, or add cross-chain functionality to apps, backends,
+  bots, and AI agents.
 ---
 
 # LI.FI API Integration

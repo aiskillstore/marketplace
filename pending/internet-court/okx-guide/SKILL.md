@@ -1,6 +1,15 @@
 ---
 name: okx-guide
-description: "Onchain OS onboarding & guide hub — the single entry for first-time, 'what is this / how do I use it', OKX.AI, and customer-support intents; classifies the intent and routes to the right sub-flow via its Intent Routing table. Covers: (1) Onchain OS onboarding + welcome banner — 'what is onchainos', 'what is onchain os', 'what can it do', 'what can onchainos do', 'what does onchainos do', 'how do I use this', 'how do I play', 'how to use onchainos', 'how to play onchainos', 'how does onchainos work', 'how do I start', 'getting started', 'tutorial', 'onboarding', 'first time', 'I just installed', 'now what', 'what do I do now', 'where do I start', 'who are you', 'what are you', 'introduce onchainos', 'tell me about onchainos', 'I'm new'; (2) OKX.AI intro & role-registration routing (the Agent economic system — roles User / ASP / Evaluator) — 'what is OKX.AI', 'OKX.AI 是什么', 'how to use OKX.AI', 'OKX.AI 快速开始', and any spelling / spacing / casing / typo variant (OKXAI, okx ai, okx-ai, lowercase okx.ai, 啥是okxai); (3) customer support / Help Center — 'contact support', 'talk to a human', 'customer service', 'file a complaint', 'give feedback', 'report a bug / system error', 'help center', 'FAQ', 'user guide', 'something is broken'. NOT for: direct on-chain actions (swap / wallet / balance / token) or Agent task lifecycle (publish / accept / deliver / dispute) — those have their own skills."
+description: >-
+  Onchain OS onboarding and guide hub for first-time use, product introductions, OKX.AI, and
+  customer-support intents. Classifies requests and routes them through the Intent Routing
+  table. Use for questions about what Onchain OS is, what it can do, getting started,
+  tutorials, onboarding, first-time setup, and introductions; for OKX.AI explanations and
+  role-registration routing across User, ASP, and Evaluator roles, including spelling and
+  language variants; and for Help Center, customer service, complaints, feedback, bug reports,
+  FAQs, or user-guide requests. Do not use for direct on-chain actions such as swaps, wallet,
+  balance, or token operations, or for Agent task lifecycle actions such as publish, accept,
+  deliver, or dispute; those have dedicated skills.
 license: MIT
 metadata:
   author: okx

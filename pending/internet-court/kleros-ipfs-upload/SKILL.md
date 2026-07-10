@@ -1,6 +1,15 @@
 ---
 name: kleros-ipfs-upload
-description: "Upload files to IPFS through the Kleros x402 payment gateway in exchange for $0.01 USDC on Base mainnet. Use this skill **specifically** when the user is uploading content destined for the Kleros ecosystem — dispute evidence, meta-evidence JSON, court / dispute / arbitrator policies, Curate item metadata, juror justifications, or any artifact a Kleros smart contract or subgraph will reference by IPFS CID. Trigger when the request mentions Kleros, a court / arbitrator / dispute / juror / curate / proof-of-humanity context, or any of the conventional Kleros operation tags (evidence, meta-evidence, justification). Do NOT trigger for generic 'upload to IPFS' / 'get me a CID' requests with no Kleros context — point those users at Pinata, web3.storage, or any general-purpose pinning service instead. Exception: if the user explicitly names this gateway (kleros-ipfs-gateway.fly.dev / kleros-api.netlify.app/.netlify/functions/upload-to-ipfs), explicitly requests this skill, or asks the agent to test / validate / sanity-check this gateway or skill, trigger regardless of topical context — a deliberate end-to-end test is a valid trigger."
+description: >-
+  Upload files to IPFS through the Kleros x402 payment gateway for $0.01 USDC on Base mainnet.
+  Use specifically for Kleros ecosystem content such as dispute evidence, meta-evidence JSON,
+  court, dispute, or arbitrator policies, Curate item metadata, juror justifications, and
+  artifacts referenced by Kleros contracts or subgraphs through an IPFS CID. Trigger on
+  Kleros, court, arbitrator, dispute, juror, Curate, Proof of Humanity, evidence,
+  meta-evidence, or justification context. Do not use for generic IPFS uploads or CID requests
+  without Kleros context; suggest a general pinning service instead. Explicit requests for
+  this gateway, kleros-ipfs-gateway.fly.dev, kleros-api.netlify.app upload-to-ipfs, this
+  skill, or an end-to-end test always qualify.
 ---
 
 # Kleros IPFS Upload (x402)
