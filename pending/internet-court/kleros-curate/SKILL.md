@@ -1,6 +1,16 @@
 ---
 name: kleros-curate
-description: "Interact with Kleros Curate registries — the decentralized token-curated list protocol for token lists, address tags, and policy-driven curation. Use this skill when the user mentions Curate, Light Curate, LightGeneralizedTCR, LGTCR, LightCurate, Stake Curate, PermanentGTCR, PGTCR, Scout, token-curated registry, TCR, curated list, decentralized registry, registry, token list, address tags, CDN tags, Goldsky, or Solidity functions addItem, removeItem, challengeItem, challengeRequest. Covers all three flavors — Light Curate (LGTCR, optimistic challenge window), Stake Curate (PGTCR, permanent ERC20 stake), and Scout (Gnosis registries for contract/token tagging). Also trigger when the user wants to submit an item to a registry, challenge a submission, remove an item, appeal a dispute on a registry item, deploy a new Curate registry, curate a list, browse registry entries, check whether an address is tagged, add a token to a token list, query a curated list, or fund an appeal round. Even if Curate is not mentioned, trigger when the user describes registry operations — adding entries to a list, checking item status, browsing items, querying a decentralized list — combined with Kleros context signals (Kleros, arbitrator, dispute, juror, PNK). Do NOT trigger for non-Kleros registries or generic IPFS uploads without Curate context — IPFS uploads belong to kleros-ipfs-upload. Exception: if the user explicitly names the kleros-curate skill or asks to test this skill, trigger regardless of context."
+description: >-
+  Interact with Kleros Curate token-curated registries for token lists, address tags, and
+  policy-driven curation. Use for Curate, Light Curate or LightGeneralizedTCR (LGTCR), Stake
+  Curate or PermanentGTCR (PGTCR), Scout, TCRs, curated lists, decentralized registries, token
+  lists, address or CDN tags, Goldsky, and addItem, removeItem, challengeItem, or
+  challengeRequest. Covers submitting, challenging, removing, and appealing registry items;
+  deploying registries; browsing or querying entries; checking address tags; adding tokens;
+  and funding appeal rounds. Also use for registry operations in a Kleros, arbitrator,
+  dispute, juror, or PNK context. Do not use for non-Kleros registries or generic IPFS
+  uploads; use kleros-ipfs-upload for Kleros IPFS content. Explicit requests for this skill or
+  its tests always qualify.
 ---
 
 # Kleros Curate

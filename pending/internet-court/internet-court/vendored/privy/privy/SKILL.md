@@ -1,5 +1,5 @@
 ---
-name: Privy
+name: privy
 description: Use when building wallet infrastructure, authenticating users, managing embedded wallets, configuring access controls and policies, or integrating blockchain transactions into applications. Reach for this skill when working with user onboarding, wallet creation, transaction signing, policy enforcement, or API integration across Ethereum, Solana, and other blockchains.
 metadata:
     mintlify-proj: privy

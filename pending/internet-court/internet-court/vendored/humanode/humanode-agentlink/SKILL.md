@@ -1,3 +1,13 @@
+---
+name: humanode-agentlink
+description: >-
+  AgentLink gives an AI agent a verified, human-backed on-chain identity. Use it to link and
+  register an agent wallet with a biomapped human owner in BiomapperAgentRegistry, verify
+  active AgentLink status on Base mainnet, sign HTTP requests with the agent key, validate
+  agentlink headers, and access supported partner endpoints. Covers the AgentLink CLI
+  encrypted keystore and external signers through the SDK.
+---
+
 # AgentLink Skill
 
 AgentLink gives an AI agent a verified, human-backed on-chain identity. With this skill the agent can sign any HTTP request, appear in the on-chain registry as a trusted agent, and access free partner endpoints on Base mainnet.

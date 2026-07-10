@@ -1,22 +1,13 @@
 ---
 name: lifi-stablecoin-swap
-description: |
-  Build a production 1:1 stablecoin swap with LI.FI Intents — an interface or backend where
-  the amount the user sends equals the amount they receive (no visible gas or solver fees),
-  same-chain or cross-chain, filled by LI.FI's solver network and verifiable on-chain.
-
-  USE THIS SKILL WHEN USER WANTS TO:
-  - Build a 1:1 stablecoin swap interface ("send 100 USDC, receive 100 USDC"), same- or cross-chain
-  - Add stablecoin transfers with a guaranteed output amount to an app, backend, or bot
-  - Build enterprise/fintech-grade transfers with no visible gas or solver fees for the end user
-  - Implement the LI.FI Intents quote -> approve -> escrow open -> status loop for stablecoins
-  - Move USDC / USDT 1:1 across chains under an onboarded LI.FI integrator
-  - Understand how the LI.FI integrator ID / Partner Portal enables 1:1 quoting
-  - Use the @lifi/intent TypeScript SDK to quote, build, open, and track an intent order
-
-  This skill is self-contained and covers the integration end to end via the `@lifi/intent` SDK
-  (the primary path), with the raw `order.li.fi` REST endpoints as a language-agnostic option.
-  For the wider LI.FI product surface (classic swaps/bridges, Composer, Earn), use the `lifi` skill.
+description: >-
+  Build production 1:1 stablecoin swaps with LI.FI Intents, where the amount sent equals the
+  amount received with no visible gas or solver fees, on the same chain or across chains. Use
+  for guaranteed-output USDC or USDT transfers, enterprise or fintech transfer flows,
+  integrator onboarding and Partner Portal setup, and the quote, approve, escrow-open, and
+  status lifecycle. Covers the @lifi/intent TypeScript SDK as the primary path and order.li.fi
+  REST endpoints as a language-agnostic alternative. For classic swaps and bridges, Composer,
+  Earn, or the wider LI.FI product surface, use the lifi skill.
 ---
 
 # Build a 1:1 Stablecoin Swap with LI.FI Intents
