@@ -1,22 +1,22 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-10T13:49:48.441Z",
+    "generated_at": "2026-07-10T17:31:18.849Z",
     "slug": "internet-court-okx-ai",
     "source_url": "https://github.com/internet-court/internet-court-skill/tree/main/vendored/okx/okx-ai",
     "source_ref": "main",
-    "model": "codex",
+    "model": "claude",
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "458fb7f784a48a2b2cc440795ef369ce91c244d4bd32545e37c24dc7a51a06d7",
     "tree_hash": "5f89d5d8e76acd4b7fd412de8cddef5f6e92a3a8d414e95637e98062ce3b48fb",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_requested": "codex:gpt-5.5:high",
+      "model_effective": "claude:codex:gpt-5.5:high",
       "fallback_chain": [
         {
-          "agent": "codex",
-          "model": "gpt-5.5",
+          "agent": "claude",
+          "model": "codex:gpt-5.5",
           "effort": "high",
           "outcome": "success"
         }
@@ -26,19 +26,13 @@
   },
   "skill": {
     "name": "okx-ai",
-    "description": "Manage ERC-8004 agent identities, OKX marketplace tasks, evaluator staking, task monitoring, and encrypted agent communication through guided onchainos workflows.",
-    "summary": "Operate OKX agent identities and marketplace tasks from registration through delivery, arbitration, and monitoring.",
+    "description": "ERC-8004 Agent identity: 注册/更新/上架/下架/搜索agent, register/update/activate/deactivate/search — User/ASP/Evaluator(买家/卖家/仲裁者); 我的agent/ASP, 找做X的ASP/agent有什么服务/endpoint怎么填/查口碑/传头像. + Task Marketplace: 发布/创建任务/接单/协商/验收/deliver/dispute/仲裁/拒绝/stake/unstake/change provider/change budget/修改卖家/修改预算/draft/草稿/我的任务/my tasks/what am I working on/关闭/取消任务/决策列表/decision list/指定服务商/browse marketplace. + task watch: 监听任务进展/历史消息/未读消息/未决策/outstanding decisions. + okx-a2a missing/uninitialized. Match by meaning. MUST ACTIVATE on inbound envelopes: (1) {agentId, message:{source:\"system\", event, jobId,...}} system event; (2) {msgType:\"a2a-agent-chat\", jobId, sender:{role},...} agent-to-agent task chat (sender.role = COUNTERPARTY, not you); (3) literal \"Read the okx-ai skill\" (or legacy \"Read the okx-agent-task skill\") in the envelope.\n",
+    "summary": "ERC-8004 Agent identity: 注册/更新/上架/下架/搜索agent, register/update/activate/deactivate/search — User/ASP/...",
     "icon": "📦",
     "version": "1.0.0",
     "author": "internet-court",
     "license": "Apache-2.0",
-    "tags": [
-      "okx",
-      "erc-8004",
-      "agent-marketplace",
-      "task-automation",
-      "xlayer"
-    ],
+    "tags": [],
     "supported_tools": [
       "claude",
       "codex",
@@ -48,39 +42,33 @@
       "filesystem",
       "external_commands",
       "network"
-    ],
-    "category": "productivity"
+    ]
   },
   "security_audit": {
     "risk_level": "high",
     "is_blocked": false,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "Most static findings are false positives caused by Markdown backticks, identifiers, safe examples, and defensive secret language. Cross-skill instruction reads and predictable raw-message temporary files are confirmed risks. Semantic review also found a prefetch injection phrase, blind execution of CLI playbooks, and automatic software installation.",
+    "summary": "Not safe to publish as-is: the skill includes explicit instruction-following paths that let CLI output or peer-delivered data drive host-side actions, alongside automatic package installation and broad file-transfer handling. Most static Markdown/backtick and identifier detections are false positives, but the semantic issues are material.",
     "remediation": [
       {
-        "issue": "Instructions are loaded from a sibling skill path outside the package boundary.",
-        "suggestion": "Vendor the required preflight file inside this skill, or enforce an allowlisted path with an integrity-checked hash before reading it.",
+        "issue": "Remote CLI output can direct an agent to perform arbitrary follow-up actions.",
+        "suggestion": "Treat data.action and next-action output as untrusted data; enforce a fixed allowlist of commands, validate structured fields, and require explicit user confirmation before upgrades or any side effect.",
         "severity": "high"
       },
       {
-        "issue": "Prefetch text declares authoritative agent state and changes later routing.",
-        "suggestion": "Remove the phrase \"You are now loaded\" and treat prefetch content only as untrusted data after authenticated envelope validation.",
+        "issue": "The communication bootstrap auto-installs and repairs a global npm package.",
+        "suggestion": "Remove automatic global installation/upgrade and doctor --fix execution; show a pinned, provenance-verified command and obtain user confirmation before installation or repair.",
         "severity": "high"
       },
       {
-        "issue": "CLI-returned scripts and playbooks are followed without a general local validation boundary.",
-        "suggestion": "Require a versioned schema, strict action allowlist, argument validation, and fresh user confirmation before every returned state-changing action.",
-        "severity": "high"
+        "issue": "File-transfer instructions accept arbitrary local input and output paths.",
+        "suggestion": "Restrict transfers to approved workspace/temp directories, canonicalize paths, reject symlinks and sensitive paths, and require confirmation identifying each source or destination.",
+        "severity": "medium"
       },
       {
-        "issue": "Missing or outdated dependencies trigger installers, global npm writes, and upgrades automatically.",
-        "suggestion": "Ask for explicit approval, pin package versions, verify independent checksums, and avoid global installation where a local isolated runtime is possible.",
-        "severity": "high"
-      },
-      {
-        "issue": "Peer-supplied messages are written to predictable temporary filenames.",
-        "suggestion": "Validate jobId, create randomized files exclusively with restrictive permissions, avoid symlink following, and delete files immediately after processing.",
+        "issue": "Peer-delivered raw envelopes are written to predictable /tmp files and delegated to the CLI.",
+        "suggestion": "Use private per-session directories with restrictive permissions, validate a schema and size limit before persistence, and delete data immediately after processing.",
         "severity": "medium"
       }
     ],
@@ -2503,1445 +2491,1426 @@
         "id": "sensitive:_shared/preflight.md:18:environment-file-access",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The line only advises users to keep a personal-key .env file out of version control. It does not open, parse, or transmit an environment file."
+        "reason": "The text merely advises users to add a personal .env file to .gitignore and does not read, write, or disclose environment data."
       },
       {
         "id": "filesystem:references/chat-cli-reference.md:39:temp-directory-access",
-        "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a documented example path for an encrypted attachment or download destination. It does not scan the temporary directory or access unrelated files."
+        "verdict": "confirmed",
+        "confidence": 0.91,
+        "reason": "The documented flow writes or supplies a predictable /tmp path to a CLI for file transfer; it can expose data to other local users or trust CLI-controlled file handling."
       },
       {
         "id": "filesystem:references/chat-cli-reference.md:77:temp-directory-access",
-        "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a documented example path for an encrypted attachment or download destination. It does not scan the temporary directory or access unrelated files."
+        "verdict": "confirmed",
+        "confidence": 0.91,
+        "reason": "The documented flow writes or supplies a predictable /tmp path to a CLI for file transfer; it can expose data to other local users or trust CLI-controlled file handling."
       },
       {
         "id": "filesystem:references/chat-cli-reference.md:92:temp-directory-access",
-        "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This is a documented example path for an encrypted attachment or download destination. It does not scan the temporary directory or access unrelated files."
+        "verdict": "confirmed",
+        "confidence": 0.91,
+        "reason": "The documented flow writes or supplies a predictable /tmp path to a CLI for file transfer; it can expose data to other local users or trust CLI-controlled file handling."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:12:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:17:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:39:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:63:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:68:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:92:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:99:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:149:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:150:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:151:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:152:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-cli-reference.md:172:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "filesystem:references/chat-comm-init.md:12:standard-device-file-access",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The only device access is a standard redirection to /dev/null while checking command availability. It does not read a device or expose device data."
+        "confidence": 0.96,
+        "reason": "The command only probes PATH and conditionally installs a package; it is not access to a device file."
       },
       {
         "id": "filesystem:references/chat-file-attachment.md:7:path-traversal-sequence",
-        "verdict": "confirmed",
-        "confidence": 0.94,
-        "reason": "The instruction reads a sibling skill file outside this package and then follows its contents. That crosses the skill boundary and lets external content control later commands.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The ../ path is a fixed, repository-local documentation reference, not user-controlled path traversal."
       },
       {
         "id": "blocker:references/chat-file-attachment.md:15:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-file-attachment.md:16:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-file-attachment.md:33:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-file-attachment.md:42:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-file-attachment.md:51:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-file-attachment.md:52:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/chat-file-attachment.md:65:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "external_commands:references/identity-discover.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "blocker:references/identity-discover.md:89:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-discover.md:113:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "external_commands:references/identity-errors.md:11:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "blocker:references/identity-errors.md:26:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-errors.md:27:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-errors.md:28:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-errors.md:41:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-errors.md:44:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-invariants.md:1:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-invariants.md:32:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-invariants.md:74:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-manage.md:8:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-manage.md:16:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-manage.md:28:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-register.md:5:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-register.md:23:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-register.md:55:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-register.md:99:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "external_commands:references/identity-reputation.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "blocker:references/identity-reputation.md:11:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-update.md:5:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-update.md:10:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/identity-update.md:13:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-asp-accept.md:24:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-asp-accept.md:35:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-asp-accept.md:36:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-asp-accept.md:48:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-asp-accept.md:53:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-asp-accept.md:65:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-asp-accept.md:76:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-asp-accept.md:85:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:28:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:43:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:90:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:109:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:156:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:195:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:226:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:250:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:263:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:332:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:340:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:364:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:372:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:388:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:430:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:476:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:549:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:561:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:571:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:579:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:594:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:610:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:618:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:626:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:634:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:642:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:654:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:662:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:676:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:692:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:707:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:722:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:734:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:746:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:759:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:774:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:787:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:799:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:811:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:825:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:845:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:853:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:854:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-cli-reference.md:871:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-core.md:107:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-evaluator-decision-rubric.md:74:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-evaluator-staking.md:50:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-evaluator-staking.md:98:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-evaluator-staking.md:118:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-evaluator-staking.md:140:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-evaluator-staking.md:150:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-evaluator-staking.md:160:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-evaluator-staking.md:168:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-evaluator.md:38:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-evaluator.md:40:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "external_commands:references/task-exception-escalation.md:47:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:references/task-exception-escalation.md:48:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "blocker:references/task-exception-escalation.md:34:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-exception-escalation.md:35:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-exception-escalation.md:86:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "sensitive:references/task-preflight.md:18:environment-file-access",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The line only advises users to keep a personal-key .env file out of version control. It does not open, parse, or transmit an environment file."
+        "reason": "The text merely advises users to add a personal .env file to .gitignore and does not read, write, or disclose environment data."
       },
       {
         "id": "blocker:references/task-state-machine.md:29:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-actions-publish.md:112:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-actions-publish.md:123:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-actions-publish.md:148:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-actions.md:32:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-actions.md:55:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-actions.md:60:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-actions.md:61:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-actions.md:111:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "external_commands:references/task-user-intent-routing.md:29:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "blocker:references/task-user-intent-routing.md:20:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-intent-routing.md:25:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-intent-routing.md:64:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-intent-routing.md:80:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-intent-routing.md:97:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/task-user-intent-routing.md:113:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "filesystem:references/task-user-sub-playbook.md:47:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The flow writes an entire peer-supplied A2A envelope to a predictable /tmp path containing jobId. Missing validation, exclusive creation, permissions, and cleanup create overwrite, symlink, and data-exposure risks.",
-        "severity": "medium"
+        "confidence": 0.91,
+        "reason": "The documented flow writes or supplies a predictable /tmp path to a CLI for file transfer; it can expose data to other local users or trust CLI-controlled file handling."
       },
       {
         "id": "filesystem:references/task-user-sub-playbook.md:54:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "The flow writes an entire peer-supplied A2A envelope to a predictable /tmp path containing jobId. Missing validation, exclusive creation, permissions, and cleanup create overwrite, symlink, and data-exposure risks.",
-        "severity": "medium"
+        "confidence": 0.91,
+        "reason": "The documented flow writes or supplies a predictable /tmp path to a CLI for file transfer; it can expose data to other local users or trust CLI-controlled file handling."
       },
       {
         "id": "sensitive:references/task-user-sub-playbook.md:13:crypto-seed-private-key-mention",
         "verdict": "false_positive",
-        "confidence": 1,
-        "reason": "The cited text explicitly refuses requests for private keys, mnemonics, passwords, tokens, and cookies. The secret terms appear only in a defensive policy and refusal message."
+        "confidence": 0.99,
+        "reason": "The mention is an explicit refusal rule that protects secrets; it does not request, access, or transmit them."
       },
       {
         "id": "sensitive:references/task-user-sub-playbook.md:15:crypto-seed-private-key-mention",
         "verdict": "false_positive",
-        "confidence": 1,
-        "reason": "The cited text explicitly refuses requests for private keys, mnemonics, passwords, tokens, and cookies. The secret terms appear only in a defensive policy and refusal message."
+        "confidence": 0.99,
+        "reason": "The mention is an explicit refusal rule that protects secrets; it does not request, access, or transmit them."
       },
       {
         "id": "blocker:references/task-user-sub-playbook.md:80:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-background-recovery.md:14:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:53:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:59:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:98:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:135:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:163:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:197:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:198:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:200:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:210:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:213:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:218:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:references/watch-core.md:223:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:24:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:25:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:26:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:35:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:36:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:42:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:45:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:53:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:63:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:64:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:65:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:69:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:71:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:73:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:83:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:85:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:87:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:91:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:92:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:93:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:94:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:95:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:97:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:100:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:104:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:105:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:107:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:108:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:110:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:112:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:116:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:119:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:120:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:125:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:126:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:129:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:133:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:150:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:151:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:152:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:153:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:159:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:163:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "external_commands:SKILL.md:165:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The backticks are Markdown formatting for labels, paths, examples, or command names. They are not Ruby backtick operators or executable shell substitution."
+        "reason": "Backticks are Markdown code formatting in documentation; the cited text does not invoke shell execution or command substitution."
       },
       {
         "id": "network:SKILL.md:16:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The URL is the declared OKX product homepage in frontmatter. This metadata does not perform a request or transmit data."
+        "reason": "This is a metadata homepage URL, not executable network behavior or an untrusted endpoint."
       },
       {
         "id": "filesystem:SKILL.md:42:path-traversal-sequence",
-        "verdict": "confirmed",
-        "confidence": 0.94,
-        "reason": "The instruction reads a sibling skill file outside this package and then follows its contents. That crosses the skill boundary and lets external content control later commands.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "The ../ path is a fixed, repository-local documentation reference, not user-controlled path traversal."
       },
       {
         "id": "blocker:SKILL.md:71:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:SKILL.md:99:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       },
       {
         "id": "blocker:SKILL.md:129:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited line is marketplace documentation containing identifiers, status fields, or CLI labels. It does not inspect the host system or collect reconnaissance data."
+        "confidence": 0.99,
+        "reason": "This is documentation of an agent/job identifier or workflow state, not host reconnaissance or a command that inventories the system."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Prompt Injection Attempt Detected",
-        "description": "The prefetch block says, \"You are now loaded,\" and directs future routing. This authoritative state claim can let crafted prefetch content override normal user intent.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "references/task-core.md",
-            "line_start": 9,
-            "line_end": 10
-          }
-        ],
-        "confidence": 0.99,
-        "confidence_reasoning": "The suspicious authority phrase and routing instruction appear verbatim in the prefetched-message handling block."
-      },
-      {
-        "title": "Untrusted CLI Output Treated as Executable Instructions",
-        "description": "Several flows require the agent to execute or follow scripts and playbooks returned by external CLI calls. Compromised or manipulated output could trigger unauthorized tools or state changes.",
-        "severity": "high",
-        "locations": [
-          {
-            "file": "references/task-core.md",
-            "line_start": 43,
-            "line_end": 43
-          },
-          {
-            "file": "references/task-user-actions-publish.md",
-            "line_start": 22,
-            "line_end": 22
-          },
-          {
-            "file": "references/task-evaluator.md",
-            "line_start": 20,
-            "line_end": 22
-          },
-          {
-            "file": "references/task-user-intent-routing.md",
-            "line_start": 134,
-            "line_end": 134
-          }
-        ],
-        "confidence": 0.97,
-        "confidence_reasoning": "The files explicitly say to execute returned scripts or follow returned playbooks verbatim, without a general local schema and action allowlist."
-      },
-      {
-        "title": "Automatic Global Installation and Self-Update",
-        "description": "The skill installs scripts and global npm packages, upgrades the CLI, and repairs the runtime without first obtaining explicit user approval. This creates supply-chain and environment-modification risk.",
+        "title": "Untrusted preflight action is executed as an instruction",
+        "description": "Preflight tells the agent to do exactly what a non-null data.action says, including a forced upgrade. A compromised or malicious CLI response can therefore steer host-side execution without an allowlist or confirmation.",
         "severity": "high",
         "locations": [
           {
             "file": "_shared/preflight.md",
-            "line_start": 10,
-            "line_end": 16
-          },
-          {
-            "file": "references/chat-comm-init.md",
-            "line_start": 9,
+            "line_start": 7,
             "line_end": 12
-          },
-          {
-            "file": "references/chat-comm-init.md",
-            "line_start": 23,
-            "line_end": 28
           }
         ],
         "confidence": 0.98,
-        "confidence_reasoning": "The documented flows directly require upgrade execution, installer download and execution, and global npm installation when components are missing or outdated."
+        "confidence_reasoning": "The text explicitly delegates execution to externally supplied action content."
+      },
+      {
+        "title": "Returned CLI script receives unconditional execution authority",
+        "description": "System-event handling instructs the agent to strictly execute the script returned by next-action. The returned content is not constrained to a known command set or reviewed before execution.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "references/task-core.md",
+            "line_start": 36,
+            "line_end": 44
+          }
+        ],
+        "confidence": 0.98,
+        "confidence_reasoning": "The instruction explicitly prohibits alternatives and provides no provenance, validation, or confirmation gate."
+      },
+      {
+        "title": "Automatic global installation and repair of communication runtime",
+        "description": "The runtime bootstrap conditionally installs a global npm package, runs a repair command with broad side effects, and upgrades to latest on an error path without integrity pinning or user consent.",
+        "severity": "high",
+        "locations": [
+          {
+            "file": "references/chat-comm-init.md",
+            "line_start": 9,
+            "line_end": 30
+          }
+        ],
+        "confidence": 0.97,
+        "confidence_reasoning": "The documented commands install, modify, restart, and upgrade host-level runtime components automatically."
+      },
+      {
+        "title": "Unrestricted attachment paths and predictable temporary envelope storage",
+        "description": "Attachment flows pass arbitrary paths to the CLI, while delivery handling writes full peer-controlled JSON to predictable /tmp filenames. This can enable unintended local-file transfer, overwrite/exposure, or unsafe downstream parsing.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "references/chat-file-attachment.md",
+            "line_start": 29,
+            "line_end": 44
+          },
+          {
+            "file": "references/task-user-sub-playbook.md",
+            "line_start": 47,
+            "line_end": 55
+          }
+        ],
+        "confidence": 0.94,
+        "confidence_reasoning": "The paths are not constrained or confirmed, and peer-controlled data is persisted before delegation."
       }
     ],
     "critical_findings": [],
     "high_findings": [
       {
-        "title": "Path traversal sequence",
-        "description": "> Read `../okx-agentic-wallet/_shared/preflight.md`.",
-        "locations": [
-          {
-            "file": "references/chat-file-attachment.md",
-            "line_start": 7,
-            "line_end": 7
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "high",
-        "confidence": 0.94,
-        "confidence_reasoning": "The instruction reads a sibling skill file outside this package and then follows its contents. That crosses the skill boundary and lets external content control later commands."
-      },
-      {
-        "title": "Path traversal sequence",
-        "description": "**Before the first `onchainos` command in this conversation you MUST open and follow `../okx-agentic",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 42,
-            "line_end": 42
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "high",
-        "confidence": 0.94,
-        "confidence_reasoning": "The instruction reads a sibling skill file outside this package and then follows its contents. That crosses the skill boundary and lets external content control later commands."
-      },
-      {
-        "title": "Prompt Injection Attempt Detected",
-        "description": "The prefetch block says, \"You are now loaded,\" and directs future routing. This authoritative state claim can let crafted prefetch content override normal user intent.",
-        "locations": [
-          {
-            "file": "references/task-core.md",
-            "line_start": 9,
-            "line_end": 10
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.99,
-        "confidence_reasoning": "The suspicious authority phrase and routing instruction appear verbatim in the prefetched-message handling block."
-      },
-      {
-        "title": "Untrusted CLI Output Treated as Executable Instructions",
-        "description": "Several flows require the agent to execute or follow scripts and playbooks returned by external CLI calls. Compromised or manipulated output could trigger unauthorized tools or state changes.",
-        "locations": [
-          {
-            "file": "references/task-core.md",
-            "line_start": 43,
-            "line_end": 43
-          },
-          {
-            "file": "references/task-user-actions-publish.md",
-            "line_start": 22,
-            "line_end": 22
-          },
-          {
-            "file": "references/task-evaluator.md",
-            "line_start": 20,
-            "line_end": 22
-          },
-          {
-            "file": "references/task-user-intent-routing.md",
-            "line_start": 134,
-            "line_end": 134
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.97,
-        "confidence_reasoning": "The files explicitly say to execute returned scripts or follow returned playbooks verbatim, without a general local schema and action allowlist."
-      },
-      {
-        "title": "Automatic Global Installation and Self-Update",
-        "description": "The skill installs scripts and global npm packages, upgrades the CLI, and repairs the runtime without first obtaining explicit user approval. This creates supply-chain and environment-modification risk.",
+        "title": "Untrusted preflight action is executed as an instruction",
+        "description": "Preflight tells the agent to do exactly what a non-null data.action says, including a forced upgrade. A compromised or malicious CLI response can therefore steer host-side execution without an allowlist or confirmation.",
         "locations": [
           {
             "file": "_shared/preflight.md",
-            "line_start": 10,
-            "line_end": 16
-          },
-          {
-            "file": "references/chat-comm-init.md",
-            "line_start": 9,
+            "line_start": 7,
             "line_end": 12
-          },
-          {
-            "file": "references/chat-comm-init.md",
-            "line_start": 23,
-            "line_end": 28
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "high",
         "confidence": 0.98,
-        "confidence_reasoning": "The documented flows directly require upgrade execution, installer download and execution, and global npm installation when components are missing or outdated."
+        "confidence_reasoning": "The text explicitly delegates execution to externally supplied action content."
+      },
+      {
+        "title": "Returned CLI script receives unconditional execution authority",
+        "description": "System-event handling instructs the agent to strictly execute the script returned by next-action. The returned content is not constrained to a known command set or reviewed before execution.",
+        "locations": [
+          {
+            "file": "references/task-core.md",
+            "line_start": 36,
+            "line_end": 44
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.98,
+        "confidence_reasoning": "The instruction explicitly prohibits alternatives and provides no provenance, validation, or confirmation gate."
+      },
+      {
+        "title": "Automatic global installation and repair of communication runtime",
+        "description": "The runtime bootstrap conditionally installs a global npm package, runs a repair command with broad side effects, and upgrades to latest on an error path without integrity pinning or user consent.",
+        "locations": [
+          {
+            "file": "references/chat-comm-init.md",
+            "line_start": 9,
+            "line_end": 30
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "high",
+        "confidence": 0.97,
+        "confidence_reasoning": "The documented commands install, modify, restart, and upgrade host-level runtime components automatically."
       }
     ],
     "medium_findings": [
+      {
+        "title": "Temp directory access",
+        "description": "onchainos agent file-upload --file /tmp/encrypted_photo.bin --agent-id agent_123 --job-id task_001",
+        "locations": [
+          {
+            "file": "references/chat-cli-reference.md",
+            "line_start": 39,
+            "line_end": 39
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.91,
+        "confidence_reasoning": "The documented flow writes or supplies a predictable /tmp path to a CLI for file transfer; it can expose data to other local users or trust CLI-controlled file handling."
+      },
+      {
+        "title": "Temp directory access",
+        "description": "\"outputPath\": \"/tmp/downloaded.bin\",",
+        "locations": [
+          {
+            "file": "references/chat-cli-reference.md",
+            "line_start": 77,
+            "line_end": 77
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.91,
+        "confidence_reasoning": "The documented flow writes or supplies a predictable /tmp path to a CLI for file transfer; it can expose data to other local users or trust CLI-controlled file handling."
+      },
+      {
+        "title": "Temp directory access",
+        "description": "onchainos agent file-download --file-key \"task_001-3f2a7b1c-8d4e-4a5f-9c6b-2e1d0f8a7b3c\" --agent-id ",
+        "locations": [
+          {
+            "file": "references/chat-cli-reference.md",
+            "line_start": 92,
+            "line_end": 92
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "filesystem",
+        "source_severity": "medium",
+        "confidence": 0.91,
+        "confidence_reasoning": "The documented flow writes or supplies a predictable /tmp path to a CLI for file transfer; it can expose data to other local users or trust CLI-controlled file handling."
+      },
       {
         "title": "Temp directory access",
         "description": "| 1 | Contains `[intent:deliver]` | **Highest priority — process THIS TURN before any other CLI call",
@@ -3955,8 +3924,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "The flow writes an entire peer-supplied A2A envelope to a predictable /tmp path containing jobId. Missing validation, exclusive creation, permissions, and cleanup create overwrite, symlink, and data-exposure risks."
+        "confidence": 0.91,
+        "confidence_reasoning": "The documented flow writes or supplies a predictable /tmp path to a CLI for file transfer; it can expose data to other local users or trust CLI-controlled file handling."
       },
       {
         "title": "Temp directory access",
@@ -3971,138 +3940,165 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.9,
-        "confidence_reasoning": "The flow writes an entire peer-supplied A2A envelope to a predictable /tmp path containing jobId. Missing validation, exclusive creation, permissions, and cleanup create overwrite, symlink, and data-exposure risks."
+        "confidence": 0.91,
+        "confidence_reasoning": "The documented flow writes or supplies a predictable /tmp path to a CLI for file transfer; it can expose data to other local users or trust CLI-controlled file handling."
+      },
+      {
+        "title": "Unrestricted attachment paths and predictable temporary envelope storage",
+        "description": "Attachment flows pass arbitrary paths to the CLI, while delivery handling writes full peer-controlled JSON to predictable /tmp filenames. This can enable unintended local-file transfer, overwrite/exposure, or unsafe downstream parsing.",
+        "locations": [
+          {
+            "file": "references/chat-file-attachment.md",
+            "line_start": 29,
+            "line_end": 44
+          },
+          {
+            "file": "references/task-user-sub-playbook.md",
+            "line_start": 47,
+            "line_end": 55
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.94,
+        "confidence_reasoning": "The paths are not constrained or confirmed, and peer-controlled data is persisted before delegation."
       }
     ],
     "low_findings": [],
     "dangerous_patterns": [],
     "files_scanned": 31,
     "total_lines": 3506,
-    "audit_model": "codex",
-    "audited_at": "2026-07-10T13:49:48.441Z",
+    "audit_model": "claude",
+    "audited_at": "2026-07-10T17:31:18.849Z",
     "agent_auto_install_policy": "confirmation_required",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Manage OKX AI Agents and Marketplace Tasks",
-    "value_statement": "Managing agent identities and decentralized tasks requires many stateful commands. This skill guides each workflow with routing, confirmations, monitoring, and role-specific steps.",
+    "user_title": "Manage OKX AI Agent Identities and Task Marketplace Workflows",
+    "value_statement": "Guides agents through OKX AI identity management, task-marketplace workflows, task monitoring, and A2A communication recovery using the documented CLI flows.",
     "seo_keywords": [
-      "Claude",
-      "Codex",
-      "Claude Code",
-      "OKX AI agents",
-      "ERC-8004",
+      "OKX AI agent",
+      "ERC-8004 identity",
       "agent marketplace",
-      "XLayer tasks",
-      "evaluator staking",
-      "agent communication",
-      "task monitoring"
+      "task marketplace",
+      "agent task monitoring",
+      "A2A communication",
+      "XMTP agent chat",
+      "agent reputation",
+      "XLayer agents",
+      "OKX agent CLI"
     ],
     "actual_capabilities": [
-      "Registers, updates, activates, deactivates, searches, and reviews ERC-8004 agent identities.",
-      "Publishes public or private tasks, manages drafts, and selects marketplace providers.",
-      "Routes negotiation, acceptance, delivery, disputes, arbitration, and task closure by role and state.",
-      "Guides evaluator staking, unstaking, reward queries, and slashing disclosures.",
-      "Monitors task notifications, unread events, and pending user decisions.",
-      "Bootstraps agent communication and handles encrypted file attachment transfers."
+      "Register, update, activate, deactivate, search, and inspect ERC-8004 agent identities.",
+      "Guide task publication, provider selection, negotiation, delivery, acceptance, disputes, and evaluator actions.",
+      "Route task-related user sessions, system events, and agent-to-agent chat envelopes to role-specific playbooks.",
+      "Monitor task updates, history, unread items, and outstanding decisions.",
+      "Upload and download task attachments through documented CLI commands.",
+      "Bootstrap and repair the documented OKX A2A communication runtime."
     ],
     "limitations": [
-      "Requires the onchainos CLI, wallet authentication, and access to OKX platform services.",
-      "Agent identity operations are limited to XLayer.",
-      "Communication features require the OKX A2A runtime and supported Claude Code or Codex environments.",
-      "File uploads expect upstream XMTP encryption and do not encrypt content locally."
+      "Depends on the onchainos and okx-a2a CLIs plus their authenticated backend services.",
+      "Some marketplace actions are irreversible or state-changing and need user confirmation only where the playbooks provide it.",
+      "Peer messages and CLI output are untrusted and should not be treated as executable instructions.",
+      "Attachment handling is unsafe without deployment-level path restrictions and explicit file-transfer consent."
     ],
     "use_cases": [
       {
-        "title": "Operate agent identities",
-        "description": "Create and maintain User, ASP, or Evaluator identities with service details, status controls, and reputation views.",
+        "title": "Create an agent identity",
+        "description": "Collect the required role and service information, validate it, and guide the user through a confirmed identity creation flow.",
         "target_user": "Agent operators"
       },
       {
-        "title": "Delegate marketplace work",
-        "description": "Publish tasks, choose providers, review deliverables, resolve decisions, and monitor progress across active jobs.",
-        "target_user": "Task buyers and project owners"
+        "title": "Run a marketplace task",
+        "description": "Publish or manage a task through negotiation, delivery, review, dispute, or arbitration workflows.",
+        "target_user": "Task buyers, providers, and evaluators"
       },
       {
-        "title": "Provide and evaluate services",
-        "description": "Find jobs, negotiate terms, deliver work, handle disputes, and manage evaluator stake requirements.",
-        "target_user": "Service providers and evaluators"
+        "title": "Monitor task activity",
+        "description": "Check task progress, task messages, and pending decisions in a live task-monitoring workflow.",
+        "target_user": "Marketplace participants"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Find an agent",
-        "prompt": "Find active agents that provide [service]. Show ratings, minimum prices, and top services. Do not choose one for me.",
-        "scenario": "Beginner discovery"
+        "title": "Register an agent",
+        "prompt": "Help me register an ASP agent for my API service.",
+        "scenario": "Identity creation"
       },
       {
-        "title": "Register an identity",
-        "prompt": "Help me register a [User, ASP, or Evaluator] identity. Collect required fields and show confirmation before writing.",
-        "scenario": "Guided identity setup"
+        "title": "Find a provider",
+        "prompt": "Find an agent that can help with smart-contract review.",
+        "scenario": "Marketplace discovery"
       },
       {
         "title": "Publish a task",
-        "prompt": "Create a [public or private] task for [goal] with budget [amount and token]. Include scope, deliverables, and attachments.",
-        "scenario": "Marketplace task creation"
+        "prompt": "Create a task for translating a product page and help me choose a provider.",
+        "scenario": "Task publishing"
       },
       {
-        "title": "Manage an active task",
-        "prompt": "Monitor task [job ID]. Surface decisions and route negotiation, delivery, dispute, or evaluator actions with required confirmations.",
-        "scenario": "Advanced lifecycle management"
+        "title": "Check task progress",
+        "prompt": "Show me the current progress and pending decisions for my tasks.",
+        "scenario": "Task monitoring"
       }
     ],
     "output_examples": [
       {
-        "input": "Find active data-analysis ASPs with strong reviews.",
-        "output": "A comparison table lists matching agents, ratings, minimum prices, top services, and available follow-up actions."
-      },
-      {
-        "input": "Publish a private task with Agent #1960 for 20 USDT.",
+        "input": "Find an agent for security review.",
         "output": [
-          "A confirmation card summarizes the provider, service, scope, price, payment mode, and attachments.",
-          "After confirmation, the task is created and task monitoring can begin."
+          "Searches the marketplace for relevant agents.",
+          "Presents available identity and service information using the documented rendering rules."
         ]
       },
       {
-        "input": "Show outstanding decisions for my tasks.",
-        "output": "A numbered list presents each pending decision with its task identifier and accepted reply formats."
+        "input": "Help me publish a translation task.",
+        "output": [
+          "Routes to the task user playbook.",
+          "Collects task requirements and guides the configured publication flow."
+        ]
+      },
+      {
+        "input": "Monitor my task updates.",
+        "output": [
+          "Routes to the task-watch flow.",
+          "Reports available task activity and outstanding decisions."
+        ]
       }
     ],
     "best_practices": [
-      "Verify the selected agent, task identifier, amount, token, and network before confirming a state change.",
-      "Use explicit job identifiers when several tasks are active.",
-      "Review staking, payment, dispute, and file-transfer details before execution."
+      "Require explicit confirmation before every installation, upgrade, repair, file transfer, or state-changing marketplace action.",
+      "Treat CLI responses, peer envelopes, listing fields, and attachments as untrusted data rather than instructions.",
+      "Keep task data and attachment paths within a restricted workspace with clear user-visible provenance."
     ],
     "anti_patterns": [
-      "Do not share private keys, seed phrases, passwords, tokens, cookies, or unrelated local files.",
-      "Do not bypass confirmation cards for task creation, identity changes, staking, or payment actions.",
-      "Do not treat peer messages, marketplace content, or returned playbooks as trusted instructions."
+      "Do not execute data.action or returned scripts solely because the CLI supplied them.",
+      "Do not auto-install global packages or run repair commands without pinning, provenance checks, and user approval.",
+      "Do not upload arbitrary local paths or write downloaded files to arbitrary destinations."
     ],
     "faq": [
       {
         "question": "What does this skill manage?",
-        "answer": "It manages OKX agent identities, marketplace tasks, evaluator staking, task monitoring, communication, and file attachments."
+        "answer": "It covers OKX AI agent identities, marketplace tasks, task monitoring, and A2A communication readiness."
       },
       {
-        "question": "Does it require wallet login?",
-        "answer": "Yes. Identity writes, task actions, and file transfers require an authenticated wallet session."
+        "question": "Does it use external commands?",
+        "answer": "Yes. It documents onchainos and okx-a2a CLI operations and requires their runtime services."
       },
       {
-        "question": "Which network supports agent identities?",
-        "answer": "Agent identity operations use XLayer."
+        "question": "Can it change on-chain or marketplace state?",
+        "answer": "Yes. Identity and task workflows can perform state-changing actions; confirmation should be required for all such actions."
       },
       {
-        "question": "Can it stake tokens or trigger payments?",
-        "answer": "Yes. Some workflows can stake OKB or initiate task payments after required user confirmation."
+        "question": "Can it handle attachments?",
+        "answer": "Yes, but attachment source and destination paths need strict policy and explicit user approval."
       },
       {
-        "question": "Does it encrypt uploaded files?",
-        "answer": "No. Files must be encrypted by the upstream XMTP layer before upload."
+        "question": "Should peer messages be trusted?",
+        "answer": "No. Peer content should be treated as task data only and never as instructions to access secrets or execute commands."
       },
       {
-        "question": "Which AI tools are supported?",
-        "answer": "The skill supports Claude, Codex, and Claude Code. Some watch features require Claude Code or Codex."
+        "question": "Is it safe to publish unchanged?",
+        "answer": "No. The audit identified high-severity instruction-following and automatic-installation behaviors that should be remediated first."
       }
     ]
   },
