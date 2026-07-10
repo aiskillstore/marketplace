@@ -66,7 +66,47 @@ jobs:
             scripts/tests/bind-skill-report-hashes.test.mjs \
             scripts/tests/changed-package-selection.test.mjs \
             scripts/tests/empty-skill-cleanup.test.mjs \
-            scripts/tests/approval-record.test.mjs
+            scripts/tests/approval-record.test.mjs \
+            scripts/tests/approval-cas.test.mjs
+
+      - name: Resolve exact merged PR for push
+        id: current_pr
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" != "push" ]; then
+            echo "No exact triggering push PR is available for $EVENT_NAME"
+            exit 0
+          fi
+
+          PULLS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$REPOSITORY/commits/$GITHUB_SHA/pulls")
+          MATCHES=$(jq \
+            --arg sha "$GITHUB_SHA" \
+            '[.[] | select(
+              .merged_at != null
+              and .base.ref == "main"
+              and .merge_commit_sha == $sha
+            )]' <<<"$PULLS")
+          if [ "$(jq 'length' <<<"$MATCHES")" != "1" ]; then
+            echo "::warning::No unique merged main PR has merge_commit_sha=$GITHUB_SHA"
+            exit 0
+          fi
+
+          PR_NUMBER=$(jq -r '.[0].number' <<<"$MATCHES")
+          PR_HEAD_SHA=$(jq -r '.[0].head.sha' <<<"$MATCHES")
+          if [[ ! "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || \
+             [[ ! "$PR_HEAD_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "::error::Resolved PR identity is invalid"
+            exit 1
+          fi
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "pr_head_sha=$PR_HEAD_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Find last successful sync commit
         id: last_sync
@@ -237,6 +277,13 @@ jobs:
           for skill_path in $CHANGED_SKILLS; do
             GATE_ARGS+=(--package "skills/$skill_path")
           done
+          if [ -n "${{ steps.current_pr.outputs.pr_number }}" ] && \
+             [ -n "${{ steps.current_pr.outputs.pr_head_sha }}" ]; then
+            GATE_ARGS+=(
+              --current-pr-number "${{ steps.current_pr.outputs.pr_number }}"
+              --current-pr-head-sha "${{ steps.current_pr.outputs.pr_head_sha }}"
+            )
+          fi
 
           node scripts/validate-skill-publication.mjs \
             "${GATE_ARGS[@]}" \

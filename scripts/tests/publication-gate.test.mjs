@@ -17,10 +17,11 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const GATE_PATH = join(REPO_ROOT, 'scripts', 'validate-skill-publication.mjs');
+const APPROVAL_LIBRARY_PATH = join(REPO_ROOT, 'scripts', 'lib', 'publication-approval.mjs');
 const GITHUB_REPOSITORY = 'aiskillstore/marketplace';
 const COMMENT_ID = 123456789;
-const ISSUE_NUMBER = 2403;
 const PR_NUMBER = 2405;
+const ISSUE_NUMBER = PR_NUMBER;
 const SUBMISSION_ID = '12345678-1234-4234-8234-123456789abc';
 const SOURCE_URL = 'https://github.com/example/fixture';
 const CREATED_AT = '2026-07-10T01:00:00.000Z';
@@ -29,11 +30,12 @@ const PR_BASE_SHA = 'a'.repeat(40);
 const PR_HEAD_SHA = 'b'.repeat(40);
 const LIVE_PR_HEAD_SHA = 'c'.repeat(40);
 const PR_HEAD_REF = `submission/fixture-${SUBMISSION_ID}`;
-const ISSUE_URL = `https://github.com/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}`;
+const ISSUE_URL = `https://github.com/${GITHUB_REPOSITORY}/pull/${ISSUE_NUMBER}`;
 const COMMENT_URL = `${ISSUE_URL}#issuecomment-${COMMENT_ID}`;
 const PR_URL = `https://github.com/${GITHUB_REPOSITORY}/pull/${PR_NUMBER}`;
 const NOW = Date.parse('2026-07-10T02:00:00.000Z');
 const AUDIT_MODEL = 'gpt-5.5:high';
+const AUDIT_COMPLETED_AT = '2026-07-10T00:00:01.000Z';
 
 async function loadGate() {
 	return import(`${pathToFileURL(GATE_PATH).href}?test=${Date.now()}-${Math.random()}`);
@@ -71,13 +73,14 @@ function makeReport({
 	blocked = false,
 	safeToPublish = true,
 	slug = 'fixture-owner-fixture-skill',
+	sourceUrl = 'https://github.com/example/fixture/tree/main/fixture-skill',
 }) {
 	return {
 		schema_version: '2.0',
 		meta: {
 			generated_at: '2026-07-10T00:00:00.000Z',
 			slug,
-			source_url: 'https://github.com/example/fixture/tree/main/fixture-skill',
+			source_url: sourceUrl,
 			source_ref: 'main',
 			model: 'codex',
 			analysis_version: '3.0.0',
@@ -122,6 +125,9 @@ async function writeFreshReport(packageDir, overrides = {}) {
 		...overrides,
 	});
 	writeFileSync(join(packageDir, 'skill-report.json'), `${JSON.stringify(report, null, 2)}\n`);
+	if (report.security_audit.safe_to_publish === false) {
+		await writeAuditAttestation(packageDir, report);
+	}
 	return report;
 }
 
@@ -143,7 +149,7 @@ async function writeAuditAttestation(packageDir, report) {
 		invocation: {
 			id: '12345678-1234-4234-8234-123456789abc',
 			started_at: '2026-07-09T23:59:59.000Z',
-			completed_at: '2026-07-10T00:00:01.000Z',
+			completed_at: AUDIT_COMPLETED_AT,
 			cwd: '/tmp/skillstore-audit',
 			command: [
 				process.execPath,
@@ -199,10 +205,12 @@ function humanApproval(report, overrides = {}) {
 				created_at: CREATED_AT,
 				updated_at: CREATED_AT,
 				expires_at: EXPIRES_AT,
+				audit_completed_at: AUDIT_COMPLETED_AT,
 				reason: 'Reviewed the unsafe publication recommendation and accepted the documented risk.',
 				pr_number: PR_NUMBER,
 				pr_url: PR_URL,
 				pr_base_sha: PR_BASE_SHA,
+				pr_base_ref: 'main',
 				pr_head_ref: PR_HEAD_REF,
 				pr_head_sha: PR_HEAD_SHA,
 				scope: 'safe_to_publish',
@@ -236,7 +244,12 @@ function githubEvidence(report, {
 		issue_url: `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${approval.approval_issue_number}`,
 		created_at: approval.created_at,
 		updated_at: approval.updated_at,
-		body: `/approve safe-to-publish ${report.meta.slug}\n${approval.reason}`,
+		body: `/approve safe-to-publish ${report.meta.slug}`
+			+ ` --content-hash ${report.meta.content_hash}`
+			+ ` --tree-hash ${report.meta.tree_hash}`
+			+ ` --head ${approval.pr_head_sha}`
+			+ ` --base ${approval.pr_base_sha}`
+			+ `\n${approval.reason}`,
 		...commentOverrides,
 		user: {
 			...defaultUser,
@@ -247,20 +260,49 @@ function githubEvidence(report, {
 		number: approval.approval_issue_number,
 		html_url: approval.approval_issue_url,
 		state: 'open',
-		labels: [{ name: 'processing' }],
+		labels: [{ name: 'pending-review' }],
 		body: `**Submission ID**: \`${SUBMISSION_ID}\`\n**Source**: ${SOURCE_URL}\n`,
-		pull_request: undefined,
+		pull_request: {
+			url: `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${approval.pr_number}`,
+		},
 		...issueOverrides,
+	};
+	const defaultBase = {
+		sha: approval.pr_base_sha,
+		ref: approval.pr_base_ref,
+		repo: { full_name: GITHUB_REPOSITORY },
+	};
+	const defaultHead = {
+		sha: LIVE_PR_HEAD_SHA,
+		ref: approval.pr_head_ref,
+		repo: { full_name: GITHUB_REPOSITORY },
 	};
 	const pullRequest = {
 		number: approval.pr_number,
 		html_url: approval.pr_url,
 		state: 'open',
 		merged: false,
+		merged_at: null,
 		body: `**Submission ID**: \`${SUBMISSION_ID}\`\n**Source**: ${SOURCE_URL}\n`,
-		base: { sha: approval.pr_base_sha, ref: 'main' },
-		head: { sha: LIVE_PR_HEAD_SHA, ref: approval.pr_head_ref },
+		base: defaultBase,
+		head: defaultHead,
 		...prOverrides,
+	};
+	pullRequest.base = {
+		...defaultBase,
+		...(prOverrides.base ?? {}),
+		repo: {
+			...defaultBase.repo,
+			...(prOverrides.base?.repo ?? {}),
+		},
+	};
+	pullRequest.head = {
+		...defaultHead,
+		...(prOverrides.head ?? {}),
+		repo: {
+			...defaultHead.repo,
+			...(prOverrides.head?.repo ?? {}),
+		},
 	};
 	const commits = commitsOverrides ?? [
 		{ sha: PR_HEAD_SHA },
@@ -281,6 +323,8 @@ function githubEvidence(report, {
 	return {
 		approvalDocument,
 		githubRepository: GITHUB_REPOSITORY,
+		currentPrNumber: pullRequest.number,
+		currentPrHeadSha: pullRequest.head.sha,
 		now,
 		requests,
 		githubRequest: async (apiPath) => {
@@ -601,6 +645,26 @@ test('rejects GitHub Bot approval even when the login has no bot suffix', async 
 	}
 });
 
+test('approval URL parser accepts exact GitHub pull and issue comment URLs', async () => {
+	const { parseIssueCommentUrl } = await import(
+		`${pathToFileURL(APPROVAL_LIBRARY_PATH).href}?test=${Date.now()}-${Math.random()}`
+	);
+	for (const pathKind of ['pull', 'issues']) {
+		const parsed = parseIssueCommentUrl(
+			`https://github.com/${GITHUB_REPOSITORY}/${pathKind}/${PR_NUMBER}#issuecomment-${COMMENT_ID}`,
+		);
+		assert.equal(parsed.issueNumber, PR_NUMBER);
+		assert.equal(parsed.commentId, COMMENT_ID);
+	}
+	for (const invalid of [
+		`https://github.com/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}#issuecomment-${COMMENT_ID}`,
+		`https://github.com/${GITHUB_REPOSITORY}/pull/${PR_NUMBER}?diff=split#issuecomment-${COMMENT_ID}`,
+		`https://example.com/${GITHUB_REPOSITORY}/pull/${PR_NUMBER}#issuecomment-${COMMENT_ID}`,
+	]) {
+		assert.throws(() => parseIssueCommentUrl(invalid), /valid GitHub URL|issuecomment/i);
+	}
+});
+
 test('allows a hash-bound override backed by a matching human issue comment', async () => {
 	const root = makeTempRoot();
 	try {
@@ -617,10 +681,183 @@ test('allows a hash-bound override backed by a matching human issue comment', as
 			`/repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}`,
 			`/repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}`,
 			`/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}`,
-			`/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100`,
 			`/repos/${GITHUB_REPOSITORY}/compare/${PR_HEAD_SHA}...${LIVE_PR_HEAD_SHA}`,
 			`/repos/${GITHUB_REPOSITORY}/collaborators/mylukin/permission`,
 		]);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('selects only the approval for the current PR when an older identical-byte approval remains', async () => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'pending', 'fixture-owner', 'current-pr-approval');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir, { safeToPublish: false });
+		const evidence = githubEvidence(report);
+		const currentApproval = evidence.approvalDocument.approvals[0];
+		const oldPrNumber = PR_NUMBER - 1;
+		const oldCommentId = COMMENT_ID - 1;
+		const oldApproval = {
+			...currentApproval,
+			submission_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+			approval_issue_number: oldPrNumber,
+			approval_issue_url: `https://github.com/${GITHUB_REPOSITORY}/pull/${oldPrNumber}`,
+			approval_comment_id: oldCommentId,
+			approval_comment_url: `https://github.com/${GITHUB_REPOSITORY}/pull/${oldPrNumber}#issuecomment-${oldCommentId}`,
+			pr_number: oldPrNumber,
+			pr_url: `https://github.com/${GITHUB_REPOSITORY}/pull/${oldPrNumber}`,
+			pr_head_ref: `submission/old-${oldPrNumber}`,
+		};
+		evidence.approvalDocument.approvals.unshift(oldApproval);
+
+		const { validatePackage } = await loadGate();
+		const result = await validatePackage(packageDir, evidence);
+		assert.equal(result.ok, true, result.errors.join('\n'));
+		assert.equal(result.approval?.pr_number, PR_NUMBER);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('rejects same-PR approval evidence from a different source repository before API calls', async () => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'pending', 'fixture-owner', 'wrong-source');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir, { safeToPublish: false });
+		const wrongSource = 'https://github.com/attacker/unrelated-source';
+		const wrongBody = `**Submission ID**: \`${SUBMISSION_ID}\`\n**Source**: ${wrongSource}\n`;
+		const evidence = githubEvidence(report, {
+			approvalOverrides: { submission_source_url: wrongSource },
+			issueOverrides: { body: wrongBody },
+			prOverrides: { body: wrongBody },
+		});
+
+		const { validatePackage } = await loadGate();
+		const result = await validatePackage(packageDir, evidence);
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join('\n'), /source repository|submission source/i);
+		assert.deepEqual(evidence.requests, []);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('unsafe override requires the exact current triggering PR and final head', async () => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'pending', 'fixture-owner', 'missing-current-pr');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir, { safeToPublish: false });
+		const evidence = githubEvidence(report);
+		delete evidence.currentPrNumber;
+		delete evidence.currentPrHeadSha;
+
+		const { validatePackage } = await loadGate();
+		const result = await validatePackage(packageDir, evidence);
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join('\n'), /current.*PR|triggering PR|final.*head/i);
+		assert.deepEqual(evidence.requests, []);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('validator rechecks approval timing against the current audit attestation', async () => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'pending', 'fixture-owner', 'reaudited-approval');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir, { safeToPublish: false });
+		const attestationPath = join(packageDir, 'skill-report.attestation.json');
+		const attestation = JSON.parse(readFileSync(attestationPath, 'utf8'));
+		attestation.invocation.completed_at = '2026-07-10T01:30:00.000Z';
+		writeFileSync(attestationPath, `${JSON.stringify(attestation, null, 2)}\n`);
+		const evidence = githubEvidence(report);
+
+		const { validatePackage } = await loadGate();
+		const result = await validatePackage(packageDir, evidence);
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join('\n'), /audit_completed_at|created_at.*earlier.*attestation/i);
+		assert.deepEqual(evidence.requests, []);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('approval from PR A cannot replay onto same slug and hashes in PR B', async () => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'pending', 'fixture-owner', 'cross-pr-replay');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir, {
+			safeToPublish: false,
+			sourceUrl: 'https://github.com/different-owner/different-repo/tree/main/fixture-skill',
+		});
+		const evidence = githubEvidence(report);
+		evidence.currentPrNumber = PR_NUMBER + 1;
+		evidence.currentPrHeadSha = 'd'.repeat(40);
+
+		const { validatePackage } = await loadGate();
+		const result = await validatePackage(packageDir, evidence);
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join('\n'), /current.*PR|source.*owner|source.*repo|replay/i);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('approval-only ancestry remains valid beyond 100 commits without commit-list membership', async () => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'pending', 'fixture-owner', 'long-approval-history');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir, { safeToPublish: false });
+		const comparisonCommits = [
+			...Array.from({ length: 100 }, () => ({ sha: 'd'.repeat(40) })),
+			{ sha: LIVE_PR_HEAD_SHA },
+		];
+		const evidence = githubEvidence(report, {
+			commitsOverrides: Array.from({ length: 100 }, () => ({ sha: 'd'.repeat(40) })),
+			compareOverrides: {
+				ahead_by: 101,
+				total_commits: 101,
+				commits: comparisonCommits,
+			},
+		});
+
+		const { validatePackage } = await loadGate();
+		const result = await validatePackage(packageDir, evidence);
+		assert.equal(result.ok, true, result.errors.join('\n'));
+		assert.equal(
+			evidence.requests.some((path) => path.includes('/commits?per_page=100')),
+			false,
+		);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('allows the exact closed PR issue only when that PR is merged', async () => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'pending', 'fixture-owner', 'merged-human-approval');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir, { safeToPublish: false });
+		const evidence = githubEvidence(report, {
+			issueOverrides: { state: 'closed' },
+			prOverrides: {
+				state: 'closed',
+				merged: true,
+				merged_at: '2026-07-10T01:30:00.000Z',
+			},
+		});
+
+		const { validatePackage } = await loadGate();
+		const result = await validatePackage(packageDir, evidence);
+		assert.equal(result.ok, true, result.errors.join('\n'));
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -703,17 +940,26 @@ test('rejects issue-comment evidence mismatches', async (t) => {
 				name: 'exact report slug',
 				evidence: githubEvidence(report, {
 					commentOverrides: {
-						body: '/approve safe-to-publish fixture-owner-other-skill\n'
+						body: '/approve safe-to-publish fixture-owner-other-skill'
+							+ ` --content-hash ${report.meta.content_hash}`
+							+ ` --tree-hash ${report.meta.tree_hash}`
+							+ ` --head ${PR_HEAD_SHA}`
+							+ ` --base ${PR_BASE_SHA}\n`
 							+ 'Reviewed the unsafe publication recommendation and accepted the documented risk.',
 					},
-				}),
-				pattern: /exact.*slug|safe-to-publish.*slug/i,
+					}),
+					pattern: /exact.*slug|safe-to-publish.*slug|bindings.*tracked/i,
 			},
 			{
 				name: 'recorded reason',
 				evidence: githubEvidence(report, {
 					commentOverrides: {
-						body: `/approve safe-to-publish ${report.meta.slug}\nA different approval reason.`,
+						body: `/approve safe-to-publish ${report.meta.slug}`
+							+ ` --content-hash ${report.meta.content_hash}`
+							+ ` --tree-hash ${report.meta.tree_hash}`
+							+ ` --head ${PR_HEAD_SHA}`
+							+ ` --base ${PR_BASE_SHA}`
+							+ '\nA different approval reason.',
 					},
 				}),
 				pattern: /recorded.*reason|reason.*comment/i,
@@ -757,7 +1003,7 @@ test('rejects replay across issue, submission, PR head, slug, or package hashes'
 							+ '**Source**: https://github.com/unrelated/old-submission\n',
 					},
 				}),
-				pattern: /submission|source|issue.*approval/i,
+				pattern: /submission|source|approval issue|approval_issue_number|same repository and PR/i,
 			},
 			{
 				name: 'wrong submission',
@@ -769,13 +1015,21 @@ test('rejects replay across issue, submission, PR head, slug, or package hashes'
 				}),
 				pattern: /submission/i,
 			},
-			{
-				name: 'wrong PR head',
-				evidence: githubEvidence(report, {
-					approvalOverrides: { pr_head_sha: 'd'.repeat(40) },
-				}),
-				pattern: /head|commit/i,
-			},
+				{
+					name: 'wrong PR head',
+					evidence: githubEvidence(report, {
+						approvalOverrides: { pr_head_sha: 'd'.repeat(40) },
+						commentOverrides: {
+							body: `/approve safe-to-publish ${report.meta.slug}`
+								+ ` --content-hash ${report.meta.content_hash}`
+								+ ` --tree-hash ${report.meta.tree_hash}`
+								+ ` --head ${PR_HEAD_SHA}`
+								+ ` --base ${PR_BASE_SHA}`
+								+ '\nReviewed the unsafe publication recommendation and accepted the documented risk.',
+						},
+					}),
+					pattern: /head|commit|bindings.*tracked/i,
+				},
 			{
 				name: 'wrong slug',
 				evidence: githubEvidence(report, {
@@ -910,6 +1164,8 @@ test('fails closed on missing token or GitHub API failure without making real ne
 				approvalDocument,
 				githubRepository: GITHUB_REPOSITORY,
 				githubToken: '',
+				currentPrNumber: PR_NUMBER,
+				currentPrHeadSha: LIVE_PR_HEAD_SHA,
 				fetchImpl: async () => {
 					fetchCalls++;
 					throw new Error('test fetch must not run');
@@ -1122,10 +1378,12 @@ test('approval schema and tracked approval artifact are present and versioned', 
 		'created_at',
 		'updated_at',
 		'expires_at',
-		'pr_number',
-		'pr_url',
-		'pr_base_sha',
-		'pr_head_ref',
+		'audit_completed_at',
+			'pr_number',
+			'pr_url',
+			'pr_base_sha',
+			'pr_base_ref',
+			'pr_head_ref',
 		'pr_head_sha',
 		'slug',
 		'content_hash',
@@ -1134,6 +1392,10 @@ test('approval schema and tracked approval artifact are present and versioned', 
 		assert.ok(approvalSchema.required.includes(field), `${field} must be required`);
 	}
 	assert.match(approvalSchema.properties.approval_comment_url.pattern, /issuecomment/);
+	assert.match(approvalSchema.properties.approval_comment_url.pattern, /pull/);
+	assert.match(approvalSchema.properties.approval_comment_url.pattern, /issues/);
+	assert.match(approvalSchema.properties.approval_issue_url.pattern, /pull/);
+	assert.match(approvalSchema.properties.approval_issue_url.pattern, /issues/);
 	assert.equal(approvals.schema_version, '2.0');
 	assert.deepEqual(approvals.approvals, []);
 });

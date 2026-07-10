@@ -7,10 +7,12 @@ on:
 jobs:
   check-approval:
     if: |
+      github.event.issue.pull_request == null &&
       github.event.issue.state == 'open' &&
       contains(github.event.issue.labels.*.name, 'pending-approval') &&
       github.event.comment.user.type == 'User' &&
-      startsWith(github.event.comment.body, '/approve')
+      startsWith(github.event.comment.body, '/approve') &&
+      !startsWith(github.event.comment.body, '/approve safe-to-publish')
     runs-on: self-hosted
     timeout-minutes: 10
     outputs:
@@ -33,34 +35,6 @@ jobs:
           else
             echo "❌ User ${{ github.event.comment.user.login }} lacks permission (has: $PERMISSION)"
             echo "should_process=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Validate safe-to-publish approval command
-        if: |
-          steps.check.outputs.should_process == 'true' &&
-          startsWith(github.event.comment.body, '/approve safe-to-publish')
-        env:
-          COMMENT_BODY: ${{ github.event.comment.body }}
-        run: |
-          FIRST_LINE="${COMMENT_BODY%%$'\n'*}"
-          FIRST_LINE="${FIRST_LINE%$'\r'}"
-          if [[ ! "$FIRST_LINE" =~ ^/approve\ safe-to-publish\ [a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
-            echo "::error::Use /approve safe-to-publish <exact-report-slug> followed by the reason on a new line"
-            exit 1
-          fi
-
-          if [[ "$COMMENT_BODY" != *$'\n'* ]]; then
-            echo "::error::A non-empty approval reason is required on a new line"
-            exit 1
-          fi
-          REASON="${COMMENT_BODY#*$'\n'}"
-          if [ -z "$(printf '%s' "$REASON" | tr -d '[:space:]')" ]; then
-            echo "::error::A non-empty approval reason is required on a new line"
-            exit 1
-          fi
-          if [ "${#REASON}" -lt 20 ]; then
-            echo "::error::The complete approval reason must contain at least 20 characters"
-            exit 1
           fi
 
       - name: Parse issue body for submission details
@@ -153,6 +127,79 @@ jobs:
             --repo ${{ github.repository }} \
             --remove-label "pending-approval" \
             --add-label "processing" || true
+
+  record-publication-approval:
+    if: |
+      github.event.issue.pull_request != null &&
+      github.event.issue.state == 'open' &&
+      contains(github.event.issue.labels.*.name, 'pending-review') &&
+      github.event.comment.user.type == 'User' &&
+      startsWith(github.event.comment.body, '/approve safe-to-publish')
+    runs-on: self-hosted
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: read
+    steps:
+      - name: Check safe approval commenter permission
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVER: ${{ github.event.comment.user.login }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          PERMISSION=$(gh api \
+            "repos/$REPOSITORY/collaborators/$APPROVER/permission" \
+            --jq '.permission')
+          case "$PERMISSION" in
+            write|maintain|admin)
+              echo "Authorized safe publication approver: $APPROVER ($PERMISSION)"
+              ;;
+            *)
+              echo "::error::$APPROVER lacks write, maintain, or admin permission"
+              exit 1
+              ;;
+          esac
+
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Checkout trusted approval tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 1
+          path: trusted-approval-tooling
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Install trusted tooling dependencies
+        working-directory: trusted-approval-tooling
+        run: npm ci --ignore-scripts
+
+      - name: Record publication approval with CAS retry
+        working-directory: trusted-approval-tooling
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          node scripts/record-skill-publish-approval.mjs \
+            --repository "${{ github.repository }}" \
+            --pr-number "${{ github.event.issue.number }}" \
+            --comment-id "${{ github.event.comment.id }}" \
+            --max-attempts 5
 
   handle-rejection:
     if: |

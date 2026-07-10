@@ -507,6 +507,19 @@ function validateAuditAttestation(packageDir, report, hashes) {
 	return errors;
 }
 
+function auditCompletedAt(packageDir) {
+	const attestationPath = join(packageDir, ATTESTATION_FILENAME);
+	if (!existsSync(attestationPath)) return '';
+	try {
+		const attestation = JSON.parse(readFileSync(attestationPath, 'utf8'));
+		return typeof attestation?.invocation?.completed_at === 'string'
+			? attestation.invocation.completed_at
+			: '';
+	} catch {
+		return '';
+	}
+}
+
 async function validateFreshness(packageDir, report, options = {}) {
 	const errors = [];
 	let hashes;
@@ -529,7 +542,11 @@ async function validateFreshness(packageDir, report, options = {}) {
 		);
 	}
 	const attestationExists = existsSync(join(packageDir, ATTESTATION_FILENAME));
-	if (options.requireAuditAttestation || attestationExists) {
+	if (
+		options.requireAuditAttestation
+		|| report.security_audit?.safe_to_publish === false
+		|| attestationExists
+	) {
 		errors.push(...validateAuditAttestation(packageDir, report, hashes));
 	}
 	return errors;
@@ -575,7 +592,10 @@ export async function validatePackage(packageDir, options = {}) {
 
 	if (report.security_audit.safe_to_publish === false) {
 		const approvalDocument = options.approvalDocument ?? { schema_version: '2.0', approvals: [] };
-		const approvalResult = await findHumanApproval(report, approvalDocument, options);
+		const approvalResult = await findHumanApproval(report, approvalDocument, {
+			...options,
+			auditCompletedAt: auditCompletedAt(absoluteDir),
+		});
 		errors.push(...approvalResult.errors);
 		return {
 			ok: errors.length === 0,
@@ -603,6 +623,8 @@ function parseArguments(argv) {
 		approvalsPath: DEFAULT_APPROVALS_PATH,
 		integrityOnly: false,
 		changedSince: '',
+		currentPrNumber: undefined,
+		currentPrHeadSha: '',
 	};
 
 	for (let index = 0; index < argv.length; index++) {
@@ -617,6 +639,10 @@ function parseArguments(argv) {
 			options.integrityOnly = true;
 		} else if (arg === '--changed-since') {
 			options.changedSince = argv[++index];
+		} else if (arg === '--current-pr-number') {
+			options.currentPrNumber = Number(argv[++index]);
+		} else if (arg === '--current-pr-head-sha') {
+			options.currentPrHeadSha = argv[++index];
 		} else if (arg === '--help' || arg === '-h') {
 			options.help = true;
 		} else {
@@ -633,6 +659,15 @@ function parseArguments(argv) {
 	if (!options.approvalsPath) throw new Error('--approvals requires a path');
 	if (argv.includes('--changed-since') && !options.changedSince) {
 		throw new Error('--changed-since requires a git revision');
+	}
+	if (
+		options.currentPrNumber !== undefined
+		&& (!Number.isSafeInteger(options.currentPrNumber) || options.currentPrNumber < 1)
+	) {
+		throw new Error('--current-pr-number requires a positive integer');
+	}
+	if (options.currentPrHeadSha && !/^[a-f0-9]{40}$/.test(options.currentPrHeadSha)) {
+		throw new Error('--current-pr-head-sha requires a lowercase 40-character Git SHA');
 	}
 
 	return options;
@@ -750,6 +785,8 @@ Options:
   --approvals <file>   Repository-tracked approval document
   --integrity-only     Skip publication policy checks
   --changed-since <r>  Validate changed package roots since git revision
+  --current-pr-number <n>   Exact triggering PR for unsafe overrides
+  --current-pr-head-sha <s> Exact final head of the triggering PR
 `);
 }
 
@@ -786,6 +823,8 @@ async function runCli(argv) {
 			enforcePublicationPolicy: !options.integrityOnly,
 			githubRepository: process.env.GITHUB_REPOSITORY,
 			githubToken: process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
+			currentPrNumber: options.currentPrNumber,
+			currentPrHeadSha: options.currentPrHeadSha,
 		});
 		if (result.ok) {
 			const approvalSuffix = result.approval ? ` (human override: ${result.approval.actor})` : '';

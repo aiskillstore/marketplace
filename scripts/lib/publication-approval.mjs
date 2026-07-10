@@ -6,7 +6,7 @@ const HASH_PATTERN = /^[a-f0-9]{64}$/;
 const SHA_PATTERN = /^[a-f0-9]{40}$/;
 const UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const WRITE_PERMISSIONS = new Set(['write', 'maintain', 'admin']);
-const ACTIVE_APPROVAL_LABELS = new Set(['pending-approval', 'processing']);
+const APPROVAL_PR_LABEL = 'pending-review';
 const APPROVAL_ARTIFACT_PATH = '.github/skill-publish-approvals.json';
 
 function requiredString(value, field, errors) {
@@ -41,10 +41,55 @@ function normalizeSourceUrl(value) {
 	return value.trim().replace(/\.git$/i, '').replace(/\/$/, '');
 }
 
+function sourceRepository(value) {
+	let url;
+	try {
+		url = new URL(value);
+	} catch {
+		return '';
+	}
+	if (
+		url.protocol !== 'https:'
+		|| url.hostname !== 'github.com'
+		|| url.username !== ''
+		|| url.password !== ''
+		|| url.search !== ''
+		|| url.hash !== ''
+	) {
+		return '';
+	}
+	const parts = url.pathname.split('/').filter(Boolean);
+	if (parts.length < 2) return '';
+	const owner = parts[0].toLowerCase();
+	const repo = parts[1].replace(/\.git$/i, '').toLowerCase();
+	return owner !== '' && repo !== '' ? `${owner}/${repo}` : '';
+}
+
 function isBotLogin(login) {
 	return typeof login !== 'string'
 		|| login.toLowerCase() === 'ai-skill-store[bot]'
 		|| /\[bot\]$/i.test(login);
+}
+
+export function parseSafeApprovalCommand(commandLine) {
+	if (typeof commandLine !== 'string') {
+		throw new Error('approval command must be a string');
+	}
+	const match = commandLine.match(
+		/^\/approve safe-to-publish ([a-z0-9](?:[a-z0-9-]*[a-z0-9])?) --content-hash ([a-f0-9]{64}) --tree-hash ([a-f0-9]{64}) --head ([a-f0-9]{40}) --base ([a-f0-9]{40})$/,
+	);
+	if (!match) {
+		throw new Error(
+			'approval command must exactly bind slug, content_hash, tree_hash, approved head SHA, and base SHA in fixed order',
+		);
+	}
+	return {
+		slug: match[1],
+		contentHash: match[2],
+		treeHash: match[3],
+		headSha: match[4],
+		baseSha: match[5],
+	};
 }
 
 function parseGitHubUrl(value, pattern, label) {
@@ -71,7 +116,7 @@ function parseGitHubUrl(value, pattern, label) {
 export function parseIssueCommentUrl(value) {
 	const { match, url } = parseGitHubUrl(
 		value,
-		/^\/([^/]+)\/([^/]+)\/issues\/([1-9][0-9]*)$/,
+		/^\/([^/]+)\/([^/]+)\/(issues|pull)\/([1-9][0-9]*)$/,
 		'approval.approval_comment_url',
 	);
 	const commentMatch = url.hash.match(/^#issuecomment-([1-9][0-9]*)$/);
@@ -81,7 +126,8 @@ export function parseIssueCommentUrl(value) {
 	return {
 		owner: match[1],
 		repo: match[2],
-		issueNumber: Number(match[3]),
+		kind: match[3],
+		issueNumber: Number(match[4]),
 		commentId: Number(commentMatch[1]),
 		url: url.href,
 	};
@@ -90,14 +136,15 @@ export function parseIssueCommentUrl(value) {
 function parseIssueUrl(value) {
 	const { match, url } = parseGitHubUrl(
 		value,
-		/^\/([^/]+)\/([^/]+)\/issues\/([1-9][0-9]*)$/,
+		/^\/([^/]+)\/([^/]+)\/(issues|pull)\/([1-9][0-9]*)$/,
 		'approval.approval_issue_url',
 	);
 	if (url.hash !== '') throw new Error('approval.approval_issue_url must not contain a fragment');
 	return {
 		owner: match[1],
 		repo: match[2],
-		issueNumber: Number(match[3]),
+		kind: match[3],
+		issueNumber: Number(match[4]),
 		url: url.href,
 	};
 }
@@ -136,9 +183,11 @@ function validateApprovalRecord(approval, index, errors) {
 		'created_at',
 		'updated_at',
 		'expires_at',
+		'audit_completed_at',
 		'reason',
 		'pr_url',
 		'pr_base_sha',
+		'pr_base_ref',
 		'pr_head_ref',
 		'pr_head_sha',
 		'scope',
@@ -206,11 +255,15 @@ function validateApprovalRecord(approval, index, errors) {
 	if (issue && pull && (
 		issue.owner.toLowerCase() !== pull.owner.toLowerCase()
 		|| issue.repo.toLowerCase() !== pull.repo.toLowerCase()
+		|| issue.issueNumber !== pull.prNumber
 	)) {
-		errors.push(`${prefix}: approval issue and PR must be in the same repository`);
+		errors.push(`${prefix}: approval issue and PR must identify the same repository and PR number`);
 	}
 	if (pull && pull.prNumber !== approval.pr_number) {
 		errors.push(`${prefix}.pr_number must match pr_url`);
+	}
+	if (approval.approval_issue_number !== approval.pr_number) {
+		errors.push(`${prefix}.approval_issue_number must equal pr_number`);
 	}
 }
 
@@ -259,7 +312,7 @@ export function createGitHubRequest({ token, fetchImpl }) {
 	};
 }
 
-function extractSubmissionIdentity(body) {
+export function extractSubmissionIdentity(body) {
 	if (typeof body !== 'string') return { sourceUrl: '', submissionId: '' };
 	const submission = body.match(
 		/\*\*Submission ID\*\*:\s*`([a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})`/i,
@@ -287,6 +340,58 @@ function validateLiveTimestamps(approval, now, errors) {
 	}
 }
 
+function validateAuditTiming(report, approval, currentAuditCompletedAt, errors) {
+	const createdAt = Date.parse(approval.created_at);
+	const recordedAuditCompletedAt = validateTimestamp(
+		approval.audit_completed_at,
+		'approval.audit_completed_at',
+		errors,
+	);
+	const currentAuditTimestamp = Date.parse(currentAuditCompletedAt);
+	const generatedAt = Date.parse(report.meta?.generated_at);
+	const auditedAt = Date.parse(report.security_audit?.audited_at);
+	const timestamps = [
+		['attestation invocation.completed_at', currentAuditTimestamp],
+		['report.meta.generated_at', generatedAt],
+		['report.security_audit.audited_at', auditedAt],
+	];
+	if (report.meta?.audited_at !== undefined) {
+		timestamps.push(['report.meta.audited_at', Date.parse(report.meta.audited_at)]);
+	}
+
+	if (!Number.isFinite(currentAuditTimestamp)) {
+		errors.push('current audit attestation invocation.completed_at is missing or invalid');
+		return;
+	}
+	if (
+		Number.isFinite(recordedAuditCompletedAt)
+		&& approval.audit_completed_at !== currentAuditCompletedAt
+	) {
+		errors.push('approval.audit_completed_at must match the current audit attestation');
+	}
+	for (const [field, timestamp] of timestamps) {
+		if (!Number.isFinite(timestamp)) {
+			errors.push(`${field} is missing or invalid`);
+		} else if (Number.isFinite(createdAt) && createdAt < timestamp) {
+			errors.push(`approval.created_at cannot be earlier than ${field}`);
+		}
+	}
+}
+
+function validateCurrentPrContext(approval, options, errors) {
+	if (!Number.isSafeInteger(options.currentPrNumber) || options.currentPrNumber < 1) {
+		errors.push('current triggering PR number is required for unsafe publication approval');
+	} else if (
+		Number.isSafeInteger(approval?.pr_number)
+		&& options.currentPrNumber !== approval.pr_number
+	) {
+		errors.push('approval PR does not match the current triggering PR');
+	}
+	if (!SHA_PATTERN.test(options.currentPrHeadSha ?? '')) {
+		errors.push('current final PR head SHA is required for unsafe publication approval');
+	}
+}
+
 export async function verifyTrackedApproval(report, approval, options = {}) {
 	const slug = report.meta.slug;
 	const errors = [];
@@ -307,7 +412,20 @@ export async function verifyTrackedApproval(report, approval, options = {}) {
 
 	const now = Number.isFinite(options.now) ? options.now : Date.now();
 	validateLiveTimestamps(approval, now, errors);
+	validateAuditTiming(report, approval, options.auditCompletedAt, errors);
+	validateCurrentPrContext(approval, options, errors);
 	if (isBotLogin(approval.actor)) errors.push(`${slug}: bot actors cannot approve publication`);
+	const reportSourceRepository = sourceRepository(report.meta?.source_url);
+	const submissionSourceRepository = sourceRepository(approval.submission_source_url);
+	if (
+		reportSourceRepository === ''
+		|| submissionSourceRepository === ''
+		|| reportSourceRepository !== submissionSourceRepository
+	) {
+		errors.push(
+			`${slug}: report source and tracked submission source must identify the same exact GitHub owner/repo`,
+		);
+	}
 	if (errors.length > 0) return errors;
 
 	const evidence = parseIssueCommentUrl(approval.approval_comment_url);
@@ -361,8 +479,20 @@ export async function verifyTrackedApproval(report, approval, options = {}) {
 		? comment.body.replace(/\r\n?/g, '\n')
 		: '';
 	const [commandLine = '', ...reasonLines] = normalizedBody.split('\n');
-	if (commandLine.trim() !== `/approve safe-to-publish ${slug}`) {
-		errors.push(`${slug}: GitHub comment must approve safe-to-publish for the exact report slug`);
+	let command;
+	try {
+		command = parseSafeApprovalCommand(commandLine);
+	} catch (error) {
+		errors.push(`${slug}: ${error.message}`);
+	}
+	if (command && (
+		command.slug !== approval.slug
+		|| command.contentHash !== approval.content_hash
+		|| command.treeHash !== approval.tree_hash
+		|| command.headSha !== approval.pr_head_sha
+		|| command.baseSha !== approval.pr_base_sha
+	)) {
+		errors.push(`${slug}: GitHub comment bindings must exactly match the tracked approval record`);
 	}
 	if (reasonLines.join('\n').trim() !== approval.reason) {
 		errors.push(`${slug}: GitHub comment reason must exactly equal the complete recorded reason`);
@@ -380,16 +510,16 @@ export async function verifyTrackedApproval(report, approval, options = {}) {
 	if (
 		issue?.number !== approval.approval_issue_number
 		|| issue?.html_url !== approval.approval_issue_url
-		|| issue?.pull_request
+		|| issue?.pull_request?.url
+			!== `https://api.github.com/repos/${evidenceRepository}/pulls/${approval.pr_number}`
 	) {
-		errors.push(`${slug}: approval record must reference the exact non-PR approval issue`);
+		errors.push(`${slug}: approval record must reference the exact submission PR issue`);
 	}
-	if (issue?.state !== 'open') errors.push(`${slug}: approval issue must remain open`);
 	const labels = new Set((issue?.labels ?? []).map((label) => (
 		typeof label === 'string' ? label : label?.name
 	)));
-	if (![...ACTIVE_APPROVAL_LABELS].some((label) => labels.has(label))) {
-		errors.push(`${slug}: approval issue must retain pending-approval or processing state`);
+	if (!labels.has(APPROVAL_PR_LABEL)) {
+		errors.push(`${slug}: approval PR must retain the ${APPROVAL_PR_LABEL} label`);
 	}
 	const issueIdentity = extractSubmissionIdentity(issue?.body);
 	if (issueIdentity.submissionId !== approval.submission_id.toLowerCase()) {
@@ -411,6 +541,9 @@ export async function verifyTrackedApproval(report, approval, options = {}) {
 	if (pullRequest?.number !== approval.pr_number || pullRequest?.html_url !== approval.pr_url) {
 		errors.push(`${slug}: approval record must reference the exact submission PR`);
 	}
+	if (pullRequest?.number !== options.currentPrNumber) {
+		errors.push(`${slug}: live PR does not match the current triggering PR`);
+	}
 	const mergedAt = pullRequest?.merged_at;
 	const isOpenPullRequest = pullRequest?.state === 'open';
 	const isMergedPullRequest = (
@@ -422,8 +555,25 @@ export async function verifyTrackedApproval(report, approval, options = {}) {
 	if (!isOpenPullRequest && !isMergedPullRequest) {
 		errors.push(`${slug}: submission PR must be open or closed with merged=true and merged_at`);
 	}
+	if (
+		(isOpenPullRequest && issue?.state !== 'open')
+		|| (isMergedPullRequest && issue?.state !== 'closed')
+	) {
+		errors.push(`${slug}: approval PR issue state must match the exact open or merged PR state`);
+	}
+	if (
+		normalizedRepository(pullRequest?.base?.repo?.full_name)
+			!== normalizedRepository(githubRepository)
+		|| normalizedRepository(pullRequest?.head?.repo?.full_name)
+			!== normalizedRepository(githubRepository)
+	) {
+		errors.push(`${slug}: submission PR base and head repositories must equal ${githubRepository}`);
+	}
 	if (pullRequest?.base?.sha !== approval.pr_base_sha) {
 		errors.push(`${slug}: submission PR base SHA does not match approval.pr_base_sha`);
+	}
+	if (pullRequest?.base?.ref !== approval.pr_base_ref) {
+		errors.push(`${slug}: submission PR base ref does not match approval.pr_base_ref`);
 	}
 	if (pullRequest?.head?.ref !== approval.pr_head_ref) {
 		errors.push(`${slug}: submission PR head ref does not match approval.pr_head_ref`);
@@ -437,21 +587,11 @@ export async function verifyTrackedApproval(report, approval, options = {}) {
 	}
 	if (errors.length > 0) return errors;
 
-	let commits;
-	try {
-		commits = await githubRequest(
-			`/repos/${evidenceRepository}/pulls/${approval.pr_number}/commits?per_page=100`,
-		);
-	} catch (error) {
-		return [`${slug}: GitHub PR commit verification failed: ${error.message}`];
-	}
-	if (!Array.isArray(commits) || !commits.some((commit) => commit?.sha === approval.pr_head_sha)) {
-		errors.push(`${slug}: approved PR head commit is not part of the exact submission PR`);
-	}
-
 	const liveHeadSha = pullRequest?.head?.sha;
 	if (!SHA_PATTERN.test(liveHeadSha ?? '')) {
 		errors.push(`${slug}: submission PR head SHA is missing or invalid`);
+	} else if (liveHeadSha !== options.currentPrHeadSha) {
+		errors.push(`${slug}: live PR head does not match the current final PR head`);
 	} else if (liveHeadSha !== approval.pr_head_sha) {
 		let comparison;
 		try {
@@ -462,25 +602,23 @@ export async function verifyTrackedApproval(report, approval, options = {}) {
 			return [`${slug}: GitHub PR head comparison failed: ${error.message}`];
 		}
 		const changedFiles = Array.isArray(comparison?.files)
-			? comparison.files.map((file) => file?.filename)
+			? comparison.files
 			: [];
-		const comparedCommits = Array.isArray(comparison?.commits)
-			? comparison.commits.map((commit) => commit?.sha)
-			: [];
+		const aheadBy = comparison?.ahead_by;
 		if (
 			comparison?.status !== 'ahead'
-			|| comparison?.ahead_by !== 1
+			|| !Number.isSafeInteger(aheadBy)
+			|| aheadBy < 1
 			|| comparison?.behind_by !== 0
-			|| comparison?.total_commits !== 1
+			|| comparison?.total_commits !== aheadBy
 			|| comparison?.base_commit?.sha !== approval.pr_head_sha
 			|| comparison?.merge_base_commit?.sha !== approval.pr_head_sha
-			|| comparedCommits.length !== 1
-			|| comparedCommits[0] !== liveHeadSha
 			|| changedFiles.length !== 1
-			|| changedFiles[0] !== APPROVAL_ARTIFACT_PATH
+			|| changedFiles[0]?.filename !== APPROVAL_ARTIFACT_PATH
+			|| changedFiles[0]?.status !== 'modified'
 		) {
 			errors.push(
-				`${slug}: PR head must be exactly one descendant approval commit changing only ${APPROVAL_ARTIFACT_PATH}`,
+				`${slug}: PR head must be a descendant through one or more approval-only commits changing exactly ${APPROVAL_ARTIFACT_PATH}`,
 			);
 		}
 	}
@@ -505,11 +643,15 @@ export async function findHumanApproval(report, approvalDocument, options = {}) 
 	if (documentErrors.length > 0) return { errors: documentErrors };
 
 	const slug = report.meta.slug;
+	const contextErrors = [];
+	validateCurrentPrContext({}, options, contextErrors);
+	if (contextErrors.length > 0) return { errors: contextErrors };
 	const matching = approvalDocument.approvals.filter((approval) => (
 		approval?.slug === slug
 		&& approval?.content_hash === report.meta.content_hash
 		&& approval?.tree_hash === report.meta.tree_hash
 		&& approval?.scope === APPROVAL_SCOPE
+		&& approval?.pr_number === options.currentPrNumber
 	));
 	if (matching.length === 0) {
 		return {

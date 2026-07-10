@@ -620,7 +620,6 @@ jobs:
           fi
 
           git push origin "$BRANCH_NAME"
-          APPROVED_HEAD_SHA=$(git rev-parse HEAD)
 
           RISK_BADGE="🟢"
           [ "$HIGHEST_RISK" = "critical" ] && RISK_BADGE="🔴"
@@ -702,26 +701,6 @@ jobs:
           PR_URL=$(printf '%s\n' "$PR_CREATE_OUTPUT" | tail -1)
 
           if [ "${{ inputs.is_manual_approval }}" = "true" ]; then
-            if [ -z "${{ inputs.approval_issue_number }}" ] || [ -z "${{ inputs.approval_comment_id }}" ]; then
-              echo "::error::Manual approval is missing exact issue/comment identity"
-              exit 1
-            fi
-            PR_NUMBER=$(gh pr view "$PR_URL" --json number --jq '.number')
-            npm ci
-            node scripts/update-skill-publish-approval.mjs \
-              --approvals .github/skill-publish-approvals.json \
-              --discover pending \
-              --submission-id "${{ inputs.submission_id }}" \
-              --submission-source-url "${{ inputs.github_url }}" \
-              --issue-number "${{ inputs.approval_issue_number }}" \
-              --comment-id "${{ inputs.approval_comment_id }}" \
-              --pr-number "$PR_NUMBER" \
-              --pr-head-sha "$APPROVED_HEAD_SHA"
-
-            git add .github/skill-publish-approvals.json
-            git commit -m "Track publication approval for submission ${{ inputs.submission_id }}"
-            git push origin "$BRANCH_NAME"
-
             gh pr edit "$PR_URL" --add-label "manually-approved" || \
               echo "::warning::Optional label 'manually-approved' could not be applied"
           fi

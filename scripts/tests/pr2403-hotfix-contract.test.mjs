@@ -41,6 +41,7 @@ const FOCUSED_SAFETY_TESTS = [
 	'scripts/tests/changed-package-selection.test.mjs',
 	'scripts/tests/empty-skill-cleanup.test.mjs',
 	'scripts/tests/approval-record.test.mjs',
+	'scripts/tests/approval-cas.test.mjs',
 ];
 
 async function loadGate() {
@@ -54,6 +55,16 @@ function getWorkflowStep(workflow, name) {
 	assert.ok(start >= 0, `workflow step not found: ${name}`);
 	const next = workflow.indexOf('\n      - name:', start + marker.length);
 	return workflow.slice(start, next >= 0 ? next : workflow.length);
+}
+
+function getWorkflowJob(workflow, name) {
+	const marker = `  ${name}:`;
+	const start = workflow.indexOf(marker);
+	assert.ok(start >= 0, `workflow job not found: ${name}`);
+	const remainder = workflow.slice(start + marker.length);
+	const nextMatch = remainder.match(/\n  [a-zA-Z0-9_-]+:\n/);
+	const end = nextMatch ? start + marker.length + nextMatch.index : workflow.length;
+	return workflow.slice(start, end);
 }
 
 function assertLockedInstall(step) {
@@ -268,26 +279,114 @@ test('publication workflows pass an existing GitHub token to the validator throu
 	assert.doesNotMatch(syncWorkflow, /validate-skill-publication\.mjs[\s\S]{0,300}--(?:github-)?token/);
 });
 
-test('safe-to-publish evidence reuses the issue_comment /approve permission gate', () => {
+test('ordinary /approve remains the generic submission path and never forges an override', () => {
 	const workflow = readFileSync(ISSUE_APPROVAL_WORKFLOW, 'utf8');
 	const approveWorkflow = readFileSync(APPROVE_SUBMISSION_WORKFLOW, 'utf8');
 	const reusableWorkflow = readFileSync(REUSABLE_PROCESS_WORKFLOW, 'utf8');
+	const checkJob = getWorkflowJob(workflow, 'check-approval');
+	const triggerJob = getWorkflowJob(workflow, 'trigger-processing');
 
 	assert.match(workflow, /issue_comment:\s*\n\s+types: \[created\]/);
-	assert.match(workflow, /startsWith\(github\.event\.comment\.body, '\/approve'\)/);
-	assert.match(workflow, /github\.event\.comment\.user\.type == 'User'/);
-	assert.match(workflow, /\/approve safe-to-publish/);
-	assert.match(workflow, /collaborators\/\$\{\{ github\.event\.comment\.user\.login \}\}\/permission/);
-	assert.match(workflow, /approval_comment_id=.*github\.event\.comment\.id/);
-	assert.match(workflow, /approval_actor=.*github\.event\.comment\.user\.login/);
+	assert.match(checkJob, /github\.event\.issue\.pull_request == null/);
+	assert.match(checkJob, /startsWith\(github\.event\.comment\.body, '\/approve'\)/);
+	assert.match(
+		checkJob,
+		/!startsWith\(github\.event\.comment\.body, '\/approve safe-to-publish'\)/,
+	);
+	assert.match(checkJob, /github\.event\.comment\.user\.type == 'User'/);
+	assert.match(triggerJob, /gh workflow run "Approve & Process Submission"/);
+	assert.match(triggerJob, /approval_actor=.*github\.event\.comment\.user\.login/);
 	assert.match(approveWorkflow, /approval_comment_id:/);
 	assert.match(approveWorkflow, /approval_actor:/);
-	assert.match(reusableWorkflow, /update-skill-publish-approval\.mjs/);
-	assert.match(reusableWorkflow, /--submission-id/);
-	assert.match(reusableWorkflow, /--issue-number/);
-	assert.match(reusableWorkflow, /--comment-id/);
-	assert.match(reusableWorkflow, /--pr-number/);
-	assert.match(reusableWorkflow, /--pr-head-sha/);
+	assert.match(reusableWorkflow, /is_manual_approval:/);
+	assert.doesNotMatch(reusableWorkflow, /update-skill-publish-approval\.mjs/);
+});
+
+test('pre-audit safe-to-publish comments cannot trigger submission processing', () => {
+	const workflow = readFileSync(ISSUE_APPROVAL_WORKFLOW, 'utf8');
+	const checkJob = getWorkflowJob(workflow, 'check-approval');
+	const safeJob = getWorkflowJob(workflow, 'record-publication-approval');
+
+	assert.match(checkJob, /github\.event\.issue\.pull_request == null/);
+	assert.match(
+		checkJob,
+		/!startsWith\(github\.event\.comment\.body, '\/approve safe-to-publish'\)/,
+	);
+	assert.match(safeJob, /github\.event\.comment\.user\.type == 'User'/);
+	assert.match(safeJob, /startsWith\(github\.event\.comment\.body, '\/approve safe-to-publish'\)/);
+	assert.match(safeJob, /record-skill-publish-approval\.mjs/);
+	assert.doesNotMatch(safeJob, /gh workflow run "Approve & Process Submission"/);
+});
+
+test('safe-to-publish PR comments validate current audited head before the only branch write', () => {
+	const workflow = readFileSync(ISSUE_APPROVAL_WORKFLOW, 'utf8');
+	const safeJob = getWorkflowJob(workflow, 'record-publication-approval');
+	const permissionIndex = safeJob.indexOf('      - name: Check safe approval commenter permission');
+	const tokenIndex = safeJob.indexOf('      - name: Generate GitHub App Token');
+	const checkoutIndex = safeJob.indexOf('      - name: Checkout trusted approval tooling');
+	const installIndex = safeJob.indexOf('      - name: Install trusted tooling dependencies');
+	const recordIndex = safeJob.indexOf('      - name: Record publication approval with CAS retry');
+
+	assert.match(safeJob, /startsWith\(github\.event\.comment\.body, '\/approve safe-to-publish'\)/);
+	assert.match(safeJob, /github\.event\.comment\.user\.type == 'User'/);
+	assert.match(safeJob, /github\.event\.issue\.pull_request != null/);
+	assert.match(safeJob, /github\.event\.issue\.state == 'open'/);
+	assert.match(safeJob, /contains\(github\.event\.issue\.labels\.\*\.name, 'pending-review'\)/);
+	assert.match(safeJob, /collaborators\/.*\/permission/);
+	assert.match(safeJob, /write.*maintain.*admin|admin.*maintain.*write/s);
+	assert.ok(permissionIndex >= 0 && permissionIndex < tokenIndex);
+	assert.ok(tokenIndex < checkoutIndex);
+	assert.ok(checkoutIndex < installIndex);
+	assert.ok(installIndex < recordIndex);
+	const checkoutStep = getWorkflowStep(workflow, 'Checkout trusted approval tooling');
+	assert.match(checkoutStep, /ref: \$\{\{ github\.workflow_sha \}\}/);
+	assert.match(checkoutStep, /path: trusted-approval-tooling/);
+	assert.match(checkoutStep, /persist-credentials: false/);
+	assert.doesNotMatch(checkoutStep, /steps\.app-token\.outputs\.token/);
+	const installStep = getWorkflowStep(workflow, 'Install trusted tooling dependencies');
+	assert.match(installStep, /working-directory: trusted-approval-tooling/);
+	assert.match(installStep, /\bnpm ci --ignore-scripts\b/);
+	const recordStep = getWorkflowStep(workflow, 'Record publication approval with CAS retry');
+	assert.match(recordStep, /working-directory: trusted-approval-tooling/);
+	assert.match(recordStep, /node scripts\/record-skill-publish-approval\.mjs/);
+	assert.match(recordStep, /--max-attempts 5/);
+	assert.match(recordStep, /--comment-id "\$\{\{ github\.event\.comment\.id \}\}"/);
+	assert.match(recordStep, /--pr-number "\$\{\{ github\.event\.issue\.number \}\}"/);
+	assert.doesNotMatch(safeJob, /Checkout current PR head/);
+	assert.doesNotMatch(safeJob, /\bnpm ci\b(?! --ignore-scripts)/);
+	assert.doesNotMatch(safeJob, /git (?:reset|clean|stash)|rm -rf/);
+	assert.doesNotMatch(safeJob, /gh workflow run|gh issue edit|gh pr edit|reactions|curl|supabase/i);
+	assert.doesNotMatch(safeJob, /production|sync|promot/i);
+	assert.doesNotMatch(workflow, /record-publication-approval:[\s\S]*cancel-in-progress:\s*true/);
+});
+
+test('promotion and sync pass exact current PR identity to unsafe publication validation', () => {
+	const promotionWorkflow = readFileSync(PROMOTION_WORKFLOW, 'utf8');
+	const syncWorkflow = readFileSync(SYNC_WORKFLOW, 'utf8');
+	const promotionStep = getWorkflowStep(
+		promotionWorkflow,
+		'Find pending skills and commit to skills directory',
+	);
+	const syncResolveStep = getWorkflowStep(syncWorkflow, 'Resolve exact merged PR for push');
+	const syncValidationStep = getWorkflowStep(
+		syncWorkflow,
+		'Validate publication safety before sync',
+	);
+
+	assert.match(
+		promotionStep,
+		/--current-pr-number "\$\{\{ github\.event\.pull_request\.number \}\}"/,
+	);
+	assert.match(
+		promotionStep,
+		/--current-pr-head-sha "\$\{\{ github\.event\.pull_request\.head\.sha \}\}"/,
+	);
+	assert.match(syncResolveStep, /commits\/\$GITHUB_SHA\/pulls/);
+	assert.match(syncResolveStep, /merge_commit_sha.*GITHUB_SHA|GITHUB_SHA.*merge_commit_sha/s);
+	assert.match(syncResolveStep, /base\.ref.*main|main.*base\.ref/s);
+	assert.match(syncResolveStep, /merged_at/);
+	assert.match(syncValidationStep, /--current-pr-number/);
+	assert.match(syncValidationStep, /--current-pr-head-sha/);
 });
 
 test('CI runs every publication safety regression before auto-fix writes', () => {

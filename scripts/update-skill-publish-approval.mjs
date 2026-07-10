@@ -16,14 +16,19 @@ import {
 	approvalConstants,
 	approvalExpiry,
 	createGitHubRequest,
+	extractSubmissionIdentity,
 	parseIssueCommentUrl,
+	parseSafeApprovalCommand,
 	validateApprovalDocument,
 	verifyTrackedApproval,
 } from './lib/publication-approval.mjs';
 import {
-	calculatePackageHashes,
 	discoverPackageDirs,
+	validatePackage,
 } from './validate-skill-publication.mjs';
+
+const SHA_PATTERN = /^[a-f0-9]{40}$/;
+const UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 
 function readJson(path, label) {
 	let value;
@@ -48,7 +53,24 @@ function normalizedBody(value) {
 	return typeof value === 'string' ? value.replace(/\r\n?/g, '\n') : '';
 }
 
-async function loadReports(packageDirs) {
+function normalizedRepository(value) {
+	return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function normalizeSourceUrl(value) {
+	if (typeof value !== 'string') return '';
+	return value.trim().replace(/\.git$/i, '').replace(/\/$/, '');
+}
+
+function cachedGitHubRequest(githubRequest) {
+	const cache = new Map();
+	return async (apiPath) => {
+		if (!cache.has(apiPath)) cache.set(apiPath, Promise.resolve().then(() => githubRequest(apiPath)));
+		return cache.get(apiPath);
+	};
+}
+
+function readPackageReports(packageDirs) {
 	const packages = [];
 	for (const packageDir of packageDirs) {
 		const absoluteDir = resolve(packageDir);
@@ -60,19 +82,51 @@ async function loadReports(packageDirs) {
 			throw new Error(`${absoluteDir}: skill-report.json is missing`);
 		}
 		const report = readJson(reportPath, reportPath);
-		if (report.security_audit?.is_blocked === true) {
-			throw new Error(`${report.meta?.slug ?? absoluteDir}: is_blocked=true cannot be overridden`);
-		}
-		const hashes = await calculatePackageHashes(absoluteDir);
-		if (
-			report.meta?.content_hash !== hashes.contentHash
-			|| report.meta?.tree_hash !== hashes.treeHash
-		) {
-			throw new Error(`${report.meta?.slug ?? absoluteDir}: report hashes are stale`);
-		}
 		packages.push({ packageDir: absoluteDir, report });
 	}
 	return packages;
+}
+
+function readAuditCompletedAt(packageDir) {
+	const attestationPath = join(packageDir, 'skill-report.attestation.json');
+	const attestation = readJson(attestationPath, attestationPath);
+	const completedAt = attestation?.invocation?.completed_at;
+	if (typeof completedAt !== 'string' || !Number.isFinite(Date.parse(completedAt))) {
+		throw new Error(`${attestationPath}: invocation.completed_at is missing or invalid`);
+	}
+	return completedAt;
+}
+
+async function loadApprovedPackage(packageDirs, slug) {
+	const selected = readPackageReports(packageDirs)
+		.filter(({ report }) => report.meta?.slug === slug);
+	if (selected.length !== 1) {
+		throw new Error(`approval comment slug must identify exactly one final package: ${slug}`);
+	}
+
+	const packageResult = await validatePackage(selected[0].packageDir, {
+		enforcePublicationPolicy: false,
+		requireAuditAttestation: true,
+	});
+	if (!packageResult.ok) throw new Error(packageResult.errors.join('\n'));
+	const report = packageResult.report;
+	if (report.security_audit?.is_blocked === true) {
+		throw new Error(`${slug}: is_blocked=true cannot be overridden`);
+	}
+	if (report.security_audit?.safe_to_publish !== false) {
+		throw new Error(`${slug}: tracked override is only valid for safe_to_publish=false`);
+	}
+	return {
+		packageDir: selected[0].packageDir,
+		report,
+		auditCompletedAt: readAuditCompletedAt(selected[0].packageDir),
+	};
+}
+
+function assertExpectedValue(actual, expected, label) {
+	if (typeof expected === 'string' && expected !== '' && actual !== expected) {
+		throw new Error(`${label} does not match the current PR`);
+	}
 }
 
 export async function upsertTrackedApprovals(options) {
@@ -89,11 +143,19 @@ export async function upsertTrackedApprovals(options) {
 	if (!Number.isSafeInteger(options.prNumber) || options.prNumber < 1) {
 		throw new Error('prNumber must be a positive integer');
 	}
-	if (!/^[a-f0-9]{40}$/.test(options.prHeadSha ?? '')) {
+	if (options.issueNumber !== options.prNumber) {
+		throw new Error('issueNumber must equal prNumber for a publication override');
+	}
+	if (!SHA_PATTERN.test(options.prHeadSha ?? '')) {
 		throw new Error('prHeadSha must be a lowercase 40-character Git SHA');
 	}
+	if (
+		options.expectedPrBaseSha !== undefined
+		&& !SHA_PATTERN.test(options.expectedPrBaseSha)
+	) {
+		throw new Error('expectedPrBaseSha must be a lowercase 40-character Git SHA');
+	}
 
-	const packages = await loadReports(packageDirs);
 	const approvalDocument = readJson(approvalsPath, approvalsPath);
 	const documentErrors = validateApprovalDocument(approvalDocument);
 	if (documentErrors.length > 0) throw new Error(documentErrors.join('\n'));
@@ -102,40 +164,34 @@ export async function upsertTrackedApprovals(options) {
 	if (!/^[^/]+\/[^/]+$/.test(githubRepository)) {
 		throw new Error('githubRepository must be owner/repo');
 	}
-	const githubRequest = options.githubRequest ?? createGitHubRequest({
+	const request = cachedGitHubRequest(options.githubRequest ?? createGitHubRequest({
 		token: Object.hasOwn(options, 'githubToken')
 			? options.githubToken
 			: (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || ''),
 		fetchImpl: options.fetchImpl ?? globalThis.fetch,
-	});
+	}));
 
-	const comment = await githubRequest(
+	const comment = await request(
 		`/repos/${githubRepository}/issues/comments/${options.commentId}`,
 	);
 	const body = normalizedBody(comment?.body);
 	const [commandLine = '', ...reasonLines] = body.split('\n');
-	const commandMatch = commandLine.trim().match(
-		/^\/approve safe-to-publish ([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)$/,
-	);
-	if (!commandMatch) {
-		throw new Error('approval comment must use /approve safe-to-publish <exact-report-slug>');
-	}
+	const command = parseSafeApprovalCommand(commandLine);
 	const reason = reasonLines.join('\n').trim();
 	if (reason.length < 20) throw new Error('approval reason must contain at least 20 characters');
-	const slug = commandMatch[1];
-	const selected = packages.filter(({ report }) => report.meta?.slug === slug);
-	if (selected.length !== 1) {
-		throw new Error(`approval comment slug must identify exactly one final package: ${slug}`);
-	}
-	const report = selected[0].report;
-	if (report.security_audit?.safe_to_publish !== false) {
-		throw new Error(`${slug}: tracked override is only valid for safe_to_publish=false`);
+	const slug = command.slug;
+	const { report, auditCompletedAt } = await loadApprovedPackage(packageDirs, slug);
+	if (
+		command.contentHash !== report.meta.content_hash
+		|| command.treeHash !== report.meta.tree_hash
+	) {
+		throw new Error('approval command content_hash and tree_hash must match the current audited package');
 	}
 
-	const issue = await githubRequest(
+	const issue = await request(
 		`/repos/${githubRepository}/issues/${options.issueNumber}`,
 	);
-	const pullRequest = await githubRequest(
+	const pullRequest = await request(
 		`/repos/${githubRepository}/pulls/${options.prNumber}`,
 	);
 	const commentIdentity = parseIssueCommentUrl(comment?.html_url ?? '');
@@ -145,13 +201,72 @@ export async function upsertTrackedApprovals(options) {
 	) {
 		throw new Error('approval comment does not belong to the exact approval issue');
 	}
+	if (
+		pullRequest?.state !== 'open'
+		|| pullRequest?.merged === true
+		|| pullRequest?.merged_at
+	) {
+		throw new Error('publication approval can only be recorded on the current open PR');
+	}
+	if (
+		normalizedRepository(pullRequest?.base?.repo?.full_name)
+			!== normalizedRepository(githubRepository)
+		|| normalizedRepository(pullRequest?.head?.repo?.full_name)
+			!== normalizedRepository(githubRepository)
+	) {
+		throw new Error(`PR base and head repositories must equal ${githubRepository}`);
+	}
+	if (pullRequest?.head?.sha !== options.prHeadSha) {
+		throw new Error('checked-out head SHA does not match the current PR head SHA');
+	}
+	assertExpectedValue(
+		pullRequest?.base?.sha,
+		options.expectedPrBaseSha,
+		'expected PR base SHA',
+	);
+	assertExpectedValue(
+		pullRequest?.base?.ref,
+		options.expectedPrBaseRef,
+		'expected PR base ref',
+	);
+	assertExpectedValue(
+		pullRequest?.head?.ref,
+		options.expectedPrHeadRef,
+		'expected PR head ref',
+	);
+	if (command.baseSha !== pullRequest?.base?.sha) {
+		throw new Error('approval command base SHA does not match the current PR base SHA');
+	}
+
+	const submissionIdentity = extractSubmissionIdentity(pullRequest?.body);
+	if (!UUID_PATTERN.test(submissionIdentity.submissionId)) {
+		throw new Error('current PR body must contain one exact submission ID');
+	}
+	if (normalizeSourceUrl(submissionIdentity.sourceUrl) === '') {
+		throw new Error('current PR body must contain one exact GitHub source URL');
+	}
+	if (
+		typeof options.submissionId === 'string'
+		&& options.submissionId !== ''
+		&& submissionIdentity.submissionId !== options.submissionId.toLowerCase()
+	) {
+		throw new Error('submission ID does not match the current PR body');
+	}
+	if (
+		typeof options.submissionSourceUrl === 'string'
+		&& options.submissionSourceUrl !== ''
+		&& normalizeSourceUrl(submissionIdentity.sourceUrl)
+			!== normalizeSourceUrl(options.submissionSourceUrl)
+	) {
+		throw new Error('submission source URL does not match the current PR body');
+	}
 
 	const record = {
 		slug,
 		content_hash: report.meta.content_hash,
 		tree_hash: report.meta.tree_hash,
-		submission_id: options.submissionId,
-		submission_source_url: options.submissionSourceUrl,
+		submission_id: submissionIdentity.submissionId,
+		submission_source_url: submissionIdentity.sourceUrl,
 		approval_issue_number: options.issueNumber,
 		approval_issue_url: issue?.html_url,
 		approval_comment_id: options.commentId,
@@ -160,19 +275,24 @@ export async function upsertTrackedApprovals(options) {
 		created_at: comment?.created_at,
 		updated_at: comment?.updated_at,
 		expires_at: approvalExpiry(comment?.created_at),
+		audit_completed_at: auditCompletedAt,
 		reason,
 		pr_number: options.prNumber,
 		pr_url: pullRequest?.html_url,
-		pr_base_sha: pullRequest?.base?.sha,
+		pr_base_sha: command.baseSha,
+		pr_base_ref: pullRequest?.base?.ref,
 		pr_head_ref: pullRequest?.head?.ref,
-		pr_head_sha: options.prHeadSha,
+		pr_head_sha: command.headSha,
 		scope: approvalConstants.scope,
 	};
 
 	const evidenceErrors = await verifyTrackedApproval(report, record, {
 		githubRepository,
-		githubRequest,
+		githubRequest: request,
 		now: options.now,
+		auditCompletedAt,
+		currentPrNumber: options.prNumber,
+		currentPrHeadSha: options.prHeadSha,
 	});
 	if (evidenceErrors.length > 0) throw new Error(evidenceErrors.join('\n'));
 
@@ -214,6 +334,9 @@ function parseArguments(argv) {
 		else if (arg === '--comment-id') options.commentId = Number(value), index++;
 		else if (arg === '--pr-number') options.prNumber = Number(value), index++;
 		else if (arg === '--pr-head-sha') options.prHeadSha = value, index++;
+		else if (arg === '--expected-pr-base-sha') options.expectedPrBaseSha = value, index++;
+		else if (arg === '--expected-pr-base-ref') options.expectedPrBaseRef = value, index++;
+		else if (arg === '--expected-pr-head-ref') options.expectedPrHeadRef = value, index++;
 		else if (arg === '--help' || arg === '-h') options.help = true;
 		else throw new Error(`Unknown argument: ${arg}`);
 	}
@@ -224,12 +347,13 @@ function printHelp() {
 	console.log(`Usage:
   node scripts/update-skill-publish-approval.mjs \
     --discover pending \
-    --submission-id <uuid> \
-    --submission-source-url <url> \
     --issue-number <number> \
     --comment-id <number> \
     --pr-number <number> \
-    --pr-head-sha <sha>
+    --pr-head-sha <sha> \
+    --expected-pr-base-sha <sha> \
+    --expected-pr-base-ref <ref> \
+    --expected-pr-head-ref <ref>
 `);
 }
 
