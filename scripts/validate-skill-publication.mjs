@@ -3,6 +3,7 @@
 import { createHash } from 'node:crypto';
 import {
 	existsSync,
+	lstatSync,
 	readFileSync,
 	readdirSync,
 	statSync,
@@ -17,11 +18,15 @@ import {
 	sep,
 } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { lexer, walkTokens } from 'marked';
+import { findHumanApproval } from './lib/publication-approval.mjs';
 
 const HASH_PATTERN = /^[a-f0-9]{64}$/;
-const APPROVAL_SCOPE = 'safe_to_publish';
 const DEFAULT_APPROVALS_PATH = '.github/skill-publish-approvals.json';
-const WRITE_PERMISSIONS = new Set(['write', 'maintain', 'admin']);
+const REPORT_FILENAME = 'skill-report.json';
+const ATTESTATION_FILENAME = 'skill-report.attestation.json';
+const GIT_OUTPUT_BUFFER_BYTES = 64 * 1024 * 1024;
+const UUID_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 
 function sha256(value) {
 	return createHash('sha256').update(value).digest('hex');
@@ -43,8 +48,7 @@ function collectPackageFiles(packageDir) {
 	const files = [];
 
 	function walk(dir) {
-		const entries = readdirSync(dir, { withFileTypes: true })
-			.sort((left, right) => left.name.localeCompare(right.name));
+		const entries = readdirSync(dir, { withFileTypes: true });
 
 		for (const entry of entries) {
 			const fullPath = join(dir, entry.name);
@@ -56,7 +60,9 @@ function collectPackageFiles(packageDir) {
 			if (entry.isDirectory()) {
 				walk(fullPath);
 			} else if (entry.isFile()) {
-				if (entry.name !== 'skill-report.json') files.push(fullPath);
+				if (![REPORT_FILENAME, ATTESTATION_FILENAME].includes(entry.name)) {
+					files.push(fullPath);
+				}
 			} else {
 				throw new Error(`${relativePath}: non-regular package entries are not allowed`);
 			}
@@ -64,25 +70,24 @@ function collectPackageFiles(packageDir) {
 	}
 
 	walk(packageDir);
-	return files;
+	return files.sort((left, right) => Buffer.compare(
+		Buffer.from(relative(packageDir, left).split(sep).join('/'), 'utf8'),
+		Buffer.from(relative(packageDir, right).split(sep).join('/'), 'utf8'),
+	));
 }
 
 function markdownDestinations(content) {
 	const destinations = [];
-	const withoutFencedCode = content.replace(
-		/^[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?^[ \t]*\1[ \t]*$/gm,
-		'',
-	);
-	const inlineLinkPattern = /!?\[[^\]]*\]\(\s*(?:<([^>\n]+)>|([^)\s]+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
-	const referenceDefinitionPattern = /^[ \t]{0,3}\[[^\]]+\]:[ \t]*(?:<([^>\n]+)>|(\S+))/gm;
-
-	for (const pattern of [inlineLinkPattern, referenceDefinitionPattern]) {
-		for (const match of withoutFencedCode.matchAll(pattern)) {
-			destinations.push(match[1] ?? match[2]);
+	const tokens = lexer(content);
+	walkTokens(tokens, (token) => {
+		if (
+			['link', 'image', 'def'].includes(token.type)
+			&& typeof token.href === 'string'
+		) {
+			destinations.push(token.href);
 		}
-	}
-
-	return destinations;
+	});
+	return [...new Set(destinations)];
 }
 
 function localMarkdownPath(destination) {
@@ -150,7 +155,8 @@ export async function calculatePackageHashes(packageDir) {
 	const files = collectPackageFiles(absoluteDir);
 	const fileHashes = files.map((filePath) => {
 		const relativePath = relative(absoluteDir, filePath).split(sep).join('/');
-		return `${relativePath}:${sha256(readFileSync(filePath))}`;
+		const mode = (lstatSync(filePath).mode & 0o111) === 0 ? '100644' : '100755';
+		return `${mode} ${relativePath}\0${sha256(readFileSync(filePath))}`;
 	});
 
 	return {
@@ -222,215 +228,6 @@ function validateDateTime(value, field, errors) {
 	if (!Number.isFinite(Date.parse(value))) {
 		errors.push(`${field} must be an ISO 8601 timestamp`);
 	}
-}
-
-function validateApprovalDocument(approvalDocument) {
-	const errors = [];
-	if (!approvalDocument || typeof approvalDocument !== 'object' || Array.isArray(approvalDocument)) {
-		return ['approval document must be a JSON object'];
-	}
-	if (approvalDocument.schema_version !== '1.0') {
-		errors.push('approval document schema_version must equal 1.0');
-	}
-	if (!Array.isArray(approvalDocument.approvals)) {
-		errors.push('approval document approvals must be an array');
-		return errors;
-	}
-	for (const [index, approval] of approvalDocument.approvals.entries()) {
-		const field = `approvals[${index}].evidence_url`;
-		if (!requiredString(approval?.evidence_url, field, errors)) continue;
-		try {
-			parseIssueCommentEvidenceUrl(approval.evidence_url);
-		} catch (error) {
-			errors.push(`${field}: ${error.message}`);
-		}
-	}
-	return errors;
-}
-
-function parseIssueCommentEvidenceUrl(value) {
-	let url;
-	try {
-		url = new URL(value);
-	} catch {
-		throw new Error('approval.evidence_url must be a valid GitHub issue-comment URL');
-	}
-
-	const pathMatch = url.pathname.match(/^\/([^/]+)\/([^/]+)\/issues\/([1-9][0-9]*)$/);
-	const commentMatch = url.hash.match(/^#issuecomment-([1-9][0-9]*)$/);
-	if (
-		url.protocol !== 'https:'
-		|| url.hostname !== 'github.com'
-		|| url.username !== ''
-		|| url.password !== ''
-		|| url.search !== ''
-		|| !pathMatch
-		|| !commentMatch
-	) {
-		throw new Error('approval.evidence_url must be a GitHub issue-comment URL');
-	}
-
-	return {
-		owner: pathMatch[1],
-		repo: pathMatch[2],
-		issueNumber: pathMatch[3],
-		commentId: commentMatch[1],
-		url: url.href,
-	};
-}
-
-function createGitHubRequest({ token, fetchImpl }) {
-	return async (apiPath) => {
-		if (typeof token !== 'string' || token.trim() === '') {
-			throw new Error('GH_TOKEN or GITHUB_TOKEN is required to verify publication approval');
-		}
-		if (typeof fetchImpl !== 'function') {
-			throw new Error('GitHub API fetch implementation is unavailable');
-		}
-
-		const response = await fetchImpl(`https://api.github.com${apiPath}`, {
-			headers: {
-				Accept: 'application/vnd.github+json',
-				Authorization: `Bearer ${token}`,
-				'X-GitHub-Api-Version': '2022-11-28',
-			},
-		});
-		if (!response?.ok) {
-			throw new Error(`GitHub API request failed with status ${response?.status ?? 'unknown'}`);
-		}
-		try {
-			return await response.json();
-		} catch {
-			throw new Error('GitHub API returned invalid JSON');
-		}
-	};
-}
-
-async function verifyApprovalEvidence(report, approval, options) {
-	const slug = report.meta.slug;
-	const errors = [];
-	let evidence;
-	try {
-		evidence = parseIssueCommentEvidenceUrl(approval.evidence_url);
-	} catch (error) {
-		return [`${slug}: ${error.message}`];
-	}
-
-	const githubRepository = options.githubRepository ?? process.env.GITHUB_REPOSITORY ?? '';
-	if (typeof githubRepository !== 'string' || !/^[^/]+\/[^/]+$/.test(githubRepository)) {
-		return [`${slug}: GITHUB_REPOSITORY is required to verify approval evidence`];
-	}
-	const evidenceRepository = `${evidence.owner}/${evidence.repo}`;
-	if (evidenceRepository.toLowerCase() !== githubRepository.toLowerCase()) {
-		return [
-			`${slug}: approval.evidence_url must reference the publication repository ${githubRepository}`,
-		];
-	}
-
-	const githubRequest = options.githubRequest ?? createGitHubRequest({
-		token: Object.hasOwn(options, 'githubToken')
-			? options.githubToken
-			: (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || ''),
-		fetchImpl: options.fetchImpl ?? globalThis.fetch,
-	});
-
-	let comment;
-	try {
-		comment = await githubRequest(
-			`/repos/${evidenceRepository}/issues/comments/${evidence.commentId}`,
-		);
-	} catch (error) {
-		return [`${slug}: GitHub comment verification failed: ${error.message}`];
-	}
-
-	if (comment?.id !== Number(evidence.commentId) || comment?.html_url !== approval.evidence_url) {
-		errors.push(`${slug}: GitHub comment does not match approval.evidence_url`);
-	}
-	if (comment?.user?.login !== approval.actor) {
-		errors.push(`${slug}: GitHub comment author login must match approval.actor`);
-	}
-	if (comment?.user?.type !== 'User') {
-		errors.push(`${slug}: GitHub comment author user.type must be exactly User`);
-	}
-	if (comment?.created_at !== approval.approved_at) {
-		errors.push(`${slug}: GitHub comment created_at must match approval.approved_at`);
-	}
-
-	const normalizedBody = typeof comment?.body === 'string'
-		? comment.body.replace(/\r\n?/g, '\n')
-		: '';
-	const [commandLine = '', ...reasonLines] = normalizedBody.split('\n');
-	const expectedCommand = `/approve safe-to-publish ${slug}`;
-	if (commandLine.trim() !== expectedCommand) {
-		errors.push(`${slug}: GitHub comment must explicitly approve safe-to-publish for the exact report slug`);
-	}
-	const recordedReason = approval.reason.trim();
-	if (!reasonLines.join('\n').includes(recordedReason)) {
-		errors.push(`${slug}: GitHub comment must contain the recorded approval reason`);
-	}
-	if (errors.length > 0) return errors;
-
-	let permission;
-	try {
-		permission = await githubRequest(
-			`/repos/${evidenceRepository}/collaborators/${encodeURIComponent(approval.actor)}/permission`,
-		);
-	} catch (error) {
-		return [`${slug}: GitHub collaborator permission verification failed: ${error.message}`];
-	}
-	if (!WRITE_PERMISSIONS.has(permission?.permission)) {
-		errors.push(`${slug}: approval actor must have write, maintain, or admin collaborator permission`);
-	}
-	return errors;
-}
-
-async function findHumanApproval(report, approvalDocument, options) {
-	const documentErrors = validateApprovalDocument(approvalDocument);
-	if (documentErrors.length > 0) return { errors: documentErrors };
-
-	const slug = report.meta.slug;
-	const matching = approvalDocument.approvals.filter((approval) => (
-		approval?.slug === slug
-		&& approval?.content_hash === report.meta.content_hash
-		&& approval?.tree_hash === report.meta.tree_hash
-		&& approval?.scope === APPROVAL_SCOPE
-	));
-
-	if (matching.length === 0) {
-		return {
-			errors: [
-				`${slug}: safe_to_publish=false requires a repository-tracked human approval bound to the current content_hash and tree_hash`,
-			],
-		};
-	}
-	if (matching.length > 1) {
-		return {
-			errors: [
-				`${slug}: multiple matching safe_to_publish approval records are not allowed`,
-			],
-		};
-	}
-
-	const approval = matching[0];
-	const invalidErrors = [];
-	requiredString(approval.actor, 'approval.actor', invalidErrors);
-	requiredString(approval.approved_at, 'approval.approved_at', invalidErrors);
-	const approvedAt = Date.parse(approval.approved_at);
-	if (typeof approval.approved_at === 'string' && !Number.isFinite(approvedAt)) {
-		invalidErrors.push(`${slug}: approval.approved_at must be an ISO 8601 timestamp`);
-	} else if (Number.isFinite(approvedAt) && approvedAt > Date.now() + 5 * 60 * 1000) {
-		invalidErrors.push(`${slug}: approval.approved_at cannot be in the future`);
-	}
-	requiredString(approval.reason, 'approval.reason', invalidErrors);
-	if (typeof approval.reason === 'string' && approval.reason.trim().length < 20) {
-		invalidErrors.push(`${slug}: approval.reason must contain at least 20 characters`);
-	}
-	requiredString(approval.evidence_url, 'approval.evidence_url', invalidErrors);
-	if (invalidErrors.length > 0) return { errors: invalidErrors };
-
-	const evidenceErrors = await verifyApprovalEvidence(report, approval, options);
-	if (evidenceErrors.length > 0) return { errors: evidenceErrors };
-	return { approval, errors: [] };
 }
 
 function validateRequiredGateFields(report) {
@@ -568,7 +365,149 @@ function validateEvidence(packageDir, report) {
 	return errors;
 }
 
-async function validateFreshness(packageDir, report) {
+function validateAuditAttestation(packageDir, report, hashes) {
+	const errors = [];
+	const attestationPath = join(packageDir, ATTESTATION_FILENAME);
+	if (!existsSync(attestationPath)) {
+		return [`${attestationPath}: audit attestation is missing`];
+	}
+
+	let attestation;
+	try {
+		attestation = JSON.parse(readFileSync(attestationPath, 'utf8'));
+	} catch (error) {
+		return [`${attestationPath}: invalid JSON: ${error.message}`];
+	}
+	if (attestation?.schema_version !== '1.0') {
+		errors.push(`${attestationPath}: schema_version must equal 1.0`);
+	}
+	if (attestation?.slug !== report.meta.slug) {
+		errors.push(`${attestationPath}: slug must match the exact report slug`);
+	}
+	for (const field of ['content_hash', 'tree_hash']) {
+		if (!HASH_PATTERN.test(attestation?.package?.[field] ?? '')) {
+			errors.push(`${attestationPath}: package.${field} must be a SHA-256 hash`);
+		}
+	}
+	if (attestation?.package?.content_hash !== hashes.contentHash) {
+		errors.push(`${attestationPath}: package.content_hash does not match current SKILL.md`);
+	}
+	if (attestation?.package?.tree_hash !== hashes.treeHash) {
+		errors.push(`${attestationPath}: package.tree_hash does not match current package tree`);
+	}
+	const reportDigest = sha256(readFileSync(join(packageDir, REPORT_FILENAME)));
+	for (const field of ['input_digest', 'raw_audit_digest', 'final_digest']) {
+		if (!HASH_PATTERN.test(attestation?.report?.[field] ?? '')) {
+			errors.push(`${attestationPath}: report.${field} must be a SHA-256 hash`);
+		}
+	}
+	if (attestation?.report?.final_digest !== reportDigest) {
+		errors.push(`${attestationPath}: report.final_digest does not match skill-report.json`);
+	}
+	if (attestation?.report?.input_digest === attestation?.report?.raw_audit_digest) {
+		errors.push(`${attestationPath}: audit invocation did not replace the input report`);
+	}
+	if (attestation?.producer?.repository !== 'aiskillstore/skillstore') {
+		errors.push(`${attestationPath}: producer.repository must equal aiskillstore/skillstore`);
+	}
+	if (!/^[a-f0-9]{40}$/.test(attestation?.producer?.commit ?? '')) {
+		errors.push(`${attestationPath}: producer.commit must be a full Git SHA`);
+	}
+	for (const field of ['package_version', 'audit_command_version']) {
+		if (typeof attestation?.producer?.[field] !== 'string' || attestation.producer[field] === '') {
+			errors.push(`${attestationPath}: producer.${field} is required`);
+		}
+	}
+	const invocation = attestation?.invocation;
+	if (!UUID_PATTERN.test(invocation?.id ?? '')) {
+		errors.push(`${attestationPath}: invocation.id must be a UUID`);
+	}
+	for (const field of ['cwd', 'skills_root']) {
+		if (typeof invocation?.[field] !== 'string' || invocation[field].trim() === '') {
+			errors.push(`${attestationPath}: invocation.${field} is required`);
+		} else if (!isAbsolute(invocation[field])) {
+			errors.push(`${attestationPath}: invocation.${field} must be absolute`);
+		}
+	}
+	if (
+		!Array.isArray(invocation?.slugs)
+		|| invocation.slugs.length === 0
+		|| invocation.slugs.some((slug) => typeof slug !== 'string' || slug === '')
+		|| new Set(invocation.slugs).size !== invocation.slugs.length
+		|| !invocation.slugs.includes(report.meta.slug)
+	) {
+		errors.push(`${attestationPath}: invocation.slugs must contain the exact report slug`);
+	}
+	if (typeof invocation?.model !== 'string' || invocation.model.trim() === '') {
+		errors.push(`${attestationPath}: invocation.model is required`);
+	}
+	if (report.meta?.provenance?.model_requested !== invocation?.model) {
+		errors.push(`${attestationPath}: report producer model does not match invocation.model`);
+	}
+	for (const field of ['stdout_digest', 'stderr_digest']) {
+		if (!HASH_PATTERN.test(invocation?.[field] ?? '')) {
+			errors.push(`${attestationPath}: invocation.${field} must be a SHA-256 hash`);
+		}
+	}
+	const canReconstructCommand = (
+		typeof invocation?.cwd === 'string'
+		&& invocation.cwd !== ''
+		&& typeof invocation?.skills_root === 'string'
+		&& invocation.skills_root !== ''
+		&& Array.isArray(invocation?.slugs)
+		&& typeof invocation?.model === 'string'
+	);
+	if (
+		!Array.isArray(invocation?.command)
+		|| invocation.command.length !== 11
+		|| !canReconstructCommand
+	) {
+		errors.push(`${attestationPath}: invocation.command must record the exact argv`);
+	} else {
+		const expectedCommand = [
+			invocation.command[0],
+			'--import',
+			'tsx',
+			join(invocation.cwd, 'src', 'cli', 'index.ts'),
+			'skill',
+			'audit',
+			relative(invocation.cwd, invocation.skills_root),
+			'--slugs',
+			invocation.slugs.join(','),
+			'--model',
+			invocation.model,
+		];
+		if (
+			!isAbsolute(invocation.command[0])
+			|| JSON.stringify(invocation.command) !== JSON.stringify(expectedCommand)
+		) {
+			errors.push(`${attestationPath}: invocation.command does not match model and slugs`);
+		}
+	}
+	const startedAt = Date.parse(invocation?.started_at);
+	const completedAt = Date.parse(invocation?.completed_at);
+	const generatedAt = Date.parse(report.meta.generated_at);
+	const auditedAt = Date.parse(report.security_audit.audited_at);
+	if (!Number.isFinite(startedAt) || !Number.isFinite(completedAt) || startedAt > completedAt) {
+		errors.push(`${attestationPath}: invocation timestamps are invalid`);
+	} else {
+		for (const [field, timestamp] of [
+			['meta.generated_at', generatedAt],
+			['security_audit.audited_at', auditedAt],
+		]) {
+			if (
+				!Number.isFinite(timestamp)
+				|| timestamp < startedAt
+				|| timestamp > completedAt
+			) {
+				errors.push(`${attestationPath}: ${field} is outside the audit invocation window`);
+			}
+		}
+	}
+	return errors;
+}
+
+async function validateFreshness(packageDir, report, options = {}) {
 	const errors = [];
 	let hashes;
 	try {
@@ -577,15 +516,21 @@ async function validateFreshness(packageDir, report) {
 		return [error.message];
 	}
 
-	if (report.meta.content_hash !== hashes.contentHash) {
+	const contentMatches = report.meta.content_hash === hashes.contentHash;
+	const treeMatches = report.meta.tree_hash === hashes.treeHash;
+	if (!contentMatches) {
 		errors.push(
 			`meta.content_hash does not match current SKILL.md: report=${report.meta.content_hash} current=${hashes.contentHash}`,
 		);
 	}
-	if (report.meta.tree_hash !== hashes.treeHash) {
+	if (!treeMatches) {
 		errors.push(
 			`meta.tree_hash does not match current package tree: report=${report.meta.tree_hash} current=${hashes.treeHash}`,
 		);
+	}
+	const attestationExists = existsSync(join(packageDir, ATTESTATION_FILENAME));
+	if (options.requireAuditAttestation || attestationExists) {
+		errors.push(...validateAuditAttestation(packageDir, report, hashes));
 	}
 	return errors;
 }
@@ -614,7 +559,7 @@ export async function validatePackage(packageDir, options = {}) {
 
 	errors.push(...validateRequiredGateFields(report).map((error) => `${reportPath}: ${error}`));
 	if (errors.length === 0) {
-		errors.push(...(await validateFreshness(absoluteDir, report)).map((error) => `${reportPath}: ${error}`));
+		errors.push(...(await validateFreshness(absoluteDir, report, options)).map((error) => `${reportPath}: ${error}`));
 		errors.push(...validateEvidence(absoluteDir, report).map((error) => `${reportPath}: ${error}`));
 		errors.push(...(await scanMarkdownLinks(absoluteDir)).map((error) => `${reportPath}: ${error}`));
 	}
@@ -629,7 +574,7 @@ export async function validatePackage(packageDir, options = {}) {
 	}
 
 	if (report.security_audit.safe_to_publish === false) {
-		const approvalDocument = options.approvalDocument ?? { schema_version: '1.0', approvals: [] };
+		const approvalDocument = options.approvalDocument ?? { schema_version: '2.0', approvals: [] };
 		const approvalResult = await findHumanApproval(report, approvalDocument, options);
 		errors.push(...approvalResult.errors);
 		return {
@@ -712,16 +657,71 @@ function inferPackageDir(changedPath, knownPackageDirs) {
 	return flatDir;
 }
 
-async function discoverChangedPackageDirs(baseRevision) {
-	const result = spawnSync('git', ['diff', '--name-only', '--diff-filter=ACMRT', baseRevision, 'HEAD'], {
-		encoding: 'utf8',
-	});
-	if (result.status !== 0) {
-		throw new Error(`git diff failed: ${result.stderr.trim()}`);
-	}
+function parseNullSeparated(buffer) {
+	return buffer.toString('utf8').split('\0').filter((value) => value !== '');
+}
 
-	const changedPaths = result.stdout.split('\n').map((value) => value.trim()).filter(Boolean);
+function gitTreePaths(revision) {
+	const result = spawnSync(
+		'git',
+		['ls-tree', '-r', '-z', '--name-only', revision, '--', 'skills', 'pending'],
+		{ maxBuffer: GIT_OUTPUT_BUFFER_BYTES },
+	);
+	if (result.status !== 0) {
+		throw new Error(`git ls-tree ${revision} failed: ${result.stderr.toString('utf8').trim()}`);
+	}
+	return parseNullSeparated(result.stdout);
+}
+
+function packageDirsFromTreePaths(paths) {
+	const reportDirs = paths
+		.filter((path) => path.endsWith(`/${REPORT_FILENAME}`))
+		.map((path) => dirname(path))
+		.sort((left, right) => left.length - right.length || left.localeCompare(right));
+	const skillDirs = paths
+		.filter((path) => path.endsWith('/SKILL.md'))
+		.map((path) => dirname(path))
+		.sort((left, right) => left.length - right.length || left.localeCompare(right));
+	const selected = [];
+
+	for (const candidate of [...reportDirs, ...skillDirs]) {
+		const absoluteDir = resolve(candidate);
+		if (!selected.some((packageDir) => isWithin(packageDir, absoluteDir))) {
+			selected.push(absoluteDir);
+		}
+	}
+	return selected.sort((left, right) => left.localeCompare(right));
+}
+
+function changedPathsFromNameStatus(baseRevision) {
+	const result = spawnSync(
+		'git',
+		['diff', '--name-status', '-z', '--find-renames', '--find-copies', baseRevision, 'HEAD'],
+		{ maxBuffer: GIT_OUTPUT_BUFFER_BYTES },
+	);
+	if (result.status !== 0) {
+		throw new Error(`git diff failed: ${result.stderr.toString('utf8').trim()}`);
+	}
+	const records = parseNullSeparated(result.stdout);
+	const changedPaths = [];
+	for (let index = 0; index < records.length;) {
+		const status = records[index++];
+		if (/^[RC][0-9]+$/.test(status)) {
+			changedPaths.push(records[index++], records[index++]);
+		} else {
+			changedPaths.push(records[index++]);
+		}
+	}
+	return changedPaths.filter(Boolean);
+}
+
+async function discoverChangedPackageDirs(baseRevision) {
+	const changedPaths = changedPathsFromNameStatus(baseRevision);
+	const basePaths = gitTreePaths(baseRevision);
+	const currentPaths = gitTreePaths('HEAD');
 	const knownPackageDirs = [
+		...packageDirsFromTreePaths(basePaths),
+		...packageDirsFromTreePaths(currentPaths),
 		...(await discoverPackageDirs('skills')),
 		...(await discoverPackageDirs('pending')),
 	];
@@ -730,7 +730,12 @@ async function discoverChangedPackageDirs(baseRevision) {
 	for (const changedPath of changedPaths) {
 		if (!changedPath.startsWith('skills/') && !changedPath.startsWith('pending/')) continue;
 		const packageDir = inferPackageDir(changedPath, knownPackageDirs);
-		if (packageDir && existsSync(packageDir)) selected.add(packageDir);
+		if (!packageDir) continue;
+		const relativePackage = relative(process.cwd(), packageDir).split(sep).join('/');
+		const packageStillTracked = currentPaths.some((path) => (
+			path === relativePackage || path.startsWith(`${relativePackage}/`)
+		));
+		if (packageStillTracked || existsSync(packageDir)) selected.add(packageDir);
 	}
 
 	return [...selected].sort((left, right) => left.localeCompare(right));
@@ -771,7 +776,7 @@ async function runCli(argv) {
 	}
 
 	const approvalDocument = options.integrityOnly
-		? { schema_version: '1.0', approvals: [] }
+		? { schema_version: '2.0', approvals: [] }
 		: loadApprovalDocument(resolve(options.approvalsPath));
 	let failed = false;
 

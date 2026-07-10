@@ -17,6 +17,8 @@ jobs:
       should_process: ${{ steps.check.outputs.should_process }}
       submission_id: ${{ steps.parse.outputs.submission_id }}
       github_url: ${{ steps.parse.outputs.github_url }}
+      approval_comment_id: ${{ github.event.comment.id }}
+      approval_actor: ${{ github.event.comment.user.login }}
     steps:
       - name: Check commenter permissions
         id: check
@@ -54,6 +56,10 @@ jobs:
           REASON="${COMMENT_BODY#*$'\n'}"
           if [ -z "$(printf '%s' "$REASON" | tr -d '[:space:]')" ]; then
             echo "::error::A non-empty approval reason is required on a new line"
+            exit 1
+          fi
+          if [ "${#REASON}" -lt 20 ]; then
+            echo "::error::The complete approval reason must contain at least 20 characters"
             exit 1
           fi
 
@@ -133,7 +139,9 @@ jobs:
             -f submission_id="${{ needs.check-approval.outputs.submission_id }}" \
             -f github_url="${{ needs.check-approval.outputs.github_url }}" \
             -f review_issue_url="${{ github.event.issue.html_url }}" \
-            -f review_issue_number="${{ github.event.issue.number }}"
+            -f review_issue_number="${{ github.event.issue.number }}" \
+            -f approval_comment_id="${{ github.event.comment.id }}" \
+            -f approval_actor="${{ github.event.comment.user.login }}"
           
           echo "🚀 Triggered processing workflow"
 

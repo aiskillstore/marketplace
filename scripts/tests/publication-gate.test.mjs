@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -17,7 +19,21 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 const GATE_PATH = join(REPO_ROOT, 'scripts', 'validate-skill-publication.mjs');
 const GITHUB_REPOSITORY = 'aiskillstore/marketplace';
 const COMMENT_ID = 123456789;
-const EVIDENCE_URL = `https://github.com/${GITHUB_REPOSITORY}/issues/2403#issuecomment-${COMMENT_ID}`;
+const ISSUE_NUMBER = 2403;
+const PR_NUMBER = 2405;
+const SUBMISSION_ID = '12345678-1234-4234-8234-123456789abc';
+const SOURCE_URL = 'https://github.com/example/fixture';
+const CREATED_AT = '2026-07-10T01:00:00.000Z';
+const EXPIRES_AT = '2026-08-09T01:00:00.000Z';
+const PR_BASE_SHA = 'a'.repeat(40);
+const PR_HEAD_SHA = 'b'.repeat(40);
+const LIVE_PR_HEAD_SHA = 'c'.repeat(40);
+const PR_HEAD_REF = `submission/fixture-${SUBMISSION_ID}`;
+const ISSUE_URL = `https://github.com/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}`;
+const COMMENT_URL = `${ISSUE_URL}#issuecomment-${COMMENT_ID}`;
+const PR_URL = `https://github.com/${GITHUB_REPOSITORY}/pull/${PR_NUMBER}`;
+const NOW = Date.parse('2026-07-10T02:00:00.000Z');
+const AUDIT_MODEL = 'gpt-5.5:high';
 
 async function loadGate() {
 	return import(`${pathToFileURL(GATE_PATH).href}?test=${Date.now()}-${Math.random()}`);
@@ -69,6 +85,7 @@ function makeReport({
 			content_hash: contentHash,
 			tree_hash: treeHash,
 			provenance: {
+				model_requested: AUDIT_MODEL,
 				model_effective: 'codex',
 				fallback_chain: [{ agent: 'codex', outcome: 'success' }],
 				analysis_version: '3.0.0',
@@ -108,18 +125,86 @@ async function writeFreshReport(packageDir, overrides = {}) {
 	return report;
 }
 
+async function writeAuditAttestation(packageDir, report) {
+	const { calculatePackageHashes } = await loadGate();
+	const hashes = await calculatePackageHashes(packageDir);
+	const reportDigest = createHash('sha256')
+		.update(readFileSync(join(packageDir, 'skill-report.json')))
+		.digest('hex');
+	const attestation = {
+		schema_version: '1.0',
+		slug: report.meta.slug,
+		producer: {
+			repository: 'aiskillstore/skillstore',
+			commit: 'd'.repeat(40),
+			package_version: '9.9.9',
+			audit_command_version: '1.2.0',
+		},
+		invocation: {
+			id: '12345678-1234-4234-8234-123456789abc',
+			started_at: '2026-07-09T23:59:59.000Z',
+			completed_at: '2026-07-10T00:00:01.000Z',
+			cwd: '/tmp/skillstore-audit',
+			command: [
+				process.execPath,
+				'--import',
+				'tsx',
+				'/tmp/skillstore-audit/src/cli/index.ts',
+				'skill',
+				'audit',
+				'../marketplace/skills',
+				'--slugs',
+				report.meta.slug,
+				'--model',
+				AUDIT_MODEL,
+			],
+			skills_root: '/tmp/marketplace/skills',
+			slugs: [report.meta.slug],
+			model: AUDIT_MODEL,
+			stdout_digest: 'e'.repeat(64),
+			stderr_digest: 'f'.repeat(64),
+		},
+		report: {
+			input_digest: '0'.repeat(64),
+			raw_audit_digest: '1'.repeat(64),
+			final_digest: reportDigest,
+		},
+		package: {
+			content_hash: hashes.contentHash,
+			tree_hash: hashes.treeHash,
+		},
+	};
+	writeFileSync(
+		join(packageDir, 'skill-report.attestation.json'),
+		`${JSON.stringify(attestation, null, 2)}\n`,
+	);
+	return attestation;
+}
+
 function humanApproval(report, overrides = {}) {
 	return {
-		schema_version: '1.0',
+		schema_version: '2.0',
 		approvals: [
 			{
 				slug: report.meta.slug,
 				content_hash: report.meta.content_hash,
 				tree_hash: report.meta.tree_hash,
+				submission_id: SUBMISSION_ID,
+				submission_source_url: SOURCE_URL,
+				approval_issue_number: ISSUE_NUMBER,
+				approval_issue_url: ISSUE_URL,
+				approval_comment_id: COMMENT_ID,
+				approval_comment_url: COMMENT_URL,
 				actor: 'mylukin',
-				approved_at: '2026-07-10T01:00:00.000Z',
+				created_at: CREATED_AT,
+				updated_at: CREATED_AT,
+				expires_at: EXPIRES_AT,
 				reason: 'Reviewed the unsafe publication recommendation and accepted the documented risk.',
-				evidence_url: EVIDENCE_URL,
+				pr_number: PR_NUMBER,
+				pr_url: PR_URL,
+				pr_base_sha: PR_BASE_SHA,
+				pr_head_ref: PR_HEAD_REF,
+				pr_head_sha: PR_HEAD_SHA,
 				scope: 'safe_to_publish',
 				...overrides,
 			},
@@ -130,8 +215,13 @@ function humanApproval(report, overrides = {}) {
 function githubEvidence(report, {
 	approvalOverrides = {},
 	commentOverrides = {},
+	issueOverrides = {},
+	prOverrides = {},
+	commitsOverrides,
+	compareOverrides = {},
 	permission = 'write',
 	requestError,
+	now = NOW,
 } = {}) {
 	const approvalDocument = humanApproval(report, approvalOverrides);
 	const approval = approvalDocument.approvals[0];
@@ -142,8 +232,10 @@ function githubEvidence(report, {
 	};
 	const comment = {
 		id: COMMENT_ID,
-		html_url: approval.evidence_url,
-		created_at: approval.approved_at,
+		html_url: approval.approval_comment_url,
+		issue_url: `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${approval.approval_issue_number}`,
+		created_at: approval.created_at,
+		updated_at: approval.updated_at,
 		body: `/approve safe-to-publish ${report.meta.slug}\n${approval.reason}`,
 		...commentOverrides,
 		user: {
@@ -151,16 +243,63 @@ function githubEvidence(report, {
 			...(commentOverrides.user ?? {}),
 		},
 	};
+	const issue = {
+		number: approval.approval_issue_number,
+		html_url: approval.approval_issue_url,
+		state: 'open',
+		labels: [{ name: 'processing' }],
+		body: `**Submission ID**: \`${SUBMISSION_ID}\`\n**Source**: ${SOURCE_URL}\n`,
+		pull_request: undefined,
+		...issueOverrides,
+	};
+	const pullRequest = {
+		number: approval.pr_number,
+		html_url: approval.pr_url,
+		state: 'open',
+		merged: false,
+		body: `**Submission ID**: \`${SUBMISSION_ID}\`\n**Source**: ${SOURCE_URL}\n`,
+		base: { sha: approval.pr_base_sha, ref: 'main' },
+		head: { sha: LIVE_PR_HEAD_SHA, ref: approval.pr_head_ref },
+		...prOverrides,
+	};
+	const commits = commitsOverrides ?? [
+		{ sha: PR_HEAD_SHA },
+		{ sha: LIVE_PR_HEAD_SHA },
+	];
+	const comparison = {
+		status: 'ahead',
+		ahead_by: 1,
+		behind_by: 0,
+		total_commits: 1,
+		base_commit: { sha: approval.pr_head_sha },
+		merge_base_commit: { sha: approval.pr_head_sha },
+		commits: [{ sha: LIVE_PR_HEAD_SHA }],
+		files: [{ filename: '.github/skill-publish-approvals.json', status: 'modified' }],
+		...compareOverrides,
+	};
 
 	return {
 		approvalDocument,
 		githubRepository: GITHUB_REPOSITORY,
+		now,
 		requests,
 		githubRequest: async (apiPath) => {
 			requests.push(apiPath);
 			if (requestError) throw requestError;
 			if (apiPath === `/repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}`) {
 				return comment;
+			}
+			if (apiPath === `/repos/${GITHUB_REPOSITORY}/issues/${approval.approval_issue_number}`) {
+				return issue;
+			}
+			if (apiPath === `/repos/${GITHUB_REPOSITORY}/pulls/${approval.pr_number}`) {
+				return pullRequest;
+			}
+			if (apiPath === `/repos/${GITHUB_REPOSITORY}/pulls/${approval.pr_number}/commits?per_page=100`) {
+				return commits;
+			}
+			if (apiPath === `/repos/${GITHUB_REPOSITORY}/compare/${approval.pr_head_sha}...${LIVE_PR_HEAD_SHA}`) {
+				return comparison;
 			}
 			if (apiPath === `/repos/${GITHUB_REPOSITORY}/collaborators/${encodeURIComponent(approval.actor)}/permission`) {
 				return { permission };
@@ -296,6 +435,89 @@ test('rejects stale content and tree hashes', async () => {
 	}
 });
 
+test('valid-looking attestation cannot substitute for stale report meta hashes', async () => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'skills', 'fixture-owner', 'stale-attested-report');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir);
+		report.meta.content_hash = 'a'.repeat(64);
+		report.meta.tree_hash = 'b'.repeat(64);
+		writeFileSync(join(packageDir, 'skill-report.json'), `${JSON.stringify(report, null, 2)}\n`);
+		await writeAuditAttestation(packageDir, report);
+
+		const { validatePackage } = await loadGate();
+		const result = await validatePackage(packageDir, {
+			enforcePublicationPolicy: false,
+			requireAuditAttestation: true,
+		});
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join('\n'), /meta\.content_hash does not match current SKILL\.md/i);
+		assert.match(result.errors.join('\n'), /meta\.tree_hash does not match current package tree/i);
+		assert.doesNotMatch(result.errors.join('\n'), /final_digest does not match/i);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('report changes after attestation invalidate the final report digest', async () => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'skills', 'fixture-owner', 'changed-attested-report');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir);
+		await writeAuditAttestation(packageDir, report);
+		report.security_audit.summary = 'Changed after the audit attestation was written.';
+		writeFileSync(join(packageDir, 'skill-report.json'), `${JSON.stringify(report, null, 2)}\n`);
+
+		const { validatePackage } = await loadGate();
+		const result = await validatePackage(packageDir, {
+			enforcePublicationPolicy: false,
+			requireAuditAttestation: true,
+		});
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join('\n'), /report\.final_digest does not match skill-report\.json/i);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('attestation raw audit digest must be valid and differ from its input digest', async (t) => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'skills', 'fixture-owner', 'invalid-raw-digest');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir);
+		const attestation = await writeAuditAttestation(packageDir, report);
+		const attestationPath = join(packageDir, 'skill-report.attestation.json');
+		const { validatePackage } = await loadGate();
+
+		await t.test('unchanged digest', async () => {
+			attestation.report.raw_audit_digest = attestation.report.input_digest;
+			writeFileSync(attestationPath, `${JSON.stringify(attestation, null, 2)}\n`);
+			const result = await validatePackage(packageDir, {
+				enforcePublicationPolicy: false,
+				requireAuditAttestation: true,
+			});
+			assert.equal(result.ok, false);
+			assert.match(result.errors.join('\n'), /did not replace the input report/i);
+		});
+
+		await t.test('invalid digest', async () => {
+			attestation.report.raw_audit_digest = 'not-a-digest';
+			writeFileSync(attestationPath, `${JSON.stringify(attestation, null, 2)}\n`);
+			const result = await validatePackage(packageDir, {
+				enforcePublicationPolicy: false,
+				requireAuditAttestation: true,
+			});
+			assert.equal(result.ok, false);
+			assert.match(result.errors.join('\n'), /report\.raw_audit_digest must be a SHA-256 hash/i);
+		});
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 test('rejects evidence with a missing file or invalid line range', async () => {
 	const root = makeTempRoot();
 	try {
@@ -393,6 +615,10 @@ test('allows a hash-bound override backed by a matching human issue comment', as
 		assert.equal(result.approval?.actor, 'mylukin');
 		assert.deepEqual(evidence.requests, [
 			`/repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}`,
+			`/repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}`,
+			`/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}`,
+			`/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100`,
+			`/repos/${GITHUB_REPOSITORY}/compare/${PR_HEAD_SHA}...${LIVE_PR_HEAD_SHA}`,
 			`/repos/${GITHUB_REPOSITORY}/collaborators/mylukin/permission`,
 		]);
 	} finally {
@@ -400,20 +626,20 @@ test('allows a hash-bound override backed by a matching human issue comment', as
 	}
 });
 
-test('rejects an override record without an issue-comment evidence URL before any API call', async () => {
+test('rejects an override record without exact issue-comment identity before any API call', async () => {
 	const root = makeTempRoot();
 	try {
 		const packageDir = join(root, 'pending', 'fixture-owner', 'missing-comment-url');
 		writeSkill(packageDir);
 		const report = await writeFreshReport(packageDir, { safeToPublish: false });
 		const evidence = githubEvidence(report, {
-			approvalOverrides: { evidence_url: undefined },
+			approvalOverrides: { approval_comment_url: undefined },
 		});
 
 		const { validatePackage } = await loadGate();
 		const result = await validatePackage(packageDir, evidence);
 		assert.equal(result.ok, false);
-		assert.match(result.errors.join('\n'), /evidence_url.*required/i);
+		assert.match(result.errors.join('\n'), /approval_comment_url.*required/i);
 		assert.deepEqual(evidence.requests, []);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -432,13 +658,13 @@ test('requires issue-comment evidence on every tracked override record', async (
 			slug: 'fixture-owner-historical-skill',
 			content_hash: 'a'.repeat(64),
 			tree_hash: 'b'.repeat(64),
-			evidence_url: undefined,
+			approval_comment_url: undefined,
 		});
 
 		const { validatePackage } = await loadGate();
 		const result = await validatePackage(packageDir, evidence);
 		assert.equal(result.ok, false);
-		assert.match(result.errors.join('\n'), /approvals\[1\]\.evidence_url.*required/i);
+		assert.match(result.errors.join('\n'), /approvals\[1\]\.approval_comment_url.*required/i);
 		assert.deepEqual(evidence.requests, []);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
@@ -464,7 +690,14 @@ test('rejects issue-comment evidence mismatches', async (t) => {
 				evidence: githubEvidence(report, {
 					commentOverrides: { created_at: '2026-07-10T01:00:01.000Z' },
 				}),
-				pattern: /created_at.*approved_at/i,
+				pattern: /created_at.*approval|created_at.*record/i,
+			},
+			{
+				name: 'edited comment',
+				evidence: githubEvidence(report, {
+					commentOverrides: { updated_at: '2026-07-10T01:00:01.000Z' },
+				}),
+				pattern: /edited|updated_at.*created_at/i,
 			},
 			{
 				name: 'exact report slug',
@@ -484,6 +717,134 @@ test('rejects issue-comment evidence mismatches', async (t) => {
 					},
 				}),
 				pattern: /recorded.*reason|reason.*comment/i,
+			},
+		];
+
+		const { validatePackage } = await loadGate();
+		for (const testCase of cases) {
+			await t.test(testCase.name, async () => {
+				const result = await validatePackage(packageDir, testCase.evidence);
+				assert.equal(result.ok, false);
+				assert.match(result.errors.join('\n'), testCase.pattern);
+			});
+		}
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('rejects replay across issue, submission, PR head, slug, or package hashes', async (t) => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'pending', 'fixture-owner', 'identity-replay');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir, { safeToPublish: false });
+		const cases = [
+			{
+				name: 'unrelated old issue',
+				evidence: githubEvidence(report, {
+					approvalOverrides: {
+						approval_issue_number: 999,
+						approval_issue_url: `https://github.com/${GITHUB_REPOSITORY}/issues/999`,
+						approval_comment_url: `https://github.com/${GITHUB_REPOSITORY}/issues/999#issuecomment-${COMMENT_ID}`,
+					},
+					commentOverrides: {
+						html_url: `https://github.com/${GITHUB_REPOSITORY}/issues/999#issuecomment-${COMMENT_ID}`,
+						issue_url: `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/999`,
+					},
+					issueOverrides: {
+						body: '**Submission ID**: `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`\n'
+							+ '**Source**: https://github.com/unrelated/old-submission\n',
+					},
+				}),
+				pattern: /submission|source|issue.*approval/i,
+			},
+			{
+				name: 'wrong submission',
+				evidence: githubEvidence(report, {
+					issueOverrides: {
+						body: '**Submission ID**: `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`\n'
+							+ `**Source**: ${SOURCE_URL}\n`,
+					},
+				}),
+				pattern: /submission/i,
+			},
+			{
+				name: 'wrong PR head',
+				evidence: githubEvidence(report, {
+					approvalOverrides: { pr_head_sha: 'd'.repeat(40) },
+				}),
+				pattern: /head|commit/i,
+			},
+			{
+				name: 'wrong slug',
+				evidence: githubEvidence(report, {
+					approvalOverrides: { slug: 'fixture-owner-other' },
+				}),
+				pattern: /tracked human approval|exact.*slug|current.*slug/i,
+			},
+			{
+				name: 'wrong content hash',
+				evidence: githubEvidence(report, {
+					approvalOverrides: { content_hash: 'd'.repeat(64) },
+				}),
+				pattern: /tracked human approval|content_hash/i,
+			},
+			{
+				name: 'wrong tree hash',
+				evidence: githubEvidence(report, {
+					approvalOverrides: { tree_hash: 'e'.repeat(64) },
+				}),
+				pattern: /tracked human approval|tree_hash/i,
+			},
+		];
+
+		const { validatePackage } = await loadGate();
+		for (const testCase of cases) {
+			await t.test(testCase.name, async () => {
+				const result = await validatePackage(packageDir, testCase.evidence);
+				assert.equal(result.ok, false);
+				assert.match(result.errors.join('\n'), testCase.pattern);
+			});
+		}
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('rejects expired approval and every bot identity form', async (t) => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'pending', 'fixture-owner', 'expiry-and-bots');
+		writeSkill(packageDir);
+		const report = await writeFreshReport(packageDir, { safeToPublish: false });
+		const cases = [
+			{
+				name: 'expired',
+				evidence: githubEvidence(report, {
+					approvalOverrides: { expires_at: '2026-07-10T01:30:00.000Z' },
+				}),
+				pattern: /expired|expires_at/i,
+			},
+			{
+				name: 'ai-skill-store bot login',
+				evidence: githubEvidence(report, {
+					approvalOverrides: { actor: 'ai-skill-store[bot]' },
+					commentOverrides: {
+						user: { login: 'ai-skill-store[bot]', type: 'User' },
+					},
+				}),
+				pattern: /bot/i,
+			},
+			{
+				name: 'arbitrary bot login',
+				evidence: githubEvidence(report, {
+					approvalOverrides: { actor: 'release-helper[bot]' },
+					commentOverrides: {
+						user: { login: 'release-helper[bot]', type: 'User' },
+					},
+				}),
+				pattern: /bot/i,
 			},
 		];
 
@@ -632,6 +993,102 @@ test('publication integrity rejects a broken package-local Markdown reference', 
 	}
 });
 
+test('CommonMark link parsing handles nested parentheses, angles, escapes, titles, and encoding', async () => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'skills', 'fixture-owner', 'commonmark-links');
+		mkdirSync(join(packageDir, 'references'), { recursive: true });
+		writeFileSync(
+			join(packageDir, 'SKILL.md'),
+			`---
+name: commonmark-links
+description: CommonMark destination fixture.
+---
+
+[Nested missing](references/missing(foo).md)
+[Angle destination](<references/angle target.md> "angle title")
+[Escaped destination](references/escaped\\(name\\).md 'escaped title')
+[Percent encoded](references/percent%20target.md)
+[Reference destination][local-ref]
+[HTTP](http://example.com/a.md)
+[HTTPS](https://example.com/a.md)
+[Mail](mailto:test@example.com)
+[Data](data:text/plain,fixture)
+[Anchor](#local)
+
+[local-ref]: references/reference(target).md "reference title"
+`,
+		);
+		for (const relativePath of [
+			'angle target.md',
+			'escaped(name).md',
+			'percent target.md',
+			'reference(target).md',
+			'missing(foo',
+		]) {
+			writeFileSync(join(packageDir, 'references', relativePath), '# Decoy or valid target\n');
+		}
+
+		const { scanMarkdownLinks } = await loadGate();
+		const errors = await scanMarkdownLinks(packageDir);
+		assert.equal(errors.length, 1, errors.join('\n'));
+		assert.match(errors[0], /references\/missing\(foo\)\.md/);
+		assert.doesNotMatch(errors[0], /missing\(foo$/);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('tree hash uses UTF-8 byte path order and includes executable mode', async () => {
+	const root = makeTempRoot();
+	try {
+		const packageDir = join(root, 'skills', 'fixture-owner', 'mode-hash');
+		mkdirSync(packageDir, { recursive: true });
+		writeFileSync(
+			join(packageDir, 'SKILL.md'),
+			'---\nname: mode-hash\ndescription: Mode hash fixture.\n---\n\n# Fixture\n',
+		);
+		writeFileSync(join(packageDir, 'A.md'), '# A\n');
+		writeFileSync(join(packageDir, 'z.md'), '# z\n');
+		writeFileSync(join(packageDir, '\u00e4.md'), '# umlaut\n');
+		writeFileSync(join(packageDir, 'run.sh'), '#!/bin/sh\necho fixture\n');
+		chmodSync(join(packageDir, 'run.sh'), 0o644);
+
+		const sha256 = (value) => createHash('sha256').update(value).digest('hex');
+		const expectedEntries = [
+			['100644', 'A.md'],
+			['100644', 'SKILL.md'],
+			['100644', 'run.sh'],
+			['100644', 'z.md'],
+			['100644', '\u00e4.md'],
+		]
+			.sort((left, right) => Buffer.compare(Buffer.from(left[1], 'utf8'), Buffer.from(right[1], 'utf8')))
+			.map(([mode, relativePath]) => (
+				`${mode} ${relativePath}\0${sha256(readFileSync(join(packageDir, relativePath)))}`
+			));
+
+		const { calculatePackageHashes, validatePackage } = await loadGate();
+		const before = await calculatePackageHashes(packageDir);
+		assert.equal(before.treeHash, sha256(expectedEntries.join('\n')));
+		await writeFreshReport(packageDir);
+
+		chmodSync(join(packageDir, 'run.sh'), 0o755);
+		const after = await calculatePackageHashes(packageDir);
+		assert.notEqual(after.treeHash, before.treeHash);
+
+		const result = await validatePackage(packageDir, { enforcePublicationPolicy: false });
+		assert.equal(result.ok, false);
+		assert.match(result.errors.join('\n'), /tree_hash.*does not match/i);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test('CommonMark parser dependency is exactly pinned', () => {
+	const packageDocument = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'));
+	assert.equal(packageDocument.dependencies.marked, '17.0.3');
+});
+
 test('all imported internet-court packages have resolvable package-local Markdown references', async () => {
 	const { discoverPackageDirs, scanMarkdownLinks } = await loadGate();
 	const packageDirs = await discoverPackageDirs(join(REPO_ROOT, 'skills', 'internet-court'));
@@ -653,9 +1110,30 @@ test('approval schema and tracked approval artifact are present and versioned', 
 	const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
 	const approvals = JSON.parse(readFileSync(approvalsPath, 'utf8'));
 	const approvalSchema = schema.properties.approvals.items;
-	assert.equal(schema.properties.schema_version.const, '1.0');
-	assert.ok(approvalSchema.required.includes('evidence_url'));
-	assert.match(approvalSchema.properties.evidence_url.pattern, /issuecomment/);
-	assert.equal(approvals.schema_version, '1.0');
+	assert.equal(schema.properties.schema_version.const, '2.0');
+	for (const field of [
+		'submission_id',
+		'submission_source_url',
+		'approval_issue_number',
+		'approval_issue_url',
+		'approval_comment_id',
+		'approval_comment_url',
+		'actor',
+		'created_at',
+		'updated_at',
+		'expires_at',
+		'pr_number',
+		'pr_url',
+		'pr_base_sha',
+		'pr_head_ref',
+		'pr_head_sha',
+		'slug',
+		'content_hash',
+		'tree_hash',
+	]) {
+		assert.ok(approvalSchema.required.includes(field), `${field} must be required`);
+	}
+	assert.match(approvalSchema.properties.approval_comment_url.pattern, /issuecomment/);
+	assert.equal(approvals.schema_version, '2.0');
 	assert.deepEqual(approvals.approvals, []);
 });

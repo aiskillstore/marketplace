@@ -8,13 +8,27 @@ on:
       - "skills/**/SKILL.md"
       - "skills/**/*.md"
       - "skills/**/skill-report.json"
+      - "skills/**/skill-report.attestation.json"
+      - "package.json"
+      - "npm-shrinkwrap.json"
+      - "scripts/bind-skill-report-hashes.mjs"
+      - "scripts/remove-empty-skill-files.mjs"
+      - "scripts/update-skill-publish-approval.mjs"
+      - "scripts/lib/publication-approval.mjs"
       - "scripts/validate-skill-publication.mjs"
+      - "scripts/tests/approval-record.test.mjs"
+      - "scripts/tests/bind-skill-report-hashes.test.mjs"
+      - "scripts/tests/changed-package-selection.test.mjs"
+      - "scripts/tests/empty-skill-cleanup.test.mjs"
       - "scripts/tests/publication-gate.test.mjs"
       - "scripts/tests/pr2403-hotfix-contract.test.mjs"
+      - "schemas/skill-report-attestation.schema.json"
       - "schemas/skill-publish-approvals.schema.json"
       - ".github/skill-publish-approvals.json"
+      - ".github/workflows/approve-submission.yml"
       - ".github/workflows/issue-approval.yml"
       - ".github/workflows/on-pr-merge.yml"
+      - ".github/workflows/reusable-process-skills.yml"
       - ".github/workflows/sync-to-supabase.yml"
       - ".github/workflows/validate-marketplace.yml"
   pull_request:
@@ -24,16 +38,31 @@ on:
       - "skills/**/SKILL.md"
       - "skills/**/*.md"
       - "skills/**/skill-report.json"
+      - "skills/**/skill-report.attestation.json"
       - "pending/**/SKILL.md"
       - "pending/**/*.md"
       - "pending/**/skill-report.json"
+      - "pending/**/skill-report.attestation.json"
+      - "package.json"
+      - "npm-shrinkwrap.json"
+      - "scripts/bind-skill-report-hashes.mjs"
+      - "scripts/remove-empty-skill-files.mjs"
+      - "scripts/update-skill-publish-approval.mjs"
+      - "scripts/lib/publication-approval.mjs"
       - "scripts/validate-skill-publication.mjs"
+      - "scripts/tests/approval-record.test.mjs"
+      - "scripts/tests/bind-skill-report-hashes.test.mjs"
+      - "scripts/tests/changed-package-selection.test.mjs"
+      - "scripts/tests/empty-skill-cleanup.test.mjs"
       - "scripts/tests/publication-gate.test.mjs"
       - "scripts/tests/pr2403-hotfix-contract.test.mjs"
+      - "schemas/skill-report-attestation.schema.json"
       - "schemas/skill-publish-approvals.schema.json"
       - ".github/skill-publish-approvals.json"
+      - ".github/workflows/approve-submission.yml"
       - ".github/workflows/issue-approval.yml"
       - ".github/workflows/on-pr-merge.yml"
+      - ".github/workflows/reusable-process-skills.yml"
       - ".github/workflows/sync-to-supabase.yml"
       - ".github/workflows/validate-marketplace.yml"
   workflow_dispatch:
@@ -112,7 +141,94 @@ jobs:
 
       - name: Install dependencies
         working-directory: ${{ env.WORK_DIR }}
-        run: npm install ajv ajv-formats gray-matter
+        run: npm ci
+
+      - name: Run publication safety regression tests
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          node --test \
+            scripts/tests/publication-gate.test.mjs \
+            scripts/tests/pr2403-hotfix-contract.test.mjs \
+            scripts/tests/bind-skill-report-hashes.test.mjs \
+            scripts/tests/changed-package-selection.test.mjs \
+            scripts/tests/empty-skill-cleanup.test.mjs \
+            scripts/tests/approval-record.test.mjs
+
+      - name: Validate publication security artifact schemas
+        working-directory: ${{ env.WORK_DIR }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const Ajv = require('ajv');
+          const addFormats = require('ajv-formats');
+          const ajv = new Ajv({ allErrors: true });
+          addFormats(ajv);
+
+          function schema(name) {
+            return JSON.parse(fs.readFileSync(path.join('schemas', name), 'utf8'));
+          }
+          function filesNamed(root, name) {
+            if (!fs.existsSync(root)) return [];
+            const files = [];
+            for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+              const fullPath = path.join(root, entry.name);
+              if (entry.isDirectory()) files.push(...filesNamed(fullPath, name));
+              else if (entry.isFile() && entry.name === name) files.push(fullPath);
+            }
+            return files;
+          }
+
+          const checks = [
+            {
+              validate: ajv.compile(schema('skill-publish-approvals.schema.json')),
+              files: ['.github/skill-publish-approvals.json'],
+            },
+            {
+              validate: ajv.compile(schema('skill-report-attestation.schema.json')),
+              files: [
+                ...filesNamed('skills', 'skill-report.attestation.json'),
+                ...filesNamed('pending', 'skill-report.attestation.json'),
+              ],
+            },
+          ];
+          let failed = false;
+          for (const check of checks) {
+            for (const file of check.files) {
+              const value = JSON.parse(fs.readFileSync(file, 'utf8'));
+              if (!check.validate(value)) {
+                failed = true;
+                console.error(file, JSON.stringify(check.validate.errors, null, 2));
+              }
+            }
+          }
+          if (failed) process.exit(1);
+          NODE
+
+      - name: Validate changed package report integrity
+        if: ${{ !cancelled() }}
+        working-directory: ${{ env.WORK_DIR }}
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"
+            node scripts/validate-skill-publication.mjs \
+              --integrity-only \
+              --changed-since "$PR_BASE_SHA"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            git fetch --no-tags --deepen=1 origin "$BRANCH"
+            node scripts/validate-skill-publication.mjs \
+              --integrity-only \
+              --changed-since HEAD~1
+          else
+            node scripts/validate-skill-publication.mjs \
+              --integrity-only \
+              --discover pending
+          fi
 
       # Download CLI once at start - used by both SKILL.md and skill-report.json auto-fix steps
       - name: Checkout for CLI download action
@@ -268,24 +384,12 @@ jobs:
         run: |
           echo "::notice::SKILL.md validation failed. Attempting AI-powered auto-fix..."
 
-          # First, delete empty SKILL.md files (they can't be fixed)
-          echo "🗑️ Checking for empty SKILL.md files to delete..."
-          DELETED_COUNT=0
-          for dir in skills pending; do
-            if [ -d "$dir" ]; then
-              while IFS= read -r -d '' file; do
-                if [ ! -s "$file" ] || [ -z "$(cat "$file" | tr -d '[:space:]')" ]; then
-                  PARENT_DIR=$(dirname "$file")
-                  echo "Deleting empty skill directory: $PARENT_DIR"
-                  rm -rf "$PARENT_DIR"
-                  DELETED_COUNT=$((DELETED_COUNT + 1))
-                fi
-              done < <(find "$dir" -name "SKILL.md" -print0 2>/dev/null)
-            fi
-          done
-          if [ "$DELETED_COUNT" -gt 0 ]; then
-            echo "::notice::Deleted $DELETED_COUNT empty skill directories"
-          fi
+          # Delete only confirmed regular zero-byte SKILL.md files. The helper
+          # never follows symlinks and only rmdir's an immediate empty parent.
+          node scripts/remove-empty-skill-files.mjs \
+            --workspace "$PWD" \
+            --root skills \
+            --root pending
 
           echo "Running AI-powered fix-md on skills directory..."
           "$GITHUB_WORKSPACE/skillstore-cli" skill fix-md ./skills || true
@@ -680,31 +784,6 @@ jobs:
             }
             sleep 2
           done
-
-      - name: Validate changed package report integrity
-        if: ${{ !cancelled() }}
-        working-directory: ${{ env.WORK_DIR }}
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
-        run: |
-          set -euo pipefail
-
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"
-            node scripts/validate-skill-publication.mjs \
-              --integrity-only \
-              --changed-since "$PR_BASE_SHA"
-          elif [ "$EVENT_NAME" = "push" ]; then
-            git fetch --no-tags --deepen=1 origin "$BRANCH"
-            node scripts/validate-skill-publication.mjs \
-              --integrity-only \
-              --changed-since HEAD~1
-          else
-            node scripts/validate-skill-publication.mjs \
-              --integrity-only \
-              --discover pending
-          fi
 
       - name: Add summary
         if: always()
