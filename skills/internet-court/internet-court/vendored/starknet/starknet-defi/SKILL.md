@@ -25,7 +25,7 @@ Execute DeFi operations on Starknet using avnu aggregator and native protocols.
 ## Quick Start
 
 1. Install the AVNU + starknet.js dependencies and point the skill at a funded Starknet account.
-2. Use [skills catalog](../README.md) when the flow expands into wallet setup, deployment, or auditing.
+2. Use the installed Starknet skills catalog when the flow expands into wallet setup, deployment, or auditing.
 
 ## Prerequisites
 

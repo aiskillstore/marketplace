@@ -113,5 +113,5 @@ try {
 ## References
 
 - [Starknet.js Documentation](https://www.starknetjs.com/)
-- [MCP Server Tools](../../packages/starknet-mcp-server/README.md)
+- MCP server tool documentation from the source repository
 - [AVNU SDK](https://docs.avnu.fi/)

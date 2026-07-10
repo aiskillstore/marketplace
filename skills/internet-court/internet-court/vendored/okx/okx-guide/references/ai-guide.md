@@ -44,7 +44,7 @@ Reached only when Step 0 is **compatible**. This step decides which page to show
 
 **MUST**:
 1. **Login check** — run `onchainos wallet status` and read `loggedIn`.
-   - `loggedIn: false` → user is not logged in. Do **not** query identity. Hand off to the existing wallet-login flow ([`../../okx-agentic-wallet/SKILL.md`](../../okx-agentic-wallet/SKILL.md) §login): prompt login, and on success resume here (re-run `wallet status`, then do the identity check).
+   - `loggedIn: false` → user is not logged in. Do **not** query identity. Hand off to the installed `okx-agentic-wallet` login flow: prompt login, and on success resume here (re-run `wallet status`, then do the identity check).
    - `loggedIn: true` → continue to the identity check.
 2. **Identity check** — run `onchainos agent get-my-agents`. It returns the logged-in user's own OKX.AI agents on XLayer (identified via JWT).
    - **Empty** (no agents) → user has no OKX.AI identity → **Step 2** (role selection page).

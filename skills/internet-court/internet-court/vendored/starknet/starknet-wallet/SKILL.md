@@ -25,7 +25,7 @@ Manage Starknet wallets for AI agents with native Account Abstraction support.
 ## Quick Start
 
 1. Install the SDK dependencies and set Starknet RPC/account environment variables.
-2. Use [skills catalog](../README.md) to pivot to adjacent modules like DeFi, deployment, or auditing.
+2. Use the installed Starknet skills catalog to pivot to adjacent modules like DeFi, deployment, or auditing.
 
 ## Prerequisites
 

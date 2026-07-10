@@ -2,7 +2,7 @@
 
 > **The single source of truth** — aligned with `cli/src/commands/agent_commerce/task/common/state_machine.rs`. All role skill files reference this diagram.
 >
-> The state machine itself is payment-mode-agnostic — for payment details see [`payment-modes.md`](./payment-modes.md); for entry differences see [`entry-points.md`](./entry-points.md).
+> The state machine itself is payment-mode-agnostic — for payment commands see [`task-cli-reference.md`](./task-cli-reference.md#set-payment-mode); for role and user-session entry paths see [`task-core.md`](./task-core.md#activation) and [`task-user-intent-routing.md`](./task-user-intent-routing.md#entry-intents-start-something-new).
 >
 > **Important layering**: this system strictly distinguishes between **task status** (Status, 11 real enums) and **system events** (Event, 37 total). **Events are not states** — some events are transient (don't change status, e.g. `provider_applied` / `dispute_approved`), some trigger state transitions, and some are entirely decoupled from task status (e.g. staking events).
 

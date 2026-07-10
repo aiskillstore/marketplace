@@ -25,7 +25,7 @@ Register and manage AI agent identities on Starknet using the ERC-8004 standard.
 ## Quick Start
 
 1. Install `starknet` and connect a funded account to the target ERC-8004 registry deployment.
-2. Use [skills catalog](../README.md) if the flow also needs wallet setup, deployment, or contract auditing.
+2. Use the installed Starknet skills catalog if the flow also needs wallet setup, deployment, or contract auditing.
 
 ## Overview
 

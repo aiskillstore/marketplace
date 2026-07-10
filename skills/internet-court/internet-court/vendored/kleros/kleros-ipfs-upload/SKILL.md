@@ -284,4 +284,4 @@ If you're integrating into an existing Node project, you can ignore the bundled 
 
 ## Feedback
 
-**Something broken or confusing in this skill?** Report it: fetch [feedback/SKILL.md](../feedback/SKILL.md) — helps maintainers fix what agents silently trip over.
+**Something broken or confusing in this skill?** Report it through the source repository's issue tracker; do not load files outside this package.

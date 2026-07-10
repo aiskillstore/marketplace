@@ -35,7 +35,7 @@ user-invocable: true
 
 # starknet.js v9.x SDK
 
-Related modules: [skills catalog](../README.md).
+Related modules are available through the installed Starknet skills catalog.
 
 ## When to Use
 

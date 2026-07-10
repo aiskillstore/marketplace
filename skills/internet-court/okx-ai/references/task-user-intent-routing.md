@@ -49,7 +49,7 @@ When the user has multiple active tasks, every routing decision **must** anchor 
 - **Track each task's state independently**. Don't apply task A's context to task B.
 - **Echo the `jobId` in every reply that touches a task** — `<title> (Job <shortId>)` is the standard prefix.
 
-See [`entry-points.md`](./entry-points.md#multi-task-context-management) for the full deep-dive.
+The routing rules above are the canonical multi-task context-management contract.
 
 ---
 

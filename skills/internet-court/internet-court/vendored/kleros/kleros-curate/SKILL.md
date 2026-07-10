@@ -216,4 +216,4 @@ Read before any IPFS upload step inside a Curate workflow.
 
 ## Feedback
 
-**Something broken or confusing in this skill?** Report it: fetch [feedback/SKILL.md](../feedback/SKILL.md) — helps maintainers fix what agents silently trip over.
+**Something broken or confusing in this skill?** Report it through the source repository's issue tracker; do not load files outside this package.

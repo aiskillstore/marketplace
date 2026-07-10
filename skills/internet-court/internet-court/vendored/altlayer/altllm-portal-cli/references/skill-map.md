@@ -15,33 +15,33 @@ This file maps local CLI commands to the focused repo-local skills.
 ## Repository Files
 
 - CLI entry:
-  - [src/cli.ts](../../../src/cli.ts)
+  - `src/cli.ts`
 - Auth flow:
-  - [src/commands/login-wallet.ts](../../../src/commands/login-wallet.ts)
-  - [src/commands/status.ts](../../../src/commands/status.ts)
-  - [src/lib/wallet.ts](../../../src/lib/wallet.ts)
+  - `src/commands/login-wallet.ts`
+  - `src/commands/status.ts`
+  - `src/lib/wallet.ts`
 - API key flow:
-  - [src/lib/keys.ts](../../../src/lib/keys.ts)
-  - [src/commands/list-api-keys.ts](../../../src/commands/list-api-keys.ts)
-  - [src/commands/create-api-key.ts](../../../src/commands/create-api-key.ts)
-  - [src/commands/get-api-key.ts](../../../src/commands/get-api-key.ts)
-  - [src/commands/update-api-key.ts](../../../src/commands/update-api-key.ts)
-  - [src/commands/revoke-api-key.ts](../../../src/commands/revoke-api-key.ts)
+  - `src/lib/keys.ts`
+  - `src/commands/list-api-keys.ts`
+  - `src/commands/create-api-key.ts`
+  - `src/commands/get-api-key.ts`
+  - `src/commands/update-api-key.ts`
+  - `src/commands/revoke-api-key.ts`
 - Billing and history:
-  - [src/commands/credit.ts](../../../src/commands/credit.ts)
-  - [src/commands/redeem-promo.ts](../../../src/commands/redeem-promo.ts)
-  - [src/lib/history.ts](../../../src/lib/history.ts)
-  - [src/commands/transactions.ts](../../../src/commands/transactions.ts)
-  - [src/commands/usage-summary.ts](../../../src/commands/usage-summary.ts)
-  - [src/commands/usage-timeline.ts](../../../src/commands/usage-timeline.ts)
-  - [src/commands/usage-by-model.ts](../../../src/commands/usage-by-model.ts)
-  - [src/commands/usage-by-key.ts](../../../src/commands/usage-by-key.ts)
+  - `src/commands/credit.ts`
+  - `src/commands/redeem-promo.ts`
+  - `src/lib/history.ts`
+  - `src/commands/transactions.ts`
+  - `src/commands/usage-summary.ts`
+  - `src/commands/usage-timeline.ts`
+  - `src/commands/usage-by-model.ts`
+  - `src/commands/usage-by-key.ts`
 - Payments:
-  - [src/commands/topup-crypto.ts](../../../src/commands/topup-crypto.ts)
-  - [src/commands/pay-payment-link.ts](../../../src/commands/pay-payment-link.ts)
+  - `src/commands/topup-crypto.ts`
+  - `src/commands/pay-payment-link.ts`
 - x402:
-  - [skills/altllm-x402/SKILL.md](../../altllm-x402/SKILL.md)
-  - [skills/altllm-x402/references/protocol-reference.md](../../altllm-x402/references/protocol-reference.md)
+  - `skills/altllm-x402/SKILL.md`
+  - `skills/altllm-x402/references/protocol-reference.md`
 - Shared session and API wrapper:
-  - [src/lib/session.ts](../../../src/lib/session.ts)
-  - [src/lib/api.ts](../../../src/lib/api.ts)
+  - `src/lib/session.ts`
+  - `src/lib/api.ts`

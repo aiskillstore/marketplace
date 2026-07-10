@@ -9,6 +9,7 @@ jobs:
     if: |
       github.event.issue.state == 'open' &&
       contains(github.event.issue.labels.*.name, 'pending-approval') &&
+      github.event.comment.user.type == 'User' &&
       startsWith(github.event.comment.body, '/approve')
     runs-on: self-hosted
     timeout-minutes: 10
@@ -30,6 +31,30 @@ jobs:
           else
             echo "❌ User ${{ github.event.comment.user.login }} lacks permission (has: $PERMISSION)"
             echo "should_process=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate safe-to-publish approval command
+        if: |
+          steps.check.outputs.should_process == 'true' &&
+          startsWith(github.event.comment.body, '/approve safe-to-publish')
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          FIRST_LINE="${COMMENT_BODY%%$'\n'*}"
+          FIRST_LINE="${FIRST_LINE%$'\r'}"
+          if [[ ! "$FIRST_LINE" =~ ^/approve\ safe-to-publish\ [a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]]; then
+            echo "::error::Use /approve safe-to-publish <exact-report-slug> followed by the reason on a new line"
+            exit 1
+          fi
+
+          if [[ "$COMMENT_BODY" != *$'\n'* ]]; then
+            echo "::error::A non-empty approval reason is required on a new line"
+            exit 1
+          fi
+          REASON="${COMMENT_BODY#*$'\n'}"
+          if [ -z "$(printf '%s' "$REASON" | tr -d '[:space:]')" ]; then
+            echo "::error::A non-empty approval reason is required on a new line"
+            exit 1
           fi
 
       - name: Parse issue body for submission details

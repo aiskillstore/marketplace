@@ -6,18 +6,36 @@ on:
     paths:
       # Only validate approved skills on push to main
       - "skills/**/SKILL.md"
+      - "skills/**/*.md"
       - "skills/**/skill-report.json"
-      - "skills/**/SKILL.md"
+      - "scripts/validate-skill-publication.mjs"
+      - "scripts/tests/publication-gate.test.mjs"
+      - "scripts/tests/pr2403-hotfix-contract.test.mjs"
+      - "schemas/skill-publish-approvals.schema.json"
+      - ".github/skill-publish-approvals.json"
+      - ".github/workflows/issue-approval.yml"
+      - ".github/workflows/on-pr-merge.yml"
+      - ".github/workflows/sync-to-supabase.yml"
+      - ".github/workflows/validate-marketplace.yml"
   pull_request:
     branches: [main]
     paths:
       # Validate both pending and skills on PR (CI gate)
       - "skills/**/SKILL.md"
+      - "skills/**/*.md"
       - "skills/**/skill-report.json"
-      - "skills/**/SKILL.md"
       - "pending/**/SKILL.md"
+      - "pending/**/*.md"
       - "pending/**/skill-report.json"
-      - "pending/**/SKILL.md"
+      - "scripts/validate-skill-publication.mjs"
+      - "scripts/tests/publication-gate.test.mjs"
+      - "scripts/tests/pr2403-hotfix-contract.test.mjs"
+      - "schemas/skill-publish-approvals.schema.json"
+      - ".github/skill-publish-approvals.json"
+      - ".github/workflows/issue-approval.yml"
+      - ".github/workflows/on-pr-merge.yml"
+      - ".github/workflows/sync-to-supabase.yml"
+      - ".github/workflows/validate-marketplace.yml"
   workflow_dispatch:
 
 env:
@@ -662,6 +680,31 @@ jobs:
             }
             sleep 2
           done
+
+      - name: Validate changed package report integrity
+        if: ${{ !cancelled() }}
+        working-directory: ${{ env.WORK_DIR }}
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"
+            node scripts/validate-skill-publication.mjs \
+              --integrity-only \
+              --changed-since "$PR_BASE_SHA"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            git fetch --no-tags --deepen=1 origin "$BRANCH"
+            node scripts/validate-skill-publication.mjs \
+              --integrity-only \
+              --changed-since HEAD~1
+          else
+            node scripts/validate-skill-publication.mjs \
+              --integrity-only \
+              --discover pending
+          fi
 
       - name: Add summary
         if: always()

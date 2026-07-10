@@ -207,6 +207,23 @@ jobs:
             echo "skip_sync=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Validate publication safety before sync
+        if: steps.changes.outputs.skip_sync != 'true'
+        env:
+          CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+
+          GATE_ARGS=()
+          for skill_path in $CHANGED_SKILLS; do
+            GATE_ARGS+=(--package "skills/$skill_path")
+          done
+
+          node scripts/validate-skill-publication.mjs \
+            "${GATE_ARGS[@]}" \
+            --approvals .github/skill-publish-approvals.json
+
       - name: Download skillstore-cli
         if: steps.changes.outputs.skip_sync != 'true'
         uses: ./.github/actions/download-skillstore-cli
