@@ -96,7 +96,7 @@ $ git commit -m "用户信息升级"
 
 #### Impact Propagation / 影响传播链路
 
-![Impact Propagation](docs/影响传播链路（P0%20%20P1）.png)
+![Impact Propagation](docs/impact-graph.png)
 *Red = P0, Yellow = P1 / 红色 = P0，黄色 = P1*
 
 #### Report Preview / 报告预览

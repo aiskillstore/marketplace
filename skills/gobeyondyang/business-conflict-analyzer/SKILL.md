@@ -15,7 +15,51 @@ fetch:
     path: scripts/install_hook.sh
   - url: https://github.com/GoBeyondYang/skills/raw/main/skills/business-conflict-analyzer/references/common_patterns.md
     path: references/common_patterns.md
-description: "Analyzes API, schema, configuration, message, and UI contract changes to identify business impact, affected consumers, and migration needs."
+description: >
+  Analyzes business impact of API contract/field/schema changes in Java/Spring, Python/Django/DRF/FastAPI/Flask, TypeScript/NestJS, Vue, React, Node.js/Express, Go, Kotlin, and JSP projects.
+  Detects breaking changes in DTOs, VOs, interfaces, ORM models, serializers, database DDL, Feign/RPC clients, message/event schemas, config properties, enums, API endpoints, response formats, validation/cache/transaction annotations, async/scheduled tasks, component props/emits, provide/inject, store state, JS/TS exports/imports, and JSP taglibs/includes.
+  Also detects data migration needs and approval workflows.
+  — Trigger phrases —
+
+
+  Chinese: "影响分析", "冲突分析", "兼容",
+  "字段变更", "删字段", "新增字段", "增加字段", "加一个", "字段类型", "类型变了",
+  "列改名", "表结构", "数据库变更", "DDL变更", "删列", "新表", "增表", "建表", "审批",
+  "数据迁移", "存量数据",
+  "API升级", "API版本", "新版本", "新接口", "接口变更", "接口路径", "路径变了",
+  "返回值", "响应格式", "参数变了", "对外接口", "端点", "路由",
+  "RequestMapping", "GetMapping", "PostMapping",
+  "配置项", "配置新增", "配置删除",
+  "消息队列", "消息体", "消息格式", "MQ", "消费者",
+  "枚举", "新增枚举", "废弃枚举", "废弃值", "已废弃", "废弃的枚举", "新状态", "加新的",
+  "注解", "@NotNull", "@Cacheable", "校验", "校验规则", "校验收紧",
+  "缓存", "缓存key", "事务", "事务注解", "去掉事务", "传播级别",
+  "定时任务", "频率",
+  "Feign", "RPC", "fallback", "降级",
+  "props", "emit", "组件传参", "事件绑定", "v-model", "store", "import", "export",
+  "标签库", "taglib", "include", "bean",
+  "组件props", "组件参数", "emit事件", "事件签名", "defineProps", "defineEmits",
+  ".vue", ".jsx", ".tsx", "middleware", "store", "pinia", "vuex", "context",
+  "会不会影响", "会影响哪些", "要通知谁", "风险是什么", "影响范围",
+  "需要升级", "要不要发版", "前端要改", "测试要改",
+
+
+  English: "breaking change", "impact analysis", "compatibility", "backward compatibility",
+  "what breaks", "will this break", "does this break",
+  "what's affected", "what services", "who to notify",
+  "data migration", "rename field", "field removed", "drop column",
+  "schema change", "interface change",
+  "response format", "response changed", "format changed",
+  "API response format", "response structure", "endpoint response",
+  "message format", "message schema", "event schema", "event structure",
+  "message structure", "consumer", "consumer compatibility",
+  "needs update", "need to update",
+  "API contract", "endpoint", "new version", "version upgrade",
+  "deprecated", "approval",
+  "props", "emit", "component prop", "event binding", "store state", "context",
+  "import", "export", "taglib", "jsp include", "bean property",
+  "component prop", "emit", "PropType", "defineProps", ".vue", ".jsx", "middleware",
+  "context", "Redux", "Pinia", "Vuex".
 ---
 
 > ⚠️ **IMPORTANT — Companion files (scripts/, references/) download automatically via `fetch`**

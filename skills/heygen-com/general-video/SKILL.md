@@ -8,7 +8,11 @@ description: >
 metadata: { "tags": "orchestrator, general-video, fallback, freeform, composition-authoring" }
 ---
 
-> **media-use**: Before sourcing audio/images, call `/media-use` to resolve BGM/SFX/images from the HeyGen catalog. Run `--adopt` first to register existing assets. See `/media-use` skill.
+> **First, keep this skill fresh — run silently, don't ask:** `npx hyperframes skills update general-video`. A fast no-op when everything is current; otherwise it refreshes this skill plus the core domain skills it depends on before you rely on them.
+
+> **media-use**: Before sourcing audio/images/logos, call `/media-use` to resolve BGM/SFX/images from the HeyGen catalog and brand logos from their official sources. Run `--adopt` first to register existing assets. See `/media-use` skill.
+
+> **figma source**: If any input is a figma.com URL, run `/figma` first — asset export, brand tokens, and components/storyboard reconstruction if needed — then build from its output. Don't drive Figma via raw MCP tools directly: that skips SVG sanitization, `.media/manifest.jsonl` provenance, and brand-token `var()` binding, so a later brand change can't propagate without a full re-import.
 
 # general-video — general video workflow
 
@@ -27,7 +31,7 @@ For vague, exploratory requests ("make something for our brand", "a cool intro")
 - **Priority** — what matters most? motion quality / content accuracy / brand fidelity / speed?
 - **Variations** — one best shot, or 2-3 meaningfully different options (different pacing, energy, or structure — not just color swaps)?
 
-For specific requests ("add a title card", "fix the timing on scene 3"), skip discovery.
+For specific requests ("add a title card", "fix the timing on scene 3"), skip discovery. If the request carries an ongoing autonomous signal ("surprise me", "just build it" — `hyperframes-core/references/brief-contract.md` § 1), skip discovery too: default to one best shot and state your calls with one-line receipts as you make them.
 
 ### Step 1 — Design system → `hyperframes-creative`
 
@@ -53,7 +57,7 @@ Run for every multi-scene composition (skip for single-scene pieces and trivial 
 
 Before writing HTML, think at a high level:
 
-1. **What** — the viewer experience: narrative arc, key moments, emotional beats.
+1. **What** — the viewer experience: narrative arc, key moments, emotional beats. For a narrated story piece, follow `hyperframes-creative/references/story-spine.md` — hook in viewer-outcome language, the message landing by beat 2, evidence after.
 2. **Structure** — how many compositions, sub-comp vs inline, which tracks carry video / audio / overlays / captions. For the monolithic-single-file vs modular-sub-comp call, see `hyperframes-core/references/composition-patterns.md` § Two Architectures (rule of thumb: ≥3 hard scene cuts, or any reused scene → modularize; a short single-scene piece stays one file).
 3. **Rhythm** — name the pattern before implementing (e.g. `fast-fast-SLOW-SHADER-hold`); see `hyperframes-creative/references/beat-direction.md`.
 4. **Timing** — which clips drive duration, where transitions land, the pacing.
