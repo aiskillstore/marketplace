@@ -8,7 +8,6 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
-	symlinkSync,
 	writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -176,16 +175,15 @@ for (const reportPath of reports(skillsRoot)) {
 	git(producerDir, 'remote', 'add', 'origin', 'https://github.com/aiskillstore/skillstore.git');
 	git(producerDir, 'add', '.');
 	git(producerDir, 'commit', '-qm', 'fixture audit producer');
-	mkdirSync(join(producerDir, 'node_modules'), { recursive: true });
-	symlinkSync(
-		resolve(
-			REPO_ROOT,
-			'..',
-			'skillstore-pr2403-postmerge-hotfix',
-			'node_modules',
-			'tsx',
-		),
-		join(producerDir, 'node_modules', 'tsx'),
+	const fixtureTsxDir = join(producerDir, 'node_modules', 'tsx');
+	mkdirSync(fixtureTsxDir, { recursive: true });
+	writeFileSync(
+		join(fixtureTsxDir, 'package.json'),
+		'{"name":"tsx","version":"0.0.0-fixture","type":"module","exports":"./index.mjs"}\n',
+	);
+	writeFileSync(
+		join(fixtureTsxDir, 'index.mjs'),
+		'// Node 22+ natively executes this fixture\'s JavaScript-compatible .ts file.\n',
 	);
 	return producerDir;
 }
