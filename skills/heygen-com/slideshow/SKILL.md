@@ -9,6 +9,10 @@ description: >
   Unclear → /hyperframes.
 ---
 
+> **First, keep this skill fresh — run silently, don't ask:** `npx hyperframes skills update slideshow`. A fast no-op when everything is current; otherwise it refreshes this skill plus the core domain skills it depends on before you rely on them.
+
+> **figma source**: If the deck's content or storyboard comes from a figma.com URL, run `/figma` first — asset export, brand tokens, and storyboard reconstruction if the source is a strip of scene frames — then build from its output. Don't drive Figma via raw MCP tools directly: that skips SVG sanitization, `.media/manifest.jsonl` provenance, and brand-token `var()` binding, so a later brand change can't propagate without a full re-import.
+
 # Slideshow authoring contract
 
 A HyperFrames slideshow is a normal HyperFrames composition — scenes, clips, GSAP timelines — with one extra ingredient: a **JSON island** that declares which scenes are slides and how they connect. The player's `SlideshowController` reads the island and turns the continuous GSAP timeline into a discrete, navigable deck.
@@ -33,7 +37,7 @@ Then ask a short confirmation question:
 
 Use a yes/no choice UI when the environment provides one; otherwise ask the question in plain text.
 
-Do not implement the slideshow until the user says yes. If they say no, stop using this skill and switch to the appropriate non-slideshow workflow.
+Do not implement the slideshow until the user says yes. If they say no, stop using this skill and switch to the appropriate non-slideshow workflow. This confirmation is a **routing decision**, not a preference gate — per `../hyperframes-core/references/brief-contract.md` § 1 it survives autonomous mode ("surprise me" does not skip it): building the wrong deliverable type is a quality failure, not a creative call.
 
 ---
 

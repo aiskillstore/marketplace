@@ -1,9 +1,11 @@
 ---
 name: embedded-captions
-description: 'Add embedded or cinematic captions to single-subject talking-head videos using local transcription, matting, identity-based visual routing, preview QA, and final render/composite scripts.'
+description: 'Add captions to a talking-head video. ONE catalog (CATALOG.md) of 36 visual identities behind two engines: column-flow (captions composited INTO the scene — matte occlusion + mix-blend; cream/ink/editorial/keynote/documentary/loud/neon/glitch/chrome/velocity) and themed constitutions (anchor/ordnance/terminal/neonsign/stardust/stomp/scoreboard/transit/vhs/arcade/dossier/laser/thunder/hologram/biolume/aurora/spectrum/papercut/popup/chalkboard/graffiti/brush/inkwater/ransom/lastpage/nightcity — e.g. a glyph-decode climax, a neon sign WRITTEN stroke by stroke, or the quiet `anchor` rail default). Route by identity, never by mode. Trigger on "captions/subtitles", "embed/cinematic captions", "VFX captions", "炸/特效/酷炫字幕", a named identity, or top-tier motion-graphics asks. Embedding every word is wrong for most talking-head content — `anchor` is the verbatim default. Runs locally end-to-end (transcribes and mattes the subject itself, no API key). Requires hyperframes and a single-subject clip (multi-shot clips are split per shot).'
 metadata:
   tags: captions, embedded-captions, occlusion, matting, talking-head, rembg-matting, whisper, ffmpeg, cinematic
 ---
+
+> **First, keep this skill fresh — run silently, don't ask:** `npx hyperframes skills update embedded-captions`. A fast no-op when everything is current; otherwise it refreshes this skill plus the core domain skills it depends on before you rely on them.
 
 # Embedded Captions
 
@@ -59,8 +61,13 @@ encodes everything routing needs: reading surface, voice, recommend-for, scene
 needs, adjacency notes for the genuinely-close pairs (loud↔ordnance,
 neon↔neonsign, cream↔stardust).
 
+The identity pick is a **preference gate** (`../hyperframes-core/references/brief-contract.md` § 1):
+in autonomous mode ("surprise me" / "decide for me"), pick from your shortlist
+yourself and state the one-line why instead of asking.
+
 Procedure: probe the clip → shortlist 2–3 identities from the catalog →
-recommend ONE with a one-line why → **the user picks** → author that identity's
+recommend ONE with a one-line why → **the user picks** (autonomous mode: you
+pick, stating the why) → author that identity's
 file. Identities are engine-locked (no cross combos; opening one is a
 validation event — see dna/README.md).
 

@@ -8,13 +8,14 @@
 // An entry exposes any of three capability methods — search / generate /
 // process — plus { name }. media-use holds no keys; each external tool owns its
 // own auth. Providers, by type:
-//   - heygen CLI: catalog + TTS, first for every type it serves (sub creds)
+//   - heygen CLI: catalog + TTS, first for every type it serves (OAuth free
+//     allowance first, then the user's HeyGen billing path)
 //   - mflux: local FLUX-class image gen, spec-selected to the machine's RAM
 //     (free, private, offline once cached)
 //   - codex CLI: image gen on the user's ChatGPT sub — the better-quality upsell
 //     and the fallback when no local model fits
-//   - Kokoro (via the hyperframes CLI): local voiceover, free/private default
-//     for the voice type, ahead of the paid HeyGen TTS upsell
+//   - Kokoro (via the hyperframes CLI): local voiceover, free/private fallback
+//     when HeyGen credentials are absent or --local-only is requested
 //
 // Generation is local-first, cloud-upsell. `ctx.provider` forces one provider
 // (e.g. "make an image with codex").
@@ -23,15 +24,22 @@ import { bgmProvider } from "./bgm-provider.mjs";
 import { sfxProvider } from "./sfx-provider.mjs";
 import { imageProvider, iconProvider } from "./image-provider.mjs";
 import { brandProvider } from "./brand-provider.mjs";
+import {
+  svglSearch,
+  simpleIconsSearch,
+  githubAvatarSearch,
+  faviconSearch,
+} from "./logo-provider.mjs";
 import { heygenTtsGenerate } from "./voice-provider.mjs";
 import { localTtsGenerate } from "./tts-local-provider.mjs";
 import { codexImageGenerate } from "./codex-provider.mjs";
 import { mfluxImageGenerate } from "./mflux-provider.mjs";
 
 // Provider markers: `network` = hits a remote service (skipped by --local-only).
-// `paid` = costs wallet credits (documentation for the agent's cost judgment,
-// X4: agent-initiated paid should confirm). HeyGen catalog SEARCH is free;
-// HeyGen TTS now costs credits, so it is the paid upsell behind local Kokoro.
+// `paid` = may cost wallet credits after any OAuth/web-plan free allowance
+// (documentation for the agent's cost judgment, X4: agent-initiated paid should
+// confirm). HeyGen catalog SEARCH is free; HeyGen TTS is free for eligible
+// OAuth CLI users up to the monthly allowance, then follows the user's billing.
 const A = (name, caps) => ({ name, ...caps }); // local, free
 const N = (name, caps) => ({ name, network: true, ...caps }); // remote, free
 const P = (name, caps) => ({ name, network: true, paid: true, ...caps }); // remote, paid
@@ -50,16 +58,39 @@ const REGISTRY = {
     N("codex.image_gen", { generate: codexImageGenerate }),
   ],
   icon: [N("heygen.asset.search", { search: iconProvider.search })],
+  logo: [
+    // Official brand marks. Tiers verified by a 54-brand stress test (100%
+    // cascade hit); HeyGen asset search is deliberately absent — it returns
+    // generic look-alike icons for brand queries. All free, all network →
+    // --local-only leaves only the cache rungs.
+    N("svgl", { search: svglSearch }),
+    N("simple-icons", { search: simpleIconsSearch }),
+    N("github.avatar", { search: githubAvatarSearch }),
+    N("favicon.ddg", { search: faviconSearch }),
+  ],
   voice: [
-    // Local Kokoro first (free, private, on-device via the hyperframes CLI, kept
-    // under --local-only), then HeyGen TTS as the higher-quality paid upsell and
-    // the fallback when Kokoro is not set up.
-    A("kokoro.local", { generate: localTtsGenerate }),
+    // HeyGen TTS first when credentialed so CLI/OAuth users consume the free
+    // web-plan allowance (10 min/month) before any paid path. --local-only skips
+    // it and keeps Kokoro as the private/offline fallback.
+    // Deliberately kept `paid` (X4 confirm-before-call) even though the first
+    // 10 min/month are free: the client can't know the remaining allowance, so
+    // confirming is safer than risking a silent charge once it's spent. (A
+    // tri-state "quota-first, paid after" would need backend quota state.)
     P("heygen.tts", { generate: heygenTtsGenerate }),
+    A("kokoro.local", { generate: localTtsGenerate }),
   ],
   brand: [
     // Local design spec, not heygen — reads frame.md / design.md tokens.
     A("design_spec", { search: brandProvider.search }),
+  ],
+  grade: [
+    // Local deterministic cascade handled by resolve.mjs so grade records can
+    // carry an inline block as well as an optional frozen .cube file.
+    A("color_grade.local", { search: async () => null, generate: async () => null }),
+  ],
+  lut: [
+    // Lower-level local LUT generation/freezing path handled by resolve.mjs.
+    A("cube_lut.local", { search: async () => null, generate: async () => null }),
   ],
 };
 

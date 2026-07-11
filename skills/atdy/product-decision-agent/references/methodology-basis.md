@@ -30,8 +30,12 @@
 
 参考项目：
 
-- `leezythu/maoxuan-skill`
-- `zhangtianruiwork-droid/Maoxuan-Changzheng`
+- [leezythu/maoxuan-skill](https://github.com/leezythu/maoxuan-skill)
+- [zhangtianruiwork-droid/Maoxuan-Changzheng](https://github.com/zhangtianruiwork-droid/Maoxuan-Changzheng)
+
+全文语料来源：
+
+- [weiyinfu/MaoZeDongAnthology](https://github.com/weiyinfu/MaoZeDongAnthology)
 
 参考项目的主要问题：显性角色扮演、语录/原典锚点、历史表达和理论名过重，触发词也偏“毛选/教员/毛泽东”。本 Skill 不能沿用这种形态，只吸收“调查、判断、集中、验证、阶段转变、相关方分析”的方法动作。
 
