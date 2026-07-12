@@ -1,5 +1,5 @@
 ---
-name: create-auth-skill
+name: create-auth
 description: Scaffold and implement authentication in TypeScript/JavaScript apps using Better Auth. Detect frameworks, configure database adapters, set up route handlers, add OAuth providers, and create auth UI pages. Use when users want to add login, sign-up, or authentication to a new or existing project with Better Auth.
 ---
 
@@ -19,7 +19,7 @@ Before writing any code, gather requirements by scanning the project and asking 
 
 Analyze the codebase to auto-detect:
 - **Framework** — Look for `next.config`, `svelte.config`, `nuxt.config`, `astro.config`, `vite.config`, or Express/Hono entry files.
-- **Database/ORM** — Look for `prisma/schema.prisma`, `drizzle.config`, `package.json` deps (`pg`, `mysql2`, `better-sqlite3`, `mongoose`, `mongodb`).
+- **Database/ORM** — Look for `prisma/schema.prisma`, `drizzle.config.ts`, `package.json` deps (`pg`, `postgres`, `@neondatabase/serverless`, `mysql2`, `better-sqlite3`, `mongoose`, `mongodb`). If `drizzle.config.ts` exists, read its `dialect` field to determine the DB type (e.g., `"postgresql"` → Drizzle + Postgres). Also check which Drizzle driver is installed (`drizzle-orm/node-postgres` → `pg`, `drizzle-orm/postgres-js` → `postgres`, `drizzle-orm/neon-http` → Neon).
 - **Existing auth** — Look for existing auth libraries (`next-auth`, `lucia`, `clerk`, `supabase/auth`, `firebase/auth`) in `package.json` or imports.
 - **Package manager** — Check for `pnpm-lock.yaml`, `yarn.lock`, `bun.lockb`, or `package-lock.json`.
 
@@ -236,7 +236,10 @@ Add OAuth secrets as needed: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GOOGLE
 |---------|---------|
 | Built-in Kysely | `npx @better-auth/cli@latest migrate` (applies directly) |
 | Prisma | `npx @better-auth/cli@latest generate --output prisma/schema.prisma` then `npx prisma migrate dev` |
-| Drizzle | `npx @better-auth/cli@latest generate --output src/db/auth-schema.ts` then `npx drizzle-kit push` |
+| Drizzle (dev) | `npx @better-auth/cli@latest generate --output src/db/auth-schema.ts` then `npx drizzle-kit push` |
+| Drizzle (prod) | `npx @better-auth/cli@latest generate --output src/db/auth-schema.ts` then `npx drizzle-kit generate` then `npx drizzle-kit migrate` |
+
+> **Note:** `drizzle-kit push` skips migration files and is only safe for development. Use `drizzle-kit generate` + `drizzle-kit migrate` in production.
 
 **Re-run after adding plugins.**
 
@@ -250,8 +253,74 @@ Add OAuth secrets as needed: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GOOGLE
 | PostgreSQL | Pass `pg.Pool` instance directly |
 | MySQL | Pass `mysql2` pool directly |
 | Prisma | `prismaAdapter(prisma, { provider: "postgresql" })` from `better-auth/adapters/prisma` |
-| Drizzle | `drizzleAdapter(db, { provider: "pg" })` from `better-auth/adapters/drizzle` |
+| Drizzle (pg) | `drizzleAdapter(db, { provider: "pg" })` from `better-auth/adapters/drizzle` |
+| Drizzle (mysql) | `drizzleAdapter(db, { provider: "mysql" })` from `better-auth/adapters/drizzle` |
+| Drizzle (sqlite) | `drizzleAdapter(db, { provider: "sqlite" })` from `better-auth/adapters/drizzle` |
 | MongoDB | `mongodbAdapter(db)` from `better-auth/adapters/mongodb` |
+
+### Drizzle + PostgreSQL Setup
+
+Before using `drizzleAdapter`, initialize the `db` instance:
+
+```ts
+// Option 1: node-postgres (pg)
+import { drizzle } from "drizzle-orm/node-postgres"
+import { Pool } from "pg"
+import * as schema from "./auth-schema"
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+export const db = drizzle(pool, { schema })
+```
+
+```ts
+// Option 2: postgres.js
+import { drizzle } from "drizzle-orm/postgres-js"
+import postgres from "postgres"
+import * as schema from "./auth-schema"
+
+const client = postgres(process.env.DATABASE_URL!)
+export const db = drizzle(client, { schema })
+```
+
+```ts
+// Option 3: Neon serverless
+import { drizzle } from "drizzle-orm/neon-http"
+import { neon } from "@neondatabase/serverless"
+import * as schema from "./auth-schema"
+
+const sql = neon(process.env.DATABASE_URL!)
+export const db = drizzle(sql, { schema })
+```
+
+Then pass to Better Auth:
+
+```ts
+import { betterAuth } from "better-auth"
+import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import { db } from "./db"
+
+export const auth = betterAuth({
+  database: drizzleAdapter(db, { provider: "pg" }),
+  // ...
+})
+```
+
+### Drizzle Config (`drizzle.config.ts`)
+
+Required for `drizzle-kit` commands to find your schema:
+
+```ts
+import { defineConfig } from "drizzle-kit"
+
+export default defineConfig({
+  schema: "./src/db/auth-schema.ts",
+  out: "./drizzle",
+  dialect: "postgresql",
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+})
+```
 
 ---
 

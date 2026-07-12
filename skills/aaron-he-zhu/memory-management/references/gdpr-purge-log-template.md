@@ -1,14 +1,17 @@
 ---
 name: gdpr-purge-log-template
-description: Honest, minimal schema for memory/audits/gdpr-purges.md entries — a human-readable record of erasure requests, not an audit-grade erasure proof.
+description: Honest, minimal schema for memory/privacy/erasure-log.md entries — a human-readable record of erasure requests, not an auditor artifact or erasure proof.
 type: reference
 ---
 
-# Purge Log — `memory/audits/gdpr-purges.md`
+# Erasure Operation Log — `memory/privacy/erasure-log.md`
 
 An append-only, human-readable record of every Art 17 / CCPA §1798.105 erasure request
 handled by `memory-management`. It documents **what was requested and what the working tree
 edit did** — it is NOT a cryptographic or audit-grade proof of complete erasure.
+
+`memory/audits/` is reserved for the eight typed marketing gate artifacts. Privacy operations are
+operational records with a different construct and therefore never share that namespace.
 
 > **Read this first — scope honesty.** A purge edits the **working tree** only. If `memory/` is
 > under version control, the subject still exists in git history; verify with

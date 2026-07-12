@@ -2,20 +2,20 @@
 name: fit-scorer
 slug: fit-scorer
 displayName: "Fit Scorer · 红人适配评分"
-summary: "对候选红人做加权适配评分(受众匹配/内容质量/品牌契合/互动真实性)并给出 go/pass 判定"
-description: 'Use when the user asks to "score this influencer", "rank these creators for our campaign", or "tell me which influencer is the best fit"; produces weighted fit scores across audience match, content quality, brand alignment, engagement authenticity, and partnership potential, plus a ranked comparison and a go/pass verdict. Not for finding new influencers — use influencer-discovery; not for sending outreach — use outreach-manager.'
-version: "16.0.0"
+summary: "用 typed C3 ACE 评估创作者，并将活动商业适配度作为独立矩阵排序"
+description: 'Use when the user asks to "score this influencer", "rank these creators for our campaign", or "tell me which influencer is the best fit"; produces typed C3 ACE creator results plus a separately labeled campaign-fit ranking without mixing brand fit into ACE. Not for finding new influencers — use influencer-discovery; not for sending outreach — use outreach-manager.'
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when a user has a shortlist of influencers and needs an objective, weighted score to prioritize outreach, choose between candidates, justify a selection to stakeholders, set consistent evaluation standards, compare creators across niches or platforms, or build long-term partner tiers. Activates on requests like score @handle for our brand, compare and rank these creators, or which of these is the best fit."
 argument-hint: "<brand or campaign> <influencer handle(s)> [campaign goal: awareness|engagement|conversion]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "influencer", "phase": "discover", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "discover"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "influencer", "phase": "discover", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "discover"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Fit Scorer
 
-Objectively evaluate how well an influencer matches your brand by scoring them across five weighted dimensions, turning gut feel into a defensible go/pass decision.
+Score each shortlisted creator on the typed C3 ACE creator rubric, then keep campaign-specific commercial fit in a separate prioritization matrix. The ACE result is portable and brand-independent; the commercial matrix is not an ACE score and never enters CVI.
 
 ## Quick Start
 
@@ -34,12 +34,12 @@ Compare and rank these influencers for [campaign]: @influencer1, @influencer2, @
 ## Skill Contract
 
 - **Reads**: brand/campaign context, target audience definition, campaign goal, and a shortlist of influencer handles (supplied by the user or carried over from `influencer-discovery`). Optional prior audience profiles from `memory/influencer/audience-mapper/` and competitor partner benchmarks from `memory/influencer/competitor-tracker/`. For rostered creators, read partnership history and audience-stat provenance from `memory/creators/<handle-slug>.md` — the [creator-registry](../../../protocol/creator-registry/SKILL.md) roster record — as Partnership Potential inputs.
-- **Writes**: a fit-score report (per-dimension raw scores, weighted totals, verdict, ranked comparison) to `memory/influencer/fit-scorer/YYYY-MM-DD-<topic>.md`.
-- **Promotes**: top-ranked handles, final scores, and the go/pass verdict to `memory/hot-cache.md` so downstream skills pick the right targets.
+- **Writes**: only with explicit authorization, a report containing typed ACE results plus a separately labeled commercial-fit comparison at `memory/influencer/fit-scorer/YYYY-MM-DD-<topic>.md`.
+- **Promotes**: only with separate authorization, evidence-backed top picks and their exact ACE profile/version; never promote an unscored or provisional result.
 - **Done when**:
-  - Every shortlisted influencer has a weighted total score on the 1-5 scale with per-dimension justifications.
-  - A ranked comparison and an explicit verdict (Highly Recommended / Recommended / Consider / Pass) exist for each candidate.
-  - The report is saved to the family memory path and top picks are promoted to the hot cache.
+  - Every creator has all 12 ACE items explicitly Pass/Partial/Fail/Unknown/N/A with dated evidence or a gap reason.
+  - The exact `ace-<goal>` profile/context and deterministic scorer result are preserved; Unknown prevents an ACE total.
+  - Any commercial-fit ranking is visibly separate from ACE and cannot override a veto or missing evidence.
 - **Primary next skill**: [competitor-tracker](../../plan/competitor-tracker/SKILL.md) — benchmark your top-scored picks against the creators competitors already partner with.
 
 ### Handoff Summary
@@ -61,33 +61,22 @@ With zero integrations, ask the user to supply each value the scoring tables req
 
 ## Instructions
 
-All fill-in tables and the comparison/report layouts live in [references/scoring-templates.md](references/scoring-templates.md) — copy the matching block for each step.
+The commercial comparison layouts live in [references/scoring-templates.md](references/scoring-templates.md). They are optional decision support, not the C3 rubric.
 
-1. **Define the scoring framework.** Set the five dimensions, weights (default below; tune per goal via the custom-weighting matrix), and the 1-5 scale. Use the Step 1 template.
-
-   **C³ ACE alignment & veto gate.** This skill is the C³ **Creator** scorer ([ACE](../../../references/c3/ace-creator-benchmark.md)). Map dimensions onto ACE: Audience Match → **A**udience; Engagement Quality → **E**ngagement; the **Brand Safety** sub-check → **C**redibility (C1). Note: the value/aesthetic/messaging-fit part of Brand Alignment is *creator × brand fit*, which C³ scores in ROI.Orchestration (O1), **not** ACE — ACE is brand-independent, so keep brand-fit out of Credibility. Before ranking, screen every creator against the three ACE veto items; any failure is disqualifying → verdict **PASS (do not partner)** AND cap the Final Rating at the Poor / Below-Average band (**≤ 2.9 / 5**, i.e. ACE ≤ 59/100) so the score never contradicts the decline. State the veto ID + evidence:
-
-   | Veto | Item | Fail condition |
-   |------|------|----------------|
-   | **A2** | Real-Follower Rate | < 70% real followers, or audit refused (follower fraud) |
-   | **C1** | Brand Safety | disqualifying content / active scandal |
-   | **E2** | Engagement Authenticity | pod / bought engagement |
-
-2. **Score Audience Match** — target-vs-actual demographics plus audience quality (real/active/bot %). Step 2 template.
-3. **Score Content Quality** — production value, cadence, content mix, best examples, concerns. Step 3 template.
-4. **Score Brand Alignment** — value/aesthetic/messaging fit and the Brand Safety check (feeds ACE C1). Step 4 template.
-5. **Score Engagement Quality** — engagement rate vs industry avg, authenticity indicators, pod/buying signs (feeds ACE E2). Step 5 template.
-6. **Score Partnership Potential** — partnership history, professionalism, exclusivity/availability, estimated value; pull prior-partnership and response-history facts from the `memory/creators/` roster record when one exists. Step 6 template.
-7. **Calculate the final score** — roll raw × weight into the weighted total, apply the interpretation band, write the verdict and expected performance. Step 7 template.
-8. **For multiple influencers**, produce the ranking summary, dimension-by-dimension comparison, and prioritize/combine/pass recommendation. Step 8 template.
-
-Save the report to `memory/influencer/fit-scorer/YYYY-MM-DD-<topic>.md` and promote top picks + verdict to `memory/hot-cache.md`.
+1. **Lock typed context.** Declare creator target/version, goal (`awareness|engagement|conversion|brand-building`), profile `ace-<goal>`, `scope: ace`, `assessment_time: forecast|actual`, shared campaign `rollup_id`, observation date, platform/tier/niche cohort, and evidence window. Profile scope/goal must match context.
+2. **Freeze evidence.** Use creator analytics, public observations, roster history, and cohort benchmarks with source/date/type/confidence. Missing or refused private access is Unknown, never Fail or Partial.
+3. **Score ACE only.** Evaluate A1-A4 Audience, C1-C4 Credibility, and E1-E4 Engagement from [ace-creator-benchmark.md](../../../references/c3/ace-creator-benchmark.md). Creator-brand fit, exclusivity conflict, cost, and campaign conversion belong to ROI.O/I, not ACE.
+4. **Verify critical failures.** `C3-ACE.A2` fails only on verified real-follower rate below 70%; `C3-ACE.C1` on verified disqualifying conduct; `C3-ACE.E2` on verified bought/pod engagement. One verified veto yields `DONE_WITH_CONCERNS/FIX` and `final=min(raw,59)`; two or more yield `DONE/BLOCK` with no final score. Operationally hold outreach while a critical issue remains, but do not relabel the typed verdict.
+5. **Run the deterministic scorer.** Follow [`runtime-invocation.md`](../../../references/runtime-invocation.md), resolve `AARON_SKILLS_ROOT="${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || true)}"`, verify the scorer and typed catalog, then execute `python3 "$AARON_SKILLS_ROOT/scripts/rubric-score.py" score <run.json>`. If the standalone install lacks them, return `score_state: NOT_SCORED` / `score_confidence: not_scored`; do not hand-calculate a total, verdict, or persistent artifact.
+6. **Build the separate commercial matrix when requested.** Use audience-to-campaign fit, content style, campaign-specific brand/category fit, commercial terms, availability, and partnership potential. Label its 1-5 total `commercial_fit_score`; it is not ACE, cannot clear an ACE veto, and never enters CVI.
+7. **Rank transparently.** Show ACE profile/result (or coverage/interval), critical controls, commercial fit separately, evidence confidence, and an outreach recommendation with owner/rerun condition. Do not rank an Unknown-heavy candidate as definitively superior.
+8. **Persist only with permission.** Save the report only after authorization; request separate authorization before any hot-cache promotion or creator-registry proposal.
 
 ## Compact Example
 
 **User**: "Compare @ecofashionista, @greenwardrobe, @sustainablesarah for our sustainable fashion brand (goal: conversion)."
 
-**Output**: Each scored across the five dimensions with conversion weighting (Audience 35%, Brand 20%). @sustainablesarah ranks #1 (4.4/5) on highest audience match and authentic engagement; @greenwardrobe flagged DONE_WITH_CONCERNS on a borderline real-follower rate (A2 watch); ranked comparison + go/pass verdicts saved, top pick promoted to hot cache.
+**Output**: Each creator receives a typed `ace-conversion` result using the same campaign `rollup_id`; the separate commercial matrix explains brand/category fit and terms. A verified 55% real-follower result fails A2 and caps one-veto ACE at 59, while refused access stays Unknown and prevents a total. Persistence is offered, not assumed.
 
 ## Reference Materials
 

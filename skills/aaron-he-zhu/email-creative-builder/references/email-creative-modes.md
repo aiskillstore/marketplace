@@ -7,7 +7,7 @@ Three use-case pattern sets for `email-creative-builder`. Pick the mode that mat
 - **Goal**: one action (buy, redeem, book). Single dominant CTA.
 - **Structure**: hook → value/offer → proof (review, stat, guarantee) → CTA → urgency (honest deadline/stock only).
 - **Offer**: pull terms + promo code + expiry from the live-offers table ([offer-claims-registry](../../../../protocol/offer-claims-registry/SKILL.md), `memory/claims/offers.md`) — never invent them.
-- **Claims**: every product/benefit claim traces to an approved row in `memory/claims/claims-ledger.md`; unregistered → `[needs source]` → `memory/claims/candidates.md`.
+- **Claims**: every product/benefit claim traces to an approved row in `memory/claims/claims-ledger.md`; unregistered → `[needs source]` → `memory/events/claims.ndjson` via an authorized `operation: propose` request to `registry-events.py`.
 
 ## Mode B — Cold outbound (B2B)
 

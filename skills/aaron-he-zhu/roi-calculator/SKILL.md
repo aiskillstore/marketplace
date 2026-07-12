@@ -4,13 +4,13 @@ slug: aaron-roi-calculator
 displayName: "ROI Calculator · ROI 计算"
 summary: "活动投入产出核算:成本归集、收益口径与 CVI/ROI 汇总"
 description: 'Use when the user asks to "calculate influencer ROI", "prove campaign value", or "what was our ROAS"; produces direct ROI/ROAS, earned media value, attribution-modeled revenue, LTV-based ROI, and a stakeholder-ready summary. Not for building the full slide/written report — use report-generator.'
-version: "16.0.1"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when measuring or projecting influencer campaign ROI, justifying or defending budgets, comparing ROI across campaigns or channels, evaluating individual influencer or tier value, or preparing executive-level ROI numbers. Activate when the user supplies spend and results data and wants ROI, ROAS, EMV, CPA/CAC, attribution, or LTV impact computed."
 argument-hint: "<campaign name or spend> [revenue] [results data]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.1", "discipline": "influencer", "phase": "measure", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "measure"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "influencer", "phase": "measure", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "measure"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # ROI Calculator
@@ -37,10 +37,10 @@ What's the ROI of our campaign using direct revenue, EMV, and LTV-based methods?
 
 - **Reads**: campaign spend breakdown, results data (reach, impressions, engagements, clicks, conversions, revenue, new customers), AOV and repeat-rate data if LTV is in scope, any prior performance output from `performance-analyzer`.
 - **Writes**: ROI calculation file at `memory/influencer/roi-calculator/YYYY-MM-DD-<topic>.md` containing direct ROI/ROAS, EMV, cost-efficiency metrics, attribution-modeled revenue, LTV-based ROI, by-influencer ROI, and a summary report block.
-- **Promotes**: durable headline numbers (final ROI %, ROAS, total investment, net profit, recommended attribution model) to `memory/hot-cache.md`.
+- **Promotes**: only with separate authorization, durable headline numbers with their attribution window, source, and uncertainty; a calculation request alone does not authorize hot-cache writes.
 - **Done when**:
   1. At least one ROI methodology is computed with the inputs and formula shown.
-  2. Each headline metric is stated against a benchmark with a pass/fail status.
+  2. Each headline metric is stated against a declared, source-dated comparison target; no universal benchmark is invented.
   3. A bottom-line assessment (profitable / break-even / loss) and 1-3 recommendations are written.
 - **Primary next skill**: [report-generator](../report-generator/SKILL.md)
 
@@ -69,7 +69,7 @@ When a user requests ROI calculation, work the steps below. Each step has a fill
 
 3. **Calculate Earned Media Value (EMV)** — impression-based (Impressions × CPM / 1000) and engagement-based (Engagements × CPE), then average. Flag EMV as directional, not absolute. ([template](references/roi-templates.md#step-3--earned-media-value-emv))
 
-4. **Calculate cost-efficiency metrics** — CPM, CPR, CPE, CPV, CPC, CPA, CAC, each against a benchmark; rate the campaign and compare CPA to other channels. ([template](references/roi-templates.md#step-4--cost-efficiency-analysis))
+4. **Calculate cost-efficiency metrics** — CPM, CPR, CPE, CPV, CPC, CPA, and CAC. Compare only against a declared, source-dated target with a compatible market, window, and attribution basis; otherwise report the metric descriptively and mark the comparison pending. ([template](references/roi-templates.md#step-4--cost-efficiency-analysis))
 
 5. **Apply attribution modeling** — run first-touch, last-touch, linear, time-decay, and position-based; recommend the model that fits the customer journey. ([template](references/roi-templates.md#step-5--attribution-analysis))
 
@@ -79,15 +79,21 @@ When a user requests ROI calculation, work the steps below. Each step has a fill
 
 8. **Generate the ROI report summary** — investment, returns, ROI by methodology, key metrics vs. benchmark, bottom line, and 1-3 recommendations. ([template](references/roi-templates.md#step-8--roi-summary-report))
 
-9. **Roll up into the C³ Campaign Value Index (CVI)**
+9. **Produce the typed C3 ROI scope and, when complete, CVI**
 
-   This skill emits the **ROI** scope score of [C³](../../../references/c3-benchmark.md) and the **CVI** rollup. Score ROI on the **0–100 rubric** in [c3/roi-campaign-benchmark.md](../../../references/c3/roi-campaign-benchmark.md) (Return · Orchestration · Impact, each on Pass/Partial/Fail → scaled to 0–100). **This 0–100 ROI score is not the financial ROI % from steps 1–8** — feed the rubric score into the formula, never the percentage (R1 simply *consumes* your ROI%/ROAS as one of its inputs). Then combine it with the Creator and Content scope scores — from [fit-scorer](../../discover/fit-scorer/SKILL.md) (ACE) and [content-reviewer](../../activate/content-reviewer/SKILL.md) (ART) — as a geometric mean:
+   Declare goal, profile `roi-<goal>`, `scope: roi`, `assessment_time: forecast|actual`, campaign `rollup_id`, observation date, and the same catalog version used by ACE/ART. Follow [`runtime-invocation.md`](../../../references/runtime-invocation.md), resolve `AARON_SKILLS_ROOT="${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || true)}"`, verify the scorer and typed catalog, then score all 12 ROI items through `python3 "$AARON_SKILLS_ROOT/scripts/rubric-score.py" score <run.json>`. If the standalone install lacks them, return `score_state: NOT_SCORED` / `score_confidence: not_scored` and do not hand-calculate or persist a typed result. Actual-only R1/R2/I1/I2/I3 items are N/A with reasons in a forecast read; they require evidence in an actual read. **This 0–100 rubric result is not financial ROI %** from steps 1-8: the financial outputs are evidence consumed by ROI.R items, never the CVI input themselves.
+
+   ROI.I3 Fail emits `results-unverified`; report I1/I2/R1/R2 as low-confidence and do not make attributable-return claims. Preserve the scorer result rather than recomputing it in prose.
+
+   For CVI, combine complete typed ACE results from [fit-scorer](../../discover/fit-scorer/SKILL.md), complete ART results from [content-reviewer](../../activate/content-reviewer/SKILL.md), and exactly one ROI result through `python3 "$AARON_SKILLS_ROOT/scripts/rubric-score.py" c3-rollup <results.json>`:
 
    ```
    CVI = ( ACE_avg × ART_avg × ROI )^(1/3)
    ```
 
-   `ACE_avg` is the **budget-weighted** mean of the campaign's creator ACE scores; `ART_avg` is the simple mean of its content ART scores (per scoring-architecture §8). Keep the three scope scores beside the CVI — the index ranks and alerts, the three scores diagnose. If ACE or ART is unavailable, emit the ROI score and mark CVI **pending (needs ACE/ART)** rather than guessing. A blocked scope (e.g. an ART T1/T2 veto on the content, or an ACE A2/C1/E2 veto on the creator) caps the rollup — surface it, don't average it away.
+   Use the typed [`c3-rollup.schema.json`](../../../references/c3-rollup.schema.json) `components` form for real campaigns: positive budget weights for every ACE result, equal-weight ART results, and one ROI result. All components must share goal, `rollup_id`, observation date, assessment time, and catalog version. Keep the three aggregate scope scores beside CVI. If ACE/ART is missing, incomplete, or Unknown, emit ROI and mark CVI pending. If any component is `BLOCK` and therefore has no final scope score, **do not emit CVI**; report the blocking component instead of capping or averaging it.
+
+10. **Persist only with permission** — save under `memory/influencer/roi-calculator/` (or the paid path) only after authorization; request separate authorization for hot-cache promotion.
 
 ## Example
 
@@ -116,28 +122,28 @@ When a user requests ROI calculation, work the steps below. Each step has a fill
 For every $1 spent, you generated $2.88 in revenue.
 
 ### Earned Media Value
-- **EMV** (at $8 CPM): $16,800
+- **EMV** (directional scenario at a declared $8 CPM): $16,800
 - **EMV Multiple**: 0.67x
 
 ### Cost Efficiency
-- **CPM**: $11.90 (Good)
-- **Est. CPA**: ~$54 (if 460 conversions)
+- **CPM**: $11.90
+- **CPA**: Unknown (conversion count was not supplied)
 
-## Assessment: ✅ Strong Performance
+## Assessment: Profitable on the supplied direct-revenue basis
 
-This campaign outperformed the typical 2:1 ROAS benchmark for influencer marketing. Recommend increasing investment in similar campaigns.
+Direct revenue exceeds the supplied investment, but no source-dated peer target or incrementality evidence was provided. Do not infer benchmark outperformance or authorize a scale decision from this read alone; obtain verified conversions, attribution evidence, and the campaign owner's precommitted decision rule first.
 ```
 
-Industry ROAS benchmarks (Beauty, Fashion, Food & Beverage, Tech, Health) live in [references/roi-templates.md#industry-roi-benchmarks](references/roi-templates.md#industry-roi-benchmarks).
+The source-dated benchmark evidence template lives in [references/roi-templates.md#benchmark-evidence-template](references/roi-templates.md#benchmark-evidence-template).
 
 ## Reference Materials
 
-- [references/roi-templates.md](references/roi-templates.md) — fill-in templates for every Instructions step, the worked example, and industry ROAS benchmarks.
+- [references/roi-templates.md](references/roi-templates.md) — fill-in templates for every Instructions step, the worked example, and benchmark evidence inputs.
 - [measurement-protocol.md](../../../references/measurement-protocol.md) — read ROI/CVI deltas against a control over the readback window; do not over-claim attribution.
 - [skill-contract.md](../../../references/skill-contract.md) — shared contract and Handoff Summary format.
 - [state-model.md](../../../references/state-model.md) — memory tiers and save-path conventions.
 - [CONNECTORS.md](../../../CONNECTORS.md) — free/keyless data recipe per connector category.
-- C³ scoring: [c3-benchmark.md](../../../references/c3-benchmark.md) (CVI rollup formula) and [c3/roi-campaign-benchmark.md](../../../references/c3/roi-campaign-benchmark.md) — the ROI Campaign rubric this skill emits into the CVI.
+- C³ scoring: [c3-benchmark.md](../../../references/c3-benchmark.md), [c3/roi-campaign-benchmark.md](../../../references/c3/roi-campaign-benchmark.md), and [c3-rollup.schema.json](../../../references/c3-rollup.schema.json) — typed ROI and multi-component CVI contracts.
 - [performance-analyzer](../performance-analyzer/SKILL.md) — supplies the results data this skill consumes.
 - [report-generator](../report-generator/SKILL.md) — wraps these numbers into a full report.
 - [budget-optimizer](../../plan/budget-optimizer/SKILL.md) — uses ROI output to reallocate spend.

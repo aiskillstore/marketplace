@@ -1,6 +1,6 @@
 # Spam-Trigger Checklist (subject + preheader, pre-test)
 
-Keyless heuristic patterns `subject-line-lab` flags on a subject line and its preheader **before** a test. These are pattern flags labeled **Estimated** — a clean pass here is *not* an inbox-placement guarantee. The full spam-content + SPF/DKIM/DMARC scan under SEND-**S** is [deliverability-qa](../../../setup/deliverability-qa/SKILL.md); the goal-weighted EQS and the S1/S2/N1/D1 vetoes are [email-quality-auditor](../../../deliver/email-quality-auditor/SKILL.md). This bench only pre-flags subject-level patterns.
+Keyless heuristic patterns `subject-line-lab` flags on a subject line and its preheader **before** a test. These are pattern flags labeled **Estimated** — a clean pass here is *not* an inbox-placement guarantee. The full spam-content + SPF/DKIM/DMARC scan under SEND-**S** is [deliverability-qa](../../../setup/deliverability-qa/SKILL.md); the profile-weighted EQS and the S1/S2/N1/D1 vetoes are [email-quality-auditor](../../../deliver/email-quality-auditor/SKILL.md). This bench only pre-flags subject-level patterns.
 
 ## Pattern flags (each is a rank-down or a cut, stated out loud)
 

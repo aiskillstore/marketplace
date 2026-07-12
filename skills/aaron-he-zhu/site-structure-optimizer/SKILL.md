@@ -4,13 +4,13 @@ slug: site-structure-optimizer
 displayName: "Site Structure Optimizer · 网站架构"
 summary: "网站架构/信息架构/站点地图/内链优化"
 description: 'Use when the user asks to "plan my site structure", "design the page hierarchy / navigation / URL taxonomy", "fix internal linking", or "find orphan pages"; runs two modes — architecture (hierarchy, nav, URL patterns, hub/spoke clusters, Mermaid site maps) and linking (link graph, authority flow, anchor text, orphan disposition, source/target/anchor plan) — and outputs a structure score /100 plus a handoff summary. Not for external backlinks — use offsite-signal-analyzer; not for XML sitemap or indexation issues — use technical-seo-checker. 网站架构/信息架构/站点地图/内链优化'
-version: "16.0.0"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when planning or restructuring a site (page hierarchy, navigation, URL taxonomy, hub/spoke topic clusters, visual sitemap) OR when fixing internal link structure (orphan pages, anchor-text distribution, authority flow, crawl depth). One skill, two altitudes: architecture designs the structure; linking optimizes the links inside it."
 argument-hint: "[--mode architecture|linking] <domain, sitemap, or page list + site type>"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "seo-geo", "phase": "optimize", "geo-relevance": "high", "hermes": {"tags": ["marketing", "seo-geo", "optimize"], "category": "seo-geo"}, "openclaw": {"emoji": "🔍", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "seo-geo", "phase": "optimize", "geo-relevance": "high", "hermes": {"tags": ["marketing", "seo-geo", "optimize"], "category": "seo-geo"}, "openclaw": {"emoji": "🔍", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Site Structure Optimizer
@@ -48,10 +48,10 @@ Optimize anchor text across the site
 
 ## Skill Contract
 
-**Expected output** (mode-dependent): architecture mode → a page hierarchy (ASCII tree), a URL map table, a navigation spec, a hub/spoke link plan, a Mermaid site map flagging orphans/islands, an **architecture score /100**. Linking mode → a scored diagnosis, orphan list with disposition, anchor distribution check, and a prioritized source/target/anchor plan (**structure score /100**). Both emit a short handoff summary ready for `memory/audits/`.
+**Expected output** (mode-dependent): architecture mode → a page hierarchy (ASCII tree), a URL map table, a navigation spec, a hub/spoke link plan, a Mermaid site map flagging orphans/islands, an **architecture score /100**. Linking mode → a scored diagnosis, orphan list with disposition, anchor distribution check, and a prioritized source/target/anchor plan (**structure score /100**). Both emit a short handoff summary ready for `memory/seo-geo/optimize/site-structure-optimizer/`.
 
 - **Reads**: site type, goals, page inventory or sitemap, key page URLs, audiences, content categories, existing URLs to preserve, and (linking mode) the article/URL to link from.
-- **Writes**: a user-facing structure plan plus a reusable summary that can be stored under `memory/audits/site-structure-optimizer/`.
+- **Writes**: a user-facing structure plan plus a reusable summary that can be stored under `memory/seo-geo/optimize/site-structure-optimizer/`.
 - **Promotes**: blocking defects (e.g. URL migrations without redirects, high-value orphans), recurring weaknesses, restructure/fix priorities, and pending decisions to `memory/open-loops.md` with status `pending-decision`.
 - **Done when**: the chosen mode's core outputs are produced (architecture: hierarchy + URL taxonomy + nav spec + hub/spoke plan + Mermaid map listing orphans/islands; linking: orphans listed with disposition + anchor distribution checked against thresholds + source/target/anchor plan); a structure score and handoff summary are produced.
 - **Primary next skill**: use the `Next Best Skill` below once the mode's deliverable is set.
@@ -141,7 +141,7 @@ graph TD
 
 ## Save Results
 
-Ask to save results; if yes, write a dated summary to `memory/audits/site-structure-optimizer/YYYY-MM-DD-<site-or-topic>.md`. Hand off veto-level risks (e.g. URL migration without redirects, broken link targets) to the `content-quality-auditor` gate before any hot-cache marker — this skill does not write veto markers itself.
+Ask to save results; if yes, write a dated summary to `memory/seo-geo/optimize/site-structure-optimizer/YYYY-MM-DD-<site-or-topic>.md`. Hand off veto-level risks (e.g. URL migration without redirects, broken link targets) to the `content-quality-auditor` gate before any hot-cache marker — this skill does not write veto markers itself, and `memory/audits/` remains reserved for typed gate artifacts.
 
 ## Reference Materials
 

@@ -242,7 +242,7 @@ done
 # Dedicated P-Video-Avatar skill
 npx skills add inference-sh/skills@p-video-avatar
 
-# Full platform skill (all 250+ apps)
+# Full platform skill (all apps)
 npx skills add inference-sh/skills@infsh-cli
 
 # Text-to-speech (generate audio for non-TTS avatar models)

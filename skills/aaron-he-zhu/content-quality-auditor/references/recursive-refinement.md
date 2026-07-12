@@ -8,10 +8,10 @@ rounds.** This loop tunes scores; it does not change how vetoes work.
 
 If any veto item fails (T04, C01, R10), the page is **BLOCKED**. The loop does not soften,
 average away, or override that. A veto-failed page exits the loop immediately with
-`status: BLOCKED` regardless of how many rounds are left. Run the loop only on pages that
+`status: DONE` + `verdict: BLOCK` regardless of how many rounds are left. Run the loop only on pages that
 pass all three veto checks. If a veto appears mid-loop (e.g. a revision introduces a
 mismatched claim), stop the loop and mark BLOCKED. See
-[auditor-runbook.md §2](../../../../references/auditor-runbook.md) for cap and
+[auditor-runbook.md §4](../../../../references/auditor-runbook.md) for cap and
 veto handling.
 
 ## Target band
@@ -24,7 +24,7 @@ the moment `final_overall_score` lands in or above the band.
 
 ```
 round = 0
-if any veto fails:           → status: BLOCKED, exit (no rounds)
+if 2+ vetoes fail:           → status: DONE + verdict: BLOCK, exit (no rounds)
 score the draft (full 80-item pass) → final_overall_score
 
 while final_overall_score < target_band_floor AND round < 3:
@@ -34,7 +34,7 @@ while final_overall_score < target_band_floor AND round < 3:
     2. Revise the draft to lift those 3 dimensions only — leave passing
        dimensions alone (surgical edits, no full rewrite)
     3. Re-run the full 80-item score → new final_overall_score
-    4. If any veto now fails → status: BLOCKED, exit immediately
+    4. If 2+ vetoes now fail → status: DONE + verdict: BLOCK, exit immediately
 
 stop when: band met  OR  round == 3  (whichever comes first)
 ```

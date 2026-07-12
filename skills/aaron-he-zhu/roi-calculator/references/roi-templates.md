@@ -1,6 +1,6 @@
-# ROI Calculator — Templates & Benchmarks
+# ROI Calculator — Templates & Benchmark Inputs
 
-Fill-in templates for each methodology in [../SKILL.md](../SKILL.md) Instructions, plus the worked example and industry ROAS benchmarks. Each block maps to a numbered step.
+Fill-in templates for each methodology in [../SKILL.md](../SKILL.md) Instructions, plus the worked example and benchmark-evidence contract. Each block maps to a numbered step.
 
 ## Step 1 — ROI Calculation Inputs
 
@@ -66,11 +66,11 @@ Interpretation: For every $1 spent, generated $[X] in revenue
 
 ### Direct ROI Summary
 
-| Metric | Value | Benchmark | Status |
-|--------|-------|-----------|--------|
-| ROI % | [X]% | [X]% | ✅/❌ |
-| ROAS | [X]:1 | [X]:1 | ✅/❌ |
-| Profit | $[X] | - | |
+| Metric | Value | Declared target (source/date) | Comparison |
+|--------|-------|-------------------------------|------------|
+| ROI % | [X]% | [X]% ([source], [date]) | [above/below/equal/pending] |
+| ROAS | [X]:1 | [X]:1 ([source], [date]) | [above/below/equal/pending] |
+| Profit | $[X] | Not applicable | Descriptive |
 
 **Assessment**: [Profitable/Break-even/Loss]
 ```
@@ -86,7 +86,7 @@ EMV estimates the equivalent paid media cost to achieve the same results.
 
 ### Impression-Based EMV
 
-**Formula**: Impressions × Industry CPM / 1000
+**Formula**: Impressions × declared comparable CPM / 1000
 
 | Platform | Impressions | CPM | EMV |
 |----------|-------------|-----|-----|
@@ -138,37 +138,42 @@ For every $1 spent, earned $[X] in equivalent media value
 
 ### Cost Per Metrics
 
-| Metric | Formula | Result | Benchmark | Status |
-|--------|---------|--------|-----------|--------|
-| CPM | Spend ÷ (Impressions/1000) | $[X] | $[X] | ✅/❌ |
-| CPR (Reach) | Spend ÷ (Reach/1000) | $[X] | $[X] | ✅/❌ |
-| CPE | Spend ÷ Engagements | $[X] | $[X] | ✅/❌ |
-| CPV (Video) | Spend ÷ Views | $[X] | $[X] | ✅/❌ |
-| CPC | Spend ÷ Clicks | $[X] | $[X] | ✅/❌ |
-| CPA | Spend ÷ Acquisitions | $[X] | $[X] | ✅/❌ |
-| CAC | Total Spend ÷ New Customers | $[X] | $[X] | ✅/❌ |
+| Metric | Formula | Result | Declared target (source/date) | Comparison |
+|--------|---------|--------|-------------------------------|------------|
+| CPM | Spend ÷ (Impressions/1000) | $[X] | $[X] ([source], [date]) | [above/below/equal/pending] |
+| CPR (Reach) | Spend ÷ (Reach/1000) | $[X] | $[X] ([source], [date]) | [above/below/equal/pending] |
+| CPE | Spend ÷ Engagements | $[X] | $[X] ([source], [date]) | [above/below/equal/pending] |
+| CPV (Video) | Spend ÷ Views | $[X] | $[X] ([source], [date]) | [above/below/equal/pending] |
+| CPC | Spend ÷ Clicks | $[X] | $[X] ([source], [date]) | [above/below/equal/pending] |
+| CPA | Spend ÷ Acquisitions | $[X] | $[X] ([source], [date]) | [above/below/equal/pending] |
+| CAC | Total Spend ÷ New Customers | $[X] | $[X] ([source], [date]) | [above/below/equal/pending] |
 
-### Efficiency Score
+### Comparison Contract
 
-| Rating | CPM Range | CPC Range | CPA Range |
-|--------|-----------|-----------|-----------|
-| Excellent | <$[X] | <$[X] | <$[X] |
-| Good | $[X]-$[X] | $[X]-$[X] | $[X]-$[X] |
-| Average | $[X]-$[X] | $[X]-$[X] | $[X]-$[X] |
-| Below Avg | $[X]-$[X] | $[X]-$[X] | $[X]-$[X] |
-| Poor | >$[X] | >$[X] | >$[X] |
+| Field | Required value |
+|-------|----------------|
+| Target metric and rule | [metric, threshold/range, better direction] |
+| Source | [publisher or first-party cohort query] |
+| Publication/retrieval date | [YYYY-MM-DD] |
+| Market and comparison cohort | [market, industry, audience, platform] |
+| Observation window | [dates and lag] |
+| Attribution basis | [model and conversion definition] |
+| Cost and currency basis | [included costs, currency, FX date] |
+| Compatibility notes | [material differences or none] |
 
-**Your Campaign**: [Rating]
+**Comparison result**: [above/below/equal/pending]. Use `pending` when the target is absent, stale, or materially incompatible.
 
 ### vs. Other Channels
 
-| Channel | CPA | vs. Influencer |
-|---------|-----|----------------|
-| Influencer Marketing | $[X] | - |
-| Paid Social | $[X] | [+/-X%] |
-| Paid Search | $[X] | [+/-X%] |
-| Display Ads | $[X] | [+/-X%] |
-| Email Marketing | $[X] | [+/-X%] |
+Normalize currency, included costs, observation window, and attribution before comparing channels.
+
+| Channel | CPA | Source/date | Comparable basis? | vs. Influencer |
+|---------|-----|-------------|-------------------|----------------|
+| Influencer Marketing | $[X] | [source/date] | Baseline | - |
+| Paid Social | $[X] | [source/date] | [yes/no] | [+/-X% or pending] |
+| Paid Search | $[X] | [source/date] | [yes/no] | [+/-X% or pending] |
+| Display Ads | $[X] | [source/date] | [yes/no] | [+/-X% or pending] |
+| Email Marketing | $[X] | [source/date] | [yes/no] | [+/-X% or pending] |
 ```
 
 ## Step 5 — Attribution Analysis
@@ -351,11 +356,11 @@ Campaign Average: 180%
 
 ## Key Metrics
 
-| Metric | Result | Benchmark | Status |
-|--------|--------|-----------|--------|
-| CPM | $[X] | $[X] | ✅/❌ |
-| CPA | $[X] | $[X] | ✅/❌ |
-| ROAS | [X]:1 | [X]:1 | ✅/❌ |
+| Metric | Result | Declared target (source/date) | Comparison |
+|--------|--------|-------------------------------|------------|
+| CPM | $[X] | $[X] ([source], [date]) | [above/below/equal/pending] |
+| CPA | $[X] | $[X] ([source], [date]) | [above/below/equal/pending] |
+| ROAS | [X]:1 | [X]:1 ([source], [date]) | [above/below/equal/pending] |
 
 ## Bottom Line
 
@@ -371,6 +376,8 @@ Campaign Average: 180%
 1. [Key recommendation 1]
 2. [Key recommendation 2]
 3. [Key recommendation 3]
+
+**Decision owner and precommitted rule**: [owner / rule / UNDECIDED]
 
 ---
 
@@ -404,24 +411,33 @@ Campaign Average: 180%
 For every $1 spent, you generated $2.88 in revenue.
 
 ### Earned Media Value
-- **EMV** (at $8 CPM): $16,800
+- **EMV** (directional scenario at a declared $8 CPM): $16,800
 - **EMV Multiple**: 0.67x
 
 ### Cost Efficiency
-- **CPM**: $11.90 (Good)
-- **Est. CPA**: ~$54 (if 460 conversions)
+- **CPM**: $11.90
+- **CPA**: Unknown (conversion count was not supplied)
 
-## Assessment: ✅ Strong Performance
+## Assessment: Profitable on the supplied direct-revenue basis
 
-This campaign outperformed the typical 2:1 ROAS benchmark for influencer marketing. Recommend increasing investment in similar campaigns.
+Direct revenue exceeds the supplied investment, but no source-dated peer target or incrementality evidence was provided. Do not infer benchmark outperformance or authorize a scale decision from this read alone; obtain verified conversions, attribution evidence, and the campaign owner's precommitted decision rule first.
 ```
 
-## Industry ROI Benchmarks
+## Benchmark Evidence Template
 
-| Industry | Avg ROAS | Good ROAS | Excellent ROAS |
-|----------|----------|-----------|----------------|
-| Beauty/Skincare | 3:1 | 5:1 | 8:1 |
-| Fashion | 2.5:1 | 4:1 | 6:1 |
-| Food & Beverage | 2:1 | 3.5:1 | 5:1 |
-| Tech/Electronics | 2:1 | 3:1 | 4:1 |
-| Health/Fitness | 2.5:1 | 4:1 | 6:1 |
+Do not use a repository-default industry threshold. Supply a first-party target or a source-dated external comparator whose market, cohort, window, attribution, and cost basis are compatible with the campaign.
+
+| Field | Value |
+|-------|-------|
+| Metric | [ROAS / ROI / CPM / CPA / CAC / other] |
+| Target or distribution | [value, range, or quantile] |
+| Better direction | [higher/lower] |
+| Source | [publisher, report, URL, or first-party query] |
+| Publication/retrieval date | [YYYY-MM-DD] |
+| Market / industry / platform | [scope] |
+| Comparison cohort | [selection definition and sample size, if known] |
+| Observation window and lag | [dates] |
+| Attribution and conversion definition | [basis] |
+| Included costs / currency / FX date | [basis] |
+| Compatibility assessment | [compatible / materially different / unknown] |
+| Comparison status | [above / below / equal / pending] |

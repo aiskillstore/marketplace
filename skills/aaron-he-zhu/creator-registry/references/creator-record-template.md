@@ -1,89 +1,53 @@
-# Creator Record Template
+# Creator Projection View Template
 
-Scaffold for canonical creator records at `memory/creators/<handle-slug>.md` — one file per creator, slug = canonical primary-platform handle in kebab-case (`sarah-ig`, `techtom-yt`). `creator-registry` is the sole writer; all other skills submit updates via `memory/creators/candidates.md` (line format at the bottom).
+This is a presentation template for `memory/creators/<aggregate-id>.md`. The canonical history is `memory/events/creators.ndjson`; current state is `memory/projections/creators.json`. Generate this view only from accepted events and expose its source revision/offset.
 
-Records are roster state, not dated run artifacts: no `YYYY-MM-DD` filename, exempt from the 90-day WARM demotion (see [State Model](../../../references/state-model.md)). Archive only when the user drops the creator from the roster, executed by `memory-management`.
-
-## Record frontmatter (modeled on the entity-optimizer profile contract)
+Use a pseudonymous aggregate ID. Do not put raw email, phone, postal address, credentials, or unnecessary personal history in the event or view.
 
 ```yaml
 ---
-name: sarah-ig                          # slug matches filename; canonical primary handle
-display_name: "Sarah Lee (@sarah_ig)"
-type: entity                            # State Model frontmatter vocabulary
-description: "Canonical roster record — beauty niche, IG-primary, 2 closed campaigns"
-last_updated: 2026-07-02
-primary_platform: instagram
-handles:                                # cross-platform identity map
-  - platform: instagram
-    handle: "@sarah_ig"
-    status: confirmed                   # confirmed | unconfirmed
-    evidence: "bio link to linktr.ee matches TikTok bio"
-  - platform: tiktok
-    handle: "@sarahtok"
-    status: unconfirmed                 # never merged on similarity alone
-    evidence: null
-contact:
-  path: "email via media kit"          # confirmed contact path
-  value: "sarah@example.com"
-  waterfall_step: 2                    # which creator-dossier waterfall step produced it
-  confirmed: 2026-05-14
-roster_status: active                   # active | paused | dropped
-exclusivity:
-  status: exclusive-category            # none | exclusive-category | exclusive-full
-  category: "skincare"
-  expires: 2026-08-30                   # promote to hot-cache if within 60 days
-contract_status: "signed 2026-05-20; usage rights 6mo, whitelisting excluded"
-gdpr_basis: "legitimate interest, confirmed by user 2026-05-14"
+type: creator-projection-view
+aggregate_id: creator-7f42
+projection_revision: 4
+projection_offset: 18
+last_event_id: 2bf09d16-9ab8-5a93-a579-3bc4f85a027e
+last_updated: 2026-07-10
+status: active
 ---
 ```
 
-## Record body sections
+## Identity Links
 
-```markdown
-## Audience Stats
-| Metric | Value | As-of | Provenance |
-|--------|-------|-------|------------|
-| IG followers | 84,200 | 2026-06-28 | Measured (public profile) |
-| IG avg engagement | 3.1% | 2026-06-28 | Estimated (last 12 posts) |
-| Audience 18-24 share | 41% | 2026-05-10 | User-provided (creator media kit) |
+| Platform | Public handle ref | Link status | Evidence ref/date |
+|---|---|---|---|
+| Instagram | profile-ref-82 | confirmed | verified-crosslink-2026-06-01 |
+| TikTok | profile-ref-91 | unconfirmed | none |
 
-## Rate Card & Negotiation History
-| Date | Deliverable | Quoted | Agreed | Notes |
-|------|-------------|--------|--------|-------|
-| 2026-05-18 | 1 reel + 3 stories | $2,400 | $1,900 | countered once; bundle discount |
+Similarity alone never confirms identity.
 
-## Past-Campaign Baselines
-| Campaign | Closed | Deliverables | Results (source) |
-|----------|--------|--------------|------------------|
-| spring-launch | 2026-06-15 | 1 reel + 3 stories | 92k views, 61 tracked orders (performance-analyzer 2026-06-20) |
+## Commercial Facts
 
-## Compliance Events (append-only; dated; cite verdict IDs — never a roll-up label)
-| Date | Event | Source |
-|------|-------|--------|
-| 2026-06-02 | #ad disclosure present and conspicuous | content-reviewer verdict ART-2026-06-02-sarah-ig-01 |
-| 2026-04-11 | missing paid-partnership label on story 2, fixed same day | user-reported (no verdict ID) |
+| Field | Value | As-of | Evidence type/ref |
+|---|---|---|---|
+| Agreed rate | USD 1,900 / defined bundle | 2026-05-18 | user-provided / signed-terms-41 |
+| Usage rights | organic, 6 months | 2026-05-20 | measured / contract-41 |
+| Exclusivity | skincare to 2026-08-30 | 2026-05-20 | measured / contract-41 |
 
-## Response History (facts only — no reputation rating)
-- 2026-05-12: replied in 2 days to cold pitch; 2026-05-16: confirmed after 1 follow-up.
+## Outcome Baselines
 
-## Change Log
-- 2026-07-02: merged 3 candidate updates (rate, exclusivity expiry, ART verdict); source: outreach-manager close-out + memory/audits/influencer/.
-```
+Keep campaign/window/denominator/source explicit. Platform reports and deduplicated own outcomes remain separate.
 
-## candidates.md line format
+## Compliance Events
 
-Other skills append one line per update to `memory/creators/candidates.md`:
+List dated C3 ART artifact IDs and observed events. Never summarize them into a “safe”, “risky”, or reputation label.
 
-```markdown
-- [2026-07-01] @sarah_ig | field: agreed_rate | value: $1,900 (1 reel + 3 stories) | source: outreach-manager close-out | provenance: User-provided
-```
+## Proposal Decisions
 
-When 3+ lines accumulate for one creator, recommend `creator-registry` to reconcile.
+| Proposal event ID | Decision event ID | Decision | Rationale |
+|---|---|---|---|
 
-## Merge precedence
+Resolved proposals remain in the append-only stream. Never add a “processed/cleared” instruction.
 
-1. Newer as-of date wins.
-2. Same date: Measured > User-provided > Estimated; log the losing value in the change log.
-3. Identity links: only bio cross-links, matching confirmed contact paths, or user confirmation upgrade `unconfirmed` → `confirmed`. Conflicts go to `memory/open-loops.md`, never silently merged.
-4. Compliance events are append-only; nothing overwrites or summarizes them.
+## Conflict Rule
+
+Compare only the same field/unit/window. Newer evidence does not automatically dominate a different construct. For comparable same-date conflicts, prefer stronger direct evidence when defensible and preserve both source events plus the adjudication rationale. Identity merges require verified cross-links or user confirmation.

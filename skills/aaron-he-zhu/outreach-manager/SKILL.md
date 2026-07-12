@@ -4,13 +4,13 @@ slug: outreach-manager
 displayName: "Outreach Manager · 建联外联管理"
 summary: "红人及媒体建联:分层触达序列、跟进节奏与回复率优化"
 description: 'Use when the user asks to "write influencer outreach", "follow up with a creator", "pitch a journalist, hunter, or launch partner", or "negotiate partnership terms"; produces personalized pitches, multi-touch follow-up sequences, negotiation scripts with objection handling, and a status pipeline tracker — the shared outreach mechanics engine for creator, media/analyst, launch-partner, and social-selling / advocate-recruitment targets. Not for finalizing signed agreements — use contract-helper; not for media-list tiering, embargo terms, or press-release structure — use press-media-relations.'
-version: "16.0.0"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Activate the skill when the user wants to contact a creator, journalist, analyst, hunter, or launch partner; draft or personalize a pitch message; build a follow-up cadence for non-responders; re-engage a past partner; negotiate rate or scope; handle pricing objections; or track outreach status across a target list. For media targets the list/angle/embargo artifact comes from press-media-relations — this skill executes the pitch mechanics."
 argument-hint: "<influencer handle or list> [platform] [budget]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "influencer", "phase": "activate", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "activate"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "influencer", "phase": "activate", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "activate"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Outreach Manager
@@ -34,7 +34,7 @@ Help me negotiate with @[influencer] who is asking for $[X] when our budget is $
 ## Skill Contract
 
 - **Reads**: target influencer handle(s), platform, follower count, niche; campaign and product context; compensation type and budget; deliverables and timeline; any prior contact history supplied by the user or loaded from memory. Before any outreach, check `memory/creators/<handle-slug>.md` — the [creator-registry](../../../protocol/creator-registry/SKILL.md) roster record — for the confirmed contact path, last agreed rate, and negotiation/response history.
-- **Writes**: outreach artifact (pitches, follow-up sequence, negotiation guide, pipeline tracker) to `memory/influencer/outreach-manager/YYYY-MM-DD-<topic>.md`. When a cycle closes, the closed outcome (final agreed rate, response history, confirmed contact path) goes as a one-line update to `memory/creators/candidates.md` — only `creator-registry` writes canonical roster records.
+- **Writes**: outreach artifact (pitches, follow-up sequence, negotiation guide, pipeline tracker) to `memory/influencer/outreach-manager/YYYY-MM-DD-<topic>.md`. When a cycle closes, the closed outcome (final agreed rate, response history, confirmed contact path) goes as a one-line update to `memory/events/creators.ndjson` via an authorized `operation: propose` request to `registry-events.py` — only `creator-registry` writes canonical roster records.
 - **Promotes**: durable facts (confirmed partners, agreed rates, top objection patterns, response-rate baselines) to `memory/hot-cache.md`.
 - **Done when**:
   - A personalized pitch (plus at least one variation) exists for each target influencer.
@@ -67,7 +67,7 @@ When a user requests outreach help, run these steps. Each step has a fill-in tem
 2. **Create personalized outreach** — list personalization points (recent content, style, audience, values, past partners), then write the primary message plus a DM-friendly short version and a formal email/management version. Template: [Step 2](references/templates.md#step-2--personalized-outreach). *Media/analyst/hunter targets*: personalize on beat and recent coverage, lead with the story angle (not a compensation offer), carry the embargo terms verbatim from the press-media-relations artifact, and never invent quotes or data — claims come from the approved message house.
 3. **Create follow-up sequence** — build a 4-touch cadence (Day 0 / 3-4 / 7-8 / 14, then archive at Day 21), each touch adding new value and getting shorter. Cap at 3-4 follow-ups; make it easy to say no. Template: [Step 3](references/templates.md#step-3--follow-up-sequence).
 4. **Provide negotiation support** — map the ask/budget gap, then apply value-exchange, scope-adjustment, or future-value strategies with ready scripts and an objection/response table. Template: [Step 4](references/templates.md#step-4--negotiation-guide).
-5. **Track outreach pipeline** — record stage counts and conversion rates, a per-creator detailed pipeline, today's prioritized actions, and pipeline health (response rate, confirmation rate, time-to-confirm, top objection). Template: [Step 5](references/templates.md#step-5--outreach-pipeline-tracker). Active-cycle tracking lives here; when a cycle closes (confirmed or archived), submit the closed outcome as a one-line update to `memory/creators/candidates.md` for [creator-registry](../../../protocol/creator-registry/SKILL.md) to reconcile.
+5. **Track outreach pipeline** — record stage counts and conversion rates, a per-creator detailed pipeline, today's prioritized actions, and pipeline health (response rate, confirmation rate, time-to-confirm, top objection). Template: [Step 5](references/templates.md#step-5--outreach-pipeline-tracker). Active-cycle tracking lives here; when a cycle closes (confirmed or archived), submit the closed outcome as a one-line update to `memory/events/creators.ndjson` via an authorized `operation: propose` request to `registry-events.py` for [creator-registry](../../../protocol/creator-registry/SKILL.md) to reconcile.
 
 ## Example
 

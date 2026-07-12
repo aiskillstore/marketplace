@@ -4,13 +4,13 @@ slug: performance-analyzer
 displayName: "Performance Analyzer · 效果分析"
 summary: "活动效果分析:达成 vs 目标、平台与创作者维度拆解、优化建议"
 description: 'Use when the user asks to "analyze influencer campaign performance", "compare influencers", or "find what content worked"; produces metric scorecards vs target and benchmark, platform/influencer/content rankings, engagement-quality and sentiment reads, conversion-attribution breakdowns, and ranked learnings. Not for dollar-level return math — use roi-calculator.'
-version: "16.0.1"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use mid-flight or post-campaign when a user wants to evaluate influencer results, compare creators against each other, find top-performing content or formats, judge engagement quality and comment sentiment, connect influencer activity to conversions, or build performance benchmarks for future planning."
 argument-hint: "<campaign name> [platform or influencer handles]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.1", "discipline": "influencer", "phase": "measure", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "measure"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "influencer", "phase": "measure", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "measure"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Performance Analyzer
@@ -104,7 +104,7 @@ Before naming any creator/format/platform a real winner, clear the significance 
 - [skill-contract.md](../../../references/skill-contract.md) — shared contract and handoff format.
 - [state-model.md](../../../references/state-model.md) — memory tiers and save-path conventions.
 - [CONNECTORS.md](../../../CONNECTORS.md) — verified free/keyless data recipes per connector category.
-- [measurement-protocol.md](../../../references/measurement-protocol.md) — readback windows and promote/keep-testing/rollback rule. Call a creator/format/platform a real winner only when it clears the documented significance bar: Mann-Whitney U at p < 0.05 **and** ≥ 15% relative lift over control, with a bootstrap confidence interval on the lift that excludes zero. Below the sample floor, stay Keep-testing. Method only — compute by hand or in a notebook, no scipy or stats dependency.
+- [measurement-protocol.md](../../../references/measurement-protocol.md) — preregistered readback windows, outcome unit, alpha, practical-effect boundary, multiplicity/sequential policy, guardrails, and decision owner. Report statistical and practical flags separately; use `experiment.py` for deterministic `Calculated` evidence, and never substitute a universal p-value/lift rule or attribute a business action to the helper.
 - The C3 benchmark at [references/c3/scoring-architecture.md](../../../references/c3/scoring-architecture.md) — scoring architecture when a structured score is needed.
 - Sibling skills: [roi-calculator](../roi-calculator/SKILL.md), [report-generator](../report-generator/SKILL.md), [fit-scorer](../../discover/fit-scorer/SKILL.md), [campaign-planner](../../plan/campaign-planner/SKILL.md).
 

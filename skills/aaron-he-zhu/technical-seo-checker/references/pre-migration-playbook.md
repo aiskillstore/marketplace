@@ -18,7 +18,7 @@ Referenced from [SKILL.md](../SKILL.md). Use when the user is planning a migrati
 
 ### Stage 1 — Freeze current state (baseline snapshot)
 
-Capture in `memory/audits/pre-migration-YYYY-MM-DD.md`:
+Capture in `memory/seo-geo/optimize/technical-seo-checker/pre-migration-YYYY-MM-DD.md`:
 
 1. **URL inventory**
    - Full crawl via `~~web crawler` MCP or Screaming Frog / Sitebulb export
@@ -73,7 +73,7 @@ Rules:
 - No loops (never `A → B → A`)
 - HIGH-VALUE URLs (Stage 1 flagged) verified manually
 
-Save to `memory/audits/redirect-map-YYYY-MM-DD.csv`.
+Save to `memory/seo-geo/optimize/technical-seo-checker/redirect-map-YYYY-MM-DD.csv`.
 
 ### Stage 4 — Staging QA
 
@@ -101,9 +101,9 @@ Save to `memory/audits/redirect-map-YYYY-MM-DD.csv`.
 
 Deliverables:
 
-- `memory/audits/post-migration-T+1-YYYY-MM-DD.md`
-- `memory/audits/post-migration-T+7-YYYY-MM-DD.md`
-- `memory/audits/post-migration-T+30-YYYY-MM-DD.md`
+- `memory/seo-geo/optimize/technical-seo-checker/post-migration-T+1-YYYY-MM-DD.md`
+- `memory/seo-geo/optimize/technical-seo-checker/post-migration-T+7-YYYY-MM-DD.md`
+- `memory/seo-geo/optimize/technical-seo-checker/post-migration-T+30-YYYY-MM-DD.md`
 
 ## Handoff
 

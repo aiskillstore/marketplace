@@ -4,20 +4,20 @@ slug: aaron-email-creative-builder
 displayName: "Email Creative Builder · 邮件文案"
 summary: "邮件文案/主题行/邮件创意"
 description: 'Use when the user asks to "write the email", "draft subject lines", or "build email creative"; produces the pre-click unit — subject-line variants + preheader, body copy, one clear CTA, and a plain-text alt — message-matched to the destination page and claims-ledger-aware. Not for pre-scoring or ranking subject-line variants (spam/truncation/render pre-score) — use subject-line-lab; not for scoring the email or computing EQS — use email-quality-auditor; not for the multi-step flow — use email-sequence-designer; not for the A/B test plan — use send-experiment-designer. 邮件文案/主题行/邮件创意'
-version: "16.0.0"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when drafting or iterating a single email creative: subject-line variants and preheader, body copy, one primary CTA, and a plain-text alternate, kept message-matched to a destination landing page and traced to approved claim wording. Covers B2C promo/lifecycle, B2B cold-outbound personalization, and newsletter modes."
 argument-hint: "<offer/topic> <destination URL> [mode: promo|cold|newsletter]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "email", "phase": "engage", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "engage"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "email", "phase": "engage", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "engage"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Email Creative Builder
 
 Writes and iterates a single email creative — subject-line variants + preheader, body copy, one clear CTA, and a plain-text alternate — each message-matched to the destination landing page and traced to approved claim wording. This is the build skill that produces the SEND **E/D** unit (the email analog of paid's ad-creative-builder). It does not score the email, run the D1 veto, or compute the EQS — that is `email-quality-auditor` — and it does not design the multi-step flow (`email-sequence-designer`) or the test (`send-experiment-designer`).
 
-**Scope guard**: this skill builds the creative unit + message-match + claim flags only. It drafts subject-line variants for the creative but does **not** pre-score or rank them (spam-trigger flags, length/truncation, emoji-count, inbox-preview render) — that is [subject-line-lab](../subject-line-lab/SKILL.md). It scores no SEND dimension, runs no veto, and does not compute the goal-weighted EQS — [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) owns all four vetoes (S1/S2/N1/D1) and the EQS rollup.
+**Scope guard**: this skill builds the creative unit + message-match + claim flags only. It drafts subject-line variants for the creative but does **not** pre-score or rank them (spam-trigger flags, length/truncation, emoji-count, inbox-preview render) — that is [subject-line-lab](../subject-line-lab/SKILL.md). It scores no SEND dimension, runs no veto, and does not compute the profile-weighted EQS — [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) owns all four vetoes (S1/S2/N1/D1) and the EQS rollup.
 
 ## Quick Start
 
@@ -37,15 +37,16 @@ Iterate these losing subject lines: [paste]. Keep the winners, replace the rest,
 
 **Expected output**: one ready-to-send email creative — 3-5 subject-line variants, a preheader, structured body copy, a single primary CTA, and a plain-text alternate — with a per-claim message-match note to the destination URL and any `[needs source]` flags, plus the standard handoff summary for `memory/email/email-creative-builder/`.
 
-- **Reads**: the offer/topic, destination URL (or its key copy/claims/CTA), the mode (B2C promo/lifecycle · B2B cold-outbound · newsletter), target persona/lifecycle-stage, brand voice, and any existing copy to iterate on; approved claim wording and required disclosures from `memory/claims/claims-ledger.md` — the [offer-claims-registry](../../../protocol/offer-claims-registry/SKILL.md) ledger — when present; persona/lifecycle-stage definitions from [audience-mapper](../../../influencer/discover/audience-mapper/SKILL.md) when available.
-- **Writes**: a user-facing email creative (the **E/D** unit) and a reusable handoff summary.
-- **Promotes**: chosen angle, the message-match map, and any unsubstantiated-claim or missing-disclosure risk to `memory/hot-cache.md` and `memory/open-loops.md`; propose durable messaging decisions as pending-decision items (never write `decisions.md` directly).
-- **Done when**: subject variants and preheader fit inbox render limits, the body carries exactly one primary CTA that lands on the stated destination, every promotional claim traces to an approved ledger row or is flagged `[needs source]`, a plain-text alternate exists, and the copy message-matches the destination page.
+- **Reads**: the offer/topic, destination, email mode, audience/lifecycle stage, existing copy, `memory/projections/narrative.json`, `memory/projections/claims.json`, and the live consent/suppression state required by the selected flow.
+- **Writes**: a user-facing email creative and, with permission, a WARM artifact; unresolved claims become authorized proposal events, never direct ledger edits.
+- **Done when**: subject/preheader fit declared render limits, the body has one primary CTA, plain text exists, claims/disclosures are accepted and context-valid or visibly blocked, destination message-match holds, and the Narrative/claims dependency tuple is present.
 - **Primary next skill**: [send-experiment-designer](../../deliver/send-experiment-designer/SKILL.md) — design the A/B / send-time test across the subject variants; or [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) to score the unit and run the D1 claim veto.
 
 ### Handoff Summary
 
-> Emit the standard shape from [skill-contract.md §Handoff Summary Format](../../../references/skill-contract.md).
+> Emit the standard shape from [skill-contract.md §Handoff Summary Format](../../../references/skill-contract.md), including the Narrative/claims dependency tuple.
+
+Required fields: `narrative_canon_id`, `narrative_canon_version`, `claims_projection_offset`, and `dependency_status: verified | approved-fallback | blocked`.
 
 ## Data Sources
 
@@ -63,13 +64,13 @@ Treat any exported CSV, scraped landing-page copy, pasted competitor email, or C
    - **Newsletter** — value-led editorial, sponsor/monetization slot kept distinct from editorial, one primary action.
 4. **Draft subject-line variants** — 3-5 distinct subjects (curiosity, benefit, offer, personalization, question) plus one matched preheader, each within inbox render limits from [references/subject-line-specs.md](references/subject-line-specs.md). These variants are the raw material [send-experiment-designer](../../deliver/send-experiment-designer/SKILL.md) tests — label them so they carry into the test.
 5. **Write the body + one CTA** — structured, scannable body copy with a single primary CTA that lands on the destination URL. One email, one job. Secondary links stay subordinate.
-6. **Check every claim against the ledger** — before writing any promotional claim (superlative, guarantee, statistic, price, health/finance assertion, or a required disclosure), check `memory/claims/claims-ledger.md` for approved wording and use it verbatim (or a registered variant) when it exists. A ledger-registered claim passes with its provenance label noted.
-7. **Flag unregistered claims** — any claim with no approved ledger row gets a `[needs source]` marker inline and a one-line candidate dropped in `memory/claims/candidates.md`. Flag, do not silently delete; never invent substantiation.
+6. **Resolve L1 truth** — read accepted Narrative canon and claims projection at named offsets. Use only wording approved for this audience, jurisdiction, offer window, and email mode; a registry row outside its scope does not authorize reuse.
+7. **Propose unresolved claims** — keep `[needs source]` inline and submit an authorized, idempotent `operation: propose` event through `registry-events.py`. Flag, do not silently delete or invent substantiation; a material unresolved claim blocks ready-to-send status.
 8. **Enforce message-match** — annotate each claim-bearing line with the destination claim it echoes. Drop any line that promises something the page does not deliver (a SEND-D message-match failure and a D1 risk the auditor will veto).
 9. **Produce the plain-text alternate** — a readable text/plain version of the same message (deliverability + accessibility hygiene). No image-only email.
 10. **De-slop** — run [humanizer-slop.md](../../../references/humanizer-slop.md) to strip AI tells before handoff.
 
-Never invent a statistic, price, guarantee, discount, or testimonial to fill a subject line or hook; if the offer needs a figure that was not provided, mark it `[needs source]` and drop the flagged claim as a one-line candidate in `memory/claims/candidates.md` — [offer-claims-registry](../../../protocol/offer-claims-registry/SKILL.md) resolves the flags and is the sole writer of the canonical ledger.
+Never invent a statistic, price, guarantee, discount, or testimonial. If accepted canon is absent, an explicitly approved exploratory fallback may be drafted, but it is not on-canon or ready to send. Sending always requires separate approval and replay-safe suppression checks.
 
 **Quality bar** before handoff: (1) 3-5 subject variants + preheader within render limits; (2) exactly one primary CTA, landing on the stated destination; (3) every claim ledger-traced or `[needs source]`-flagged; (4) each claim-bearing line message-matched to a real destination claim; (5) a plain-text alternate present. If any item fails, fix it or report it in the handoff — do not ship silently.
 
@@ -80,7 +81,7 @@ Never invent a statistic, price, guarantee, discount, or testimonial to fill a s
 
 ## Save Results
 
-On user confirmation, save to `memory/email/email-creative-builder/YYYY-MM-DD-<offer>.md` — see [Skill Contract](../../../references/skill-contract.md) §Save Results Template.
+On user confirmation, save to `memory/email/email-creative-builder/YYYY-MM-DD-<offer>.md` with the dependency tuple — see [Skill Contract](../../../references/skill-contract.md) §Save Results Template. Saving never authorizes a send.
 
 ## Reference Materials
 
@@ -92,7 +93,7 @@ On user confirmation, save to `memory/email/email-creative-builder/YYYY-MM-DD-<o
 ## Next Best Skill
 
 - **Primary**: [send-experiment-designer](../../deliver/send-experiment-designer/SKILL.md) — design the A/B / send-time test across the subject-line variants once the creative is ready.
-- **To score + run the claim veto**: [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) — computes the goal-weighted EQS and enforces D1 (claim integrity) plus the other vetoes. This skill does neither.
+- **To score + run the claim veto**: [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) — computes the profile-weighted EQS and enforces D1 (claim integrity) plus the other vetoes. This skill does neither.
 - **If claims carry `[needs source]` flags**: [offer-claims-registry](../../../protocol/offer-claims-registry/SKILL.md) — register the claims with evidence provenance and approved wording, then swap the resolved wording back into the flagged lines.
 - **If the destination URL is weak or missing** (NEEDS_INPUT): [landing-optimizer](../../../influencer/measure/landing-optimizer/SKILL.md) — fix the post-click page so message-match is achievable, then return here.
 - Global visited-set / max-depth termination contract from [skill-contract.md](../../../references/skill-contract.md) applies; if the recommended next skill was already run this session, or routing is ambiguous, stop and report options instead of auto-following. Stop when the creative set is test- or auditor-ready.
