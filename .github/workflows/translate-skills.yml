@@ -538,6 +538,38 @@ jobs:
             exit 1
           fi
 
+      - name: Translate queued security audits
+        if: always()
+        continue-on-error: true
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
+          CONCURRENCY: ${{ inputs.concurrency || '8' }}
+        run: |
+          MODEL_FLAG=""
+          if [ -n "${{ inputs.model }}" ]; then
+            MODEL_FLAG="--model ${{ inputs.model }}"
+          fi
+
+          echo "🔐 Translating queued security audits"
+          set +e
+          AUDIT_RESULT=$("$GITHUB_WORKSPACE/skillstore-cli" skill translate-audit \
+            --concurrency "$CONCURRENCY" \
+            --output json \
+            $MODEL_FLAG)
+          AUDIT_EXIT=$?
+          set -e
+
+          echo "$AUDIT_RESULT" > shard-${{ matrix.shard }}-audit-result.json
+          if ! echo "$AUDIT_RESULT" | jq -e '.translated >= 0' >/dev/null 2>&1; then
+            echo "::warning::Audit translation returned unexpected output"
+            exit 1
+          fi
+
+          echo "🔐 Audit translations: $(echo "$AUDIT_RESULT" | jq -r '.translated') translated, $(echo "$AUDIT_RESULT" | jq -r '.failed') failed"
+          exit "$AUDIT_EXIT"
+
       - name: Upload shard results
         if: always()
         uses: actions/upload-artifact@v6
@@ -546,6 +578,7 @@ jobs:
           path: |
             shard-${{ matrix.shard }}-summary.json
             shard-${{ matrix.shard }}-result.json
+            shard-${{ matrix.shard }}-audit-result.json
           retention-days: 1
 
       - name: Cleanup
