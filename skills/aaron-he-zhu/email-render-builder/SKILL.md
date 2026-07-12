@@ -4,20 +4,20 @@ slug: aaron-email-render-builder
 displayName: "Email Render Builder · 邮件HTML"
 summary: "邮件HTML/响应式邮件/暗色模式渲染"
 description: 'Use when the user asks to "build the email HTML", "make this email responsive", "fix dark-mode rendering", or "QA the email across clients"; produces the coded HTML build — a responsive table layout, dark-mode + accessibility pass, a client-render matrix, image-block fallbacks, and a plain-text parity check. Not for writing the copy — use email-creative-builder; not for scoring the email or computing EQS — use email-quality-auditor. 邮件HTML/响应式邮件/暗色模式渲染'
-version: "16.0.0"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when coding or QA-ing the HTML build of an email that copy is already written for: converting approved creative into a responsive table-based layout, checking dark-mode color inversion, running an accessibility pass (alt text, semantic order, contrast, font-size), producing a client-render matrix (Gmail/Outlook/Apple Mail/mobile), specifying image-off fallbacks and bulletproof buttons, and verifying the plain-text alternate matches the HTML. Covers B2C promo, B2B, and newsletter builds. Not for authoring the words, and not for the EQS gate."
 argument-hint: "<email creative or HTML> [target clients] [mode: promo|cold|newsletter]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "email", "phase": "engage", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "engage"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "email", "phase": "engage", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "engage"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Email Render Builder
 
 Builds and QAs the coded HTML for a single email — a responsive table-based layout, a dark-mode + accessibility pass, a client-render matrix, image-block fallbacks with bulletproof CTAs, and a plain-text-parity check. This is the render half of SEND **Engage**: `email-creative-builder` writes the words, this skill turns them into a build that lands the same in Gmail, Outlook, Apple Mail, and on mobile. It does not write copy, and it does not score the email or run any veto — that is `email-quality-auditor`.
 
-**Scope guard**: this skill produces the HTML build + render QA + plain-text parity only. It writes no subject-line or body *copy* ([email-creative-builder](../email-creative-builder/SKILL.md) owns that), scores no SEND dimension, runs no veto, and does not compute the goal-weighted EQS — [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) owns all four vetoes (S1/S2/N1/D1) and the EQS rollup.
+**Scope guard**: this skill produces the HTML build + render QA + plain-text parity only. It writes no subject-line or body *copy* ([email-creative-builder](../email-creative-builder/SKILL.md) owns that), scores no SEND dimension, runs no veto, and does not compute the profile-weighted EQS — [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) owns all four vetoes (S1/S2/N1/D1) and the EQS rollup.
 
 ## Quick Start
 
@@ -90,7 +90,7 @@ On user confirmation, save to `memory/email/email-render-builder/YYYY-MM-DD-<sub
 
 ## Next Best Skill
 
-- **Primary**: [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) — score the built unit's SEND dimensions, enforce S1/S2/N1/D1, and compute the goal-weighted EQS. This skill scores nothing and runs no veto.
+- **Primary**: [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) — score the built unit's SEND dimensions, enforce S1/S2/N1/D1, and compute the profile-weighted EQS. This skill scores nothing and runs no veto.
 - **If a render fix needs the copy changed** (subject too long to render, CTA label overflows the button): [email-creative-builder](../email-creative-builder/SKILL.md) — revise the words, then return here to rebuild.
 - **If the build feeds a render/subject A/B test**: [send-experiment-designer](../../deliver/send-experiment-designer/SKILL.md) — design the test across the built variants.
 - **If image-off or dark-mode breakage traces to a broken destination page** (message-match fails post-click): [landing-optimizer](../../../influencer/measure/landing-optimizer/SKILL.md) — fix the post-click page, then return.

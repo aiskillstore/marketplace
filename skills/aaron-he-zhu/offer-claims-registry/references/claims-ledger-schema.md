@@ -1,81 +1,65 @@
-# Claims Ledger Schema
+# Claims Projection Contract
 
-Authoritative field definitions and file templates for `memory/claims/`. `offer-claims-registry` is the sole writer of `claims-ledger.md` and `offers.md`; every consumer (`ad-account-auditor`, `content-reviewer`, `ad-creative-builder`, `brief-generator`, `landing-optimizer`, `content-writer`, `page-play-builder`) reads these fields as-is. Do not rename or omit fields.
+The canonical claims/offers history is `memory/events/claims.ndjson`; current accepted state is `memory/projections/claims.json`. `claims-ledger.md` and `offers.md` are generated human views, not writable ledgers.
 
-## Provenance labels
+## Claim Fields
 
-One label per claim row. The label states what evidence is on file — it is never a verdict.
+| Field | Required | Meaning |
+|---|---|---|
+| `kind` | yes | `claim` |
+| `exact_wording` | yes | Verbatim approved or proposed wording |
+| `interpretation` | yes | Measurable meaning and denominator |
+| `status` | yes | `unresolved`, `approved`, `expired`, `withdrawn` |
+| `evidence_type` | yes | measured/user-provided/calculated/estimated/proxy |
+| `evidence_ref` / `evidence_date` | yes for approval | Named source and observation date |
+| `scope` | yes | Population, product/version, market, channel/media, and time window |
+| `approved_variants` | when approved | Wording variants within the same evidence scope |
+| `required_disclosure` | conditional | Claim-level qualifier/disclaimer |
+| `used_in` | recommended | Artifact/URL pointers, not copied content |
+| `review_at` / `expires_at` | conditional | Revalidation or offer expiry |
 
-| Label | Meaning | Who can set it |
-|-------|---------|----------------|
-| `verified-document` | The user named a specific substantiation document (study, test report, certification, warranty terms, own customer data) with a date | Only the user, by naming the document |
-| `user-attested` | The user asserts the claim is true but has named no document | Registry, from user statements |
-| `none-on-file` | Claim is registered but no evidence was provided | Registry default for unresolved `[needs source]` flags |
-| `expired` | Evidence or the underlying offer has passed its review/expiry date | Registry, on expiry sweep |
+`user-provided` is evidence provenance, not independent verification. `unresolved` is a registry fact, not an auditor verdict. A builder may use only accepted wording whose scope matches the current use.
 
-Rules: never upgrade a label without new user input; downgrades to `expired` happen automatically on sweep. `none-on-file` is a factual state, not a failure — converting it into an O1/T2 failure is the gates' job.
+## Offer Fields
 
-## `memory/claims/claims-ledger.md` template
+| Field | Required | Meaning |
+|---|---|---|
+| `kind` | yes | `offer` |
+| `terms` | yes | Exact price/discount/eligibility/guarantee terms |
+| `code` | conditional | Promotion code |
+| `starts_at` / `ends_at` | yes | ISO timestamps or dates |
+| `destination_ref` | yes | Accepted destination |
+| `status` | yes | `upcoming`, `live`, `ended`, `withdrawn` |
+| `linked_claim_ids` | recommended | Claims dependent on these terms |
 
-```markdown
----
-type: claims
-tier: WARM
-updated: YYYY-MM-DD
----
+Expiry is a new owner event. Never delete or rewrite the original approval event.
 
-# Claims Ledger
+## Producer Proposal
 
-| # | Claim (exact text) | Evidence source + date | Provenance | Approved wording variants | Claim-level disclaimers / policy flags | Used in | Review/expiry |
-|---|--------------------|------------------------|------------|---------------------------|----------------------------------------|---------|---------------|
-| C-001 | "Cuts reporting time by 40%" | Internal timing study, 2026-03 (User-provided) | user-attested | "save 40% of reporting time"; "40% faster reports" | none / — | ads, landing /pricing | 2026-09-01 |
-| C-002 | "Earn up to $500/mo" | — | none-on-file | — | earnings disclaimer required; policy flag: earnings | creator briefs | 2026-07-15 |
+Ordinary skills do not write Markdown or NDJSON directly. With explicit permission, they pass a schema-valid request to `registry-events.py`:
+
+```json
+{
+  "schema_version": "1.0",
+  "idempotency_key": "claim-proposal-asset-v3-c14",
+  "aggregate_id": "claim-c14",
+  "operation": "propose",
+  "proposed_operation": "upsert",
+  "occurred_at": "2026-07-10T10:00:00Z",
+  "actor": {"type": "skill", "id": "ad-creative-builder"},
+  "authorized_by": "user",
+  "authorization_ref": "current-save-request",
+  "source": {"type": "user-provided", "ref": "asset-v3", "observed_at": "2026-07-10"},
+  "expected_revision": 0,
+  "payload": {"set": {"kind": "claim", "exact_wording": "[needs source]", "status": "unresolved"}}
+}
 ```
 
-Field notes:
+The host-capability owner accepts/rejects by proposal event ID. The decision request omits `expected_revision`; acceptance inherits and checks the revision captured by the proposal. Resolution retains both events.
 
-- **Claim (exact text)** — verbatim, in quotes. The dedupe key is the meaning, not the string: rewordings join the variants list of the existing row.
-- **Evidence source + date** — recorded exactly as the user gave it, labeled Measured / User-provided / Estimated per the skill contract. Never invented.
-- **Approved wording variants** — the only phrasings builders may pull. `ad-creative-builder` and `brief-generator` copy from this column, never paraphrase beyond it.
-- **Claim-level disclaimers / policy flags** — disclaimers tied to this claim ("results not typical", finance/health text) plus sensitivity flags (health, finance, earnings, before/after). Sponsorship-disclosure format (#ad, "Paid partnership") is NOT recorded here — it belongs to briefs (T1).
-- **Used in** — ads / landing pages / creator briefs / comparison pages, with URLs or asset names when known.
-- **Review/expiry** — evidence age limit, offer end date, or default 6-month review.
+## Consumer Rules
 
-## `memory/claims/offers.md` template
-
-```markdown
----
-type: claims
-tier: WARM
-updated: YYYY-MM-DD
----
-
-# Live Offers
-
-| # | Offer terms | Promo code | Start | End | Landing URL | Status | Linked claims |
-|---|-------------|-----------|-------|-----|-------------|--------|---------------|
-| O-001 | 50% off first 3 months, annual plans | SAVE50 | 2026-07-01 | 2026-07-31 | /promo/summer | live | C-003 |
-```
-
-Status values: `upcoming` / `live` / `ended`. Any ad or page claim that depends on an offer (price, discount, "free shipping") links to its offer row; when the offer flips to `ended`, the linked claims go into the expiry sweep.
-
-## `memory/claims/candidates.md` (written by other skills)
-
-The only `memory/claims/` file other skills may write. Exact mirror of the `memory/entities/candidates.md` pattern — when 3+ candidates accumulate, recommend `offer-claims-registry`.
-
-```markdown
-- [ ] "Rated #1 by TechRadar" — from: ad-creative-builder [needs source], 2026-07-02, asset: RSA draft v3
-- [ ] "Ships in 24h" — from: page-play-builder, 2026-07-01, page: /vs/acme
-```
-
-The registry consumes candidates top-down, registers or merges each, and deletes processed lines.
-
-## Frontmatter rule
-
-All three files carry ordinary WARM frontmatter (`type: claims`, `tier: WARM`) — never `class: auditor-output`. The PostToolUse Artifact Gate validates only `memory/audits/`; registry files must not imitate auditor artifacts.
-
-## Consumer query patterns
-
-- **Gate check** (`ad-account-auditor` O1/O2, `content-reviewer` T2): look up the exact claim; absent row or provenance `none-on-file`/`expired` is the gate's evidence — the ledger itself renders no verdict.
-- **Builder pull** (`ad-creative-builder`, `brief-generator`, `content-writer`, `page-play-builder`): fetch approved wording variants + required disclaimers for a claim; unresolved `[needs source]` flags route to `candidates.md`.
-- **Message match** (`landing-optimizer`): compare page copy against registered claims and the offers table (code, terms, dates, URL).
+- Auditors read accepted projection state plus concrete rendered use; missing evidence is Unknown unless failure is positively verified.
+- Builders read accepted wording/scope/disclosure and keep unmatched wording `[needs source]` plus a proposal.
+- Narrative stores claim IDs and projection offset; it does not copy unsupported claim truth.
+- Human views include projection offset/revision and are regenerated, never manually curated.

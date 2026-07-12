@@ -4,13 +4,13 @@ slug: budget-optimizer
 displayName: "Budget Optimizer · 预算优化"
 summary: "跨创作者与层级的预算分配:目标导向的花费拆分与情景对比"
 description: 'Use when the user asks to "allocate my influencer budget", "optimize spend across tiers", or "compare budget scenarios"; produces a tier/platform/content allocation table, ROI and CPM/CPE projections, scenario comparisons, and mid-campaign reallocation moves. Not for building the full campaign plan — use campaign-planner.'
-version: "16.0.0"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when planning budget allocation for a new influencer campaign, splitting spend across nano/micro/macro tiers or platforms, estimating influencer costs and projecting ROI, modeling conservative vs aggressive scenarios, justifying a budget request, or reallocating budget mid-campaign based on performance."
 argument-hint: "<total budget> [platforms] [campaign goal]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "influencer", "phase": "plan", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "plan"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "influencer", "phase": "plan", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "plan"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Budget Optimizer
@@ -50,7 +50,7 @@ Output: a tier/platform/content allocation table, projected reach + CPM/CPE, 2-3
 
 ## Cross-discipline: ad spend allocation
 
-This skill also allocates **paid-ads** spend — the tier/platform tables map to channels/campaigns; use the ROAS goal-weight (DR vs Prospecting) as the scenario axis and read CPA/ROAS targets instead of CPM/CPE. Scope: this computes the spend-reallocation **plan** only. It does **not** read in-flight pacing or issue scale-up/down moves — the live pacing read (pacing vs plan, learning-phase respect) belongs to [budget-pacing-monitor](../../../ad/scale/budget-pacing-monitor/SKILL.md), and bid-strategy choice belongs to [bid-strategy-planner](../../../ad/orchestrate/bid-strategy-planner/SKILL.md). [paid-measurement-loop](../../../ad/scale/paid-measurement-loop/SKILL.md) reads one shipped change back against a control, and premature scaling is an **S guardrail flag** in [ad-account-auditor](../../../ad/activate/ad-account-auditor/SKILL.md), not a separate skill or a veto. Save paid runs under `memory/ad/budget-optimizer/`.
+This skill also allocates **paid-ads** spend — the tier/platform tables map to channels/campaigns; use the ROAS profile (`direct-response|prospecting|incremental-profit`) as the scenario axis and read its declared CPA/payback/contribution constraint instead of substituting CPM/CPE. Scope: this computes the spend-reallocation **plan** only. It does **not** read in-flight pacing or issue scale-up/down moves — the live pacing read (pacing vs plan, learning-phase respect) belongs to [budget-pacing-monitor](../../../ad/scale/budget-pacing-monitor/SKILL.md), and bid-strategy choice belongs to [bid-strategy-planner](../../../ad/orchestrate/bid-strategy-planner/SKILL.md). [paid-measurement-loop](../../../ad/scale/paid-measurement-loop/SKILL.md) reads one shipped change back against a control, and premature scaling is an **S guardrail flag** in [ad-account-auditor](../../../ad/activate/ad-account-auditor/SKILL.md), not a separate skill or a veto. Save paid runs under `memory/ad/budget-optimizer/`.
 
 ## Data Sources
 

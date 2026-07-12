@@ -4,7 +4,7 @@ Use this reference to score individual backlinks, audit link profiles, find comp
 
 ## 1. Individual Link Quality Score
 
-Score each link across six factors, multiply by weight, then sum the weighted values for the final **Link Quality Score (LQS)**. Use scores 4 and 2 for cases between the table anchors.
+Score each link across six factors, multiply by weight, then sum the weighted values to place the link in a **per-link quality tier**. Use scores 4 and 2 for cases between the table anchors.
 
 | Factor | Weight | Score 5 | Score 3 | Score 1 | Guardrail |
 |--------|--------|---------|---------|---------|-----------|
@@ -17,8 +17,8 @@ Score each link across six factors, multiply by weight, then sum the weighted va
 
 **Rating scale**
 
-| LQS | Rating | Meaning |
-|-----|--------|---------|
+| Weighted sum | Rating | Meaning |
+|--------------|--------|---------|
 | 4.0-5.0 | Premium | High authority, relevant, editorial placement |
 | 2.5-3.9 | Acceptable | Provides value and fits a healthy profile |
 | 1.0-2.4 | Low quality | Minimal value; review for risk before acting |

@@ -4,14 +4,14 @@ slug: technical-seo-checker
 displayName: "Technical SEO Checker · 技术SEO"
 summary: "技术SEO/网站速度"
 description: 'Use when the user asks to "check technical SEO"; audits crawlability, indexing, Core Web Vitals, robots.txt, sitemaps, canonicals, redirects, and migrations. Not for on-page tags or content — use on-page-seo-auditor. 技术SEO/网站速度'
-version: "16.0.0"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when checking technical SEO health: site speed, Core Web Vitals, indexing, crawlability, robots.txt, sitemaps, canonical tags, 技术SEO, 网站速度, 核心网页指标, 索引问题, or Google找不到页面."
 argument-hint: "<URL or domain>"
 allowed-tools: WebFetch
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "seo-geo", "phase": "optimize", "geo-relevance": "low", "hermes": {"tags": ["marketing", "seo-geo", "optimize"], "category": "seo-geo"}, "openclaw": {"emoji": "🔍", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "seo-geo", "phase": "optimize", "geo-relevance": "low", "hermes": {"tags": ["marketing", "seo-geo", "optimize"], "category": "seo-geo"}, "openclaw": {"emoji": "🔍", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Technical SEO Checker
@@ -79,10 +79,10 @@ See [references/bulk-audit-playbook.md](references/bulk-audit-playbook.md) for t
 
 ## Skill Contract
 
-**Expected output**: a scored diagnosis, prioritized repair plan, and a short handoff summary ready for `memory/audits/`.
+**Expected output**: a scored diagnosis, prioritized repair plan, and a short handoff summary ready for `memory/seo-geo/optimize/technical-seo-checker/`.
 
 - **Reads**: target URLs or domain, PageSpeed/CrUX reports, robots.txt, sitemap, and reported symptoms.
-- **Writes**: a user-facing audit or optimization plan plus a reusable summary that can be stored under `memory/audits/`.
+- **Writes**: a user-facing audit or optimization plan plus a reusable summary that can be stored under `memory/seo-geo/optimize/technical-seo-checker/`.
 - **Promotes**: blocking defects, repeated weaknesses, fix priorities, and pending decisions to `memory/open-loops.md`.
 - **Done when**: each audited area carries evidence, issues, fixes, and a score; blocking indexation/revenue risks are flagged P0; a scorecard, priority queue, and handoff summary are produced.
 - **Primary next skill**: use the `Next Best Skill` below when the repair path is clear.
@@ -146,7 +146,9 @@ When a user requests a technical SEO audit, use the compact step templates in [r
 
 ## Save Results
 
-Ask to save results; if yes, write `memory/audits/technical-seo-checker/YYYY-MM-DD-<topic>.md` and hand off veto-level risks to the auditor gate before any hot-cache marker.
+Ask to save results; if yes, write `memory/seo-geo/optimize/technical-seo-checker/YYYY-MM-DD-<topic>.md` and hand off veto-level risks to the auditor gate before any hot-cache marker.
+
+`memory/audits/` is reserved for typed auditor-class artifacts.
 
 ## Reference Materials
 

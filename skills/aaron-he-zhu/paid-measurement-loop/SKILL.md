@@ -4,13 +4,13 @@ slug: aaron-paid-measurement-loop
 displayName: "Paid Measurement Loop · 付费广告复盘"
 summary: "付费广告复盘/ROAS回看/投放效果归因"
 description: 'Use when the user asks to "read back" a paid campaign change, "did this ad change work", or "compare ROAS/CPA before and after"; reads ROAS/CPA against a control over a fixed readback window and returns a Promote / Keep-testing / Rollback / Unproven decision with the math delegated to roi-calculator. Not for the ROI ratio math itself — use roi-calculator; not for cross-channel rollups — use performance-analyzer. 付费广告复盘/ROAS回看/投放效果归因'
-version: "16.0.3"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when reading back a paid-ads change (budget shift, new creative, bid/target edit) against a control over a fixed readback window, deciding 复盘 Promote/Keep-testing/Rollback/Unproven on ROAS/CPA, or normalizing a cross-platform ROAS comparison. Not for the ROI ratio math (use roi-calculator) or cross-channel reporting (use performance-analyzer)."
 argument-hint: "<campaign/change> [readback window]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.3", "discipline": "ad", "phase": "scale", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "scale"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "ad", "phase": "scale", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "scale"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Paid Measurement Loop
@@ -43,7 +43,7 @@ Compare ROAS on my Meta vs Google search campaigns (I have both CSV exports)
 
 All integrations optional (see [CONNECTORS.md](../../../CONNECTORS.md)). Inputs come from the user's **own account, manually exported** — there is no required ad-platform API. Keyed APIs (Google Ads SDK, Meta Marketing API) are an optional Tier-2/3 MCP convenience only, never a precondition.
 
-> **Significance on the rollup (keyless):** when comparing variants or before/after periods, `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/connectors/experiment.py" proportion --control <conv> <n> --variant <conv> <n>` (or `experiment.py continuous` for revenue/ROAS-style metrics) computes whether a measured delta is real (z-test/Mann-Whitney + CI) instead of reporting raw movement as a result. Pure stdlib, no key — label the verdict Measured.
+> **Statistical facts on the rollup (keyless):** `experiment.py proportion` (rates) or `experiment.py continuous` (revenue/contribution samples) returns effect/uncertainty evidence under declared alpha and practical-effect inputs. Raw observations retain their source label; derived values are `Calculated`. The helper emits no action, so this skill applies only the precommitted readback rule owned by the named decision maker.
 
 - `~~ad platform` (own data) — campaign + search-terms report CSV exported from the native ad manager (spend, CPC/CPM/CTR, the platform's reported conversions, the attribution window in effect).
 - `~~web analytics` (GA4) — Conversions + Traffic-acquisition export for the order-ID / source-medium truth set used to read ROAS/CPA independently of the platform's self-reported count.

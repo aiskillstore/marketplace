@@ -4,13 +4,13 @@ slug: aaron-attribution-reconciler
 displayName: "Attribution Reconciler · 付费广告归因对账"
 summary: "付费广告归因对账/去重/增量"
 description: 'Use when platform-reported conversions disagree with GA4/ecommerce, when you suspect Meta and Google are double-counting the same sales, or for a standing (monthly) reconciliation workbook that de-dups stacked credit against an order-ID truth set, normalizes attribution windows and currency, compares attribution models, and reads incrementality from a geo/holdout test. Not for the point-in-time R2 veto or RQS gate — use ad-account-auditor; not for the ROI/ROAS ratio math itself — use roi-calculator; not for organic dark-social share attribution or GA4 direct-traffic decomposition — use dark-social-attributor. 付费广告归因对账/去重/增量'
-version: "16.0.0"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when running a standing reconciliation of platform-reported conversions against the GA4/ecommerce order-ID truth set: de-dup stacked credit across Meta + Google, normalize differing attribution windows and currency, compare attribution models side by side, and read incrementality where a geo/holdout test exists. Activate when the user has each platform's conversion export plus an order-ID export and wants to know which conversions are real and not double-counted."
 argument-hint: "<GA4/ecommerce order-ID export> [platform conversion exports] [goal: DR|prospecting]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "ad", "phase": "scale", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "scale"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "ad", "phase": "scale", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "scale"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Attribution Reconciler
@@ -36,7 +36,7 @@ I ran a geo holdout for two weeks. Here's the test-region and control-region ord
 ## Skill Contract
 
 - **Expected output**: a reconciliation workbook that maps every platform-reported conversion to (or away from) an order in the truth set, a de-duped conversion count per platform, a normalized-window/currency view, an attribution-model comparison table, and an incrementality read if a holdout exists.
-- **Reads**: the GA4/ecommerce **order-ID export** (truth set), each platform's **conversion export** (reported conversions with claimed order IDs/timestamps/windows), the stated attribution window per platform, currency per export, and any geo/holdout test export (test vs control orders + spend). The target goal column (DR or prospecting) for context only.
+- **Reads**: the GA4/ecommerce **order-ID export** (truth set), each platform's **conversion export** (reported conversions with claimed order IDs/timestamps/windows), the stated attribution window per platform, currency per export, and any geo/holdout test export (test vs control orders + spend). The ROAS profile (`direct-response|prospecting|incremental-profit`) is context only.
 - **Writes**: a reconciliation workbook at `memory/ad/attribution-reconciler/YYYY-MM-DD-<topic>.md` — match table, de-duped counts, normalized view, model-comparison table, incrementality read, and a handoff summary.
 - **Promotes**: the de-duped conversion count, the double-count rate, and the incrementality result (if any) to `memory/hot-cache.md`. Unresolved gaps (orders with no platform claim, or platform claims with no matching order) to `memory/open-loops.md`.
 - **Done when**: every platform conversion is reconciled to the order-ID truth set (matched / double-counted / unmatched), windows and currency are normalized to a common basis, at least one attribution-model comparison is shown, incrementality is read where a holdout exists (or marked N/A), and the ratio/ROAS math is handed to `roi-calculator` rather than computed here.

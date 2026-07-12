@@ -1,74 +1,51 @@
-# Update Triggers & Cross-Skill Integration
+# Update Triggers and Cross-Skill Integration
 
-## Update Triggers
+These are permission-aware working-memory routines. They never grant standing write authority and never bypass a registry owner.
 
-### After Ranking Check
-1. Update memory/hot-cache.md -> Hero Keywords table
-2. Save snapshot to memory/monitoring/rank-history/YYYY-MM-DD-ranks.csv
-3. Note significant movement keywords
-4. Update "Last Metrics Update" date
-5. If hero keyword moves +/-5 positions, create alert note
+## Common Sequence
 
-### After Competitor Analysis
-1. Update memory/hot-cache.md -> Primary Competitors section
-2. Save report to memory/research/competitors/YYYY-MM-DD-analysis.md
-3. Update competitor overview notes
-4. Note new strategies in hot cache
+1. Finish the user-facing result and label evidence/source dates.
+2. If persistence is authorized, save the smallest useful WARM artifact in the producing skill's path.
+3. For durable truth, submit one idempotent `operation: propose` event per aggregate to the owning registry with current `expected_revision`.
+4. Do not write HOT unless the user explicitly pins a conclusion.
+5. Do not publish, send, upload, spend, or delete as part of a memory update.
 
-### After Audit (Technical/Content/Backlink)
-1. Save report to memory/audits/[type]/YYYY-MM-DD-[audit-name].md
-2. Extract top 3-5 action items -> hot cache Current Optimization Priorities
-3. Update Key Metrics Snapshot if audit includes metrics
-4. Create campaign entry if audit spawns new initiative
+## Trigger Table
 
-### After Monthly/Quarterly Report
-1. Save report to memory/monitoring/reports/[period]/YYYY-MM-report.md
-2. Update all metrics in hot cache Key Metrics Snapshot
-3. Demote stale hot cache items
-4. Update campaign statuses
-5. Archive completed campaigns
-
-### After Influencer Campaign Close
-1. Save final analysis to memory/influencer/performance-analyzer/YYYY-MM-DD-[campaign].md
-2. Update hot cache campaign status; promote renew/drop calls and winning formats
-3. Closed-cycle creator facts (final rate, response history, new baselines) land in memory/creators/candidates.md; recommend creator-registry at 3+ pending updates per creator
-
-### After Paid Readback / Attribution Pass
-1. Save the snapshot or workbook to memory/ad/[skill]/YYYY-MM-DD-[topic].md
-2. Update hot cache Key Metrics (ROAS/CPA deltas, de-duped conversion counts)
-3. Roll gated ad-account-auditor handoffs (ROAS blocks) and attribution-reconciler standing workbooks into the monthly memory/audits/YYYY-MM.md aggregate
-4. Route lapsed offers and unresolved claim flags to offer-claims-registry via memory/claims/candidates.md
+| Trigger | WARM action | Registry action | Safety note |
+|---|---|---|---|
+| Ranking/competitor read | Save dated research/monitoring artifact | Entity proposal only for durable identity facts | A movement threshold is a review cue, not automatic promotion |
+| Content/ad/email/social build | Save versioned asset/handoff | Claims/Narrative/channel proposals as needed | Preserve `[needs source]`; no external execution |
+| Influencer campaign close | Save closed-cycle analysis | Creator proposals for rate/rights/outcomes | Minimize personal data; no reputation label |
+| Paid readback | Save normalized window and truth-set reconciliation | Claim/offer proposal when state changed | No automatic budget action |
+| Email suppression event | Save no duplicate contact data | Direct consent `suppress`, then replay check | Never queue withdrawal as a proposal |
+| Launch T-0 observation | Save incident/runbook evidence | Launch proposal per timestamped fact | Registry resolves in offset order; no stream clearing |
+| Narrative change | Save authored draft/test evidence | Complete-canon proposal, not partial patch | Claims remain separate pointers |
+| Auditor gate | Present result; save only when authorized | No registry mutation | v3 artifact validator required; no automatic HOT write |
 
 ## Archive Management
 
 ### Monthly
-1. Review hot cache for items not updated in 30 days (by `last_updated`)
-2. Move stale items to cold storage
-3. Create snapshot: memory/monitoring/snapshots/YYYY-MM-hot-cache-snapshot.md
-4. Compress old rank-history exports
-5. Update glossary with new terms
-6. Run the consolidation/reflection pass (dedup + supersession + distill) — see [Consolidation Pass](consolidation-pass.md) / memory-management step 7
+
+- Review HOT pointers older than 30 days and demote when no longer current.
+- Review WARM artifacts older than 90 days and archive with original path/content hash metadata.
+- Run the consolidation pass for duplicates, explicit supersession, broken links, and unsupported summaries.
+- Do not archive or compress registry streams/projections through the temperature lifecycle.
 
 ### Quarterly
-1. Review entire cold storage structure
-2. Compress files older than 6 months
-3. Create quarterly summary report
-4. Audit active campaigns -> archive completed ones
 
-## Cross-Skill Memory Integration
+- Review COLD retention and legal-hold requirements.
+- Link milestone summaries to source artifacts rather than copying scores/facts without context.
+- Verify all seven registry streams and rebuild projections when needed.
+- Review consent suppression by replay before any reactivation workflow.
 
-| Skill | Memory Actions |
-|-------|---------------|
-| **keyword-research** | Add to memory/research/keywords/; promote high-value to hot cache; update glossary |
-| **rank-tracker** | Update rank-history/; refresh hot cache Hero Keywords; flag significant movements |
-| **competitor-analysis** | Update memory/research/competitors/; refresh hot cache Competitors; add new competitors if they outrank top 5 |
-| **content-gap-analysis** | Store in memory/research/content-gaps/; promote opportunities to hot cache; update content calendar |
-| **content-writer** | Log to memory/content/published/YYYY-MM-DD-[slug].md; track keyword + publish date; set 30-day performance check |
-| **content-quality-auditor** | Save to memory/audits/content/; update hot cache Key Metrics; flag score < 60 in Active Campaigns |
-| **domain-authority-auditor** | Save to memory/audits/domain/; update CITE Score in hot cache; note veto status; compare against previous |
-| **influencer skills** | Save dated outputs to memory/influencer/[skill]/; promote confirmed partners, agreed rates, campaign facts to hot cache; creator facts go to memory/creators/candidates.md |
-| **content-reviewer** | Save gated ART verdict to memory/audits/influencer/; log dated compliance events as creator-registry candidates; flag T1/T2 vetoes in hot cache |
-| **creator-registry** | Sole writer of memory/creators/[handle-slug].md; reconciles memory/creators/candidates.md; promotes expiring exclusivity windows + rate ceilings to hot cache |
-| **paid skills (ROAS)** | Save dated outputs to memory/ad/[skill]/; promote chosen structures/angles and readback deltas to hot cache; claim candidates go to memory/claims/candidates.md |
-| **ad-account-auditor** | Save gated RQS verdict to memory/audits/ad/; promote verdict + vetoes to hot cache; rolled into the monthly memory/audits/YYYY-MM.md aggregate |
-| **offer-claims-registry** | Sole writer of memory/claims/claims-ledger.md + offers.md; sweeps memory/claims/candidates.md; promotes live offers + none-on-file claims to hot cache |
+## Integration Boundaries
+
+| Role | Allowed persistent action |
+|---|---|
+| Ordinary execution skill | Own WARM artifact plus authorized proposal events |
+| Auditor gate | Own validator-clean audit artifact after permission |
+| Registry owner | Accept/reject/upsert/transition its registry through runtime |
+| `memory-management` | HOT/WARM/COLD lifecycle and authorized tombstone/erase |
+
+Monthly indexes may reference audit artifact IDs but must not synthesize a cross-framework score. Registry projections and human views always expose the source offset/revision.

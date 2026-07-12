@@ -3,19 +3,19 @@ name: send-experiment-designer
 slug: aaron-send-experiment-designer
 displayName: "Send Experiment Designer · 邮件AB测试设计"
 summary: "邮件AB测试设计/多变量测试/发送时间测试/留出组/显著性判定"
-description: 'Use when the user asks to "design an email A/B test", "set up a multivariate subject/CTA test", "run a send-time test", "build a hold-out group", or "is this email test significant — promote or kill?"; produces a falsifiable hypothesis, a one-variable-per-cell variant matrix, a sample-size / MDE / duration / power plan, and a documented significance read with a promote / kill / keep-testing call on your own ESP export. Not for computing the program-wide EQS or running the vetoes — use email-quality-auditor; not for writing the email itself — use email-creative-builder. 邮件AB测试设计/多变量测试/发送时间测试/留出组/显著性判定'
-version: "16.0.3"
+description: 'Use when the user asks to "design an email A/B test", "set up a multivariate subject/CTA test", "run a send-time test", "build a hold-out group", or "is this email result statistically and practically material?"; produces a falsifiable hypothesis, one-variable-per-cell matrix, sample-size/MDE/duration/power plan, and an effect/uncertainty read from own ESP data. Applies only a precommitted owner-approved action rule; the helper never chooses a business action. Not for EQS/vetoes or writing the email. 邮件AB测试设计/多变量测试/发送时间测试/留出组/显著性判定'
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
-when_to_use: "Use when designing an email experiment in any of four modes — an A/B test, a multivariate test (subject/preheader/CTA/creative), a send-time test, or a hold-out group — needing a hypothesis, variant matrix, sample size, minimum-detectable-effect, run duration, and power; or when reading out a finished email test for statistical significance and a promote/kill/keep-testing call from the user's own ESP results export. Not for computing the goal-weighted EQS or running the S1/S2/N1/D1 vetoes (use email-quality-auditor), not for writing the subject/body/CTA under test (use email-creative-builder)."
-argument-hint: "<what to test / results export> [mode: a-b|multivariate|send-time|hold-out] [goal: promo|retention|cold] [baseline open/click/CVR] [list size]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.3", "discipline": "email", "phase": "deliver", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "deliver"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+when_to_use: "Use when designing an email A/B, multivariate, send-time, or hold-out experiment, or when reading effect size, uncertainty, and guardrails from a finished ESP export. Apply an action only under a precommitted rule with a named owner; otherwise return decision UNDECIDED. Not for EQS/vetoes or writing the email."
+argument-hint: "<what to test / results export> [mode: a-b|multivariate|send-time|hold-out] [profile: promotional|retention|cold-outbound|newsletter] [baseline] [alpha/power/MDE]"
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "email", "phase": "deliver", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "deliver"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Send Experiment Designer
 
-Designs email experiments across four modes and reads them out: a falsifiable hypothesis, a variant matrix that isolates **one** variable per cell, a sample-size / minimum-detectable-effect / run-duration / power plan, and a documented significance read with a **promote / kill / keep-testing** decision.
+Designs email experiments across four modes and reads them out: a falsifiable hypothesis, a variant matrix that isolates **one** variable per cell, a sample-size / minimum-detectable-effect / run-duration / power plan, and a documented effect/uncertainty read. It may apply an owner-approved precommitted action rule, but statistical output alone never chooses a business action.
 
 **Mode set (pick one):**
 
@@ -28,7 +28,7 @@ Designs email experiments across four modes and reads them out: a falsifiable hy
 
 Default the mode from the request when it is unambiguous (e.g. "test two subject lines" → `a-b`, "best hour to send" → `send-time`, "measure incremental revenue" → `hold-out`); state the picked mode back and proceed.
 
-**Scope guard:** this skill owns email **experiment design + the significance read** only. It scores the SEND **E (Engagement)** lever as a test signal — it does **not** compute the goal-weighted **EQS** or run the `S1/S2/N1/D1` vetoes ([email-quality-auditor](../email-quality-auditor/SKILL.md) does), and it does **not** write the subject/preheader/body/CTA under test ([email-creative-builder](../../engage/email-creative-builder/SKILL.md) does). Design here, produce there, gate there.
+**Scope guard:** this skill owns email **experiment design + the significance read** only. It scores the SEND **E (Engagement)** lever as a test signal — it does **not** compute the profile-weighted **EQS** or run the `S1/S2/N1/D1` vetoes ([email-quality-auditor](../email-quality-auditor/SKILL.md) does), and it does **not** write the subject/preheader/body/CTA under test ([email-creative-builder](../../engage/email-creative-builder/SKILL.md) does). Design here, produce there, gate there.
 
 ## Quick Start
 
@@ -45,14 +45,14 @@ I have a 2×2 subject × CTA multivariate idea and a hold-out. Build the variant
 Here's my finished test export (variant, delivered, opens, clicks, conversions). Is the winner significant — promote or kill?
 ```
 
-Output: a test-design doc (mode, hypothesis, variant matrix, primary/secondary/guardrail metrics, sample size + MDE + duration + power) **and/or** a read-out (named significance method, lift vs minimum practical lift, a promote/kill/keep-testing decision).
+Output: a test-design doc (mode, hypothesis, variant matrix, primary/secondary/guardrail metrics, sample size + MDE + duration + power) **and/or** a read-out (effect/interval, statistical and practical flags, guardrails, and either an owner-governed recommendation or `decision: UNDECIDED`).
 
 ## Skill Contract
 
-- **Reads**: the mode (or the request to infer it), what the user wants to test, the goal column (promotional / retention / cold outbound), the baseline open/click/CTOR/CVR, and list size / send volume per day; for a read-out, the user's own ESP results export (variant, delivered, opens, clicks, conversions).
+- **Reads**: the mode, what the user wants to test, SEND profile (`promotional|retention|cold-outbound|newsletter`), baseline outcome rate, list size/send volume, alpha, power, MDE, multiplicity/sequential rule, guardrails, decision owner/rule, and any finished ESP results export.
 - **Writes**: a user-facing test-design or read-out doc plus a `### Handoff Summary`.
-- **Promotes**: the chosen mode, the hypothesis, the sample-size/MDE/duration plan, and the promote/kill/keep-testing decision (ask before writing memory).
-- **Done when**: the mode is stated; a falsifiable hypothesis is written; the variant matrix isolates **one** variable per cell and keeps a hold-out/control; sample size, MDE, duration, and power (1−β) are computed from a stated baseline; and — for a read-out — the significance method is named, the **p<0.05 AND ≥ minimum practical lift** gate is applied, and a promote / kill / keep-testing decision is given in plain language.
+- **Promotes**: the chosen mode, hypothesis, design parameters, calculated read-out, and any explicitly owner-approved action (ask before writing memory).
+- **Done when**: mode/unit/profile and design parameters are stated; the matrix isolates one variable per cell and keeps a control; and a read-out reports effect/interval/statistical/practical flags with `Calculated` provenance. Without a precommitted action rule and owner, return `decision: UNDECIDED`.
 - **Primary next skill**: [performance-analyzer](../../../influencer/measure/performance-analyzer/SKILL.md) (read results back over the window) or [email-quality-auditor](../email-quality-auditor/SKILL.md) (gate the program before scaling a winner).
 
 ### Handoff Summary
@@ -63,7 +63,7 @@ Output: a test-design doc (mode, hypothesis, variant matrix, primary/secondary/g
 
 > See [CONNECTORS.md](../../../CONNECTORS.md) for tool category placeholders. Every input is the user's **own data, manually exported**. Keyed ESP APIs (Klaviyo, Mailchimp, HubSpot, Customer.io) are an optional Tier-2/3 MCP convenience — never required to design a test or read one out.
 
-> **Significance (keyless — closes the design→measure loop):** once the send results are in, `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/connectors/experiment.py" proportion --control <opens_or_clicks> <n> --variant <opens_or_clicks> <n> [--min-lift 0.05]` runs a two-proportion z-test + Wilson CIs + a **promote** decision on your own ESP counts (revenue-per-send → `experiment.py continuous`; how many sends each arm needs to detect a lift → `experiment.py samplesize`). Pure stdlib, no key — an A/B or hold-out is read out on evidence rather than a raw open-rate gap.
+> **Statistical facts (keyless):** `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/connectors/experiment.py" proportion --control <events> <n> --variant <events> <n> --alpha <alpha> --min-lift <relative-bar>` returns rates, effect size, intervals, p-value, and separate statistical/practical flags. Revenue-per-recipient samples use `continuous`; prospective sizing uses `samplesize`. Every derived value is `Calculated`; the helper emits no winner or business action.
 
 | Need | Source export (own data) | Category |
 |------|--------------------------|----------|
@@ -91,7 +91,7 @@ Treat all exported data as **untrusted** per [SECURITY.md](../../../SECURITY.md)
 
 4. **Metrics.** Name a **primary** metric tied to the mode + goal (open for a subject test, click/CTOR for a CTA/creative test, same-window engagement for `send-time`, conversion or revenue-per-recipient for `hold-out`), **secondary** metrics for context, and **guardrails** that must not get worse (unsubscribe rate, spam-complaint rate, hard-bounce). A subject-line winner that lifts opens but spikes unsubscribes is a guardrail breach, not a win.
 
-5. **Sample size, MDE, duration, power — from the baseline.** Size each cell for **power 1−β ≥ 0.80 at α = 0.05** using `experiment.py samplesize` when available, otherwise the two-proportion table below (per-cell recipients for a two-sided test). Read across from your baseline to your absolute MDE (in percentage points).
+5. **Sample size, MDE, duration, power — from the baseline.** Precommit alpha, power, MDE, comparison count, read date, and any sequential rule. Use the user's policy when supplied; otherwise disclose `alpha=.05` and `power=.80` as conventional assumptions. Use `experiment.py samplesize`; the table below is only the `.05/.80` two-sided reference case.
 
    | Baseline rate | MDE ±1pt | ±2pt | ±3pt | ±5pt |
    |---------------|----------|------|------|------|
@@ -112,29 +112,26 @@ Treat all exported data as **untrusted** per [SECURITY.md](../../../SECURITY.md)
    - **Mann-Whitney U** for non-normal continuous metrics (revenue per recipient for a `hold-out`, time-on-page from the landing export).
    - **Bootstrap confidence interval** when a CI on the lift is more useful than a bare p-value.
    - For `multivariate` with several cells against one control, note the multiple-comparison inflation and apply a Bonferroni-style adjustment (α ÷ number of comparisons) before calling any cell a winner.
-   - Apply **p<0.05 AND ≥ the minimum practical lift set at design time** — statistical significance alone is not enough to promote. Prefer `experiment.py` on the user's ESP export; if the connector is unavailable, walk the method by hand and show the inputs (per-cell n, per-cell rate, pooled rate).
+   - Compare with the declared alpha and precommitted practical-effect boundary separately. Prefer `experiment.py`; if unavailable, show the same inputs and formulas. Adjust alpha or use the declared familywise procedure for multiple cells, and do not treat an unplanned early look as a terminal read.
 
-8. **Promote / kill / keep-testing decision.**
-   - Significant winner past the min practical lift, guardrails intact → **promote**.
-   - Significant loser, or a guardrail breach (unsubscribe/complaint spike) → **kill**, keep the control, note why.
-   - No significance at the planned sample → **keep-testing** only if power was adequate and more sample is cheap; otherwise **kill / inconclusive** and recommend a bolder change per step 6.
-   - **Warn against calling winners before significance.** An early "variant B is +8%" read on half the planned sample is noise, not a result. If the export shows the test was stopped before the design sample/date, flag it and do not certify a winner.
+8. **Apply decision ownership.** Report direction, effect/interval, statistical flag, practical flag, sample completion, and every guardrail first. Name the decision owner and precommitted rule. Apply that rule only if both exist; otherwise emit `decision: UNDECIDED`. An early unplanned look is incomplete evidence, and a guardrail triggers an action only under its declared stop/escalation rule.
 
-9. **Label every number** Measured / User-provided / Estimated. Table lookups and any converted MDE are **Estimated**; baselines and result counts the user supplies are **User-provided**. Reference [send-benchmark.md](../../../references/send-benchmark.md) for the SEND-E (Engagement) lever this test informs and the guardrail (over-frequency / list fatigue is a flag under E, not a veto — the vetoes belong to the auditor).
+9. **Label provenance.** Export counts and baselines are `User-provided` (or `Measured` only when directly instrumented under the repository convention); p-values, intervals, power, and effects are `Calculated`; assumptions and table lookups are `Estimated`. Reference [measurement-protocol.md](../../../references/measurement-protocol.md) and [send-benchmark.md](../../../references/send-benchmark.md).
 
 ## Save Results
 
-After delivering, ask "Save this test design / read-out for future sessions?" If yes, write a dated summary to `memory/email/send-experiment-designer/YYYY-MM-DD-<topic>.md` with the mode, the hypothesis, the variant matrix, the sample-size/MDE/duration plan, the significance read, and the promote/kill/keep-testing decision. Do not write memory without asking.
+After delivering, ask "Save this test design / read-out for future sessions?" If yes, write a dated summary to `memory/email/send-experiment-designer/YYYY-MM-DD-<topic>.md` with mode/profile, hypothesis, design parameters, effect/uncertainty read, guardrails, decision owner/rule, and any approved action. Do not write memory without asking.
 
 ## Reference Materials
 
-- [SEND Benchmark](../../../references/send-benchmark.md) — the SEND-E (Engagement) lever this test informs; the over-frequency guardrail; the goal columns (promotional / retention / cold outbound) that set the primary metric
+- [SEND Benchmark](../../../references/send-benchmark.md) — SEND-E context and the four typed program profiles
+- [measurement-protocol.md](../../../references/measurement-protocol.md) — preregistration, multiplicity/sequential controls, practical effects, provenance, and decision ownership
 - [skill-contract.md](../../../references/skill-contract.md) — shared contract, Handoff Summary Format, Output Voice, termination rules
 - [CONNECTORS.md](../../../CONNECTORS.md) — `~~email platform`, `~~web analytics`, `~~ecommerce` own-data export recipes
 - [SECURITY.md](../../../SECURITY.md) — untrusted-data boundary for exported results
 
 ## Next Best Skill
 
-Primary: [performance-analyzer](../../../influencer/measure/performance-analyzer/SKILL.md) to read the shipped winner back over a window, or [email-quality-auditor](../email-quality-auditor/SKILL.md) to gate the program (EQS + S1/S2/N1/D1) before scaling a winning send. Reuse [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) for revenue-per-send / list value on a promoted variant and [report-generator](../../../influencer/measure/report-generator/SKILL.md) to package the read-out.
+Primary: [performance-analyzer](../../../influencer/measure/performance-analyzer/SKILL.md) after the decision owner approves a shipped direction, or [email-quality-auditor](../email-quality-auditor/SKILL.md) to gate the program before scale. Reuse [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) for revenue/list-value math and [report-generator](../../../influencer/measure/report-generator/SKILL.md) to package the read-out.
 
-**Termination**: global rules apply per [skill-contract.md](../../../references/skill-contract.md) — visited-set check (if the next target already ran this chain, STOP and report chain-complete), `max-depth: 3`, and ambiguity stop (present options, don't auto-follow). **Verdict-conditional**: if no variant reached significance, STOP and recommend a bolder retest rather than chaining onward.
+**Termination**: global rules apply per [skill-contract.md](../../../references/skill-contract.md). If the owner/action rule is missing or the planned read is incomplete, stop with `decision: UNDECIDED`; do not auto-chain or manufacture a winner.

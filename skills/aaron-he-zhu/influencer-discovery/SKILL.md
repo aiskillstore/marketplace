@@ -4,13 +4,13 @@ slug: influencer-discovery
 displayName: "Influencer Discovery · 红人发现"
 summary: "多平台红人挖掘:候选池、画像与互动指标、真实性红旗筛查、分层短名单"
 description: 'Use when the user asks to "find influencers", "build an influencer list", or "discover creators in [niche]"; produces a multi-platform candidate pool, per-influencer profiles with audience and engagement metrics, authenticity red-flag screening, and a tiered shortlist with fit scores. Not for scoring or ranking a known shortlist — use fit-scorer.'
-version: "16.0.0"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Activate when building an influencer roster from scratch, expanding into a new platform or niche, replacing churned partners, finding micro and nano creators at scale, identifying which influencers a competitor partners with, or standing up an always-on discovery pipeline. The user names a niche, platform, follower band, or brand and wants a list of candidate creators to evaluate."
 argument-hint: "<brand or niche> [platform] [follower-range]"
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "influencer", "phase": "discover", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "discover"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "influencer", "phase": "discover", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "discover"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Influencer Discovery
@@ -31,7 +31,7 @@ based in [location], engagement above 4%, who have worked with brands like [bran
 ## Skill Contract
 
 - **Reads**: brand/product, niche or category, target platforms, follower range, engagement floor, location/language, audience demographics, exclusions; prior `entity-optimizer` brand profile and any `audience-mapper` output if present in memory; existing roster records under `memory/creators/` (dedupe the candidate pool against creators already rostered by [creator-registry](../../../protocol/creator-registry/SKILL.md)).
-- **Writes**: discovery results to `memory/influencer/influencer-discovery/YYYY-MM-DD-<topic>.md` — search criteria, candidate pool stats, per-influencer profiles, tiered shortlist with fit scores. Roster-worthy shortlisted creators (verified handles, contact path, audience stats) go as one-line updates to `memory/creators/candidates.md` — only `creator-registry` writes canonical records under `memory/creators/`.
+- **Writes**: discovery results to `memory/influencer/influencer-discovery/YYYY-MM-DD-<topic>.md` — search criteria, candidate pool stats, per-influencer profiles, tiered shortlist with fit scores. Roster-worthy shortlisted creators (verified handles, contact path, audience stats) go as one-line updates to `memory/events/creators.ndjson` via an authorized `operation: propose` request to `registry-events.py` — only `creator-registry` writes canonical records under `memory/creators/`.
 - **Promotes**: durable facts (top-tier handles, confirmed niche/platform mix, competitor-saturated creators) to `memory/hot-cache.md`.
 - **Done when**:
   - A candidate pool exists with at least the requested count screened past follower, engagement, and brand-safety filters.
@@ -71,7 +71,7 @@ Each step has a fill-in block in [references/templates.md](references/templates.
 5. **Compile the discovery report.** Roll profiles into summary stats, by-platform and by-tier breakdowns, the three-tier shortlist, mix recommendation, and next steps. Step 5 template.
 6. **Add insights.** Note niche content trends, the competitive picture, and recommendations for future searches. Step 6 template.
 
-Save the report to `memory/influencer/influencer-discovery/YYYY-MM-DD-<topic>.md` and promote top-tier handles + competitor-saturated creators to `memory/hot-cache.md`. Drop roster-worthy shortlisted creators as one-line updates in `memory/creators/candidates.md`; when 3+ candidate updates accumulate for one creator, recommend [creator-registry](../../../protocol/creator-registry/SKILL.md).
+Save the report to `memory/influencer/influencer-discovery/YYYY-MM-DD-<topic>.md` and, with permission, cache the active shortlist in working memory. Submit each roster-worthy creator as an authorized `operation: propose` request through `registry-events.py` to `memory/events/creators.ndjson`, then recommend [creator-registry](../../../protocol/creator-registry/SKILL.md) for resolution; proposal count never changes authority.
 
 ## Compact Example
 

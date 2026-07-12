@@ -93,30 +93,23 @@ Once provided, I'll generate:
 
 ---
 
-## Auditor Handoff Archive Block Format
+## Auditor Pointer Index Format
 
-Append to monthly file (`memory/audits/YYYY-MM.md`), newest at bottom:
+Append to `memory/indexes/audits/YYYY-MM.md`, newest at bottom:
 
 ```markdown
-## YYYY-MM-DD · <target> · <framework>
-- runbook_version: 1.1
-- status: DONE | DONE_WITH_CONCERNS | BLOCKED
-- framework: CORE-EEAT | CITE | ROAS
-- vetos_failed: [T04, R10]    # empty list [] if none
-- veto_count: 2
-- raw_overall: 78
-- final_overall: 60            # or "n/a" if BLOCKED
-- cap_applied: true
-- audit_gap_types: [missing, shallow]  # distinct from entity-geo-handoff-schema.md's gap_type enum
-- false_positive: false        # set true only on explicit user feedback
-- audit_source: content-quality-auditor | domain-authority-auditor | ad-account-auditor
+## 2026-07-10 · paid-search-q3 · ROAS/direct-response
+- artifact: memory/audits/ad/2026-07-10-paid-search-q3.md
+- artifact_sha256: <sha256 of the validated file>
+- schema_version: 3.0
+- runbook_version: 3.0.0
+- observed_at: 2026-07-10
 ```
 
 **Rules**:
-- One block per audit. Do not overwrite existing blocks.
-- `target` is the URL or domain audited (for ROAS blocks, the ad account or campaign).
-- `runbook_version` copied from current runbook header.
-- Paid artifacts roll in too: ROAS blocks come from ad-account-auditor's gated artifacts under `memory/audits/ad/`; attribution-reconciler's standing workbooks under `memory/ad/attribution-reconciler/` are folded into the same monthly pass (a one-line pointer per workbook is enough — do not copy tables).
-- `false_positive` is the ONLY field that can be flipped after initial write.
-- GDPR/CCPA erasure is the exception: replace subject identifiers with a stable redacted label while preserving scores, status, and timestamps. (Working-tree redaction only — no salted fingerprint or reingest tombstone; see [memory-management SKILL.md §GDPR](../SKILL.md) and [GDPR Purge Log Template](gdpr-purge-log-template.md).)
-- If monthly file doesn't exist, create with `# Audit Archive — YYYY-MM` header.
+- One pointer block per immutable audit artifact; do not copy scores, findings, vetoes, status, or verdict into the index.
+- Verify the artifact with `validate-audit-artifact.py` before indexing it and retain framework/profile/version in the heading.
+- Never place the index itself under `memory/audits/`; that namespace accepts only typed auditor artifacts.
+- Attribution workbooks and other non-auditor reports remain in their discipline paths and may use separate pointer indexes without being represented as gate results.
+- Subject erasure updates the working artifact and then refreshes its hash pointer. Record the operation separately in `memory/privacy/erasure-log.md`; never turn a privacy log into an audit artifact.
+- If the monthly index does not exist, create it with `# Audit Artifact Index — YYYY-MM`.

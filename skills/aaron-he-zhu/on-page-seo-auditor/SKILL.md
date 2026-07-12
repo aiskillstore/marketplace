@@ -4,14 +4,14 @@ slug: on-page-seo-auditor
 displayName: "On Page SEO Auditor · 页面SEO审计"
 summary: "页面SEO审计/排名诊断"
 description: 'Use when the user asks to "audit on-page SEO" or "diagnose why a single page dropped"; scores titles, meta, header structure, keyword placement, links, and images with prioritized fixes. Not for E-E-A-T / publish-readiness scoring — use content-quality-auditor; not for crawl / CWV / indexing — use technical-seo-checker. 页面SEO审计/排名诊断'
-version: "16.0.0"
+version: "17.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when auditing a page's on-page SEO health, checking heading structure, keyword placement, image optimization, or content quality signals."
 argument-hint: "<URL> [keyword]"
 allowed-tools: WebFetch
-metadata: {"author": "aaron-he-zhu", "version": "16.0.0", "discipline": "seo-geo", "phase": "optimize", "geo-relevance": "medium", "hermes": {"tags": ["marketing", "seo-geo", "optimize"], "category": "seo-geo"}, "openclaw": {"emoji": "🔍", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "seo-geo", "phase": "optimize", "geo-relevance": "medium", "hermes": {"tags": ["marketing", "seo-geo", "optimize"], "category": "seo-geo"}, "openclaw": {"emoji": "🔍", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # On-Page SEO Auditor
@@ -65,10 +65,10 @@ See [references/bulk-audit-playbook.md](references/bulk-audit-playbook.md) for t
 
 ## Skill Contract
 
-**Expected output**: a scored diagnosis, prioritized repair plan, and a short handoff summary ready for `memory/audits/`.
+**Expected output**: a scored diagnosis, prioritized repair plan, and a short handoff summary ready for `memory/seo-geo/optimize/on-page-seo-auditor/`.
 
 - **Reads**: the page URL or HTML, target keyword, page type, competitor URLs, and symptoms.
-- **Writes**: a user-facing audit or optimization plan plus a reusable summary that can be stored under `memory/audits/`.
+- **Writes**: a user-facing audit or optimization plan plus a reusable summary that can be stored under `memory/seo-geo/optimize/on-page-seo-auditor/`.
 - **Promotes**: blocking defects, repeated weaknesses, fix priorities, and pending decisions to `memory/open-loops.md`.
 - **Done when**: every on-page element has a /10 score with evidence; fixes are ranked by impact (P0/P1/P2); an overall score and handoff summary are produced.
 - **Primary next skill**: use the `Next Best Skill` below when the repair path is clear.
@@ -129,7 +129,9 @@ When a user requests an on-page SEO audit, use the compact step templates in [re
 
 ## Save Results
 
-Ask to save results; if yes, write `memory/audits/on-page-seo-auditor/YYYY-MM-DD-<topic>.md` and hand off veto-level risks to the auditor gate before any hot-cache marker.
+Ask to save results; if yes, write `memory/seo-geo/optimize/on-page-seo-auditor/YYYY-MM-DD-<topic>.md` and hand off veto-level risks to the auditor gate before any hot-cache marker.
+
+`memory/audits/` is reserved for typed auditor-class artifacts.
 
 ## Reference Materials
 
