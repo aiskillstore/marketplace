@@ -33,14 +33,44 @@ Application layer splits into:
 
 **Rule:** Command layer MUST NOT call Query layer interfaces.
 
-### A.4 Parameters and Return Values
+### A.4 Exception Boundary — APP as Unified Catch Point
+
+APP 层是异常处理的统一收口。Domain 和 outAdaptor 的阻断型异常在这里被捕获并转换为 `ResultDO`。
+
+```
+Domain / outAdaptor          APP (boundary)              Adaptor (inAdaptor)
+      │                          │                            │
+      │  throw BizException  →   │  catch → ResultDO.fail()  │
+      │  throw AggregateEx   →   │  catch → ResultDO.fail()  │
+      │  return ResultDO     →   │  分支处理/透传             │
+      │                          │                            │
+      │                          │  ← Response / ResultDO ──  │
+```
+
+**APP catches:**
+| Source | Exception | APP Action |
+|---|---|---|
+| DomainService | `BizException` | `ResultDO.fail(e.getCode(), e.getMsg())` |
+| Aggregate/Entity | `AggregateException` | `ResultDO.fail(e.getCode(), e.getMsg())` |
+| outAdaptor | Exception | Scene-specific: retry / fallback / `ResultDO.fail()` |
+| Any | `Throwable` | Log + `ResultDO.fail("SYSTEM_ERROR", "System error")` |
+
+**APP handles ResultDO (分支型):**
+| Domain/Adaptor returns | APP Action |
+|---|---|
+| `ResultDO.fail("DUPLICATE", msg, existingOrder)` | 提取 `existingOrder` 返回给上游 |
+| `ResultDO.fail("CACHE_MISS", key, null)` | 降级走其他数据源 |
+
+**APP 自身不抛异常给 Adaptor** — all returns are `ResultDO<T>`.
+
+### A.5 Parameters and Return Values
 
 | Rule | Spec |
 |------|------|
 | Input parameter | MUST use `RequestDTO`, FORBIDDEN: primitive types or Map |
 | Parameter validation | Via `requestDTO.check()` returning `ResultDO`, FORBIDDEN: writing validation logic in AppService |
 | Return value | Always `ResultDO<T>`, generic is ResponseDTO |
-| Error handling | Errors returned via `ResultDO` error codes, FORBIDDEN: throwing exceptions to caller |
+| Error handling | APP is the **exception boundary**: catches Domain/Adaptor blocking exceptions → `ResultDO.fail()`. Never throws to Adaptor. |
 
 ```java
 // Parameter self-validation (by RequestDTO itself)
@@ -56,7 +86,7 @@ return ResultDO.buildSuccessResult(responseDTO);
 return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order not found");
 ```
 
-### A.5 DTO Location
+### A.6 DTO Location
 
 | Scenario | Location | Notes |
 |----------|----------|-------|
@@ -65,7 +95,7 @@ return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order not found");
 
 **Rule:** If a DTO is transparently passed to external callers by Input Adaptor (Controller, HSF, etc.), put it in `client`. If only used within Application layer flow, put it in `application/model/`.
 
-### A.6 Dependency Rules
+### A.7 Dependency Rules
 
 **Allowed:**
 - `domain` module
@@ -77,7 +107,7 @@ return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order not found");
 - Other business domain module JARs
 - Middleware (message middleware, OSS, etc.)
 
-### A.7 Behavior Constraints
+### A.8 Behavior Constraints
 
 **Allowed:**
 - Call DomainService
@@ -92,7 +122,7 @@ return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order not found");
 
 **Important distinction:** Application layer MAY include **orchestration flow control** (e.g., checking Adaptor results, early returns with error codes). This is scene orchestration, not business logic. Core business logic = aggregate state transitions, business calculation formulas, rule matching — these MUST stay in Domain layer.
 
-### A.8 Assembler
+### A.9 Assembler
 
 **Naming:** `{AggregateName}Assembler` or `{BusinessScene}Assembler`
 
@@ -150,8 +180,24 @@ Input Adaptor → AppService → Adaptor (validate inventory/price)
 1. Parameter self-validation (`requestDTO.check()`)
 2. Fetch external data or validate preconditions via Adaptor (per scene needs)
 3. Convert DTO to Domain Param (via Assembler)
-4. Call DomainService (handles loading aggregate, executing business method, persisting)
-5. Build ResponseDTO and return
+4. Call DomainService (may throw blocking exception — caught by APP)
+5. Handle DomainService ResultDO for 分支型 scenarios (duplicate check, fallback)
+6. Build ResponseDTO and return `ResultDO.success()`
+
+**Exception handling in APP:**
+```java
+try {
+    // call DomainService / outAdaptor
+    orderDomainService.confirmPayment(param);
+    return ResultDO.buildSuccessResult(responseDTO);
+} catch (BizException | AggregateException e) {
+    log.error("Business error, param: {}", param, e);
+    return ResultDO.buildFailResult(e.getCode(), e.getMsg());
+} catch (Throwable e) {
+    log.error("System error, param: {}", param, e);
+    return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
+}
+```
 
 ### B.4 Template
 

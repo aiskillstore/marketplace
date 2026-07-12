@@ -48,7 +48,10 @@ adaptor/
 - **Input:** Can be Application method's RequestDTO object, or primitive types (`long orderId`, `String logisticsNo`)
   - Prefer primitive types when parameter is **fixed and stable** (business identifiers like order number, logistics number) for better reusability
   - Use RequestDTO directly when parameters are **many or composite** — no need to define separate DTO for Adaptor
-- **Return:** Always `ResultDO<T>`, generic is ResponseDTO containing only fields Application needs (anti-corruption simplification)
+- **Return:** Follows two-mode exception handling (same as Domain, see `domain-layer.md` A.6):
+  - **阻断型:** Throw exception — caught by APP
+  - **分支型:** Return `ResultDO<T>` — APP extracts data for branching/fallback
+  - Generic is ResponseDTO containing only fields Application needs (anti-corruption simplification)
 
 ### A.5 Implementation Constraints
 
@@ -167,14 +170,10 @@ public class LogisticsAdaptorImpl implements LogisticsAdaptor {
     private ThirdPartyLogisticsClient logisticsClient;
 
     @Override
-    public ResultDO<LogisticsInfoResponseDTO> queryLogistics(String logisticsNo) {
-        try {
-            ThirdPartyLogisticsResponse response = logisticsClient.track(logisticsNo);
-            return ResultDO.buildSuccessResult(LogisticsConverter.toLogisticsInfoResponseDTO(response));
-        } catch (Exception e) {
-            log.error("Query logistics failed, logisticsNo: {}", logisticsNo, e);
-            return ResultDO.buildFailResult("LOGISTICS_QUERY_FAIL", "Query logistics failed");
-        }
+    public LogisticsInfoResponseDTO queryLogistics(String logisticsNo) {
+        ThirdPartyLogisticsResponse response = logisticsClient.track(logisticsNo);
+        return LogisticsConverter.toLogisticsInfoResponseDTO(response);
+        // Blocking error (network fail, timeout) → throw, caught by APP
     }
 }
 ```
@@ -210,14 +209,10 @@ public class ExchangeRateAdaptorImpl implements ExchangeRateAdaptor {
     private ThirdPartyExchangeRateClient exchangeRateClient;
 
     @Override
-    public ResultDO<ExchangeRateResponseDTO> queryExchangeRate(String currency) {
-        try {
-            ThirdPartyRateResponse response = exchangeRateClient.getRate(currency);
-            return ResultDO.buildSuccessResult(ExchangeRateConverter.toExchangeRateResponseDTO(response));
-        } catch (Exception e) {
-            log.error("Query exchange rate failed, currency: {}", currency, e);
-            return ResultDO.buildFailResult("EXCHANGE_RATE_QUERY_FAIL", "Query exchange rate failed");
-        }
+    public ExchangeRateResponseDTO queryExchangeRate(String currency) {
+        ThirdPartyRateResponse response = exchangeRateClient.getRate(currency);
+        return ExchangeRateConverter.toExchangeRateResponseDTO(response);
+        // Blocking error → throw, caught by APP
     }
 }
 ```

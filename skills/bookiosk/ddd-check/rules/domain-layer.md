@@ -107,12 +107,30 @@ public class FeeCalculateResult extends BaseResult {
 }
 ```
 
-### A.6 Exception Handling
+### A.6 Exception Handling — Two Modes
 
+Domain and Adaptor choose exception mechanism based on **whether upstream needs the failure data**:
+
+| Mode | Mechanism | When | Example |
+|---|---|---|---|
+| **阻断型** | Throw exception | Event must stop, no data needed | 库存不足, 余额不够, 支付超时 |
+| **分支型** | Return `ResultDO<T>` | Upstream needs failure data for branching/fallback | 重复下单(需返回已有单号), 查无缓存(需降级走DB) |
+
+**Key principle:** Throw when the operation can't proceed and no data is needed. Return ResultDO when the caller needs the payload to decide what to do next.
+
+**阻断型 — throw:**
 | Exception | Throw Location | Purpose |
 |-----------|---------------|---------|
 | `AggregateException` | Aggregate, Entity | Aggregate/entity internal validation failure |
-| `BizException` | DomainService | Business logic validation failure |
+| `BizException` | DomainService | Business rule violation, pre-condition check failure |
+
+**分支型 — return ResultDO (with data):**
+| Scenario | Return | Upstream Action |
+|----------|--------|-----------------|
+| 重复单检测 | `ResultDO.fail("DUPLICATE", orderNo, existingOrder)` | APP 拿 existingOrder 返回给用户 |
+| 缓存未命中 | `ResultDO.fail("CACHE_MISS", key, null)` | APP 降级走 DB 查询 |
+
+**Exception boundary:** APP layer catches all 阻断型 exceptions and converts to `ResultDO` failure. Adaptor never sees raw exceptions.
 
 ### A.7 Repository Interface
 
@@ -159,21 +177,16 @@ public class CalculateSalePriceParam extends BaseParam {
 public class SalePriceDomainServiceImpl implements SalePriceDomainService {
 
     @Override
-    public ResultDO<CalculateSalePriceResult> calculateSalePrice(CalculateSalePriceParam param) {
-        try {
-            List<SalePriceItem> resultItems = new ArrayList<>();
-            for (ProductItem item : param.getProductItems()) {
-                BigDecimal rate = param.getExchangeRateProvider().getExchangeRate(item.getCurrency());
-                BigDecimal salePrice = item.getBasePrice().multiply(rate);
-                resultItems.add(new SalePriceItem(item.getProductId(), salePrice, item.getCurrency()));
-            }
-            CalculateSalePriceResult result = new CalculateSalePriceResult();
-            result.setSalePriceItems(resultItems);
-            return ResultDO.buildSuccessResult(result);
-        } catch (Exception e) {
-            log.error("Sale price calculation error, param: {}", param, e);
-            return ResultDO.buildFailResult("SYSTEM_ERROR", "Sale price calculation error");
+    public CalculateSalePriceResult calculateSalePrice(CalculateSalePriceParam param) {
+        List<SalePriceItem> resultItems = new ArrayList<>();
+        for (ProductItem item : param.getProductItems()) {
+            BigDecimal rate = param.getExchangeRateProvider().getExchangeRate(item.getCurrency());
+            BigDecimal salePrice = item.getBasePrice().multiply(rate);
+            resultItems.add(new SalePriceItem(item.getProductId(), salePrice, item.getCurrency()));
         }
+        CalculateSalePriceResult result = new CalculateSalePriceResult();
+        result.setSalePriceItems(resultItems);
+        return result;
     }
 }
 ```
@@ -223,7 +236,8 @@ public class SalePriceCalculateQueryAppServiceImpl implements SalePriceCalculate
 | Implementation | `{AggregateName}DomainServiceImpl` | `OrderDomainServiceImpl` |
 | Method | Business verbs, NOT technical verbs | `confirmPayment`, `cancelOrder` |
 | Parameter | `{MethodName}Param extends BaseParam` | `ConfirmPaymentParam` |
-| Return | `ResultDO<Void>` or `ResultDO<AggregateType>` | `ResultDO<Void>` |
+| Return (阻断型) | `void` — success returns, failure throws exception | `void` |
+| Return (分支型) | `ResultDO<T>` — carries data for upstream branching | `ResultDO<OrderAggregate>` |
 
 #### Role
 - **Core responsibility:** Encapsulate domain business logic, maintain aggregate integrity and consistency
@@ -241,11 +255,15 @@ public class SalePriceCalculateQueryAppServiceImpl implements SalePriceCalculate
 - FORBIDDEN: Application layer services, Infrastructure layer implementations, external service adaptors, other domain services, other domain aggregates
 
 #### Exception Handling
-- MUST catch all exceptions
-- Business exceptions: use `BizException`, log error
-- System exceptions: catch `Throwable`, log error
-- FORBIDDEN: throwing unhandled exceptions upward
-- All errors returned via `ResultDO`, never propagated
+
+| Scenario | Mechanism | Example |
+|---|---|---|
+| Blocking error (阻断型) | Throw `BizException` — caught by APP | 库存不足, 余额不够 |
+| Branch with data (分支型) | Return `ResultDO<T>` with data | 重复单检测, 缓存降级 |
+
+- **阻断型:** Throw exception, let APP catch and convert to `ResultDO.fail()`. Do NOT catch in DomainService.
+- **分支型:** Return `ResultDO<T>` so APP can extract data and take alternative path.
+- System exceptions (`Throwable`): log and re-throw as `BizException` or let propagate to APP's catch-all.
 
 #### Template
 ```java
@@ -257,24 +275,18 @@ public class OrderDomainServiceImpl implements OrderDomainService {
     private OrderRepository orderRepository;
 
     @Override
-    public ResultDO<Void> confirmPayment(ConfirmPaymentParam param) {
+    public void confirmPayment(ConfirmPaymentParam param) {
         // 1. Acquire lock
         LevelLock levelLock = orderRepository.buildLock("order:confirmPayment:" + param.getOrderId());
         try {
             if (!levelLock.tryLock()) {
-                return ResultDO.buildFailResult("LOCK_FAIL", "Failed to acquire lock, please retry");
+                throw new BizException("LOCK_FAIL", "Failed to acquire lock, please retry");
             }
 
             // 2. Load aggregate
-            OrderQuery query = new OrderQuery();
-            query.setId(param.getOrderId());
-            ResultDO<OrderAggregate> queryResult = orderRepository.query(query);
-            if (!queryResult.isSuccess()) {
-                return ResultDO.buildFailResult(queryResult.getMsg());
-            }
-            OrderAggregate orderAggregate = queryResult.getData();
+            OrderAggregate orderAggregate = orderRepository.load(param.getOrderId());
             if (orderAggregate == null) {
-                return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order not found");
+                throw new BizException("ORDER_NOT_FOUND", "Order not found");
             }
 
             // 3. Execute business logic (via aggregate method)
@@ -283,17 +295,25 @@ public class OrderDomainServiceImpl implements OrderDomainService {
             // 4. Persist changes
             orderRepository.save(orderAggregate);
 
-        } catch (BizException e) {
-            log.error("Confirm payment business error, param: {}", param, e);
-            return ResultDO.buildFailResult(e.getCode(), e.getMsg());
-        } catch (Throwable e) {
-            log.error("Confirm payment system error, param: {}", param, e);
-            return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
         } finally {
             levelLock.unlock();
         }
-        return ResultDO.buildSuccessResult(null);
+        // No catch — blocking exceptions propagate to APP layer
     }
+}
+```
+
+**分支型 example — DomainService returns ResultDO when upstream needs data:**
+
+```java
+@Override
+public ResultDO<OrderAggregate> checkDuplicate(CheckDuplicateParam param) {
+    OrderAggregate existing = orderRepository.findByOrderNo(param.getOrderNo());
+    if (existing != null) {
+        // 分支型: 上游需要重复单数据, 返回 ResultDO 携带数据
+        return ResultDO.buildFailResult("DUPLICATE_ORDER", "Order already exists", existing);
+    }
+    return ResultDO.buildSuccessResult(null);
 }
 ```
 
@@ -513,7 +533,7 @@ public interface OrderRepository extends AggregateRepository<OrderAggregate, Lon
 | Implementation | `{Verb}DomainServiceImpl` | `SearchControlDomainServiceImpl` |
 | Method | Verb | `searchControl` |
 | Parameter | `{MethodName}Param` | `SearchControlParam` |
-| Return | `ResultDO<{MethodName}Result>` | `ResultDO<SearchControlResult>` |
+| Return | `{MethodName}Result` — blocking errors throw exception | `SearchControlResult` |
 
 #### Template
 ```java
@@ -522,7 +542,7 @@ public interface OrderRepository extends AggregateRepository<OrderAggregate, Lon
 public class SearchControlDomainServiceImpl implements SearchControlDomainService {
 
     @Override
-    public ResultDO<SearchControlResult> searchControl(SearchControlParam param) {
+    public SearchControlResult searchControl(SearchControlParam param) {
         SearchControlResult result = new SearchControlResult();
         SearchControlRuleValue ruleValue = param.getSearchControlRuleValue();
 
@@ -531,16 +551,16 @@ public class SearchControlDomainServiceImpl implements SearchControlDomainServic
 
         if (ruleValue.isQueryCacheOnly()) {
             result.setRealSearch(false);
-            return ResultDO.buildSuccessResult(result);
+            return result;
         }
 
         if (!ruleValue.isRealTimeSearchOD(param.getAirLegSet())) {
             result.setRealSearch(false);
-            return ResultDO.buildSuccessResult(result);
+            return result;
         }
 
         result.setRealSearch(true);
-        return ResultDO.buildSuccessResult(result);
+        return result;
     }
 }
 ```
@@ -566,7 +586,7 @@ Same as Base Rules A.5. Named `{Action}Result extends BaseResult`, may have rich
 | Implementation | `{Verb}DomainServiceImpl` | `CalculateBonusDomainServiceImpl` |
 | Method | Verb | `calculateBonus` |
 | Parameter | `{MethodName}Param` | `CalculateBonusParam` |
-| Return | `ResultDO<{MethodName}Result>` | `ResultDO<CalculateBonusResult>` |
+| Return | `{MethodName}Result` — blocking errors throw exception | `List<ItemCalculateResult>` |
 
 #### Flow
 1. Query rules via Repository → get rule aggregate collection
@@ -583,42 +603,31 @@ public class CalculateBonusDomainServiceImpl implements CalculateBonusDomainServ
     private BonusRuleRepository bonusRuleRepository;
 
     @Override
-    public ResultDO<List<ItemCalculateResult>> calculateBonus(CalculateBonusParam param) {
-        try {
-            // 1. Query rule aggregates
-            ResultDO<List<BonusRuleAggregate>> ruleResult = bonusRuleRepository.queryAllRule();
-            if (!ruleResult.isSuccess()) {
-                return ResultDO.buildFailResult(ruleResult.getMsg());
-            }
-            List<BonusRuleAggregate> ruleAggregates = ruleResult.getData();
-            if (CollectionUtils.isEmpty(ruleAggregates)) {
-                return ResultDO.buildFailResult("RULE_IS_EMPTY", "Bonus rules empty");
-            }
-
-            // 2. Sort by priority
-            ruleAggregates.sort(Comparator.comparingInt(BonusRuleAggregate::getRulePriority).reversed());
-
-            // 3. Match rules and calculate
-            List<ItemCalculateResult> results = new ArrayList<>();
-            List<ItemParam> remainItems = new ArrayList<>(param.getItems());
-
-            for (BonusRuleAggregate ruleAggregate : ruleAggregates) {
-                if (CollectionUtils.isEmpty(remainItems)) break;
-                BonusRuleMatchResult matchResult = ruleAggregate.matchRule(remainItems, param);
-                if (!matchResult.getMatchedItems().isEmpty()) {
-                    results.addAll(ruleAggregate.calculateBonus(matchResult.getMatchedItems(), param));
-                }
-                remainItems = matchResult.getWaitMatchedItems();
-            }
-
-            return ResultDO.buildSuccessResult(results);
-        } catch (AggregateException e) {
-            log.error("Bonus calculation aggregate error, param: {}", param, e);
-            return ResultDO.buildFailResult(e.getCode(), e.getMsg());
-        } catch (Throwable e) {
-            log.error("Bonus calculation system error, param: {}", param, e);
-            return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
+    public List<ItemCalculateResult> calculateBonus(CalculateBonusParam param) {
+        // 1. Query rule aggregates
+        List<BonusRuleAggregate> ruleAggregates = bonusRuleRepository.queryAllRule();
+        if (CollectionUtils.isEmpty(ruleAggregates)) {
+            throw new BizException("RULE_IS_EMPTY", "Bonus rules empty");
         }
+
+        // 2. Sort by priority
+        ruleAggregates.sort(Comparator.comparingInt(BonusRuleAggregate::getRulePriority).reversed());
+
+        // 3. Match rules and calculate
+        List<ItemCalculateResult> results = new ArrayList<>();
+        List<ItemParam> remainItems = new ArrayList<>(param.getItems());
+
+        for (BonusRuleAggregate ruleAggregate : ruleAggregates) {
+            if (CollectionUtils.isEmpty(remainItems)) break;
+            BonusRuleMatchResult matchResult = ruleAggregate.matchRule(remainItems, param);
+            if (!matchResult.getMatchedItems().isEmpty()) {
+                results.addAll(ruleAggregate.calculateBonus(matchResult.getMatchedItems(), param));
+            }
+            remainItems = matchResult.getWaitMatchedItems();
+        }
+
+        return results;
+        // Blocking exceptions propagate to APP layer
     }
 }
 ```

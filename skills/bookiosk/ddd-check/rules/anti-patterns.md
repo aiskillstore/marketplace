@@ -144,51 +144,60 @@ public void backfillFees(FeeInfo feeInfo) { ... }
 
 ---
 
-### AP-D-05: Unhandled Exceptions in DomainService
+### AP-D-05: Wrong Exception Mode in DomainService
 
 | | |
 |---|---|
 | **Severity** | CRITICAL |
-| **Rule** | DomainService MUST catch all exceptions and return `ResultDO` — never propagate |
+| **Rule** | 阻断型 MUST throw exception (not return ResultDO). 分支型 MUST return ResultDO (not throw). See `domain-layer.md` A.6. |
 
-**Wrong:**
+**Wrong — 阻断型 returning ResultDO:**
 ```java
+// Blocking error should throw, not return ResultDO
 public ResultDO<Void> confirmPayment(ConfirmPaymentParam param) {
-    OrderAggregate order = orderRepository.query(query).getData();  // NPE risk
-    order.confirmPayment(param);  // AggregateException propagates up
-    orderRepository.save(order);
-    return ResultDO.buildSuccessResult(null);
-}
-```
-
-**Correct:**
-```java
-public ResultDO<Void> confirmPayment(ConfirmPaymentParam param) {
-    LevelLock lock = orderRepository.buildLock("order:confirmPayment:" + param.getOrderId());
     try {
-        if (!lock.tryLock()) {
-            return ResultDO.buildFailResult("LOCK_FAIL", "Failed to acquire lock");
-        }
-        ResultDO<OrderAggregate> queryResult = orderRepository.query(query);
-        if (!queryResult.isSuccess()) {
-            return ResultDO.buildFailResult(queryResult.getMsg());
-        }
-        OrderAggregate order = queryResult.getData();
+        OrderAggregate order = orderRepository.load(param.getOrderId());
         if (order == null) {
-            return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order not found");
+            return ResultDO.buildFailResult("ORDER_NOT_FOUND", "Order not found");  // WRONG
         }
         order.confirmPayment(param);
         orderRepository.save(order);
         return ResultDO.buildSuccessResult(null);
     } catch (BizException e) {
-        log.error("Business error, param: {}", param, e);
-        return ResultDO.buildFailResult(e.getCode(), e.getMsg());
-    } catch (Throwable e) {
-        log.error("System error, param: {}", param, e);
-        return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
+        return ResultDO.buildFailResult(e.getCode(), e.getMsg());  // WRONG: swallow in Domain
+    }
+}
+```
+
+**Correct — 阻断型:**
+```java
+public void confirmPayment(ConfirmPaymentParam param) {
+    LevelLock lock = orderRepository.buildLock("order:confirmPayment:" + param.getOrderId());
+    try {
+        if (!lock.tryLock()) {
+            throw new BizException("LOCK_FAIL", "Failed to acquire lock");
+        }
+        OrderAggregate order = orderRepository.load(param.getOrderId());
+        if (order == null) {
+            throw new BizException("ORDER_NOT_FOUND", "Order not found");
+        }
+        order.confirmPayment(param);
+        orderRepository.save(order);
     } finally {
         lock.unlock();
     }
+    // Blocking exceptions propagate to APP layer
+}
+```
+
+**Correct — 分支型:**
+```java
+public ResultDO<OrderAggregate> checkDuplicate(CheckDuplicateParam param) {
+    OrderAggregate existing = orderRepository.findByOrderNo(param.getOrderNo());
+    if (existing != null) {
+        return ResultDO.buildFailResult("DUPLICATE_ORDER", "Order already exists", existing);
+    }
+    return ResultDO.buildSuccessResult(null);
 }
 ```
 
@@ -345,30 +354,35 @@ public class OrderAppServiceImpl implements OrderAppService {  // Command
 
 ---
 
-### AP-A-06: Throwing Exceptions Instead of Returning ResultDO
+### AP-A-06: APP Throwing Exceptions to Adaptor
 
 | | |
 |---|---|
 | **Severity** | CRITICAL |
-| **Rule** | Application methods MUST return `ResultDO`, never throw exceptions to callers |
+| **Rule** | APP MUST NOT throw exceptions to Adaptor. APP catches Domain/Adaptor exceptions and converts to `ResultDO`. |
 
 **Wrong:**
 ```java
 public ResultDO<CreateOrderResponseDTO> createOrder(CreateOrderRequestDTO req) {
-    if (someError) {
-        throw new BizException("ERROR", "Something wrong");  // caller may not catch
-    }
-    ...
+    // Domain exception propagates through APP to Adaptor
+    orderDomainService.createOrder(param);  // BizException not caught
+    return ResultDO.buildSuccessResult(responseDTO);
 }
 ```
 
 **Correct:**
 ```java
 public ResultDO<CreateOrderResponseDTO> createOrder(CreateOrderRequestDTO req) {
-    if (someError) {
-        return ResultDO.buildFailResult("ERROR", "Something wrong");
+    try {
+        orderDomainService.createOrder(param);
+        return ResultDO.buildSuccessResult(responseDTO);
+    } catch (BizException | AggregateException e) {
+        log.error("Create order business error, req: {}", req, e);
+        return ResultDO.buildFailResult(e.getCode(), e.getMsg());
+    } catch (Throwable e) {
+        log.error("Create order system error, req: {}", req, e);
+        return ResultDO.buildFailResult("SYSTEM_ERROR", "System error");
     }
-    ...
 }
 ```
 
@@ -647,14 +661,14 @@ client/order/req/
 | AP-D-02 | Domain | CRITICAL | Plain types instead of Field\<T\> in entities |
 | AP-D-03 | Domain | HIGH | Mutable value objects |
 | AP-D-04 | Domain | MEDIUM | Generic technical method names on aggregates |
-| AP-D-05 | Domain | CRITICAL | Unhandled exceptions in DomainService |
+| AP-D-05 | Domain | CRITICAL | Wrong exception mode — 阻断型 using ResultDO or 分支型 throwing |
 | AP-D-06 | Domain | CRITICAL | DomainService directly depending on Adaptor |
 | AP-A-01 | Application | CRITICAL | Core business logic in AppService |
 | AP-A-02 | Application | HIGH | Direct DB or external service access |
 | AP-A-03 | Application | MEDIUM | Validation logic in AppService |
 | AP-A-04 | Application | HIGH | Primitive types or Map as parameters |
 | AP-A-05 | Application | HIGH | Command calling Query (CQRS violation) |
-| AP-A-06 | Application | CRITICAL | Throwing exceptions to callers |
+| AP-A-06 | Application | CRITICAL | APP throwing exceptions to Adaptor instead of catching and converting |
 | AP-AD-01 | Adaptor | CRITICAL | Interface defined by 3rd-party API shape |
 | AP-AD-02 | Adaptor | HIGH | Business logic in Adaptor |
 | AP-I-01 | Infrastructure | CRITICAL | Business logic in RepositoryImpl |
