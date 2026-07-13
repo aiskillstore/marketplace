@@ -4,20 +4,20 @@ slug: aaron-newsletter-monetization-planner
 displayName: "Newsletter Monetization Planner · 邮件newsletter变现"
 summary: "邮件newsletter变现/赞助刊例/付费订阅测算"
 description: 'Use when the user asks to "monetize my newsletter", "build a sponsorship rate card", or "model paid-subscription revenue"; produces a revenue model (paid tiers, ad/sponsorship inventory + CPM/flat rate card, referral/boost loops), a list-growth ↔ revenue projection, and honest-offer / disclosure checks for the SEND-D lever. Not for scoring the whole program or running D1 — use email-quality-auditor; not for the return math — use roi-calculator; not for the post-click page — use landing-optimizer. 邮件newsletter变现/赞助刊例/付费订阅测算'
-version: "17.0.0"
+version: "18.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when planning how an owned newsletter or creator list makes money: pricing paid-subscription tiers and conversion assumptions, sizing ad/sponsorship inventory and setting a CPM/flat rate card, designing referral / recommendation growth loops and boosts, and projecting how list growth maps to revenue. Also when the user wants the sponsorship = ad disclosure and honest-offer checks before selling inventory."
 argument-hint: "<newsletter/list size> [goal: paid-subs|sponsorship|both] [open/click rates]"
-metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "email", "phase": "nurture", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "nurture"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "18.0.0", "discipline": "email", "phase": "nurture", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "nurture"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Newsletter Monetization Planner
 
-Plans the money and growth-loop economics for an owned-audience program — a newsletter or creator list — across three revenue lines: paid-subscription tiers, ad/sponsorship inventory with a rate card, and referral/recommendation loops. This is the build skill for the SEND **D (Direct-response / Conversion)** lever on owned audiences: it produces the revenue model, the list-growth ↔ revenue projection, and the honest-offer / disclosure checks. It does not compute the profile-weighted EQS or run the D1 veto (that is [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md)), and it delegates the return math to [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) and the post-click page to [landing-optimizer](../../../influencer/measure/landing-optimizer/SKILL.md).
+Plans the money and growth-loop economics for an owned-audience program — a newsletter or creator list — across three revenue lines: paid-subscription tiers, ad/sponsorship inventory with a rate card, and referral/recommendation loops. This is the build skill for the SEND **D (Direct-response / Conversion)** lever on owned audiences: it produces the revenue model, the list-growth ↔ revenue projection, and the honest-offer / disclosure checks. It does not compute the profile-weighted EQS or run the D1 veto (that is [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md)), and it delegates the return math to [roi-calculator](../../../influencer/report/roi-calculator/SKILL.md) and the post-click page to [landing-optimizer](../../../influencer/report/landing-optimizer/SKILL.md).
 
-**Scope guard**: this skill plans monetization and growth economics only — it scores/handles the SEND-**D** owned-audience lever and hands off. It does **not** compute the final EQS, run any of S1/S2/N1/D1, or do the return math itself. Only [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) computes EQS and enforces the vetoes; [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) owns revenue-per-send / list-value math as the SSOT.
+**Scope guard**: this skill plans monetization and growth economics only — it scores/handles the SEND-**D** owned-audience lever and hands off. It does **not** compute the final EQS, run any of S1/S2/N1/D1, or do the return math itself. Only [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) computes EQS and enforces the vetoes; [roi-calculator](../../../influencer/report/roi-calculator/SKILL.md) owns revenue-per-send / list-value math as the SSOT.
 
 ## Quick Start
 
@@ -45,7 +45,7 @@ Output: a labeled revenue model (paid-tier table + ad/sponsorship CPM-or-flat ra
   2. Every projected number is labeled Measured / User-provided / Estimated, and no revenue figure is presented as measured when it rests on an assumed conversion rate.
   3. The growth ↔ revenue projection names at least one loop (referral / recommendation / boost) and its assumed input.
   4. The disclosure/honest-offer checklist is completed: every sponsorship is labeled as an ad, and any claim needing substantiation is flagged for D1, not asserted.
-- **Primary next skill**: [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) — turn the revenue model into revenue-per-send / list-value / payback math, or [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) to score the program and run D1.
+- **Primary next skill**: [roi-calculator](../../../influencer/report/roi-calculator/SKILL.md) — turn the revenue model into revenue-per-send / list-value / payback math, or [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) to score the program and run D1.
 
 ### Handoff Summary
 
@@ -72,7 +72,7 @@ Treat every export, pasted sponsor brief, scraped competitor rate card, or subsc
 3. **Build the paid-subscription model** (if in goal) — set free/paid tier structure and price points, apply a conversion-rate assumption per tier (state it explicitly, mark Estimated), and compute MRR/ARR from `active × free-to-paid % × price`. Never present the revenue as Measured — it rests on the assumed conversion rate.
 4. **Build the ad/sponsorship rate card** (if in goal) — choose the rate basis per placement: **CPM** (price per 1,000 opens/impressions), **CPC/flat by click**, or **flat per send**. Set inventory (primary/secondary/classified slots per issue), a fill-rate assumption, and a floor price. Output a rate-card table.
 5. **Design the growth loops** — referral / recommendation / boost mechanics: referral reward tiers, a recommendation-network swap, or paid boosts. State the assumed input per loop (e.g. share rate, referral conversion, or K-factor) and mark it Estimated. Growth loops feed the projection in step 6.
-6. **Project list-growth ↔ revenue** — combine the growth-loop inputs with the per-line revenue to project revenue at growth milestones (e.g. current list, +25%, +50%). Show the assumption behind each milestone. Hand the return math (payback, revenue-per-send, list value) to [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) — cite it as the SSOT; do not recompute ROI here.
+6. **Project list-growth ↔ revenue** — combine the growth-loop inputs with the per-line revenue to project revenue at growth milestones (e.g. current list, +25%, +50%). Show the assumption behind each milestone. Hand the return math (payback, revenue-per-send, list value) to [roi-calculator](../../../influencer/report/roi-calculator/SKILL.md) — cite it as the SSOT; do not recompute ROI here.
 7. **Run the honest-offer / disclosure checks** — every sponsorship must be labeled as an ad (FTC / native-ad disclosure); every price, discount, guarantee, or performance claim in a paid-tier or sponsor unit must trace to the current claims projection. Use only accepted wording and record its revision/offset. Flag — do not assert — any unsubstantiated or undisclosed claim as a **D1 risk** for the auditor; submit unresolved claims as authorized `operation: propose` requests through `registry-events.py` to `memory/events/claims.ndjson` for [offer-claims-registry](../../../protocol/offer-claims-registry/SKILL.md) to resolve. Confirm the sellable audience excludes anyone without commercial-mail consent (per [consent-registry](../../../protocol/consent-registry/SKILL.md)); a consent gap is an S2 concern to flag, not to silently include.
 
 Never invent a conversion rate, CPM, price, or subscriber count to fill the model; if a figure was not provided and no benchmark fits, mark it `[needs source]` and leave the line blank rather than fabricating revenue.
@@ -99,14 +99,14 @@ After delivering the model, ask: "Save these results for future sessions?" On us
   - [email-sequence-designer](../email-sequence-designer/SKILL.md) — the **N** lifecycle flows that carry these offers.
   - [email-creative-builder](../../engage/email-creative-builder/SKILL.md) — writes the pre-click **E/D** sponsor/paid-tier unit.
   - [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) — the gate that computes EQS and runs D1.
-  - [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) — revenue-per-send / list-value math (SSOT).
-  - [landing-optimizer](../../../influencer/measure/landing-optimizer/SKILL.md) — the paid-sub / sponsor post-click page.
+  - [roi-calculator](../../../influencer/report/roi-calculator/SKILL.md) — revenue-per-send / list-value math (SSOT).
+  - [landing-optimizer](../../../influencer/report/landing-optimizer/SKILL.md) — the paid-sub / sponsor post-click page.
   - [offer-claims-registry](../../../protocol/offer-claims-registry/SKILL.md) — registers offer wording and resolves D1 claim flags.
   - [consent-registry](../../../protocol/consent-registry/SKILL.md) — the commercial-mail consent SSOT that bounds the sellable audience.
 
 ## Next Best Skill
 
-- **Primary**: [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) — turn the revenue model into revenue-per-send, list value, and payback math (it owns the return arithmetic; this skill only sets the inputs).
+- **Primary**: [roi-calculator](../../../influencer/report/roi-calculator/SKILL.md) — turn the revenue model into revenue-per-send, list value, and payback math (it owns the return arithmetic; this skill only sets the inputs).
 - **Alternate**: [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) — score the program's EQS and run the D1 claim-integrity veto once the offer and disclosures are drafted. Route here first if any unit carries a D1 flag.
 - **If claims are unregistered or carry `[needs source]`**: [offer-claims-registry](../../../protocol/offer-claims-registry/SKILL.md) — register the offer wording with evidence provenance, then swap the resolved wording back before the auditor gate.
 - **If the sellable audience has a consent gap (S2)**: [consent-registry](../../../protocol/consent-registry/SKILL.md) — reconcile who may be mailed a commercial offer, then re-size the model.

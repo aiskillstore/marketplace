@@ -4,7 +4,7 @@ slug: aaron-ad-account-auditor
 displayName: "Ad Account Auditor · 付费广告账户审计"
 summary: "付费广告账户审计/ROAS评分"
 description: 'Use when auditing a paid ad account for incremental contribution, wasted spend, or measurement integrity before scaling; runs a typed 20-item ROAS profile with verified vetoes and a SHIP/FIX/BLOCK/UNDECIDED gate on own exported data. Not for campaign structure design — use campaign-architect; not for creative production — use ad-creative-builder. 付费广告账户审计/ROAS评分'
-version: "17.0.0"
+version: "18.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
@@ -12,7 +12,7 @@ when_to_use: "Use when checking whether a paid account or portfolio is safe to l
 argument-hint: "<campaign + outcome exports> <currency/window/lag> [profile]"
 allowed-tools: WebFetch
 class: auditor
-metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "ad", "phase": "activate", "geo-relevance": "medium", "hermes": {"tags": ["marketing", "ad", "activate"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "18.0.0", "discipline": "ad", "phase": "activate", "geo-relevance": "medium", "hermes": {"tags": ["marketing", "ad", "activate"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Ad Account Auditor
@@ -46,7 +46,7 @@ This skill judges. `conversion-signal-qa`, `attribution-reconciler`, `campaign-a
 | Outcome truth | Deduplicated order/lead IDs from ecommerce, analytics, or CRM |
 | Economics | Currency, margin/contribution, CAC/payback constraint |
 | Attribution | Platform + own-data timestamps/IDs, normalized windows and lag |
-| Safety/claims | Placement report, rendered ad/landing, approved claim/disclosure state |
+| Safety/claims | Placement report, rendered ad/landing, approved claim/disclosure state from [offer-claims-registry](../../../protocol/offer-claims-registry/SKILL.md) (the paid claims SSOT) |
 | Incrementality | Holdout/geo split/causal test, otherwise explicitly labeled proxy |
 
 ## Instructions
@@ -65,7 +65,7 @@ Declare profile (`direct-response|prospecting|incremental-profit`), target, curr
 4. Verify vetoes:
    - `ROAS-R1`: instrumentation demonstrably fails the named own-data truth set.
    - `ROAS-R2`: material double-counting/inflation is demonstrated.
-   - `ROAS-O1`: material claim/disclosure failure.
+   - `ROAS-O1`: material claim/disclosure failure against the `offer-claims-registry` approved state.
    - `ROAS-O2`: applicable platform/restricted-category violation.
    - `ROAS-A1`: placement evidence demonstrates a material safety breach.
 5. Run the typed scorer. Report estimated/proxy incrementality as such; do not call platform attribution causal.
@@ -115,6 +115,7 @@ Persist only after explicit authorization to `memory/audits/ad/YYYY-MM-DD-<topic
 ## Next Best Skill
 
 - **Tracking:** [conversion-signal-qa](../conversion-signal-qa/SKILL.md)
+- **Claims/disclosures:** [offer-claims-registry](../../../protocol/offer-claims-registry/SKILL.md) — the approved claim/disclosure state behind `ROAS-O1`
 - **Attribution:** [attribution-reconciler](../../scale/attribution-reconciler/SKILL.md)
 - **Structure/audience:** [campaign-architect](../../research/campaign-architect/SKILL.md)
 - **Pacing:** [budget-pacing-monitor](../../scale/budget-pacing-monitor/SKILL.md)

@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-06T08:09:20.685Z",
+    "generated_at": "2026-07-13T17:13:23.400Z",
     "slug": "consiliency-spawn-agent",
     "source_url": "https://github.com/Consiliency/treesitter-chunker/tree/main/.ai-dev-kit/skills/spawn/agent",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "de8bd822efd2fedcd10fb2b13952f047a9116dac1b7c729aeef224f4e4d55db6",
-    "tree_hash": "b92d51d9fdcbfa8b0b220ea66bd91af2897e86e50ea85c234dcb3c00a16b6d60",
+    "content_hash": "77455c80cd73e450328a1dc4b560612fcc70d04ee08cf656dfddfa28f00f3f65",
+    "tree_hash": "a0c6e2a40c6aba840158c0dc53c8477067adb5302f2835c3be4c8935d77d2d31",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -25,19 +22,20 @@
     }
   },
   "skill": {
-    "name": "spawn-agent",
-    "description": "Spawn an AI coding agent in a new terminal for Claude, Codex, Gemini, Cursor, OpenCode, or Copilot workflows.",
-    "summary": "Launch selected AI coding agents in separate terminals with cookbook-guided command patterns and optional output capture.",
+    "name": "spawn:agent",
+    "description": "Launch Claude, Codex, Gemini, Cursor, OpenCode, or Copilot in a separate terminal and optionally capture the agent output.",
+    "summary": "Launch a selected AI coding agent in another terminal for parallel work.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "Consiliency",
     "license": "MIT",
+    "category": "coding",
     "tags": [
-      "agent orchestration",
-      "terminal automation",
-      "ai coding",
-      "cli tools",
-      "output capture"
+      "coding-agents",
+      "terminal-automation",
+      "parallel-development",
+      "cli-tools",
+      "agent-orchestration"
     ],
     "supported_tools": [
       "claude",
@@ -48,35 +46,34 @@
       "env_access",
       "external_commands",
       "filesystem"
-    ],
-    "category": "coding"
+    ]
   },
   "security_audit": {
     "risk_level": "critical",
     "is_blocked": true,
     "safe_to_publish": false,
     "analysis_status": "ok",
-    "summary": "This community skill intentionally launches external coding-agent CLIs and includes helper code that executes caller-provided command strings across operating systems. Most documentation-only alerts are false positives, but command execution, insecure temp logging, approval bypass guidance, and context forwarding are real risks.",
+    "summary": "The skill intentionally launches dynamic commands and interpolates them into platform shells, creating command injection and arbitrary execution exposure. Its cookbooks also mandate disabling agent approvals or sandboxes, while shared temporary files can expose captured output.",
     "remediation": [
       {
-        "issue": "Unsafe approval and sandbox defaults",
-        "suggestion": "Default cookbooks to sandboxed execution and explicit approvals. Remove dangerous bypass and force-allow modes from default command examples.",
+        "issue": "The cookbooks make unrestricted or automatic tool approval the default.",
+        "suggestion": "Use sandboxed modes and approval prompts by default. Require explicit user confirmation before enabling any permission bypass.",
         "severity": "critical"
       },
       {
-        "issue": "Caller-controlled shell execution",
-        "suggestion": "Avoid shell=True and string-built shell commands. Build allowlisted argv arrays for each supported CLI and quote all paths safely.",
+        "issue": "User-derived commands are interpolated into shell, PowerShell, AppleScript, and generated script strings.",
+        "suggestion": "Build provider commands as argument arrays, validate provider options, and apply platform-specific quoting without shell=True.",
         "severity": "high"
       },
       {
-        "issue": "Insecure temporary output files",
-        "suggestion": "Use secure tempfile APIs, restrictive permissions, unpredictable names, and cleanup. Avoid logging prompts or full debug output by default.",
+        "issue": "Agent output, completion markers, and executable scripts use shared temporary paths.",
+        "suggestion": "Create a private temporary directory with restrictive permissions, use exclusive file creation, and remove all artifacts after completion.",
+        "severity": "high"
+      },
+      {
+        "issue": "Conversation history can be written into a repository file and forwarded to another provider.",
+        "suggestion": "Request consent, redact secrets, use an ephemeral prompt file, and delete it immediately after the agent starts.",
         "severity": "medium"
-      },
-      {
-        "issue": "Conversation context disclosure",
-        "suggestion": "Require explicit consent before forwarding conversation summaries. Redact secrets and identify the target provider before spawning the agent.",
-        "severity": "high"
       }
     ],
     "risk_factor_evidence": [
@@ -1067,581 +1064,531 @@
       {
         "id": "blocker:cookbook/codex-cli.md:29:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "This is cookbook text about when to specify a Codex model for OpenAI accounts. It does not inspect the host or collect system data."
+        "confidence": 0.99,
+        "reason": "This is documentation about OpenAI account eligibility. It does not inspect the host or collect system information."
       },
       {
         "id": "env_access:cookbook/cursor-cli.md:128:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a CLI flag reference for user-supplied Cursor authentication. The skill does not read or transmit an API key at this location."
+        "confidence": 0.98,
+        "reason": "The line documents Cursor's API key option and environment variable. It does not read, log, or transmit a credential."
       },
       {
         "id": "env_access:cookbook/cursor-cli.md:148:generic-api-secret-keys",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is an environment variable reference in documentation. No code reads CURSOR_API_KEY or exfiltrates it here."
+        "confidence": 0.98,
+        "reason": "This is a reference-table entry naming CURSOR_API_KEY. No code accesses the variable or exposes its value."
       },
       {
         "id": "blocker:cookbook/opencode-cli.md:103:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.92,
-        "reason": "This is a documented hostname option for OpenCode server mode. It is not host reconnaissance or environment probing."
+        "confidence": 0.99,
+        "reason": "The line documents a hostname option with a loopback default. It performs no network or system reconnaissance."
       },
       {
         "id": "external_commands:fork_terminal.py:58:python-subprocess-run",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "subprocess.run executes osascript with an AppleScript containing caller-provided shell text. The command and cwd are interpolated into a terminal command string.",
+        "confidence": 0.98,
+        "reason": "The call executes an AppleScript containing a dynamically composed shell command and working directory. Unescaped values can alter the generated script and execute arbitrary commands.",
         "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:176:python-subprocess-run",
         "verdict": "confirmed",
-        "confidence": 0.96,
-        "reason": "This runs cmd.exe through shell=True with the caller-provided command interpolated. That is a direct arbitrary command execution and injection surface.",
-        "severity": "critical"
+        "confidence": 0.99,
+        "reason": "The call interpolates command into a cmd.exe string and executes it with shell=True. Shell metacharacters can inject additional commands.",
+        "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:93:python-subprocess-popen",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "Popen launches Windows Terminal and PowerShell with ps_cmd containing the caller-provided command. The spawned command runs with the user privileges of the host process.",
+        "confidence": 0.97,
+        "reason": "Although Popen receives an argument list, the PowerShell command argument contains unescaped dynamic command text. PowerShell will interpret injected syntax.",
         "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:161:python-subprocess-popen",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "Popen launches WSL with a generated script that contains the caller-provided command. That permits arbitrary command execution through the helper.",
+        "confidence": 0.98,
+        "reason": "This launches an executable temporary shell script whose contents include the dynamic command verbatim. Any injected shell syntax runs with the user's privileges.",
         "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:196:python-subprocess-popen",
         "verdict": "confirmed",
-        "confidence": 0.9,
-        "reason": "Popen launches tmux with bash -li -c around a string built from the caller-provided command. This is an arbitrary shell execution surface.",
+        "confidence": 0.97,
+        "reason": "The tmux invocation executes a command that is dynamic and, in logging modes, routed through bash -c. Untrusted prompt content can become shell syntax.",
         "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:216:python-subprocess-popen",
         "verdict": "confirmed",
-        "confidence": 0.95,
-        "reason": "Popen is called with shell=True on a wrapped command built from caller input. This creates command injection risk and arbitrary shell execution.",
-        "severity": "critical"
+        "confidence": 0.99,
+        "reason": "A dynamic command wrapper is passed directly to shell=True. This is an explicit arbitrary shell execution and command injection boundary.",
+        "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:222:python-subprocess-popen",
         "verdict": "confirmed",
-        "confidence": 0.95,
-        "reason": "Popen is called with shell=True on caller-controlled command text while logging output. This is a confirmed command injection surface.",
-        "severity": "critical"
+        "confidence": 0.99,
+        "reason": "The debugging branch passes dynamic command text to shell=True. Redirection does not prevent command injection or arbitrary execution.",
+        "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:227:python-subprocess-popen",
         "verdict": "confirmed",
-        "confidence": 0.96,
-        "reason": "The raw command argument is passed to subprocess.Popen with shell=True. Any untrusted prompt-derived command can execute arbitrary shell syntax.",
-        "severity": "critical"
+        "confidence": 0.99,
+        "reason": "The caller-provided command is executed directly with shell=True. No allowlist, parsing, or escaping limits shell interpretation.",
+        "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:281:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.96,
-        "reason": "The backticks are literal text inside an authentication failure pattern string. They are not shell execution syntax in this Python code."
+        "confidence": 0.99,
+        "reason": "The backticks are characters inside an authentication-error string. They are never evaluated by Ruby or a shell."
       },
       {
         "id": "external_commands:fork_terminal.py:76:powershell-invocation",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This line is a comment explaining the Windows branch. It does not invoke PowerShell by itself."
+        "confidence": 0.99,
+        "reason": "This line is a comment describing the Windows behavior. The actual PowerShell launch is adjudicated separately."
       },
       {
         "id": "external_commands:fork_terminal.py:90:powershell-invocation",
         "verdict": "confirmed",
-        "confidence": 0.89,
-        "reason": "The Windows branch invokes PowerShell with a command string that embeds caller-provided command text. This is a real external command execution risk.",
+        "confidence": 0.96,
+        "reason": "The code launches PowerShell with a dynamically constructed command argument. Embedded command text is interpreted with the user's local privileges.",
         "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:173:windows-cmd-exe",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "This line is a comment explaining a fallback path. The actual cmd.exe execution is adjudicated separately."
+        "confidence": 0.99,
+        "reason": "This line is only a comment naming the fallback. The executable cmd.exe call is covered by the separate line 176 findings."
       },
       {
         "id": "external_commands:fork_terminal.py:176:windows-cmd-exe",
         "verdict": "confirmed",
-        "confidence": 0.96,
-        "reason": "The fallback invokes cmd.exe with shell=True and interpolates the caller command. This is a confirmed Windows shell execution and injection risk.",
-        "severity": "critical"
+        "confidence": 0.99,
+        "reason": "cmd.exe receives an interpolated command through shell=True. Crafted command text can break quoting and run additional commands.",
+        "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:140:unix-shell-invocation",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The generated bash script embeds the caller-provided command and is executed later. That makes this a real Unix shell execution surface.",
+        "confidence": 0.98,
+        "reason": "The generated Bash script embeds the dynamic command without quoting or validation. Logging mode therefore permits arbitrary shell syntax.",
         "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:146:unix-shell-invocation",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The generated bash script embeds the caller-provided command and is executed later. That makes this a real Unix shell execution surface.",
+        "confidence": 0.98,
+        "reason": "The debug Bash script inserts the command verbatim before redirection. Shell metacharacters remain active and can change execution.",
         "severity": "high"
       },
       {
         "id": "external_commands:fork_terminal.py:152:unix-shell-invocation",
         "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "The generated bash script embeds the caller-provided command and is executed later. That makes this a real Unix shell execution surface.",
+        "confidence": 0.98,
+        "reason": "The non-logging Bash script also embeds the command verbatim. It provides unrestricted shell execution with no validation.",
         "severity": "high"
       },
       {
         "id": "filesystem:fork_terminal.py:107:linux-proc-filesystem-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "This line is a comment describing WSL detection. It performs no filesystem read by itself."
+        "confidence": 0.99,
+        "reason": "This line is a comment explaining WSL detection. It does not access the proc filesystem."
       },
       {
         "id": "filesystem:fork_terminal.py:108:linux-proc-filesystem-access",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "The code reads /proc/version only to detect WSL. That platform check is local and does not collect or transmit sensitive data."
+        "confidence": 0.97,
+        "reason": "The code reads the fixed, non-secret /proc/version file only to detect WSL. It does not enumerate processes or extract sensitive data."
       },
       {
         "id": "filesystem:fork_terminal.py:41:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.82,
+        "reason": "Agent output is placed in a shared temporary directory under a short identifier. Later shell redirection can follow a pre-created symlink or expose output to local users.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:42:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.82,
+        "reason": "Debug output can contain prompts, errors, and credentials, yet uses a shared temporary path without restrictive creation or cleanup.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:43:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.74,
+        "reason": "The completion marker uses a shared temporary path and is created by shell touch. A local collision or symlink can falsify completion or affect another path.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:134:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.82,
+        "reason": "WSL agent output uses a shared /tmp name without exclusive creation or permissions. Local processes can race the path or read captured content.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:135:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.82,
+        "reason": "The WSL debug log uses shared temporary storage and may contain sensitive terminal output. No secure creation or cleanup is present.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:136:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.74,
+        "reason": "The WSL completion marker is a shared temporary pathname. A local attacker can create it early or redirect touch through a symlink.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:137:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The helper writes an executable script under /tmp for WSL execution. A shared temp script containing caller command text is a real tampering and execution risk.",
+        "confidence": 0.9,
+        "reason": "An executable script is assigned a shared /tmp path and later written without exclusive creation. This permits local symlink or replacement attacks.",
         "severity": "high"
       },
       {
         "id": "filesystem:fork_terminal.py:183:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.82,
+        "reason": "The tmux branch stores agent output in shared /tmp without private permissions or cleanup. Captured source and prompt data may be exposed.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:184:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.82,
+        "reason": "The tmux debug file uses shared temporary storage and may contain stderr or secrets. It is not created securely.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:185:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.74,
+        "reason": "The tmux completion marker can be pre-created in shared /tmp. That can make output reads complete before the child process finishes.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:210:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.82,
+        "reason": "The fallback branch stores agent output in shared /tmp without controlled permissions. Local users can race or inspect the file.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:211:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.82,
+        "reason": "The fallback debug log may capture sensitive output but uses an insecure shared temporary path and has no cleanup.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:212:temp-directory-access",
         "verdict": "confirmed",
-        "confidence": 0.79,
-        "reason": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs.",
+        "confidence": 0.74,
+        "reason": "The fallback completion marker is created in shared /tmp and can be spoofed before command completion.",
         "severity": "medium"
       },
       {
         "id": "filesystem:fork_terminal.py:157:python-file-write-append",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "The code writes the generated shell script containing caller-provided command text. This confirms a filesystem write tied to command execution.",
+        "confidence": 0.95,
+        "reason": "The code writes an executable script to a shared temporary path with ordinary open mode. It follows symlinks and does not require exclusive creation.",
         "severity": "high"
       },
       {
         "id": "filesystem:fork_terminal.py:159:python-os-file-operations",
         "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "The code marks the generated temporary shell script executable. Combined with /tmp placement and caller command text, this increases execution risk.",
+        "confidence": 0.9,
+        "reason": "chmod follows the previously unsafe temporary path and makes it executable. A raced symlink can change permissions on an unintended file.",
         "severity": "high"
       },
       {
         "id": "filesystem:fork_terminal.py:126:python-glob-pattern-matching",
         "verdict": "false_positive",
-        "confidence": 0.84,
-        "reason": "The glob is limited to known Windows Terminal installation paths under WSL. It is a local tool discovery step, not broad file harvesting."
+        "confidence": 0.97,
+        "reason": "The glob is limited to fixed Windows Terminal installation patterns under WSL. It does not use user-controlled patterns or modify matched files."
       },
       {
         "id": "env_access:fork_terminal.py:96:python-environment-access",
         "verdict": "false_positive",
-        "confidence": 0.88,
-        "reason": "The code reads TEMP only to convert a PowerShell output path into a local Windows temp path. It does not access secret environment variables."
+        "confidence": 0.99,
+        "reason": "The code reads only the standard TEMP directory variable to translate an output path. It does not access secret-bearing environment variables."
       },
       {
         "id": "sensitive:fork_terminal.py:254:certificate-key-files",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The word keys refers to dictionary keys for valid provider names. No certificate, private key, or credential file is accessed."
+        "confidence": 0.99,
+        "reason": "The detector matched the dictionary method name keys. The line only formats supported provider names and does not access key files."
       },
       {
         "id": "sensitive:fork_terminal.py:299:certificate-key-files",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "AUTH_FAILURE_PATTERNS.keys() returns provider names from a dictionary. It is unrelated to certificate or key files."
+        "confidence": 0.99,
+        "reason": "The keys call returns provider dictionary keys. It has no relationship to certificates, private keys, or credential files."
       },
       {
         "id": "blocker:fork_terminal.py:9:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "uuid is used to generate short temporary output file names. It is not system reconnaissance or host fingerprinting."
+        "confidence": 0.99,
+        "reason": "This line imports Python's UUID module. Importing it does not perform reconnaissance."
       },
       {
         "id": "blocker:fork_terminal.py:40:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "uuid is used to generate short temporary output file names. It is not system reconnaissance or host fingerprinting."
+        "confidence": 0.99,
+        "reason": "The UUID is generated to reduce temporary filename collisions. It does not identify the host or gather system data."
       },
       {
         "id": "blocker:fork_terminal.py:77:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "uuid is used to generate short temporary output file names. It is not system reconnaissance or host fingerprinting."
+        "confidence": 0.99,
+        "reason": "This UUID supplies a Windows output filename suffix. It is unrelated to system reconnaissance."
       },
       {
         "id": "blocker:fork_terminal.py:133:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "uuid is used to generate short temporary output file names. It is not system reconnaissance or host fingerprinting."
+        "confidence": 0.99,
+        "reason": "The UUID is used only for WSL temporary artifact names. It does not collect host details."
       },
       {
         "id": "blocker:fork_terminal.py:182:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "uuid is used to generate short temporary output file names. It is not system reconnaissance or host fingerprinting."
+        "confidence": 0.99,
+        "reason": "The UUID creates a tmux output filename suffix. No reconnaissance occurs."
       },
       {
         "id": "blocker:fork_terminal.py:209:system-reconnaissance",
         "verdict": "false_positive",
-        "confidence": 0.91,
-        "reason": "uuid is used to generate short temporary output file names. It is not system reconnaissance or host fingerprinting."
+        "confidence": 0.99,
+        "reason": "The fallback UUID is only a temporary filename component. It reveals no system information."
       },
       {
         "id": "filesystem:prompts/fork-summary-user-prompt.md:13:temp-directory-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is historical prompt text mentioning an output path. The markdown file does not perform filesystem access."
+        "confidence": 0.99,
+        "reason": "This line is example prose describing an earlier refactor. It neither names nor accesses a temporary directory."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.98,
+        "reason": "The backticks are Markdown formatting around a documented shell-chain example. No Ruby backtick operator executes at this line."
       },
       {
         "id": "external_commands:SKILL.md:60:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks format a field name in prose. They do not invoke a shell."
       },
       {
         "id": "external_commands:SKILL.md:134:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "This is Markdown inline code naming a Python function. It contains no executable backtick expression."
       },
       {
         "id": "external_commands:SKILL.md:138:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks format parameter values and a path in a documentation table. No command executes."
       },
       {
         "id": "external_commands:SKILL.md:139:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "This is a Markdown table describing debug output. The backticks are not shell syntax in this context."
       },
       {
         "id": "external_commands:SKILL.md:140:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "The line formats a parameter and boolean value in Markdown. It does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:144:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "Backticks format table column names. There is no Ruby or shell execution."
       },
       {
         "id": "external_commands:SKILL.md:146:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "The line is a documentation-table row containing formatted booleans. It is not executable."
       },
       {
         "id": "external_commands:SKILL.md:147:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "The Markdown backticks format boolean values only. No command is evaluated."
       },
       {
         "id": "external_commands:SKILL.md:148:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "This table row documents a parameter combination. Its backticks do not execute a shell."
       },
       {
         "id": "external_commands:SKILL.md:149:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "The line contains formatted table values, not a Ruby backtick expression."
       },
       {
         "id": "external_commands:SKILL.md:150:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks are Markdown formatting in a behavior table. Nothing executes."
       },
       {
         "id": "external_commands:SKILL.md:154:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "Inline backticks format Python identifiers in explanatory prose. They are not command substitution."
       },
       {
         "id": "external_commands:SKILL.md:156:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "This line opens a fenced Python example. The Markdown fence does not execute code."
       },
       {
         "id": "external_commands:SKILL.md:163:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "This line closes a Markdown code fence. It contains no executable shell operator."
       },
       {
         "id": "external_commands:SKILL.md:167:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "The backticks format a Python keyword argument in prose. They do not run a command."
       },
       {
         "id": "external_commands:SKILL.md:169:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "The detected backticks are markdown inline code or code-fence examples in the skill instructions. This is not Ruby backtick execution."
+        "confidence": 0.99,
+        "reason": "This is the opening fence for a Python documentation example. It is not Ruby or shell execution."
       },
       {
         "id": "filesystem:SKILL.md:138:temp-directory-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a markdown table documenting an output path. It does not access the filesystem at this location."
+        "confidence": 0.99,
+        "reason": "The line documents the output path but performs no filesystem access. The corresponding Python implementation is adjudicated separately."
       },
       {
         "id": "filesystem:SKILL.md:139:temp-directory-access",
         "verdict": "false_positive",
-        "confidence": 0.9,
-        "reason": "This is a markdown table documenting a debug output path. It does not access the filesystem at this location."
+        "confidence": 0.99,
+        "reason": "This documentation row names a debug path without reading or writing it. Actual temporary-file operations are covered by code findings."
       },
       {
         "id": "obfuscation:fork_terminal.py:1:heuristic-multiple-bracket-chains-6-jsfuck-obfus",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "Source inspection shows line 1 is a normal Python shebang. No bracket-chain obfuscation is present there."
+        "confidence": 0.99,
+        "reason": "The file is readable Python source beginning with a standard shebang. There is no bracket-chain obfuscation or JavaScript execution."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Dangerous Auto-Approval Defaults",
-        "description": "The Codex cookbook says to always use a sandbox and approval bypass flag, and the Cursor cookbook recommends force-allow command execution. These defaults remove key safety controls for autonomous coding agents.",
+        "title": "Mandatory Approval and Sandbox Bypass",
+        "description": "The cookbooks direct spawned agents to disable permission checks, sandboxing, or tool approvals by default. Generated agents can modify files and execute commands without confirmation.",
         "severity": "critical",
         "locations": [
           {
+            "file": "cookbook/claude-code.md",
+            "line_start": 21,
+            "line_end": 21
+          },
+          {
             "file": "cookbook/codex-cli.md",
-            "line_start": 44,
-            "line_end": 46
+            "line_start": 45,
+            "line_end": 45
+          },
+          {
+            "file": "cookbook/gemini-cli.md",
+            "line_start": 49,
+            "line_end": 50
           },
           {
             "file": "cookbook/cursor-cli.md",
-            "line_start": 40,
+            "line_start": 41,
             "line_end": 43
+          },
+          {
+            "file": "cookbook/copilot-cli.md",
+            "line_start": 21,
+            "line_end": 28
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "The cited prose directly instructs use of dangerous approval bypass or force-allow modes. This is intent-level risk that static pattern matching did not fully capture."
+        "confidence": 0.99,
+        "confidence_reasoning": "Multiple provider cookbooks explicitly require flags described as bypassing permissions, sandboxes, or approvals. The behavior is deliberate and repeated."
       },
       {
-        "title": "Conversation History Forwarding to Spawned Agents",
-        "description": "The skill instructs the caller to place conversation history and the next request into a prompt passed to another agent. This can disclose sensitive project or user context to a separate CLI or provider.",
-        "severity": "high",
+        "title": "Conversation History Persistence and Disclosure",
+        "description": "The summary workflow writes conversation history into a repository prompt file and forwards it to another agent provider. Sensitive context can persist or leave the current provider.",
+        "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 55,
+            "line_start": 57,
             "line_end": 62
           },
           {
             "file": "prompts/fork-summary-user-prompt.md",
-            "line_start": 1,
-            "line_end": 18
+            "line_start": 2,
+            "line_end": 13
           }
         ],
-        "confidence": 0.9,
-        "confidence_reasoning": "The instructions explicitly require copying conversation history into a prompt template for the forked agent. Disclosure depends on user content, but the data flow is clear."
+        "confidence": 0.94,
+        "confidence_reasoning": "The workflow explicitly requires replacing summary fields with conversation history and passing that prompt to the selected CLI. The template contains persisted historical examples."
       }
     ],
     "critical_findings": [
       {
-        "title": "Python subprocess.run",
-        "description": "subprocess.run(f\"cmd.exe /c 'start cmd /k wsl -- {command}'\", shell=True)",
+        "title": "Mandatory Approval and Sandbox Bypass",
+        "description": "The cookbooks direct spawned agents to disable permission checks, sandboxing, or tool approvals by default. Generated agents can modify files and execute commands without confirmation.",
         "locations": [
           {
-            "file": "fork_terminal.py",
-            "line_start": 176,
-            "line_end": 176
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.96,
-        "confidence_reasoning": "This runs cmd.exe through shell=True with the caller-provided command interpolated. That is a direct arbitrary command execution and injection surface."
-      },
-      {
-        "title": "Python subprocess.Popen",
-        "description": "subprocess.Popen(wrapped_cmd, shell=True, cwd=cwd)",
-        "locations": [
-          {
-            "file": "fork_terminal.py",
-            "line_start": 216,
-            "line_end": 216
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.95,
-        "confidence_reasoning": "Popen is called with shell=True on a wrapped command built from caller input. This creates command injection risk and arbitrary shell execution."
-      },
-      {
-        "title": "Python subprocess.Popen",
-        "description": "subprocess.Popen(wrapped_cmd, shell=True, cwd=cwd)",
-        "locations": [
-          {
-            "file": "fork_terminal.py",
-            "line_start": 222,
-            "line_end": 222
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.95,
-        "confidence_reasoning": "Popen is called with shell=True on caller-controlled command text while logging output. This is a confirmed command injection surface."
-      },
-      {
-        "title": "Python subprocess.Popen",
-        "description": "subprocess.Popen(command, shell=True, cwd=cwd)",
-        "locations": [
-          {
-            "file": "fork_terminal.py",
-            "line_start": 227,
-            "line_end": 227
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.96,
-        "confidence_reasoning": "The raw command argument is passed to subprocess.Popen with shell=True. Any untrusted prompt-derived command can execute arbitrary shell syntax."
-      },
-      {
-        "title": "Windows cmd.exe",
-        "description": "subprocess.run(f\"cmd.exe /c 'start cmd /k wsl -- {command}'\", shell=True)",
-        "locations": [
-          {
-            "file": "fork_terminal.py",
-            "line_start": 176,
-            "line_end": 176
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "high",
-        "confidence": 0.96,
-        "confidence_reasoning": "The fallback invokes cmd.exe with shell=True and interpolates the caller command. This is a confirmed Windows shell execution and injection risk."
-      },
-      {
-        "title": "Dangerous Auto-Approval Defaults",
-        "description": "The Codex cookbook says to always use a sandbox and approval bypass flag, and the Cursor cookbook recommends force-allow command execution. These defaults remove key safety controls for autonomous coding agents.",
-        "locations": [
+            "file": "cookbook/claude-code.md",
+            "line_start": 21,
+            "line_end": 21
+          },
           {
             "file": "cookbook/codex-cli.md",
-            "line_start": 44,
-            "line_end": 46
+            "line_start": 45,
+            "line_end": 45
+          },
+          {
+            "file": "cookbook/gemini-cli.md",
+            "line_start": 49,
+            "line_end": 50
           },
           {
             "file": "cookbook/cursor-cli.md",
-            "line_start": 40,
+            "line_start": 41,
             "line_end": 43
+          },
+          {
+            "file": "cookbook/copilot-cli.md",
+            "line_start": 21,
+            "line_end": 28
           }
         ],
         "review_kind": "security",
         "source_category": "semantic",
         "source_severity": "critical",
-        "confidence": 0.95,
-        "confidence_reasoning": "The cited prose directly instructs use of dangerous approval bypass or force-allow modes. This is intent-level risk that static pattern matching did not fully capture."
+        "confidence": 0.99,
+        "confidence_reasoning": "Multiple provider cookbooks explicitly require flags described as bypassing permissions, sandboxes, or approvals. The behavior is deliberate and repeated."
       }
     ],
     "high_findings": [
@@ -1658,8 +1605,24 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "subprocess.run executes osascript with an AppleScript containing caller-provided shell text. The command and cwd are interpolated into a terminal command string."
+        "confidence": 0.98,
+        "confidence_reasoning": "The call executes an AppleScript containing a dynamically composed shell command and working directory. Unescaped values can alter the generated script and execute arbitrary commands."
+      },
+      {
+        "title": "Python subprocess.run",
+        "description": "subprocess.run(f\"cmd.exe /c 'start cmd /k wsl -- {command}'\", shell=True)",
+        "locations": [
+          {
+            "file": "fork_terminal.py",
+            "line_start": 176,
+            "line_end": 176
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "The call interpolates command into a cmd.exe string and executes it with shell=True. Shell metacharacters can inject additional commands."
       },
       {
         "title": "Python subprocess.Popen",
@@ -1674,8 +1637,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "Popen launches Windows Terminal and PowerShell with ps_cmd containing the caller-provided command. The spawned command runs with the user privileges of the host process."
+        "confidence": 0.97,
+        "confidence_reasoning": "Although Popen receives an argument list, the PowerShell command argument contains unescaped dynamic command text. PowerShell will interpret injected syntax."
       },
       {
         "title": "Python subprocess.Popen",
@@ -1690,8 +1653,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "Popen launches WSL with a generated script that contains the caller-provided command. That permits arbitrary command execution through the helper."
+        "confidence": 0.98,
+        "confidence_reasoning": "This launches an executable temporary shell script whose contents include the dynamic command verbatim. Any injected shell syntax runs with the user's privileges."
       },
       {
         "title": "Python subprocess.Popen",
@@ -1706,8 +1669,56 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.9,
-        "confidence_reasoning": "Popen launches tmux with bash -li -c around a string built from the caller-provided command. This is an arbitrary shell execution surface."
+        "confidence": 0.97,
+        "confidence_reasoning": "The tmux invocation executes a command that is dynamic and, in logging modes, routed through bash -c. Untrusted prompt content can become shell syntax."
+      },
+      {
+        "title": "Python subprocess.Popen",
+        "description": "subprocess.Popen(wrapped_cmd, shell=True, cwd=cwd)",
+        "locations": [
+          {
+            "file": "fork_terminal.py",
+            "line_start": 216,
+            "line_end": 216
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "A dynamic command wrapper is passed directly to shell=True. This is an explicit arbitrary shell execution and command injection boundary."
+      },
+      {
+        "title": "Python subprocess.Popen",
+        "description": "subprocess.Popen(wrapped_cmd, shell=True, cwd=cwd)",
+        "locations": [
+          {
+            "file": "fork_terminal.py",
+            "line_start": 222,
+            "line_end": 222
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "The debugging branch passes dynamic command text to shell=True. Redirection does not prevent command injection or arbitrary execution."
+      },
+      {
+        "title": "Python subprocess.Popen",
+        "description": "subprocess.Popen(command, shell=True, cwd=cwd)",
+        "locations": [
+          {
+            "file": "fork_terminal.py",
+            "line_start": 227,
+            "line_end": 227
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "The caller-provided command is executed directly with shell=True. No allowlist, parsing, or escaping limits shell interpretation."
       },
       {
         "title": "PowerShell invocation",
@@ -1722,8 +1733,24 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "high",
-        "confidence": 0.89,
-        "confidence_reasoning": "The Windows branch invokes PowerShell with a command string that embeds caller-provided command text. This is a real external command execution risk."
+        "confidence": 0.96,
+        "confidence_reasoning": "The code launches PowerShell with a dynamically constructed command argument. Embedded command text is interpreted with the user's local privileges."
+      },
+      {
+        "title": "Windows cmd.exe",
+        "description": "subprocess.run(f\"cmd.exe /c 'start cmd /k wsl -- {command}'\", shell=True)",
+        "locations": [
+          {
+            "file": "fork_terminal.py",
+            "line_start": 176,
+            "line_end": 176
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "high",
+        "confidence": 0.99,
+        "confidence_reasoning": "cmd.exe receives an interpolated command through shell=True. Crafted command text can break quoting and run additional commands."
       },
       {
         "title": "Unix shell invocation",
@@ -1738,8 +1765,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The generated bash script embeds the caller-provided command and is executed later. That makes this a real Unix shell execution surface."
+        "confidence": 0.98,
+        "confidence_reasoning": "The generated Bash script embeds the dynamic command without quoting or validation. Logging mode therefore permits arbitrary shell syntax."
       },
       {
         "title": "Unix shell invocation",
@@ -1754,8 +1781,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The generated bash script embeds the caller-provided command and is executed later. That makes this a real Unix shell execution surface."
+        "confidence": 0.98,
+        "confidence_reasoning": "The debug Bash script inserts the command verbatim before redirection. Shell metacharacters remain active and can change execution."
       },
       {
         "title": "Unix shell invocation",
@@ -1770,8 +1797,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "The generated bash script embeds the caller-provided command and is executed later. That makes this a real Unix shell execution surface."
+        "confidence": 0.98,
+        "confidence_reasoning": "The non-logging Bash script also embeds the command verbatim. It provides unrestricted shell execution with no validation."
       },
       {
         "title": "Temp directory access",
@@ -1786,8 +1813,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The helper writes an executable script under /tmp for WSL execution. A shared temp script containing caller command text is a real tampering and execution risk."
+        "confidence": 0.9,
+        "confidence_reasoning": "An executable script is assigned a shared /tmp path and later written without exclusive creation. This permits local symlink or replacement attacks."
       },
       {
         "title": "Python file write/append",
@@ -1802,8 +1829,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "The code writes the generated shell script containing caller-provided command text. This confirms a filesystem write tied to command execution."
+        "confidence": 0.95,
+        "confidence_reasoning": "The code writes an executable script to a shared temporary path with ordinary open mode. It follows symlinks and does not require exclusive creation."
       },
       {
         "title": "Python os file operations",
@@ -1818,29 +1845,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.84,
-        "confidence_reasoning": "The code marks the generated temporary shell script executable. Combined with /tmp placement and caller command text, this increases execution risk."
-      },
-      {
-        "title": "Conversation History Forwarding to Spawned Agents",
-        "description": "The skill instructs the caller to place conversation history and the next request into a prompt passed to another agent. This can disclose sensitive project or user context to a separate CLI or provider.",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 55,
-            "line_end": 62
-          },
-          {
-            "file": "prompts/fork-summary-user-prompt.md",
-            "line_start": 1,
-            "line_end": 18
-          }
-        ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
         "confidence": 0.9,
-        "confidence_reasoning": "The instructions explicitly require copying conversation history into a prompt template for the forked agent. Disclosure depends on user content, but the data flow is clear."
+        "confidence_reasoning": "chmod follows the previously unsafe temporary path and makes it executable. A raced symlink can change permissions on an unintended file."
       }
     ],
     "medium_findings": [
@@ -1857,8 +1863,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.82,
+        "confidence_reasoning": "Agent output is placed in a shared temporary directory under a short identifier. Later shell redirection can follow a pre-created symlink or expose output to local users."
       },
       {
         "title": "Temp directory access",
@@ -1873,8 +1879,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.82,
+        "confidence_reasoning": "Debug output can contain prompts, errors, and credentials, yet uses a shared temporary path without restrictive creation or cleanup."
       },
       {
         "title": "Temp directory access",
@@ -1889,8 +1895,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.74,
+        "confidence_reasoning": "The completion marker uses a shared temporary path and is created by shell touch. A local collision or symlink can falsify completion or affect another path."
       },
       {
         "title": "Temp directory access",
@@ -1905,8 +1911,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.82,
+        "confidence_reasoning": "WSL agent output uses a shared /tmp name without exclusive creation or permissions. Local processes can race the path or read captured content."
       },
       {
         "title": "Temp directory access",
@@ -1921,8 +1927,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.82,
+        "confidence_reasoning": "The WSL debug log uses shared temporary storage and may contain sensitive terminal output. No secure creation or cleanup is present."
       },
       {
         "title": "Temp directory access",
@@ -1937,8 +1943,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.74,
+        "confidence_reasoning": "The WSL completion marker is a shared temporary pathname. A local attacker can create it early or redirect touch through a symlink."
       },
       {
         "title": "Temp directory access",
@@ -1953,8 +1959,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.82,
+        "confidence_reasoning": "The tmux branch stores agent output in shared /tmp without private permissions or cleanup. Captured source and prompt data may be exposed."
       },
       {
         "title": "Temp directory access",
@@ -1969,8 +1975,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.82,
+        "confidence_reasoning": "The tmux debug file uses shared temporary storage and may contain stderr or secrets. It is not created securely."
       },
       {
         "title": "Temp directory access",
@@ -1985,8 +1991,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.74,
+        "confidence_reasoning": "The tmux completion marker can be pre-created in shared /tmp. That can make output reads complete before the child process finishes."
       },
       {
         "title": "Temp directory access",
@@ -2001,8 +2007,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.82,
+        "confidence_reasoning": "The fallback branch stores agent output in shared /tmp without controlled permissions. Local users can race or inspect the file."
       },
       {
         "title": "Temp directory access",
@@ -2017,8 +2023,8 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.82,
+        "confidence_reasoning": "The fallback debug log may capture sensitive output but uses an insecure shared temporary path and has no cleanup."
       },
       {
         "title": "Temp directory access",
@@ -2033,8 +2039,29 @@
         "review_kind": "capability",
         "source_category": "filesystem",
         "source_severity": "medium",
-        "confidence": 0.79,
-        "confidence_reasoning": "The helper stores agent, debug, or completion files under shared temporary paths. These files can contain sensitive prompt or agent output and are not created with secure tempfile APIs."
+        "confidence": 0.74,
+        "confidence_reasoning": "The fallback completion marker is created in shared /tmp and can be spoofed before command completion."
+      },
+      {
+        "title": "Conversation History Persistence and Disclosure",
+        "description": "The summary workflow writes conversation history into a repository prompt file and forwards it to another agent provider. Sensitive context can persist or leave the current provider.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 57,
+            "line_end": 62
+          },
+          {
+            "file": "prompts/fork-summary-user-prompt.md",
+            "line_start": 2,
+            "line_end": 13
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.94,
+        "confidence_reasoning": "The workflow explicitly requires replacing summary fields with conversation history and passing that prompt to the selected CLI. The template contains persisted historical examples."
       }
     ],
     "low_findings": [],
@@ -2042,125 +2069,128 @@
     "files_scanned": 9,
     "total_lines": 1381,
     "audit_model": "codex",
-    "audited_at": "2026-07-06T08:09:20.685Z",
+    "audited_at": "2026-07-13T17:13:23.400Z",
     "agent_auto_install_policy": "blocked",
     "manual_install_policy": "allowed_with_warning"
   },
   "content": {
-    "user_title": "Spawn AI Coding Agents in New Terminals",
-    "value_statement": "Running several coding assistants from terminals can be repetitive and easy to misconfigure. This skill provides cookbook-guided launch patterns for common AI coding CLIs.",
+    "user_title": "Spawn Coding Agents in Separate Terminals",
+    "value_statement": "Complex coding tasks can block the current session and make parallel work difficult. This skill launches a selected AI coding CLI in another terminal and can capture its output.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "spawn agent",
       "AI coding agent",
       "terminal automation",
       "Gemini CLI",
-      "Cursor Agent",
-      "OpenCode",
-      "Copilot CLI"
+      "Cursor CLI",
+      "Copilot CLI",
+      "parallel coding"
     ],
     "actual_capabilities": [
-      "Selects Claude Code by default, or uses a requested agent when enabled.",
-      "Reads a provider cookbook before building the CLI command.",
-      "Launches local terminals on macOS, Windows, WSL, Linux, or tmux.",
-      "Captures clean agent output or debug output to a returned file path.",
-      "Provides authentication fallback flows for Codex, Gemini, Cursor, and Claude."
+      "Selects Claude Code by default or uses Codex, Gemini, Cursor, OpenCode, or Copilot when requested.",
+      "Opens agents in Terminal, Windows Terminal, WSL, tmux, or a background shell.",
+      "Supports interactive sessions, one-shot prompts, and provider-specific model options.",
+      "Captures clean agent responses or full debugging output in temporary files.",
+      "Detects common authentication failures and opens provider login commands."
     ],
     "limitations": [
-      "Requires the selected CLI to be installed and authenticated locally.",
-      "Some cookbook examples use broad auto-approval or sandbox bypass flags.",
-      "Captured output can include sensitive prompts, responses, or debug data.",
-      "The terminal helper does not safely parse arbitrary command strings."
+      "Each provider CLI must be installed and authenticated before use.",
+      "Terminal behavior differs across macOS, Windows, WSL, and Linux.",
+      "Captured output uses local temporary files and requires careful cleanup.",
+      "Current cookbooks enable broad agent permissions that require security review."
     ],
     "use_cases": [
       {
-        "title": "Parallel Code Review",
-        "description": "Launch a second coding agent to inspect a refactor while the primary session continues.",
-        "target_user": "Senior engineers"
+        "title": "Parallel Feature Work",
+        "description": "Launch a second coding agent to investigate or implement an independent task while the current session continues.",
+        "target_user": "Software developers"
       },
       {
-        "title": "CLI Workflow Comparison",
-        "description": "Compare how Claude, Codex, Cursor, Gemini, OpenCode, or Copilot handle the same task.",
-        "target_user": "AI tool evaluators"
+        "title": "Provider Comparison",
+        "description": "Run the same scoped request with another coding provider and compare the resulting approach.",
+        "target_user": "Technical leads"
       },
       {
-        "title": "Interactive Auth Handoff",
-        "description": "Open a dedicated terminal for provider login when an agent reports an authentication failure.",
-        "target_user": "Developers setting up local agents"
+        "title": "Captured Automation",
+        "description": "Start a headless agent task and retrieve its clean response or full terminal log later.",
+        "target_user": "DevOps engineers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Basic Agent Spawn",
-        "scenario": "Start with the default agent.",
-        "prompt": "Spawn an agent to review the current changes and summarize the main risks."
+        "title": "Start a Default Agent",
+        "prompt": "Spawn Claude Code in a new terminal to complete [task].",
+        "scenario": "Use for a simple task with the default provider."
       },
       {
         "title": "Choose a Provider",
-        "scenario": "Use a specific supported CLI.",
-        "prompt": "Spawn Codex to inspect the failing tests and suggest the next debugging steps."
+        "prompt": "Use Codex in [project path] to inspect [topic] and summarize the findings. Keep the session interactive.",
+        "scenario": "Use when provider and working directory matter."
       },
       {
-        "title": "Include Conversation Context",
-        "scenario": "Pass a summary to the new agent.",
-        "prompt": "Spawn Gemini with a summary of this conversation, then ask it to find edge cases in the parser."
+        "title": "Capture a Response",
+        "prompt": "Launch Gemini for [task], capture the clean response, and return the output file path.",
+        "scenario": "Use for asynchronous work that needs later retrieval."
       },
       {
-        "title": "Captured Review Run",
-        "scenario": "Collect output for later review.",
-        "prompt": "Spawn Cursor Agent with captured output enabled. Compare the migration plan with the implementation and return a concise risk report."
+        "title": "Transfer Session Context",
+        "prompt": "Spawn [agent] in [working directory] with a redacted conversation summary. Complete [task], preserve interactive mode, and capture the final response.",
+        "scenario": "Use for advanced handoffs that require selected context."
       }
     ],
     "output_examples": [
       {
-        "input": "Spawn Claude Code to review a refactor with captured output.",
-        "output": "A new terminal opens in the current workspace. The skill returns the captured output path for later review."
+        "input": "Spawn Codex in the current project to review the test failures.",
+        "output": "Opened a Codex session in a separate terminal and returned the agent output path."
       },
       {
-        "input": "Use Codex to compare two implementation approaches.",
-        "output": "The skill selects the Codex cookbook, checks available CLI options, and launches an interactive Codex terminal."
+        "input": "Use Gemini to document the authentication flow and capture the result.",
+        "output": [
+          "Selected the Gemini CLI cookbook.",
+          "Started the task in a new terminal.",
+          "Returned the captured response location."
+        ]
       },
       {
-        "input": "Open an auth terminal after a Cursor login failure.",
-        "output": "A provider login command opens in a separate terminal. The caller can retry after authentication completes."
+        "input": "Open Claude Code without a task so I can continue interactively.",
+        "output": "Launched Claude Code in an interactive terminal using the current working directory."
       }
     ],
     "best_practices": [
-      "Review the selected cookbook before running any generated command.",
-      "Prefer sandboxed execution and explicit approvals for untrusted repositories.",
-      "Delete captured output files when they may contain sensitive context."
+      "Review the selected cookbook and installed CLI help before launching an agent.",
+      "Use sandboxed modes and keep approval prompts enabled unless the user explicitly accepts broader access.",
+      "Exclude secrets from prompts and delete temporary output files after use."
     ],
     "anti_patterns": [
-      "Do not pass secrets inside prompts that will be logged or shared.",
-      "Do not use dangerous approval bypass flags on untrusted codebases.",
-      "Do not treat captured debug output as safe for public sharing."
+      "Do not pass untrusted text through shell command strings.",
+      "Do not launch agents with unrestricted permissions by default.",
+      "Do not forward complete conversation histories without reviewing sensitive content."
     ],
     "faq": [
       {
-        "question": "Which agents can this skill launch?",
-        "answer": "It documents launch patterns for Claude Code, Codex, Gemini, Cursor, OpenCode, and GitHub Copilot."
+        "question": "Which coding agents are supported?",
+        "answer": "The skill covers Claude Code, Codex, Gemini, Cursor, OpenCode, and GitHub Copilot CLI."
       },
       {
-        "question": "Does it install the agent CLIs?",
-        "answer": "No. The selected CLI must already be installed and available in the local environment."
+        "question": "Which agent is used by default?",
+        "answer": "Claude Code is selected when the request does not name another supported provider."
       },
       {
-        "question": "Does it run local commands?",
-        "answer": "Yes. It launches terminal commands, so users should review each command before execution."
+        "question": "Can the skill capture agent output?",
+        "answer": "Yes. It can return a clean response file, a full debug log, or captured content after completion."
       },
       {
-        "question": "Where is captured output stored?",
-        "answer": "The helper uses temporary output paths such as local tmp directories or the Windows TEMP directory."
+        "question": "Does it install or authenticate provider CLIs?",
+        "answer": "No. Provider tools must already be installed, and interactive login may be required."
       },
       {
-        "question": "Can it pass conversation history to another agent?",
-        "answer": "Yes, when requested with a summary flow. Users should redact sensitive details first."
+        "question": "Does it work on every terminal?",
+        "answer": "It targets macOS Terminal, Windows Terminal, WSL, tmux, and a Linux background fallback. Behavior can vary by local setup."
       },
       {
-        "question": "Is it safe for untrusted repositories?",
-        "answer": "Use caution. Some cookbook defaults bypass approvals or sandboxing and should be changed first."
+        "question": "How should sensitive prompts be handled?",
+        "answer": "Remove credentials and private context before spawning. Review and delete temporary output files after the task."
       }
     ]
   },
@@ -2209,6 +2239,12 @@
       ]
     },
     {
+      "name": "fork_terminal.py",
+      "type": "file",
+      "path": "fork_terminal.py",
+      "lines": 340
+    },
+    {
       "name": "prompts",
       "type": "dir",
       "path": "prompts",
@@ -2220,12 +2256,6 @@
           "lines": 19
         }
       ]
-    },
-    {
-      "name": "fork_terminal.py",
-      "type": "file",
-      "path": "fork_terminal.py",
-      "lines": 340
     },
     {
       "name": "SKILL.md",

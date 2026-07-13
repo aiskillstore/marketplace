@@ -3,10 +3,10 @@
 # Standalone Auditor Runtime
 
 - **Runtime version:** 3.0.0
-- **Catalog version:** 17.0.0
+- **Catalog version:** 18.0.0
 - **Framework:** ROAS
 - **Auditor:** ad-account-auditor
-- **Source digest:** `sha256:45a73bc39b4e9f0e44b0d6da4b0e1cc0976c49684d1e59a5cee495b00849bf4b`
+- **Source digest:** `sha256:826aacb03e1efad42e096fe6db7541cea4e885e055122c14e5f08770c8ea3d80`
 
 This immutable bundle is the fail-closed standalone fallback for this auditor. It contains the exact typed framework slice needed to collect observations without inventing rules. Repository/plugin installs use the root policy, schemas, and deterministic scorer. A standalone one-folder install must not fetch mutable sources, compute a score, claim a gate verdict, or persist an audit artifact.
 
@@ -14,7 +14,7 @@ This immutable bundle is the fail-closed standalone fallback for this auditor. I
 
 ```json
 {
-  "catalog_version": "17.0.0",
+  "catalog_version": "18.0.0",
   "frameworks": {
     "ROAS": {
       "construct": "incremental paid-media contribution and operating quality under declared business constraints",

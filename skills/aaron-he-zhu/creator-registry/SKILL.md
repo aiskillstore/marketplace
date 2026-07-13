@@ -3,19 +3,19 @@ name: creator-registry
 slug: aaron-creator-registry
 displayName: "Creator Registry · 创作者档案"
 summary: "创作者档案/达人名册"
-description: 'Use when the user asks "what did we pay this creator last time" or to "update the creator roster"; curates creator identity, rate, rights, exclusivity, compliance-event, and performance facts through the append-only creators event stream. Not for scoring fit — use fit-scorer; not for reviewing content — use content-reviewer. 创作者档案/达人名册'
-version: "17.0.0"
+description: 'Use when the user asks "what did we pay this creator last time" or to "update the creator roster"; curates creator identity, rate, rights, exclusivity, compliance-event, and performance facts through the append-only creators event stream. Not for scoring fit — use fit-scorer; not for reviewing content — use creator-content-auditor. 创作者档案/达人名册'
+version: "18.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when consolidating or querying creator roster facts, accepting pending creator proposals, deduplicating handles, or recording closed-cycle rates, rights, exclusivity, compliance events, and performance baselines."
 argument-hint: "<creator aggregate-id/handle or 'review pending proposals'>"
-metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "18.0.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Creator Registry
 
-The canonical creator-roster authority. It records facts and provenance; it does not calculate ACE/ART/ROI, judge compliance, or choose partners.
+The canonical creator-roster authority. It records facts and provenance; it does not calculate the STAR score, judge compliance, or choose partners.
 
 ## Quick Start
 
@@ -40,7 +40,7 @@ Use [skill-contract.md](../../references/skill-contract.md): status, objective, 
 - Verified cross-platform handle links and dated audience exports.
 - Closed outreach/negotiation outcomes and confirmed contact path.
 - Signed terms, usage rights, exclusivity windows, and rates.
-- C3 ART artifact IDs as compliance events, never a derived “safe/risky” label.
+- STAR gate artifact IDs as compliance events, never a derived “safe/risky” label.
 - Campaign outcome baselines with observation window and provenance.
 
 Minimize personal data. Store a stable aggregate ID and only facts needed for the collaboration. Never put raw email/phone/address in event IDs or summaries.
@@ -74,7 +74,7 @@ Standalone one-folder installs may prepare proposals only; they cannot append/pr
 
 ## Next Best Skill
 
-- **New fit decision:** [fit-scorer](../../influencer/discover/fit-scorer/SKILL.md)
+- **New fit decision:** [fit-scorer](../../influencer/scout/fit-scorer/SKILL.md)
 - **Terms/rights:** [contract-helper](../../influencer/activate/contract-helper/SKILL.md)
 - **Re-engagement:** [outreach-manager](../../influencer/activate/outreach-manager/SKILL.md)
 - **Archive/erase:** [memory-management](../memory-management/SKILL.md)

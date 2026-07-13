@@ -4,13 +4,13 @@ slug: memory-management
 displayName: "Memory Management · 项目记忆"
 summary: "项目记忆/跨会话"
 description: 'Use when the user asks to "remember project context", review saved findings, initialize runtime memory, archive stale work, reconcile notes, or erase a subject; manages authorized HOT/WARM/COLD working memory across all disciplines while preserving registry event ownership and privacy controls. Not for changing canonical registry facts - route those through the owning registry. 项目记忆/跨会话'
-version: "17.0.0"
+version: "18.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when initializing, querying, consolidating, archiving, exporting, or erasing project memory; also when repairing broken references or reconciling conflicting non-canonical notes."
 argument-hint: "[init|review|archive|consolidate|purge] [scope]"
-metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "18.0.0", "discipline": "protocol", "phase": "protocol", "geo-relevance": "low", "hermes": {"tags": ["marketing", "protocol"], "category": "protocol"}, "openclaw": {"emoji": "🗂️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Memory Management
@@ -145,4 +145,4 @@ The user's direct request may itself authorize the named operation. Otherwise as
 
 ## Next Best Skill
 
-Route a canonical conflict to its owner: `entity-optimizer`, `creator-registry`, `offer-claims-registry`, `consent-registry`, `launch-registry`, `channel-registry`, or `narrative-registry`. Resume execution work only after the needed projection and authorization state are clear.
+Route a canonical conflict to its owner: `entity-registry`, `creator-registry`, `offer-claims-registry`, `consent-registry`, `launch-registry`, `channel-registry`, or `narrative-registry`. Resume execution work only after the needed projection and authorization state are clear.

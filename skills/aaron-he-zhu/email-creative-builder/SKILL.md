@@ -4,13 +4,13 @@ slug: aaron-email-creative-builder
 displayName: "Email Creative Builder · 邮件文案"
 summary: "邮件文案/主题行/邮件创意"
 description: 'Use when the user asks to "write the email", "draft subject lines", or "build email creative"; produces the pre-click unit — subject-line variants + preheader, body copy, one clear CTA, and a plain-text alt — message-matched to the destination page and claims-ledger-aware. Not for pre-scoring or ranking subject-line variants (spam/truncation/render pre-score) — use subject-line-lab; not for scoring the email or computing EQS — use email-quality-auditor; not for the multi-step flow — use email-sequence-designer; not for the A/B test plan — use send-experiment-designer. 邮件文案/主题行/邮件创意'
-version: "17.0.0"
+version: "18.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when drafting or iterating a single email creative: subject-line variants and preheader, body copy, one primary CTA, and a plain-text alternate, kept message-matched to a destination landing page and traced to approved claim wording. Covers B2C promo/lifecycle, B2B cold-outbound personalization, and newsletter modes."
 argument-hint: "<offer/topic> <destination URL> [mode: promo|cold|newsletter]"
-metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "email", "phase": "engage", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "engage"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "18.0.0", "discipline": "email", "phase": "engage", "geo-relevance": "low", "hermes": {"tags": ["marketing", "email", "engage"], "category": "email"}, "openclaw": {"emoji": "✉️", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Email Creative Builder
@@ -95,5 +95,5 @@ On user confirmation, save to `memory/email/email-creative-builder/YYYY-MM-DD-<o
 - **Primary**: [send-experiment-designer](../../deliver/send-experiment-designer/SKILL.md) — design the A/B / send-time test across the subject-line variants once the creative is ready.
 - **To score + run the claim veto**: [email-quality-auditor](../../deliver/email-quality-auditor/SKILL.md) — computes the profile-weighted EQS and enforces D1 (claim integrity) plus the other vetoes. This skill does neither.
 - **If claims carry `[needs source]` flags**: [offer-claims-registry](../../../protocol/offer-claims-registry/SKILL.md) — register the claims with evidence provenance and approved wording, then swap the resolved wording back into the flagged lines.
-- **If the destination URL is weak or missing** (NEEDS_INPUT): [landing-optimizer](../../../influencer/measure/landing-optimizer/SKILL.md) — fix the post-click page so message-match is achievable, then return here.
+- **If the destination URL is weak or missing** (NEEDS_INPUT): [landing-optimizer](../../../influencer/report/landing-optimizer/SKILL.md) — fix the post-click page so message-match is achievable, then return here.
 - Global visited-set / max-depth termination contract from [skill-contract.md](../../../references/skill-contract.md) applies; if the recommended next skill was already run this session, or routing is ambiguous, stop and report options instead of auto-following. Stop when the creative set is test- or auditor-ready.
