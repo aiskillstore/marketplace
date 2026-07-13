@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 240
     outputs:
       synced_slugs: ${{ steps.sync.outputs.synced_slugs }}
+      synced_skill_count: ${{ steps.synced-plan.outputs.skill_count }}
       skip_sync: ${{ steps.changes.outputs.skip_sync }}
     steps:
       - name: Checkout repository
@@ -596,6 +597,7 @@ jobs:
           echo "::notice::Sync completed - Mode: ${{ steps.changes.outputs.mode }}, Skills: ${{ steps.changes.outputs.changed_skills }}"
 
       - name: Save synced slugs to artifact
+        id: synced-plan
         if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_slugs != ''
         env:
           SYNCED_SLUGS: ${{ steps.sync.outputs.synced_slugs }}
@@ -603,6 +605,7 @@ jobs:
           # Write slugs to file (one per line for easy processing)
           echo "$SYNCED_SLUGS" | tr ',' '\n' > synced-slugs.txt
           SLUG_COUNT=$(wc -l < synced-slugs.txt | tr -d ' ')
+          echo "skill_count=$SLUG_COUNT" >> "$GITHUB_OUTPUT"
           echo "📦 Saved $SLUG_COUNT slugs to artifact"
 
       - name: Resolve published submissions
@@ -883,80 +886,73 @@ jobs:
           echo "✅ Cache invalidated: $RESPONSE"
 
   # ============================================================
-  # CACHE WARMING JOB
-  # Triggers warm-cache.yml workflow for synced skills only
+  # ENGLISH CACHE FINALIZER
+  # Runs exact invalidation + API/page verification before translation is
+  # dispatched. A failure is reported but does not block content translation.
   # ============================================================
-  trigger-cache-warm:
+  finalize-english-cache:
     needs: [sync, calculate-scores, cache-invalidate]
-    if: needs.cache-invalidate.result == 'success' && needs.sync.outputs.skip_sync != 'true' && inputs.skip_cache_warm != true && !contains(github.event.head_commit.message || '', '[bulk-source-monitor]')
+    if: >-
+      needs.cache-invalidate.result == 'success' &&
+      needs.sync.outputs.skip_sync != 'true' &&
+      inputs.skip_cache_warm != true &&
+      vars.CACHE_FINALIZER_AUTOMATION_ENABLED == 'true' &&
+      fromJSON(vars.CACHE_FINALIZER_MAX_SKILLS || '5') >= 1 &&
+      fromJSON(vars.CACHE_FINALIZER_MAX_SKILLS || '5') <= 25 &&
+      fromJSON(needs.sync.outputs.synced_skill_count || '0') <= fromJSON(vars.CACHE_FINALIZER_MAX_SKILLS || '5') &&
+      !contains(github.event.head_commit.message || '', '[bulk-source-monitor]')
     runs-on: self-hosted
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        uses: actions/create-github-app-token@v3
+      - name: Checkout cache finalizer
+        uses: actions/checkout@v5
         with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          sparse-checkout: scripts
 
-      - name: Trigger warm-cache workflow for synced skills
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          package-manager-cache: false
+
+      - name: Download synced Skill plan
+        uses: actions/download-artifact@v7
+        with:
+          name: synced-slugs
+          path: ./english-cache-finalizer
+
+      - name: Finalize English cache targets
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
+          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          SITE_URL: https://skillstore.io
+          CACHE_FINALIZER_MAX_SKILLS: ${{ vars.CACHE_FINALIZER_MAX_SKILLS || '5' }}
         run: |
-          if [ -z "$SYNCED_SLUGS" ]; then
-            echo "No slugs to warm"
-            exit 0
-          fi
+          set -euo pipefail
+          node scripts/finalize-translation-cache.mjs \
+            --slugs-file ./english-cache-finalizer/synced-slugs.txt \
+            --locales en \
+            --site-url "$SITE_URL" \
+            --concurrency 1 \
+            --max-skills "$CACHE_FINALIZER_MAX_SKILLS" \
+            --max-packs 100 \
+            --max-targets 250 \
+            --request-budget 5000 \
+            --byte-budget 536870912 \
+            --plan "$RUNNER_TEMP/english-cache-plan.json" \
+            --report "$RUNNER_TEMP/english-cache-report.jsonl" \
+            --summary "$RUNNER_TEMP/english-cache-summary.json"
 
-          SLUG_COUNT=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
-          THRESHOLD=500
-          REQUEST_BUDGET=$((SLUG_COUNT * 80 + 20))
-          BYTE_BUDGET=$((SLUG_COUNT * 10485760 + 10485760))
-
-          echo "🔥 Triggering warm-cache workflow for $SLUG_COUNT synced skills"
-          echo "   Request budget: $REQUEST_BUDGET"
-          echo "   Byte budget: $BYTE_BUDGET"
-
-          if [ "$SLUG_COUNT" -le "$THRESHOLD" ]; then
-            # Small batch: pass slugs directly via input
-            echo "   Mode: direct (≤$THRESHOLD slugs)"
-            gh workflow run warm-cache.yml \
-              --repo "${{ github.repository }}" \
-              -f mode=warm \
-              -f scope=changed \
-              -f slugs="$SYNCED_SLUGS" \
-              -f request_budget="$REQUEST_BUDGET" \
-              -f byte_budget="$BYTE_BUDGET" \
-              -f warm_zip=false
-            MODE="direct"
-          else
-            # Large batch: use artifact to avoid input size limits
-            echo "   Mode: artifact (>$THRESHOLD slugs)"
-            gh workflow run warm-cache.yml \
-              --repo "${{ github.repository }}" \
-              -f mode=warm \
-              -f scope=changed \
-              -f source_run_id=${{ github.run_id }} \
-              -f request_budget="$REQUEST_BUDGET" \
-              -f byte_budget="$BYTE_BUDGET" \
-              -f warm_zip=false
-            MODE="artifact (source: ${{ github.run_id }})"
-          fi
-
-          echo "✅ Cache warming workflow triggered"
-          echo "   Monitor at: https://github.com/${{ github.repository }}/actions/workflows/warm-cache.yml"
-
-          cat << EOF >> $GITHUB_STEP_SUMMARY
-          ## 🔥 Cache Warming Triggered
-
-          Triggered \`warm-cache.yml\` workflow for **$SLUG_COUNT synced skills** (mode: $MODE).
-
-          - Request budget: \`$REQUEST_BUDGET\`
-          - Byte budget: \`$BYTE_BUDGET\`
-
-          [View workflow runs →](https://github.com/${{ github.repository }}/actions/workflows/warm-cache.yml)
-          EOF
+      - name: Upload English cache evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: english-cache-finalizer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/english-cache-plan.json
+            ${{ runner.temp }}/english-cache-report.jsonl
+            ${{ runner.temp }}/english-cache-summary.json
+          if-no-files-found: warn
+          retention-days: 14
 
   # ============================================================
   # TRIGGER TRANSLATION (Async - Fire and Forget)
@@ -965,8 +961,8 @@ jobs:
   # Translation only needs synced content, doesn't require scores
   # ============================================================
   trigger-translate:
-    needs: [sync]
-    if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != '' && !contains(github.event.head_commit.message || '', '[bulk-source-monitor]')
+    needs: [sync, cache-invalidate, finalize-english-cache]
+    if: always() && needs.sync.result == 'success' && needs.cache-invalidate.result == 'success' && needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != '' && !contains(github.event.head_commit.message || '', '[bulk-source-monitor]')
     runs-on: self-hosted
     timeout-minutes: 15
     steps:
@@ -981,6 +977,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
+          ENGLISH_CACHE_FINALIZER_RESULT: ${{ needs.finalize-english-cache.result }}
         run: |
           SLUG_COUNT=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
           THRESHOLD=500
@@ -994,7 +991,8 @@ jobs:
               --method POST \
               -f event_type=translate-skills \
               -f "client_payload[skill_slugs]=$SYNCED_SLUGS" \
-              -f "client_payload[triggered_by]=sync-to-supabase"
+              -f "client_payload[triggered_by]=sync-to-supabase" \
+              -f "client_payload[english_cache_finalizer_failed]=$([ "$ENGLISH_CACHE_FINALIZER_RESULT" = success ] && echo false || echo true)"
             MODE="direct"
           else
             # Large batch: use artifact to avoid payload size limits
@@ -1003,7 +1001,8 @@ jobs:
               --method POST \
               -f event_type=translate-skills \
               -f "client_payload[source_run_id]=${{ github.run_id }}" \
-              -f "client_payload[triggered_by]=sync-to-supabase"
+              -f "client_payload[triggered_by]=sync-to-supabase" \
+              -f "client_payload[english_cache_finalizer_failed]=$([ "$ENGLISH_CACHE_FINALIZER_RESULT" = success ] && echo false || echo true)"
             MODE="artifact (source: ${{ github.run_id }})"
           fi
 

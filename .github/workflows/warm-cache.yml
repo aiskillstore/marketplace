@@ -25,6 +25,11 @@ on:
         required: false
         type: string
         default: ''
+      locales:
+        description: 'Allowlisted locales to warm (comma/space separated); automatic callers should pass only the affected locales'
+        required: false
+        type: string
+        default: 'en'
       source_run_id:
         description: 'Source workflow run containing the synced-slugs artifact (changed scope only)'
         required: false
@@ -62,7 +67,7 @@ concurrency:
 
 env:
   SITE_URL: https://skillstore.io
-  LOCALES: 'en zh-hans zh-hant ja ko de fr es pt ru ar'
+  SUPPORTED_LOCALES: 'en zh-hans zh-hant ja ko de fr es pt ru ar'
   CONCURRENCY: 10
   INVALIDATE_BATCH_SIZE: 10
   BUILD_HEADER: x-skillstore-build
@@ -104,6 +109,7 @@ jobs:
           SCOPE: ${{ inputs.scope }}
           MODE: ${{ inputs.mode }}
           INPUT_SLUGS: ${{ inputs.slugs }}
+          INPUT_LOCALES: ${{ inputs.locales }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
           APPROVE_FULL_CATALOG: ${{ inputs.approve_full_catalog }}
           REQUEST_BUDGET: ${{ inputs.request_budget }}
@@ -121,6 +127,23 @@ jobs:
             echo "::error::byte_budget must be a positive integer"
             exit 1
           fi
+
+          LOCALES_FILE="$RUNNER_TEMP/warm-cache-locales.txt"
+          printf '%s\n' "$INPUT_LOCALES" | tr ',[:space:]' '\n' | sed '/^$/d' | sort -u > "$LOCALES_FILE"
+          if [ ! -s "$LOCALES_FILE" ]; then
+            echo "::error::locales must contain at least one supported locale"
+            exit 1
+          fi
+          while IFS= read -r locale; do
+            case " $SUPPORTED_LOCALES " in
+              *" $locale "*) ;;
+              *)
+                echo "::error::Unsupported locale: $locale"
+                exit 1
+                ;;
+            esac
+          done < "$LOCALES_FILE"
+          RESOLVED_LOCALES=$(tr '\n' ' ' < "$LOCALES_FILE" | sed 's/ $//')
 
           WORK_DIR="$RUNNER_TEMP/warm-cache"
           mkdir -p "$WORK_DIR"
@@ -195,6 +218,7 @@ jobs:
           echo "Resolved $SLUG_COUNT skill(s) for scope $SCOPE"
           echo "slugs_file=$SLUGS_FILE" >> "$GITHUB_OUTPUT"
           echo "slug_count=$SLUG_COUNT" >> "$GITHUB_OUTPUT"
+          echo "locales=$RESOLVED_LOCALES" >> "$GITHUB_OUTPUT"
 
       - name: Invalidate selected skill caches
         if: inputs.mode == 'force'
@@ -215,6 +239,7 @@ jobs:
           WARM_ZIP: ${{ inputs.warm_zip }}
           WARM_MODE: ${{ inputs.mode }}
           WARM_SCOPE: ${{ inputs.scope }}
+          LOCALES: ${{ steps.scope.outputs.locales }}
         run: |
           set -euo pipefail
 

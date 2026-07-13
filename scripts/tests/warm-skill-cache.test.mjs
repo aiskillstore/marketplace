@@ -5,8 +5,13 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  calculateWorstCaseRequests,
+  MAX_ENDPOINT_ATTEMPTS,
+  MAX_ERROR_RESPONSE_BYTES,
   MAX_EDGE_TRANSFORM_OVERHEAD,
   normalizeSlugs,
+  normalizeWarmTargets,
+  parseWarmTargets,
   runWarm,
   WarmError,
 } from '../warm-skill-cache.mjs';
@@ -60,6 +65,7 @@ function versionResponse(build = BUILD_A) {
 }
 
 function streamingResponse({
+  status = 200,
   build = BUILD_A,
   apiCache,
   pageCache,
@@ -100,7 +106,7 @@ function streamingResponse({
     },
     cancel: onCancel,
   }, { highWaterMark: 0 });
-  return new Response(body, { headers });
+  return new Response(body, { status, headers });
 }
 
 function versionBodyBytes(build = BUILD_A) {
@@ -142,6 +148,34 @@ test('normalizes and rejects empty warm scopes', async () => {
   await assert.rejects(
     runWarm(baseOptions(async () => versionResponse(), [], { slugs: [] })),
     (error) => error instanceof WarmError && /scope is empty/i.test(error.message)
+  );
+});
+
+test('normalizes exact Skill and Pack locale targets and calculates a deterministic aggregate cap', () => {
+  const raw = [
+    { resource: 'packs', slug: 'beta-pack', locale: 'ja' },
+    { resource: 'skills', slug: 'alpha-skill', locale: 'fr' },
+    { resource: 'skills', slug: 'alpha-skill', locale: 'fr' },
+  ];
+  const targets = normalizeWarmTargets(raw);
+  assert.deepEqual(targets, [
+    { resource: 'packs', slug: 'beta-pack', locale: 'ja' },
+    { resource: 'skills', slug: 'alpha-skill', locale: 'fr' },
+  ]);
+  assert.deepEqual(
+    parseWarmTargets(targets.map((target) => JSON.stringify(target)).join('\n')),
+    targets
+  );
+  assert.equal(MAX_ENDPOINT_ATTEMPTS, 16);
+  assert.equal(calculateWorstCaseRequests(targets, { maxAttempts: 3 }), 14);
+  assert.equal(calculateWorstCaseRequests(targets, { maxAttempts: 3, warmZip: true }), 19);
+  assert.throws(
+    () => normalizeWarmTargets([{ resource: 'workflows', slug: 'bad', locale: 'en' }]),
+    /unsupported resource/i
+  );
+  assert.throws(
+    () => normalizeWarmTargets([{ resource: 'skills', slug: 'bad', locale: 'xx' }]),
+    /unsupported locale/i
   );
 });
 
@@ -683,22 +717,41 @@ test('verifies invalidated API and HTML as MISS+STORED then two HIT+SKIPPED resp
   );
 });
 
-test('rejects an initial HIT for force and changed invalidation scopes', async () => {
-  for (const overrides of [
-    { mode: 'warm', scope: 'changed' },
-    { mode: 'force', scope: 'high-traffic' },
-  ]) {
-    let calls = 0;
-    const summary = await runWarm(baseOptions(async (url) => {
-      calls++;
-      if (new URL(url).pathname === '/_app/version.json') return versionResponse();
-      return response({ apiCache: 'HIT' });
-    }, [], overrides));
+test('changed cache retries old HIT/STALE without pinning identity before fresh MISS', async () => {
+  const calls = [];
+  const records = [];
+  const oldKey = '00000000old0';
+  const fetchImpl = sequencedFetch([
+    { response: versionResponse() },
+    { response: response({ apiCache: 'HIT', cacheKey: oldKey }) },
+    { response: response({ apiCache: 'STALE', cacheKey: oldKey }) },
+    { response: response({ apiCache: 'MISS', cacheKey: CACHE_KEY_A }) },
+    { response: response({ apiCache: 'HIT', cacheKey: CACHE_KEY_A }) },
+    { response: response({ apiCache: 'HIT', cacheKey: CACHE_KEY_A }) },
+    { response: response({ pageCache: 'MISS', body: '<html></html>' }) },
+    { response: response({ pageCache: 'HIT', body: '<html></html>' }) },
+    { response: response({ pageCache: 'HIT', body: '<html></html>' }) },
+    { response: versionResponse() },
+  ], calls);
 
-    assert.equal(summary.success, false);
-    assert.match(summary.failures.join('\n'), /expected MISS\+STORED/i);
-    assert.equal(calls, 2, 'invalidated cache state must abort before verification traffic');
-  }
+  const summary = await runWarm(baseOptions(fetchImpl, records, {
+    mode: 'warm',
+    scope: 'changed',
+    maxAttempts: 5,
+  }));
+
+  assert.equal(summary.success, true);
+  assert.deepEqual(
+    records.filter((record) => record.kind === 'api').map((record) => [record.cache, record.cacheWrite]),
+    [
+      ['HIT', 'SKIPPED'],
+      ['STALE', 'SKIPPED'],
+      ['MISS', 'STORED'],
+      ['HIT', 'SKIPPED'],
+      ['HIT', 'SKIPPED'],
+    ]
+  );
+  assert.equal(calls.length, 10);
 });
 
 test('rejects an invalidated MISS that did not durably store', async () => {
@@ -708,7 +761,7 @@ test('rejects an invalidated MISS that did not durably store', async () => {
   }, [], { mode: 'warm', scope: 'changed' }));
 
   assert.equal(summary.success, false);
-  assert.match(summary.failures.join('\n'), /expected MISS\+STORED/i);
+  assert.match(summary.failures.join('\n'), /fresh MISS\+STORED/i);
 });
 
 test('fails closed when KV key or version evidence is missing', async () => {
@@ -751,6 +804,7 @@ test('fails a persistent MISS and does not start HTML warming', async () => {
     { response: versionResponse() },
     { response: response({ apiCache: 'MISS' }) },
     { response: response({ apiCache: 'MISS' }) },
+    { response: response({ apiCache: 'MISS' }) },
   ], calls);
 
   const summary = await runWarm(baseOptions(fetchImpl));
@@ -760,8 +814,114 @@ test('fails a persistent MISS and does not start HTML warming', async () => {
   assert.equal(summary.completedEndpoints.page, 0);
   assert.equal(summary.failedEndpoints, 1);
   assert.equal(summary.skippedEndpoints, 1);
-  assert.match(summary.failures.join('\n'), /expected HIT\+SKIPPED/i);
+  assert.match(summary.failures.join('\n'), /attempt deterministic cap/i);
   assert.equal(calls.some((call) => new URL(call.url).pathname === '/skills/alpha'), false);
+});
+
+test('requires two consecutive HITs after the newest fresh MISS', async () => {
+  const calls = [];
+  const records = [];
+  const fetchImpl = sequencedFetch([
+    { response: versionResponse() },
+    { response: response({ apiCache: 'MISS' }) },
+    { response: response({ apiCache: 'HIT' }) },
+    { response: response({ apiCache: 'MISS' }) },
+    { response: response({ apiCache: 'HIT' }) },
+    { response: response({ apiCache: 'HIT' }) },
+    { response: response({ pageCache: 'MISS', body: '<html></html>' }) },
+    { response: response({ pageCache: 'HIT', body: '<html></html>' }) },
+    { response: response({ pageCache: 'HIT', body: '<html></html>' }) },
+    { response: versionResponse() },
+  ], calls);
+
+  const summary = await runWarm(baseOptions(fetchImpl, records, {
+    mode: 'warm',
+    scope: 'changed',
+    maxAttempts: 5,
+  }));
+
+  assert.equal(summary.success, true);
+  assert.deepEqual(
+    records.filter((record) => record.kind === 'api').map((record) => record.cache),
+    ['MISS', 'HIT', 'MISS', 'HIT', 'HIT']
+  );
+});
+
+test('retries headerless edge errors before strict application header validation', async () => {
+  const calls = [];
+  const records = [];
+  const fetchImpl = sequencedFetch([
+    { response: versionResponse() },
+    { response: new Response('busy', { status: 429 }) },
+    { response: new Response('unavailable', { status: 503 }) },
+    { response: response({ apiCache: 'HIT' }) },
+    { response: response({ apiCache: 'HIT' }) },
+    { response: response({ apiCache: 'HIT' }) },
+    { response: response({ pageCache: 'HIT', body: '<html></html>' }) },
+    { response: response({ pageCache: 'HIT', body: '<html></html>' }) },
+    { response: response({ pageCache: 'HIT', body: '<html></html>' }) },
+    { response: versionResponse() },
+  ], calls);
+
+  const summary = await runWarm(baseOptions(fetchImpl, records, {
+    maxAttempts: 5,
+    mode: 'warm',
+    scope: 'high-traffic',
+  }));
+
+  assert.equal(summary.success, true);
+  assert.deepEqual(records.filter((record) => record.kind === 'api').map((record) => record.status), [429, 503, 200, 200, 200]);
+  assert.equal(summary.budget.bytes >= versionBodyBytes() + 15, true);
+});
+
+test('cancels oversized error responses without applying the strict app byte contract', async () => {
+  let cancelled = false;
+  const calls = [];
+  const fetchImpl = sequencedFetch([
+    { response: versionResponse() },
+    {
+      response: streamingResponse({
+        status: 503,
+        contentLength: MAX_ERROR_RESPONSE_BYTES + 1,
+        pending: true,
+        onCancel: () => { cancelled = true; },
+      }),
+    },
+    { response: response({ apiCache: 'HIT' }) },
+    { response: response({ apiCache: 'HIT' }) },
+    { response: response({ apiCache: 'HIT' }) },
+    { response: response({ pageCache: 'HIT', body: '<html></html>' }) },
+    { response: response({ pageCache: 'HIT', body: '<html></html>' }) },
+    { response: response({ pageCache: 'HIT', body: '<html></html>' }) },
+    { response: versionResponse() },
+  ], calls);
+
+  const summary = await runWarm(baseOptions(fetchImpl, [], {
+    maxAttempts: 4,
+    mode: 'warm',
+    scope: 'high-traffic',
+  }));
+
+  assert.equal(summary.success, true);
+  assert.equal(cancelled, true);
+  assert.equal(summary.budget.reservedBytes, 0);
+});
+
+test('reports a headerless non-retryable response by HTTP status without retrying it', async () => {
+  let calls = 0;
+  let endpointCalls = 0;
+  const summary = await runWarm(baseOptions(async (url) => {
+    calls++;
+    if (new URL(url).pathname === '/_app/version.json') return versionResponse();
+    endpointCalls++;
+    return new Response('not found', { status: 404 });
+  }));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /HTTP 404/i);
+  assert.doesNotMatch(summary.failures.join('\n'), /Content-Length|build token/i);
+  assert.equal(endpointCalls, 1, 'non-retryable endpoint must be requested exactly once');
+  assert.equal(calls, 3, 'start and end build probes still bracket the failed run');
 });
 
 test('retries 429 and 5xx responses before accepting HIT', async () => {
@@ -781,7 +941,7 @@ test('retries 429 and 5xx responses before accepting HIT', async () => {
   ], calls);
 
   const summary = await runWarm(baseOptions(fetchImpl, records, {
-    maxAttempts: 4,
+    maxAttempts: 5,
     mode: 'warm',
     scope: 'high-traffic',
   }));
@@ -927,12 +1087,45 @@ test('reports exact counts for multiple slugs and locales', async () => {
   }));
 
   assert.equal(summary.success, true);
-  assert.deepEqual(summary.plannedEndpoints, { api: 2, page: 4, zip: 0 });
-  assert.deepEqual(summary.completedEndpoints, { api: 2, page: 4, zip: 0 });
-  assert.equal(summary.budget.requests, 20);
+  assert.deepEqual(summary.plannedEndpoints, { api: 4, page: 4, zip: 0 });
+  assert.deepEqual(summary.completedEndpoints, { api: 4, page: 4, zip: 0 });
+  assert.equal(summary.budget.requests, 26);
   assert.equal(summary.failedEndpoints, 0);
   assert.equal(summary.skippedEndpoints, 0);
-  assert.equal(calls.length, 20);
+  assert.equal(calls.length, 26);
+});
+
+test('warms exact Skill and Pack targets with locale-specific API and page URLs in one budget', async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, init });
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/')) return response({ apiCache: 'HIT' });
+    return response({ pageCache: 'HIT', body: '<html></html>' });
+  };
+  const targets = [
+    { resource: 'skills', slug: 'alpha', locale: 'fr' },
+    { resource: 'packs', slug: 'beta-pack', locale: 'ja' },
+  ];
+
+  const summary = await runWarm(baseOptions(fetchImpl, [], {
+    slugs: undefined,
+    targets,
+    locales: undefined,
+    requestBudget: calculateWorstCaseRequests(targets, { maxAttempts: 3 }),
+  }));
+
+  assert.equal(summary.success, true);
+  assert.equal(summary.targets, 2);
+  assert.deepEqual(summary.resources, { skills: 1, packs: 1 });
+  assert.deepEqual(summary.plannedEndpoints, { api: 2, page: 2, zip: 0 });
+  assert.equal(summary.budget.requests, 14);
+  const requested = calls.map((call) => call.url);
+  assert.equal(requested.some((url) => url.includes('/api/skills/alpha') && url.includes('lang=fr')), true);
+  assert.equal(requested.some((url) => url.includes('/fr/skills/alpha')), true);
+  assert.equal(requested.some((url) => url.includes('/api/packs/beta-pack') && url.includes('lang=ja')), true);
+  assert.equal(requested.some((url) => url.includes('/ja/packs/beta-pack')), true);
 });
 
 test('workflow checks out scripts, requires bounded skill scope, and has no retired content branches', () => {
@@ -965,7 +1158,9 @@ test('sync propagates invalidation failures and cannot warm stale 365-day detail
   assert.match(invalidationSection, /cache warming is blocked/);
   assert.match(invalidationSection, /365 days/);
   assert.match(invalidationSection, /needs\.cache-invalidate\.result == 'success'/);
-  assert.match(invalidationSection, /-f scope=changed/);
-  assert.match(invalidationSection, /-f request_budget=/);
-  assert.match(invalidationSection, /-f byte_budget=/);
+  assert.match(invalidationSection, /finalize-english-cache:/);
+  assert.match(invalidationSection, /finalize-translation-cache\.mjs/);
+  assert.match(invalidationSection, /--request-budget 5000/);
+  assert.match(invalidationSection, /--byte-budget 536870912/);
+  assert.doesNotMatch(invalidationSection, /gh workflow run warm-cache\.yml/);
 });
