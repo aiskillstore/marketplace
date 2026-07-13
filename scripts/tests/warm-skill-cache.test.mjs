@@ -4,7 +4,12 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { normalizeSlugs, runWarm, WarmError } from '../warm-skill-cache.mjs';
+import {
+  MAX_EDGE_TRANSFORM_OVERHEAD,
+  normalizeSlugs,
+  runWarm,
+  WarmError,
+} from '../warm-skill-cache.mjs';
 
 const BUILD_A = `${'a'.repeat(40)}.deploy-a`;
 const BUILD_B = `${'b'.repeat(40)}.deploy-b`;
@@ -280,6 +285,191 @@ test('accepts the trusted Skillstore response-size header for dynamic pages', as
   assert.equal(new Headers(calls[4].init.headers).get('accept-encoding'), 'identity');
 });
 
+test('accepts bounded HTML edge transforms and records declared, actual, and edgeDelta', async () => {
+  const records = [];
+  const originHtml = '<html>cached</html>';
+  const edgeDelta = 1_157;
+  const transformedHtml = `${originHtml}${'x'.repeat(edgeDelta)}`;
+  const declared = new TextEncoder().encode(originHtml).byteLength;
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: transformedHtml,
+      omitLength: true,
+      responseBytes: declared,
+    });
+  };
+
+  const summary = await runWarm(baseOptions(fetchImpl, records));
+
+  assert.equal(summary.success, true);
+  assert.equal(summary.budget.reservedBytes, 0);
+  const pageRecords = records.filter((record) => record.kind === 'page');
+  assert.equal(pageRecords.length, 3);
+  for (const record of pageRecords) {
+    assert.equal(record.declared, declared);
+    assert.equal(record.actual, declared + edgeDelta);
+    assert.equal(record.edgeDelta, edgeDelta);
+    assert.equal(record.bytes, record.actual);
+  }
+  assert.equal(
+    summary.budget.bytes,
+    records.reduce((total, record) => total + record.actual, 0),
+    'unused edge reservations must be released instead of counted as downloaded bytes'
+  );
+});
+
+test('accepts HTML at the exact edge transform ceiling', async () => {
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: `x${'y'.repeat(MAX_EDGE_TRANSFORM_OVERHEAD)}`,
+      omitLength: true,
+      responseBytes: 1,
+    });
+  };
+
+  const summary = await runWarm(baseOptions(fetchImpl));
+
+  assert.equal(summary.success, true);
+  assert.equal(summary.budget.reservedBytes, 0);
+});
+
+test('rejects HTML shorter than declared and records the negative edge delta', async () => {
+  const records = [];
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: '',
+      omitLength: true,
+      responseBytes: 1,
+    });
+  };
+
+  const summary = await runWarm(baseOptions(fetchImpl, records));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /expected at least its declared 1 bytes/i);
+  const failure = records.find((record) => record.kind === 'page' && record.error);
+  assert.equal(failure?.declared, 1);
+  assert.equal(failure?.actual, 0);
+  assert.equal(failure?.edgeDelta, -1);
+});
+
+test('rejects HTML that exceeds the fixed edge transform allowance', async () => {
+  const records = [];
+  const actual = MAX_EDGE_TRANSFORM_OVERHEAD + 2;
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: 'x'.repeat(actual),
+      omitLength: true,
+      responseBytes: 1,
+    });
+  };
+
+  const summary = await runWarm(baseOptions(fetchImpl, records));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /edge transform allowance/i);
+  const failure = records.find((record) => record.kind === 'page' && record.error);
+  assert.equal(failure?.declared, 1);
+  assert.equal(failure?.actual, actual);
+  assert.equal(failure?.edgeDelta, MAX_EDGE_TRANSFORM_OVERHEAD + 1);
+});
+
+test('continues to require exact byte equality for API responses', async () => {
+  const records = [];
+  const summary = await runWarm(baseOptions(async (url) => {
+    if (new URL(url).pathname === '/_app/version.json') return versionResponse();
+    return response({ apiCache: 'HIT', body: 'abc', contentLength: 2 });
+  }, records));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /exceeded its declared 2 bytes/i);
+  const failure = records.find((record) => record.kind === 'api' && record.error);
+  assert.equal(failure?.declared, 2);
+  assert.equal(failure?.actual, 3);
+  assert.equal(failure?.edgeDelta, 1);
+});
+
+test('continues to require exact byte equality for build probes', async () => {
+  const records = [];
+  const body = JSON.stringify({ version: BUILD_A });
+  const summary = await runWarm(baseOptions(async () => response({
+    build: BUILD_A,
+    body,
+    contentLength: new TextEncoder().encode(body).byteLength - 1,
+  }), records));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /exceeded its declared/i);
+  const failure = records.find((record) => record.kind === 'build' && record.error);
+  assert.equal(failure?.actual, failure.declared + 1);
+  assert.equal(failure?.edgeDelta, 1);
+});
+
+test('continues to require exact byte equality for ZIP responses', async () => {
+  const records = [];
+  const summary = await runWarm(baseOptions(async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.endsWith('/download')) {
+      return response({ zipCache: 'HIT', body: 'abc', contentLength: 2 });
+    }
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({ pageCache: 'HIT', body: '<html></html>' });
+  }, records, { warmZip: true }));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /exceeded its declared 2 bytes/i);
+  const failure = records.find((record) => record.kind === 'zip' && record.error);
+  assert.equal(failure?.declared, 2);
+  assert.equal(failure?.actual, 3);
+  assert.equal(failure?.edgeDelta, 1);
+});
+
+test('atomically reserves the HTML declaration plus edge allowance', async () => {
+  const cancelled = [];
+  let pageCalls = 0;
+  const versionBytes = versionBodyBytes();
+  const apiBytes = 2 * 2 * 3;
+  const summary = await runWarm(baseOptions(async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    const index = pageCalls++;
+    return streamingResponse({
+      pageCache: 'HIT',
+      responseBytes: 60,
+      pending: true,
+      onCancel: () => { cancelled[index] = true; },
+    });
+  }, [], {
+    slugs: ['alpha', 'beta'],
+    concurrency: 2,
+    byteBudget: versionBytes + apiBytes + 60 + MAX_EDGE_TRANSFORM_OVERHEAD + 50,
+  }));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /byte budget/i);
+  assert.equal(summary.budget.reservedBytes, 0);
+  assert.deepEqual(cancelled, [true, true]);
+  assert.equal(pageCalls, 2);
+});
+
 test('warms API before HTML, accepts MISS then HIT, and verifies two ordinary HITs', async () => {
   const calls = [];
   const records = [];
@@ -332,7 +522,18 @@ test('warms API before HTML, accepts MISS then HIT, and verifies two ordinary HI
   assert.equal(new Headers(calls[1].init.headers).get('cache-control'), 'no-cache');
   const innerRecord = records.find((record) => record.phase === 'inner-cache');
   assert.equal(innerRecord?.colo, 'SJC');
-  for (const field of ['url', 'attempt', 'status', 'cache', 'bytes', 'cfRay', 'colo']) {
+  for (const field of [
+    'url',
+    'attempt',
+    'status',
+    'cache',
+    'bytes',
+    'declared',
+    'actual',
+    'edgeDelta',
+    'cfRay',
+    'colo',
+  ]) {
     assert.equal(Object.hasOwn(innerRecord, field), true, `JSONL evidence must include ${field}`);
   }
   assert.deepEqual(

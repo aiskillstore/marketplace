@@ -24,6 +24,7 @@ const RETRYABLE_CACHE_STATES = new Set(['MISS', 'STALE']);
 const RETRY_BASE_DELAY_MS = 1_000;
 const RETRY_MAX_DELAY_MS = 15_000;
 const VERIFICATION_RESERVE_PER_REQUEST_MS = 10_000;
+export const MAX_EDGE_TRANSFORM_OVERHEAD = 16 * 1024;
 
 export class WarmError extends Error {
   constructor(message, details = {}) {
@@ -250,27 +251,60 @@ async function cancelBody(body, reason) {
   }
 }
 
-async function readResponseBody(response, context, url, signal) {
+async function readResponseBody(response, context, url, signal, allowEdgeTransform) {
   const body = response.body;
   let reservation = null;
   let declaredBytes;
+  // Cloudflare may rewrite canonical HTML (for example Rocket Loader and JSD)
+  // after the Pages function has emitted its origin byte count. Only page
+  // responses get this bounded allowance; every other response stays exact.
+  const edgeAllowance = allowEdgeTransform ? MAX_EDGE_TRANSFORM_OVERHEAD : 0;
   try {
     declaredBytes = declaredResponseBytes(response);
+    const reservationBytes = declaredBytes + edgeAllowance;
+    if (!Number.isSafeInteger(reservationBytes)) {
+      throw new WarmError(`Response reservation exceeds the safe integer range for ${url}`, {
+        fatal: true,
+        responseBytes: 0,
+      });
+    }
     // This synchronous reservation occurs before getReader()/reader.read(), so
     // concurrent responses cannot collectively cross the hard run budget.
-    reservation = context.budget.reserveResponseBytes(declaredBytes, url);
+    reservation = context.budget.reserveResponseBytes(reservationBytes, url);
   } catch (error) {
-    const fatal = context.abortRun(error);
+    const failure = error instanceof WarmError
+      ? error
+      : new WarmError(error instanceof Error ? error.message : String(error), { fatal: true });
+    failure.details = {
+      ...failure.details,
+      declared: Number.isSafeInteger(declaredBytes) ? declaredBytes : null,
+      actual: 0,
+      edgeDelta: Number.isSafeInteger(declaredBytes) ? -declaredBytes : null,
+    };
+    const fatal = context.abortRun(failure);
     await cancelBody(body, fatal);
     throw fatal;
   }
 
   if (!body) {
     context.budget.releaseResponseBytes(reservation);
-    if (declaredBytes === 0) return new Uint8Array();
+    if (declaredBytes === 0) {
+      return {
+        body: new Uint8Array(),
+        declared: 0,
+        actual: 0,
+        edgeDelta: 0,
+      };
+    }
     const fatal = context.abortRun(new WarmError(
       `Response body ended before its declared ${declaredBytes} bytes for ${url}`,
-      { fatal: true, responseBytes: 0 }
+      {
+        fatal: true,
+        responseBytes: 0,
+        declared: declaredBytes,
+        actual: 0,
+        edgeDelta: -declaredBytes,
+      }
     ));
     throw fatal;
   }
@@ -291,9 +325,19 @@ async function readResponseBody(response, context, url, signal) {
       if (done) break;
       const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
       if (chunk.byteLength > reservation.remaining) {
+        const actual = bytesRead + chunk.byteLength;
         const fatal = context.abortRun(new WarmError(
-          `Response body exceeded its declared ${declaredBytes} bytes for ${url}`,
-          { fatal: true, responseBytes: bytesRead, chunkBytes: chunk.byteLength }
+          allowEdgeTransform
+            ? `HTML response body exceeded declared bytes plus the ${MAX_EDGE_TRANSFORM_OVERHEAD}-byte edge transform allowance for ${url}`
+            : `Response body exceeded its declared ${declaredBytes} bytes for ${url}`,
+          {
+            fatal: true,
+            responseBytes: actual,
+            chunkBytes: chunk.byteLength,
+            declared: declaredBytes,
+            actual,
+            edgeDelta: actual - declaredBytes,
+          }
         ));
         await reader.cancel(fatal).catch(() => {});
         throw fatal;
@@ -301,17 +345,46 @@ async function readResponseBody(response, context, url, signal) {
       try {
         context.budget.consumeBytes(chunk.byteLength, url, reservation, bytesRead);
       } catch (error) {
-        const fatal = context.abortRun(error);
+        const actual = bytesRead + chunk.byteLength;
+        const failure = error instanceof WarmError
+          ? error
+          : new WarmError(error instanceof Error ? error.message : String(error), { fatal: true });
+        failure.details = {
+          ...failure.details,
+          declared: declaredBytes,
+          actual,
+          edgeDelta: actual - declaredBytes,
+        };
+        const fatal = context.abortRun(failure);
         await reader.cancel(fatal).catch(() => {});
         throw fatal;
       }
       chunks.push(chunk);
       bytesRead += chunk.byteLength;
     }
-    if (bytesRead !== declaredBytes) {
+    const edgeDelta = bytesRead - declaredBytes;
+    if (allowEdgeTransform && edgeDelta < 0) {
+      throw context.abortRun(new WarmError(
+        `HTML response body ended at ${bytesRead} bytes; expected at least its declared ${declaredBytes} bytes for ${url}`,
+        {
+          fatal: true,
+          responseBytes: bytesRead,
+          declared: declaredBytes,
+          actual: bytesRead,
+          edgeDelta,
+        }
+      ));
+    }
+    if (!allowEdgeTransform && edgeDelta !== 0) {
       throw context.abortRun(new WarmError(
         `Response body ended at ${bytesRead} bytes; expected ${declaredBytes} for ${url}`,
-        { fatal: true, responseBytes: bytesRead }
+        {
+          fatal: true,
+          responseBytes: bytesRead,
+          declared: declaredBytes,
+          actual: bytesRead,
+          edgeDelta,
+        }
       ));
     }
   } finally {
@@ -325,7 +398,12 @@ async function readResponseBody(response, context, url, signal) {
     result.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return result;
+  return {
+    body: result,
+    declared: declaredBytes,
+    actual: bytesRead,
+    edgeDelta: bytesRead - declaredBytes,
+  };
 }
 
 async function sleepUnlessAborted(context, milliseconds) {
@@ -358,6 +436,9 @@ function makeRecord({
   bytes,
   response,
   buildToken = null,
+  declared = null,
+  actual = null,
+  edgeDelta = null,
   error = null,
 }) {
   const cfRay = response?.headers?.get('cf-ray') || null;
@@ -372,6 +453,9 @@ function makeRecord({
     status,
     cache,
     bytes,
+    declared,
+    actual,
+    edgeDelta,
     cfRay,
     colo: coloFromRay(cfRay),
     buildToken,
@@ -396,6 +480,7 @@ async function fetchRecorded(context, request) {
   fetchHeaders.set('Accept-Encoding', 'identity');
   let response;
   let body;
+  let bodyMetadata;
   try {
     response = await context.fetchImpl(url, {
       method: 'GET',
@@ -403,7 +488,14 @@ async function fetchRecorded(context, request) {
       redirect: 'follow',
       signal: timer.signal,
     });
-    body = await readResponseBody(response, context, url, timer.signal);
+    bodyMetadata = await readResponseBody(
+      response,
+      context,
+      url,
+      timer.signal,
+      request.kind === 'page'
+    );
+    body = bodyMetadata.body;
   } catch (error) {
     const effectiveError = context.abortReason || error;
     const message = effectiveError instanceof Error ? effectiveError.message : String(effectiveError);
@@ -416,6 +508,9 @@ async function fetchRecorded(context, request) {
       status: response?.status || 0,
       bytes: responseBytes,
       response,
+      declared: error instanceof WarmError ? error.details?.declared ?? null : null,
+      actual: error instanceof WarmError ? error.details?.actual ?? responseBytes : responseBytes,
+      edgeDelta: error instanceof WarmError ? error.details?.edgeDelta ?? null : null,
       error: message,
     });
     await context.report(record);
@@ -438,6 +533,9 @@ async function fetchRecorded(context, request) {
     bytes: contentBytes(body),
     response,
     buildToken,
+    declared: bodyMetadata.declared,
+    actual: bodyMetadata.actual,
+    edgeDelta: bodyMetadata.edgeDelta,
   });
   await context.report(record);
   return { response, body, buildToken, cache, record };
