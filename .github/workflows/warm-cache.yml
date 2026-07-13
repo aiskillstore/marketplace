@@ -4,38 +4,57 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'warm = fill missing cache, force = clear all and regenerate'
+        description: 'warm = verify/fill cache, force = invalidate selected skills first'
         required: true
         type: choice
         options:
           - warm
           - force
         default: warm
-      type:
-        description: 'Content type to warm'
+      scope:
+        description: 'Changed/high-traffic scopes require explicit slugs; full catalog requires separate approval and larger budgets'
         required: true
         type: choice
         options:
-          - skills
-          - workflows
-          - releases
-          - all
-        default: skills
+          - changed
+          - high-traffic
+          - full-catalog
+        default: changed
       slugs:
-        description: 'Specific slugs to warm (comma-separated, optional). If empty, warm all items.'
+        description: 'Changed or high-traffic skill slugs (comma/space separated)'
+        required: false
+        type: string
+        default: ''
+      source_run_id:
+        description: 'Source workflow run containing the synced-slugs artifact (changed scope only)'
+        required: false
+        type: string
+        default: ''
+      approve_full_catalog:
+        description: 'I explicitly approve full-catalog warming within the request and byte budgets below'
+        required: false
+        type: boolean
+        default: false
+      request_budget:
+        description: 'Hard cap for warm verification HTTP requests, including retries and build probes'
+        required: true
+        type: string
+        default: '5000'
+      byte_budget:
+        description: 'Hard cap for downloaded response bytes'
+        required: true
+        type: string
+        default: '536870912'
+      expected_build_token:
+        description: 'Optional exact x-skillstore-build value for deployment-specific warming'
         required: false
         type: string
         default: ''
       warm_zip:
-        description: 'Warm ZIP download cache for skills'
+        description: 'Also verify the ZIP cache after API and HTML caches'
         required: false
         type: boolean
         default: false
-      source_run_id:
-        description: 'Source workflow run ID to download slugs artifact from (alternative to slugs input)'
-        required: false
-        type: string
-        default: ''
 
 concurrency:
   group: warm-cache
@@ -46,482 +65,189 @@ env:
   LOCALES: 'en zh-hans zh-hant ja ko de fr es pt ru ar'
   CONCURRENCY: 10
   INVALIDATE_BATCH_SIZE: 10
+  BUILD_HEADER: x-skillstore-build
+  API_CACHE_HEADER: x-api-kv-cache
+  PAGE_CACHE_HEADER: x-page-kv-cache
 
 jobs:
   warm:
     runs-on: self-hosted
     timeout-minutes: 1440
     steps:
-      - name: Checkout repository
+      - name: Checkout cache tooling
         uses: actions/checkout@v5
         with:
-          sparse-checkout: .github/actions
+          sparse-checkout: |
+            .github/actions
+            scripts
 
-      - name: Download slugs from source workflow
-        if: inputs.source_run_id != ''
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          package-manager-cache: false
+
+      - name: Download changed slugs from source workflow
+        if: inputs.source_run_id != '' && inputs.scope != 'full-catalog'
         uses: actions/download-artifact@v7
         with:
           name: synced-slugs
           run-id: ${{ inputs.source_run_id }}
           github-token: ${{ github.token }}
 
-      - name: Fetch all slugs from Supabase
-        id: fetch
+      - name: Resolve and validate warm scope
+        id: scope
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          CONTENT_TYPE: ${{ inputs.type }}
+          SCOPE: ${{ inputs.scope }}
+          MODE: ${{ inputs.mode }}
           INPUT_SLUGS: ${{ inputs.slugs }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          APPROVE_FULL_CATALOG: ${{ inputs.approve_full_catalog }}
+          REQUEST_BUDGET: ${{ inputs.request_budget }}
+          BYTE_BUDGET: ${{ inputs.byte_budget }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           set -euo pipefail
 
+          if ! [[ "$REQUEST_BUDGET" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::request_budget must be a positive integer"
+            exit 1
+          fi
+          if ! [[ "$BYTE_BUDGET" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::byte_budget must be a positive integer"
+            exit 1
+          fi
+
           WORK_DIR="$RUNNER_TEMP/warm-cache"
           mkdir -p "$WORK_DIR"
+          SLUGS_FILE="$WORK_DIR/skills-slugs.txt"
+          : > "$SLUGS_FILE"
 
-          SKILLS_FILE="$WORK_DIR/skills-slugs.txt"
-          WORKFLOWS_FILE="$WORK_DIR/workflows-slugs.txt"
-          RELEASES_FILE="$WORK_DIR/releases-tags.txt"
-          : > "$SKILLS_FILE"
-          : > "$WORKFLOWS_FILE"
-          : > "$RELEASES_FILE"
-
-          normalize_items() {
+          normalize_slugs() {
             tr ',[:space:]' '\n' | sed '/^$/d' | sort -u
           }
 
-          write_items_from_string() {
-            local file="$1"
-            local items="$2"
-            printf '%s\n' "$items" | normalize_items > "$file"
-          }
-
-          fetch_all_from_supabase() {
-            local table=$1
-            local column=${2:-slug}
-            local output_file=$3
-            local offset=0
-            local limit=1000
-
-            : > "$output_file"
-            
-            while true; do
-              response=$(curl -sf "${SUPABASE_URL}/rest/v1/${table}?select=${column}&offset=${offset}&limit=${limit}" \
-                -H "apikey: ${SUPABASE_SERVICE_KEY}" \
-                -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
-                -H "Accept-Profile: skillstore")
-              
-              items_file=$(mktemp)
-              echo "$response" | jq -r ".[].${column}" | sed '/^$/d' > "$items_file"
-              count=$(grep -c . "$items_file" || true)
-              
-              if [ "$count" -eq 0 ]; then
-                rm -f "$items_file"
-                break
-              fi
-              
-              cat "$items_file" >> "$output_file"
-              rm -f "$items_file"
-              offset=$((offset + limit))
-              echo "  Fetched $count items (offset: $((offset - limit)))" >&2
-            done
-
-            sort -u -o "$output_file" "$output_file"
-          }
-
-          count_file() {
-            grep -c . "$1" 2>/dev/null || true
-          }
-
-          emit_file_output() {
-            local name="$1"
-            local file="$2"
-            local count
-            count=$(count_file "$file")
-            echo "${name}_file=$file" >> "$GITHUB_OUTPUT"
-            echo "${name}_count=$count" >> "$GITHUB_OUTPUT"
-          }
-
-          USING_SPECIFIC_SKILLS=false
-
-          if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
-            if [ -n "$SOURCE_RUN_ID" ]; then
-              if [ ! -f synced-slugs.txt ]; then
-                echo "::error::synced-slugs.txt not found in source workflow artifact"
-                exit 1
-              fi
-              echo "Using skill slugs from source workflow artifact"
-              normalize_items < synced-slugs.txt > "$SKILLS_FILE"
-              USING_SPECIFIC_SKILLS=true
-            elif [ -n "$INPUT_SLUGS" ]; then
-              echo "Using provided skill slugs"
-              write_items_from_string "$SKILLS_FILE" "$INPUT_SLUGS"
-              USING_SPECIFIC_SKILLS=true
-            else
-              echo "Fetching all skills from Supabase..."
-              fetch_all_from_supabase "skills" "slug" "$SKILLS_FILE"
+          if [ "$SCOPE" = "full-catalog" ]; then
+            if [ "$APPROVE_FULL_CATALOG" != "true" ]; then
+              echo "::error::Full-catalog warming requires approve_full_catalog=true"
+              exit 1
+            fi
+            if [ -n "$INPUT_SLUGS" ] || [ -n "$SOURCE_RUN_ID" ]; then
+              echo "::error::Full-catalog scope cannot be combined with slugs or source_run_id"
+              exit 1
+            fi
+            if [ "$MODE" = "force" ]; then
+              echo "::error::Full-catalog force invalidation is intentionally unsupported; use warm mode with explicit budgets or invalidate a bounded slug set"
+              exit 1
+            fi
+            if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_KEY" ]; then
+              echo "::error::Supabase credentials are required to resolve the full catalog"
+              exit 1
             fi
 
-            SKILLS_COUNT=$(count_file "$SKILLS_FILE")
-            echo "Found $SKILLS_COUNT skills"
-          fi
-          
-          if [ "$CONTENT_TYPE" = "workflows" ] || { [ "$CONTENT_TYPE" = "all" ] && [ "$USING_SPECIFIC_SKILLS" != "true" ]; }; then
-            echo "Fetching all workflows from Supabase..."
-            fetch_all_from_supabase "workflows" "slug" "$WORKFLOWS_FILE"
-            WORKFLOWS_COUNT=$(count_file "$WORKFLOWS_FILE")
-            echo "Found $WORKFLOWS_COUNT workflows"
-          fi
-          
-          if [ "$CONTENT_TYPE" = "releases" ] || { [ "$CONTENT_TYPE" = "all" ] && [ "$USING_SPECIFIC_SKILLS" != "true" ]; }; then
-            echo "Fetching all releases from Supabase..."
-            fetch_all_from_supabase "releases" "tag" "$RELEASES_FILE"
-            RELEASES_COUNT=$(count_file "$RELEASES_FILE")
-            echo "Found $RELEASES_COUNT releases"
+            echo "Resolving the explicitly approved full public Skill catalog..."
+            offset=0
+            limit=1000
+            while true; do
+              response=$(curl -fsS \
+                "${SUPABASE_URL}/rest/v1/skills?select=slug&status=eq.approved&public_eligible=eq.true&order=slug.asc&offset=${offset}&limit=${limit}" \
+                -H "apikey: ${SUPABASE_SERVICE_KEY}" \
+                -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \
+                -H "Accept-Profile: skillstore" \
+                --connect-timeout 10 \
+                --max-time 90)
+              page_file=$(mktemp)
+              printf '%s' "$response" | jq -r 'if type == "array" then .[].slug else error("expected array") end' > "$page_file"
+              count=$(grep -c . "$page_file" || true)
+              cat "$page_file" >> "$SLUGS_FILE"
+              rm -f "$page_file"
+              echo "Resolved $count approved skills at offset $offset"
+              if [ "$count" -lt "$limit" ]; then
+                break
+              fi
+              offset=$((offset + limit))
+            done
+            sort -u -o "$SLUGS_FILE" "$SLUGS_FILE"
+          elif [ -n "$SOURCE_RUN_ID" ]; then
+            if [ "$SCOPE" != "changed" ]; then
+              echo "::error::source_run_id is only valid for changed scope"
+              exit 1
+            fi
+            if [ ! -f synced-slugs.txt ]; then
+              echo "::error::synced-slugs artifact is missing synced-slugs.txt"
+              exit 1
+            fi
+            normalize_slugs < synced-slugs.txt > "$SLUGS_FILE"
+          else
+            printf '%s\n' "$INPUT_SLUGS" | normalize_slugs > "$SLUGS_FILE"
           fi
 
-          emit_file_output "skills" "$SKILLS_FILE"
-          emit_file_output "workflows" "$WORKFLOWS_FILE"
-          emit_file_output "releases" "$RELEASES_FILE"
+          SLUG_COUNT=$(grep -c . "$SLUGS_FILE" || true)
+          if [ "$SLUG_COUNT" -eq 0 ]; then
+            echo "::error::Warm scope is empty. Supply changed/high-traffic slugs or explicitly approve full-catalog mode."
+            exit 1
+          fi
 
-      - name: Invalidate skills cache (force mode only)
-        if: inputs.mode == 'force' && (inputs.type == 'skills' || inputs.type == 'all') && steps.fetch.outputs.skills_count != '0'
+          echo "Resolved $SLUG_COUNT skill(s) for scope $SCOPE"
+          echo "slugs_file=$SLUGS_FILE" >> "$GITHUB_OUTPUT"
+          echo "slug_count=$SLUG_COUNT" >> "$GITHUB_OUTPUT"
+
+      - name: Invalidate selected skill caches
+        if: inputs.mode == 'force'
         uses: ./.github/actions/invalidate-cache
         with:
           type: skills
-          slugs-file: ${{ steps.fetch.outputs.skills_file }}
+          slugs-file: ${{ steps.scope.outputs.slugs_file }}
           secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           batch-size: ${{ env.INVALIDATE_BATCH_SIZE }}
+          fail-on-error: 'true'
 
-      - name: Invalidate workflows cache (force mode only)
-        if: inputs.mode == 'force' && (inputs.type == 'workflows' || inputs.type == 'all') && steps.fetch.outputs.workflows_count != '0'
-        uses: ./.github/actions/invalidate-cache
-        with:
-          type: workflows
-          slugs-file: ${{ steps.fetch.outputs.workflows_file }}
-          secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
-          batch-size: ${{ env.INVALIDATE_BATCH_SIZE }}
-
-      - name: Invalidate releases cache (force mode only)
-        if: inputs.mode == 'force' && (inputs.type == 'releases' || inputs.type == 'all') && steps.fetch.outputs.releases_count != '0'
-        uses: ./.github/actions/invalidate-cache
-        with:
-          type: releases
-          slugs-file: ${{ steps.fetch.outputs.releases_file }}
-          secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
-          batch-size: ${{ env.INVALIDATE_BATCH_SIZE }}
-
-      - name: Warm skills page cache
-        if: inputs.type == 'skills' || inputs.type == 'all'
+      - name: Warm and verify API, HTML, and optional ZIP caches
         env:
-          SLUGS_FILE: ${{ steps.fetch.outputs.skills_file }}
-          SKILL_COUNT: ${{ steps.fetch.outputs.skills_count }}
-        run: |
-          if [ ! -s "$SLUGS_FILE" ]; then
-            echo "No skills to warm"
-            exit 0
-          fi
-
-          generate_urls() {
-            while IFS= read -r slug; do
-              [ -z "$slug" ] && continue
-              for locale in $LOCALES; do
-                if [ "$locale" = "en" ]; then
-                  echo "$SITE_URL/skills/$slug"
-                else
-                  echo "$SITE_URL/$locale/skills/$slug"
-                fi
-              done
-            done < "$SLUGS_FILE"
-          }
-
-          LOCALE_COUNT=$(echo "$LOCALES" | wc -w | tr -d ' ')
-          URL_COUNT=$((SKILL_COUNT * LOCALE_COUNT))
-
-          echo "Warming $URL_COUNT skill URLs ($SKILL_COUNT skills × $LOCALE_COUNT locales)..."
-          echo "Progress will be reported every 500 URLs..."
-          echo ""
-
-          COUNTER=0
-          SUCCESS=0
-          FAILED=0
-          START_TIME=$(date +%s)
-
-          generate_urls | xargs -r -P "$CONCURRENCY" -n 1 sh -c '
-            url="$1"
-            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "$url" 2>/dev/null || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "success"
-            else
-              echo "failed:$url"
-            fi
-          ' sh | while read -r result; do
-            COUNTER=$((COUNTER + 1))
-            if [ "$result" = "success" ]; then
-              SUCCESS=$((SUCCESS + 1))
-            else
-              FAILED=$((FAILED + 1))
-            fi
-
-            if [ $((COUNTER % 500)) -eq 0 ]; then
-              ELAPSED=$(($(date +%s) - START_TIME))
-              [ "$ELAPSED" -gt 0 ] || ELAPSED=1
-              RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
-              echo "Progress: $COUNTER/$URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} URLs/s"
-            fi
-          done
-
-          END_TIME=$(date +%s)
-          TOTAL_TIME=$((END_TIME - START_TIME))
-          [ "$TOTAL_TIME" -gt 0 ] || TOTAL_TIME=1
-          AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $URL_COUNT / $TOTAL_TIME}")
-
-          echo ""
-          echo "✅ Skills page cache warming complete"
-          echo "Total: $URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Time: ${TOTAL_TIME}s | Avg: ${AVG_RATE} URLs/s"
-
-      - name: Warm skills ZIP download cache
-        if: inputs.warm_zip && (inputs.type == 'skills' || inputs.type == 'all')
-        env:
-          SLUGS_FILE: ${{ steps.fetch.outputs.skills_file }}
-          SLUG_COUNT: ${{ steps.fetch.outputs.skills_count }}
-        run: |
-          if [ ! -s "$SLUGS_FILE" ]; then
-            echo "No skills to warm ZIP cache"
-            exit 0
-          fi
-
-          echo "Warming ZIP cache for $SLUG_COUNT skills..."
-          echo "Progress will be reported every 100 skills..."
-          echo ""
-
-          COUNTER=0
-          SUCCESS=0
-          FAILED=0
-          START_TIME=$(date +%s)
-
-          while IFS= read -r slug; do
-            [ -z "$slug" ] && continue
-            URL="$SITE_URL/api/skills/$slug/download"
-            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 120 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "$URL" 2>/dev/null || echo "000")
-
-            COUNTER=$((COUNTER + 1))
-            if [ "$STATUS" = "200" ]; then
-              SUCCESS=$((SUCCESS + 1))
-            else
-              FAILED=$((FAILED + 1))
-            fi
-
-            if [ $((COUNTER % 100)) -eq 0 ]; then
-              ELAPSED=$(($(date +%s) - START_TIME))
-              [ "$ELAPSED" -gt 0 ] || ELAPSED=1
-              RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
-              echo "Progress: $COUNTER/$SLUG_COUNT ZIPs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} ZIPs/s"
-            fi
-          done < "$SLUGS_FILE"
-
-          END_TIME=$(date +%s)
-          TOTAL_TIME=$((END_TIME - START_TIME))
-          [ "$TOTAL_TIME" -gt 0 ] || TOTAL_TIME=1
-          AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $SLUG_COUNT / $TOTAL_TIME}")
-
-          echo ""
-          echo "✅ Skills ZIP cache warming complete"
-          echo "Total: $SLUG_COUNT ZIPs | Success: $SUCCESS | Failed: $FAILED | Time: ${TOTAL_TIME}s | Avg: ${AVG_RATE} ZIPs/s"
-
-      - name: Warm workflows cache
-        if: inputs.type == 'workflows' || inputs.type == 'all'
-        env:
-          SLUGS_FILE: ${{ steps.fetch.outputs.workflows_file }}
-          WORKFLOW_COUNT: ${{ steps.fetch.outputs.workflows_count }}
-        run: |
-          if [ ! -s "$SLUGS_FILE" ]; then
-            echo "No workflows to warm"
-            exit 0
-          fi
-
-          generate_urls() {
-            while IFS= read -r slug; do
-              [ -z "$slug" ] && continue
-              for locale in $LOCALES; do
-                if [ "$locale" = "en" ]; then
-                  echo "$SITE_URL/workflows/$slug"
-                else
-                  echo "$SITE_URL/$locale/workflows/$slug"
-                fi
-              done
-            done < "$SLUGS_FILE"
-          }
-
-          LOCALE_COUNT=$(echo "$LOCALES" | wc -w | tr -d ' ')
-          URL_COUNT=$((WORKFLOW_COUNT * LOCALE_COUNT))
-
-          echo "Warming $URL_COUNT workflow URLs ($WORKFLOW_COUNT workflows × $LOCALE_COUNT locales)..."
-          echo "Progress will be reported every 500 URLs..."
-          echo ""
-
-          COUNTER=0
-          SUCCESS=0
-          FAILED=0
-          START_TIME=$(date +%s)
-
-          generate_urls | xargs -r -P "$CONCURRENCY" -n 1 sh -c '
-            url="$1"
-            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "$url" 2>/dev/null || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "success"
-            else
-              echo "failed:$url"
-            fi
-          ' sh | while read -r result; do
-            COUNTER=$((COUNTER + 1))
-            if [ "$result" = "success" ]; then
-              SUCCESS=$((SUCCESS + 1))
-            else
-              FAILED=$((FAILED + 1))
-            fi
-
-            if [ $((COUNTER % 500)) -eq 0 ]; then
-              ELAPSED=$(($(date +%s) - START_TIME))
-              [ "$ELAPSED" -gt 0 ] || ELAPSED=1
-              RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
-              echo "Progress: $COUNTER/$URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} URLs/s"
-            fi
-          done
-
-          END_TIME=$(date +%s)
-          TOTAL_TIME=$((END_TIME - START_TIME))
-          [ "$TOTAL_TIME" -gt 0 ] || TOTAL_TIME=1
-          AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $URL_COUNT / $TOTAL_TIME}")
-
-          echo ""
-          echo "✅ Workflows cache warming complete"
-          echo "Total: $URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Time: ${TOTAL_TIME}s | Avg: ${AVG_RATE} URLs/s"
-
-      - name: Warm releases cache
-        if: inputs.type == 'releases' || inputs.type == 'all'
-        env:
-          TAGS_FILE: ${{ steps.fetch.outputs.releases_file }}
-          RELEASE_COUNT: ${{ steps.fetch.outputs.releases_count }}
-        run: |
-          if [ ! -s "$TAGS_FILE" ]; then
-            echo "No releases to warm"
-            exit 0
-          fi
-
-          generate_urls() {
-            while IFS= read -r tag; do
-              [ -z "$tag" ] && continue
-              for locale in $LOCALES; do
-                if [ "$locale" = "en" ]; then
-                  echo "$SITE_URL/releases/$tag"
-                else
-                  echo "$SITE_URL/$locale/releases/$tag"
-                fi
-              done
-            done < "$TAGS_FILE"
-          }
-
-          LOCALE_COUNT=$(echo "$LOCALES" | wc -w | tr -d ' ')
-          URL_COUNT=$((RELEASE_COUNT * LOCALE_COUNT))
-
-          echo "Warming $URL_COUNT release URLs ($RELEASE_COUNT releases × $LOCALE_COUNT locales)..."
-          echo "Progress will be reported every 500 URLs..."
-          echo ""
-
-          COUNTER=0
-          SUCCESS=0
-          FAILED=0
-          START_TIME=$(date +%s)
-
-          generate_urls | xargs -r -P "$CONCURRENCY" -n 1 sh -c '
-            url="$1"
-            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 60 -H "User-Agent: GitHub-Actions/SkillstoreBot" -H "X-Skillstore-Callback: true" "$url" 2>/dev/null || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              echo "success"
-            else
-              echo "failed:$url"
-            fi
-          ' sh | while read -r result; do
-            COUNTER=$((COUNTER + 1))
-            if [ "$result" = "success" ]; then
-              SUCCESS=$((SUCCESS + 1))
-            else
-              FAILED=$((FAILED + 1))
-            fi
-
-            if [ $((COUNTER % 500)) -eq 0 ]; then
-              ELAPSED=$(($(date +%s) - START_TIME))
-              [ "$ELAPSED" -gt 0 ] || ELAPSED=1
-              RATE=$(awk "BEGIN {printf \"%.1f\", $COUNTER / $ELAPSED}")
-              echo "Progress: $COUNTER/$URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Rate: ${RATE} URLs/s"
-            fi
-          done
-
-          END_TIME=$(date +%s)
-          TOTAL_TIME=$((END_TIME - START_TIME))
-          [ "$TOTAL_TIME" -gt 0 ] || TOTAL_TIME=1
-          AVG_RATE=$(awk "BEGIN {printf \"%.1f\", $URL_COUNT / $TOTAL_TIME}")
-
-          echo ""
-          echo "✅ Releases cache warming complete"
-          echo "Total: $URL_COUNT URLs | Success: $SUCCESS | Failed: $FAILED | Time: ${TOTAL_TIME}s | Avg: ${AVG_RATE} URLs/s"
-
-      - name: Summary
-        env:
-          MODE: ${{ inputs.mode }}
-          CONTENT_TYPE: ${{ inputs.type }}
+          SLUGS_FILE: ${{ steps.scope.outputs.slugs_file }}
+          REQUEST_BUDGET: ${{ inputs.request_budget }}
+          BYTE_BUDGET: ${{ inputs.byte_budget }}
+          EXPECTED_BUILD_TOKEN: ${{ inputs.expected_build_token }}
           WARM_ZIP: ${{ inputs.warm_zip }}
-          SKILLS_COUNT: ${{ steps.fetch.outputs.skills_count }}
-          WORKFLOWS_COUNT: ${{ steps.fetch.outputs.workflows_count }}
-          RELEASES_COUNT: ${{ steps.fetch.outputs.releases_count }}
+          WARM_MODE: ${{ inputs.mode }}
+          WARM_SCOPE: ${{ inputs.scope }}
         run: |
-          LOCALE_COUNT=11
-          
-          SKILLS_URLS=$((SKILLS_COUNT * LOCALE_COUNT))
+          set -euo pipefail
+
+          REPORT="$RUNNER_TEMP/warm-cache-report.jsonl"
+          SUMMARY="$RUNNER_TEMP/warm-cache-summary.json"
+          args=(
+            --slugs-file "$SLUGS_FILE"
+            --site-url "$SITE_URL"
+            --locales "$LOCALES"
+            --concurrency "$CONCURRENCY"
+            --request-budget "$REQUEST_BUDGET"
+            --byte-budget "$BYTE_BUDGET"
+            --mode "$WARM_MODE"
+            --scope "$WARM_SCOPE"
+            --build-header "$BUILD_HEADER"
+            --api-cache-header "$API_CACHE_HEADER"
+            --page-cache-header "$PAGE_CACHE_HEADER"
+            --report "$REPORT"
+            --summary "$SUMMARY"
+          )
+          if [ -n "$EXPECTED_BUILD_TOKEN" ]; then
+            args+=(--expected-build-token "$EXPECTED_BUILD_TOKEN")
+          fi
           if [ "$WARM_ZIP" = "true" ]; then
-            SKILLS_ZIPS=$SKILLS_COUNT
-          else
-            SKILLS_ZIPS=0
+            args+=(--warm-zip)
           fi
-          WORKFLOWS_URLS=$((WORKFLOWS_COUNT * LOCALE_COUNT))
-          RELEASES_URLS=$((RELEASES_COUNT * LOCALE_COUNT))
-          TOTAL_URLS=$((SKILLS_URLS + SKILLS_ZIPS + WORKFLOWS_URLS + RELEASES_URLS))
-          
-          echo "## Cache Warming Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Mode | \`$MODE\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Content Type | \`$CONTENT_TYPE\` |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "$MODE" = "force" ]; then
-            echo "> **Force mode**: All caches were invalidated before warming" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "$CONTENT_TYPE" = "skills" ] || [ "$CONTENT_TYPE" = "all" ]; then
-            echo "| Skills | $SKILLS_COUNT |" >> $GITHUB_STEP_SUMMARY
-            echo "| Skill Page URLs | $SKILLS_URLS |" >> $GITHUB_STEP_SUMMARY
-            if [ "$WARM_ZIP" = "true" ]; then
-              echo "| Skill ZIP Downloads | $SKILLS_COUNT |" >> $GITHUB_STEP_SUMMARY
-            fi
-          fi
-          
-          if [ "$CONTENT_TYPE" = "workflows" ] || [ "$CONTENT_TYPE" = "all" ]; then
-            echo "| Workflows | $WORKFLOWS_COUNT |" >> $GITHUB_STEP_SUMMARY
-            echo "| Workflow URLs | $WORKFLOWS_URLS |" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          if [ "$CONTENT_TYPE" = "releases" ] || [ "$CONTENT_TYPE" = "all" ]; then
-            echo "| Releases | $RELEASES_COUNT |" >> $GITHUB_STEP_SUMMARY
-            echo "| Release URLs | $RELEASES_URLS |" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "| **Total URLs** | **$TOTAL_URLS** |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Cache warming completed" >> $GITHUB_STEP_SUMMARY
+
+          node scripts/warm-skill-cache.mjs "${args[@]}"
+
+      - name: Upload warm verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: warm-cache-verification-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/warm-cache-report.jsonl
+            ${{ runner.temp }}/warm-cache-summary.json
+          if-no-files-found: warn
+          retention-days: 14

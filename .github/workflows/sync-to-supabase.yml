@@ -844,7 +844,6 @@ jobs:
     steps:
       - name: Invalidate cache for synced skills
         id: invalidate
-        continue-on-error: true
         env:
           SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
           SITE_URL: https://skillstore.io
@@ -869,27 +868,19 @@ jobs:
           set -e
 
           if [ $EXIT_CODE -ne 0 ]; then
-            echo "::warning::Cache invalidation failed (non-critical, continuing workflow)"
+            echo "::error::Cache invalidation failed; cache warming is blocked"
             echo "Response: $RESPONSE"
-            echo "invalidation_failed=true" >> $GITHUB_OUTPUT
-            exit 0
+            cat << EOF >> "$GITHUB_STEP_SUMMARY"
+          ## ❌ Cache invalidation failed
+
+          Skill data was synced, but the long-lived production detail cache was not invalidated. Detail API entries can live for **365 days**, so cache warming must not continue with stale data.
+
+          **Action required**: fix the invalidation error, rerun cache invalidation for the synced slugs, then rerun the scoped warm workflow.
+          EOF
+            exit "$EXIT_CODE"
           fi
 
           echo "✅ Cache invalidated: $RESPONSE"
-          echo "invalidation_failed=false" >> $GITHUB_OUTPUT
-
-      - name: Report cache invalidation failure
-        if: steps.invalidate.outputs.invalidation_failed == 'true'
-        run: |
-          cat << EOF >> $GITHUB_STEP_SUMMARY
-          ## ⚠️ Cache Invalidation Warning
-
-          Cache invalidation failed for synced skills. This is non-critical and the workflow continued.
-          Skills were synced successfully but may take longer to appear on the website.
-
-          **Impact**: Low - Cache will expire naturally within 24 hours
-          **Action Required**: None - Monitor next sync cycle
-          EOF
 
   # ============================================================
   # CACHE WARMING JOB
@@ -897,7 +888,7 @@ jobs:
   # ============================================================
   trigger-cache-warm:
     needs: [sync, calculate-scores, cache-invalidate]
-    if: needs.sync.outputs.skip_sync != 'true' && inputs.skip_cache_warm != true && !contains(github.event.head_commit.message || '', '[bulk-source-monitor]')
+    if: needs.cache-invalidate.result == 'success' && needs.sync.outputs.skip_sync != 'true' && inputs.skip_cache_warm != true && !contains(github.event.head_commit.message || '', '[bulk-source-monitor]')
     runs-on: self-hosted
     timeout-minutes: 15
     steps:
@@ -920,34 +911,36 @@ jobs:
 
           SLUG_COUNT=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
           THRESHOLD=500
+          REQUEST_BUDGET=$((SLUG_COUNT * 80 + 20))
+          BYTE_BUDGET=$((SLUG_COUNT * 10485760 + 10485760))
 
           echo "🔥 Triggering warm-cache workflow for $SLUG_COUNT synced skills"
+          echo "   Request budget: $REQUEST_BUDGET"
+          echo "   Byte budget: $BYTE_BUDGET"
 
           if [ "$SLUG_COUNT" -le "$THRESHOLD" ]; then
             # Small batch: pass slugs directly via input
             echo "   Mode: direct (≤$THRESHOLD slugs)"
-            if ! gh workflow run warm-cache.yml \
+            gh workflow run warm-cache.yml \
               --repo "${{ github.repository }}" \
               -f mode=warm \
-              -f type=skills \
+              -f scope=changed \
               -f slugs="$SYNCED_SLUGS" \
-              -f warm_zip=false; then
-              echo "::warning::Could not trigger warm-cache workflow for synced skills; sync already completed and cache will refresh naturally."
-              exit 0
-            fi
+              -f request_budget="$REQUEST_BUDGET" \
+              -f byte_budget="$BYTE_BUDGET" \
+              -f warm_zip=false
             MODE="direct"
           else
             # Large batch: use artifact to avoid input size limits
             echo "   Mode: artifact (>$THRESHOLD slugs)"
-            if ! gh workflow run warm-cache.yml \
+            gh workflow run warm-cache.yml \
               --repo "${{ github.repository }}" \
               -f mode=warm \
-              -f type=skills \
+              -f scope=changed \
               -f source_run_id=${{ github.run_id }} \
-              -f warm_zip=false; then
-              echo "::warning::Could not trigger warm-cache workflow for synced skills; sync already completed and cache will refresh naturally."
-              exit 0
-            fi
+              -f request_budget="$REQUEST_BUDGET" \
+              -f byte_budget="$BYTE_BUDGET" \
+              -f warm_zip=false
             MODE="artifact (source: ${{ github.run_id }})"
           fi
 
@@ -958,6 +951,9 @@ jobs:
           ## 🔥 Cache Warming Triggered
 
           Triggered \`warm-cache.yml\` workflow for **$SLUG_COUNT synced skills** (mode: $MODE).
+
+          - Request budget: \`$REQUEST_BUDGET\`
+          - Byte budget: \`$BYTE_BUDGET\`
 
           [View workflow runs →](https://github.com/${{ github.repository }}/actions/workflows/warm-cache.yml)
           EOF
