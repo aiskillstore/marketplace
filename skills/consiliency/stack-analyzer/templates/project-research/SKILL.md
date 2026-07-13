@@ -1,5 +1,5 @@
 ---
-name: {project}-research
+name: project-research
 description: "Research workflow patterns specific to {project}. Covers research agent coordination, source management, and synthesis strategies."
 generated_by: ai-dev-kit:recommend-skills
 ---
