@@ -4,13 +4,13 @@ slug: outreach-manager
 displayName: "Outreach Manager · 建联外联管理"
 summary: "红人及媒体建联:分层触达序列、跟进节奏与回复率优化"
 description: 'Use when the user asks to "write influencer outreach", "follow up with a creator", "pitch a journalist, hunter, or launch partner", or "negotiate partnership terms"; produces personalized pitches, multi-touch follow-up sequences, negotiation scripts with objection handling, and a status pipeline tracker — the shared outreach mechanics engine for creator, media/analyst, launch-partner, and social-selling / advocate-recruitment targets. Not for finalizing signed agreements — use contract-helper; not for media-list tiering, embargo terms, or press-release structure — use press-media-relations.'
-version: "17.0.0"
+version: "18.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Activate the skill when the user wants to contact a creator, journalist, analyst, hunter, or launch partner; draft or personalize a pitch message; build a follow-up cadence for non-responders; re-engage a past partner; negotiate rate or scope; handle pricing objections; or track outreach status across a target list. For media targets the list/angle/embargo artifact comes from press-media-relations — this skill executes the pitch mechanics."
 argument-hint: "<influencer handle or list> [platform] [budget]"
-metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "influencer", "phase": "activate", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "activate"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "18.0.0", "discipline": "influencer", "phase": "activate", "geo-relevance": "low", "hermes": {"tags": ["marketing", "influencer", "activate"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Outreach Manager
@@ -40,7 +40,7 @@ Help me negotiate with @[influencer] who is asking for $[X] when our budget is $
   - A personalized pitch (plus at least one variation) exists for each target influencer.
   - A follow-up cadence and pipeline status are recorded for every contacted creator.
   - Confirmed partners are flagged with agreed terms for handoff.
-- **Primary next skill**: [content-reviewer](../content-reviewer/SKILL.md)
+- **Primary next skill**: [creator-content-auditor](../creator-content-auditor/SKILL.md)
 
 ### Handoff Summary
 
@@ -96,21 +96,21 @@ Full multi-version output, follow-up cadence, negotiation guide, and pipeline tr
 - [skill-contract.md](../../../references/skill-contract.md) — shared contract and Handoff Summary format.
 - [state-model.md](../../../references/state-model.md) — memory tiers and save-path conventions.
 - [CONNECTORS.md](../../../CONNECTORS.md) — free/keyless data recipe per connector category.
-- C3 benchmark scoring at [references/c3/scoring-architecture.md](../../../references/c3/scoring-architecture.md) — quality scoring reference for downstream review.
+- STAR benchmark scoring at [references/star-benchmark.md](../../../references/star-benchmark.md) — quality scoring reference for downstream review.
 - [expert-panel.md](../../../references/expert-panel.md) — multi-persona review method for pressure-testing outreach copy before sending.
-- Sibling skills: [influencer-discovery](../../discover/influencer-discovery/SKILL.md), [fit-scorer](../../discover/fit-scorer/SKILL.md), [brief-generator](../../plan/brief-generator/SKILL.md), [contract-helper](../contract-helper/SKILL.md), [content-reviewer](../content-reviewer/SKILL.md).
+- Sibling skills: [influencer-discovery](../../scout/influencer-discovery/SKILL.md), [fit-scorer](../../scout/fit-scorer/SKILL.md), [brief-generator](../../target/brief-generator/SKILL.md), [contract-helper](../contract-helper/SKILL.md), [creator-content-auditor](../creator-content-auditor/SKILL.md).
 
 ## Next Best Skill
 
-- **Primary**: [content-reviewer](../content-reviewer/SKILL.md) — once a partner is confirmed and creates content, review the draft against the brief before it ships.
+- **Primary**: [creator-content-auditor](../creator-content-auditor/SKILL.md) — once a partner is confirmed and creates content, review the draft against the brief before it ships.
 - **Alternate**: [contract-helper](../contract-helper/SKILL.md) — finalize agreed terms into a partnership agreement.
-- **Alternate**: [brief-generator](../../plan/brief-generator/SKILL.md) — send a full campaign brief to a creator who asked for more detail.
+- **Alternate**: [brief-generator](../../target/brief-generator/SKILL.md) — send a full campaign brief to a creator who asked for more detail.
 
 Termination note: keep a visited-set. If a skill in this chain was already invoked this session, stop and report chain-complete rather than re-running it. Max handoff depth is 3.
 
 ## Related Skills
 
-- [influencer-discovery](../../discover/influencer-discovery) - Find influencers to reach out to
-- [fit-scorer](../../discover/fit-scorer) - Prioritize who to contact first
-- [brief-generator](../../plan/brief-generator) - Send briefs to confirmed partners
-- [contract-helper](../contract-helper) - Finalize agreements
+- [influencer-discovery](../../scout/influencer-discovery/SKILL.md) - Find influencers to reach out to
+- [fit-scorer](../../scout/fit-scorer/SKILL.md) - Prioritize who to contact first
+- [brief-generator](../../target/brief-generator/SKILL.md) - Send briefs to confirmed partners
+- [contract-helper](../contract-helper/SKILL.md) - Finalize agreements

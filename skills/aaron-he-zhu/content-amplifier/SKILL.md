@@ -1,23 +1,23 @@
 ---
 name: content-amplifier
 slug: content-amplifier
-displayName: "Content Amplifier · 内容放量."
-summary: "内容放量."
-description: 'Use when the user asks to "amplify influencer content with paid media", "set up whitelisting or Spark Ads", "decide which posts to boost", "repurpose influencer content", "turn one video into multiple ads", or "build a UGC asset library"; produces (paid mode) a content-selection scorecard, a paid amplification strategy (whitelisting/boosting/dark posts), audience targeting, and a budget+optimization plan, or (repurpose mode) a rights-tracked content inventory, a 1-video-to-10+-asset repurposing map, per-format transformation specs, and a 30-day distribution plan. Not for gating whether a deliverable is publishable or FTC-compliant — use content-reviewer; not for the always-on brand posting calendar — use social-calendar-builder; not for drafting a net-new idea into platform-native packages — use social-creative-builder. 复用达人内容 / 内容放量.'
-version: "17.0.0"
+displayName: "Content Amplifier · 内容放量"
+summary: "把跑赢的创作者内容用付费放大，并将 UGC 复用到付费、网站、邮件与自然渠道"
+description: 'Use when the user asks to "amplify influencer content with paid media", "set up whitelisting or Spark Ads", "decide which posts to boost", "repurpose influencer content", "turn one video into multiple ads", or "build a UGC asset library"; produces (paid mode) a content-selection scorecard, a paid amplification strategy (whitelisting/boosting/dark posts), audience targeting, and a budget+optimization plan, or (repurpose mode) a rights-tracked content inventory, a 1-video-to-10+-asset repurposing map, per-format transformation specs, and a 30-day distribution plan. Not for gating whether a deliverable is publishable or FTC-compliant — use creator-content-auditor; not for the always-on brand posting calendar — use social-calendar-builder; not for drafting a net-new idea into platform-native packages — use social-creative-builder. 复用达人内容 / 内容放量.'
+version: "18.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when a brand has live, approved creator content and wants to extract more value from it. Paid mode: extend reach with paid spend — choosing which posts to boost, setting up whitelisted Partnership Ads or TikTok Spark Ads, planning dark posts, allocating an ad budget across creators and platforms, building audience targeting off creator lookalikes, running an optimization and scale/pause playbook. Repurpose mode: reuse one asset across paid, website, email, and organic social — generating ad variations from organic clips, building a searchable rights-tracked library, populating product pages with social proof, or planning a multi-channel rollout from a small source set."
 argument-hint: "[--mode paid|repurpose] <campaign or content set> [budget] [platforms/channels]"
-metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "influencer", "phase": "activate", "geo-relevance": "low", "family": "influencer-marketing", "hermes": {"tags": ["marketing", "influencer", "activate"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "18.0.0", "discipline": "influencer", "phase": "activate", "geo-relevance": "low", "hermes": {"tags": ["marketing", "influencer", "activate"], "category": "influencer"}, "openclaw": {"emoji": "📣", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Content Amplifier
 
-Extract more value from live, approved creator content. Two modes: **paid** (extend reach with paid spend — whitelisting, Spark Ads, dark posts, budget + optimization) and **repurpose** (reuse one asset across paid, website, email, and social — inventory, repurposing map, format specs, distribution plan). Both start from content that is already published and cleared; neither reviews whether the content is publishable — that gate is [content-reviewer](../content-reviewer/SKILL.md).
+Extract more value from live, approved creator content. Two modes: **paid** (extend reach with paid spend — whitelisting, Spark Ads, dark posts, budget + optimization) and **repurpose** (reuse one asset across paid, website, email, and social — inventory, repurposing map, format specs, distribution plan). Both start from content that is already published and cleared; neither reviews whether the content is publishable — that gate is [creator-content-auditor](../creator-content-auditor/SKILL.md).
 
-**Scope guard**: this skill does NOT score a deliverable for brand alignment, message accuracy, or FTC/disclosure compliance, and it does NOT compute a C³ ART score or run the T1/T2 veto — that is the [content-reviewer](../content-reviewer/SKILL.md) gate's job. This skill works the downstream lever: turning approved content into paid reach or many-channel assets, then hands off. In a product launch, this skill owns the **repurposing map and the paid-amplification / distribution execution calendar** (including the 30-day plan for launch content); the launch discipline's [momentum-planner](../../../launch/prove/momentum-planner/SKILL.md) schedules only the launch *moments* and hands the distribution work here. In always-on organic social the split is the same shape: the standing brand posting calendar belongs to [social-calendar-builder](../../../social/craft/social-calendar-builder/SKILL.md) and net-new idea-to-multi-platform package drafting to [social-creative-builder](../../../social/craft/social-creative-builder/SKILL.md) — this skill keeps repurposing of existing assets and ALL paid amplification, and the social discipline only flags boost-worthy organic winners to it.
+**Scope guard**: this skill does NOT score a deliverable for brand alignment, message accuracy, or FTC/disclosure compliance, and it does NOT compute a STAR Trust/Appeal score or run the `STAR-T1`/`STAR-T2` veto — that is the [creator-content-auditor](../creator-content-auditor/SKILL.md) gate's job. This skill works the downstream lever: turning approved content into paid reach or many-channel assets, then hands off. In a product launch, this skill owns the **repurposing map and the paid-amplification / distribution execution calendar** (including the 30-day plan for launch content); the launch discipline's [momentum-planner](../../../launch/prove/momentum-planner/SKILL.md) schedules only the launch *moments* and hands the distribution work here. In always-on organic social the split is the same shape: the standing brand posting calendar belongs to [social-calendar-builder](../../../social/craft/social-calendar-builder/SKILL.md) and net-new idea-to-multi-platform package drafting to [social-creative-builder](../../../social/craft/social-creative-builder/SKILL.md) — this skill keeps repurposing of existing assets and ALL paid amplification, and the social discipline only flags boost-worthy organic winners to it.
 
 ## Mode selector
 
@@ -57,7 +57,7 @@ Output expectation — **paid**: every candidate scored, tiered, and given a spe
 - **Done when**:
   - *paid* — (1) each candidate is scored /25 and tiered (must amplify / consider / do not amplify) with a recommended spend; (2) a budget allocation by content, objective, and platform sums to the stated budget; (3) an optimization plan with KPI targets and scale/pause rules is recorded.
   - *repurpose* — (1) every source asset has a rights level and expiration recorded; (2) at least one source asset is mapped to 3+ distinct output formats across 2+ channels; (3) a dated distribution plan with an asset checklist exists.
-- **Primary next skill**: *paid* → [performance-analyzer](../../measure/performance-analyzer/SKILL.md) once campaigns are live; *repurpose* → [landing-optimizer](../../measure/landing-optimizer/SKILL.md) to place the repurposed social proof where it converts.
+- **Primary next skill**: *paid* → [performance-analyzer](../../report/performance-analyzer/SKILL.md) once campaigns are live; *repurpose* → [landing-optimizer](../../report/landing-optimizer/SKILL.md) to place the repurposed social proof where it converts.
 
 ### Handoff Summary
 
@@ -135,25 +135,25 @@ Full rankings, strategies, setups, and both worked examples: [references/templat
 - [templates.md](references/templates.md) — fill-in templates for every step of both modes, platform setup guides, format transformation specs, both worked examples, and tips.
 - [atom-extraction.md](references/atom-extraction.md) — 7-tier content-atom extraction, the virality heuristic, and the Jaccard near-duplicate flag for slicing one source into many (repurpose mode).
 - Per-platform format & placement specs: [tiktok](../../../references/platforms/tiktok.md) · [youtube](../../../references/platforms/youtube.md) · [linkedin](../../../references/platforms/linkedin.md) · [x](../../../references/platforms/x.md) · [reddit](../../../references/platforms/reddit.md) · [grokipedia](../../../references/platforms/grokipedia.md).
-- [c3-benchmark.md](../../../references/c3-benchmark.md) — the C³ framework; the ART veto (T1 FTC disclosure, T2 claim integrity) that content-reviewer enforces before this skill runs.
+- [star-benchmark.md](../../../references/star-benchmark.md) — the STAR framework; the Trust vetoes (`STAR-T1` FTC disclosure, `STAR-T2` claim integrity) that creator-content-auditor enforces before this skill runs.
 - [skill-contract.md](../../../references/skill-contract.md) — shared contract and Handoff Summary format.
 - [state-model.md](../../../references/state-model.md) — HOT/WARM/COLD memory tiers and save conventions.
 - [CONNECTORS.md](../../../CONNECTORS.md) — free/keyless data recipe per connector category.
-- Sibling skills: [content-reviewer](../content-reviewer/SKILL.md), [contract-helper](../contract-helper/SKILL.md), [landing-optimizer](../../measure/landing-optimizer/SKILL.md), [budget-optimizer](../../plan/budget-optimizer/SKILL.md), [performance-analyzer](../../measure/performance-analyzer/SKILL.md).
+- Sibling skills: [creator-content-auditor](../creator-content-auditor/SKILL.md), [contract-helper](../contract-helper/SKILL.md), [landing-optimizer](../../report/landing-optimizer/SKILL.md), [budget-optimizer](../../target/budget-optimizer/SKILL.md), [performance-analyzer](../../report/performance-analyzer/SKILL.md).
 
 ## Save Results
 
-After delivering findings, ask: "Save these results for future sessions?" If yes, write `memory/influencer/content-amplifier/YYYY-MM-DD-<topic>.md` with: one-line verdict/headline, top 3-5 actionable items, open loops or blockers, and source data references. Only the auditor-class gates may write memory without asking — this skill asks first, and hands veto-like risks (missing disclosure, unsubstantiated claims) to [content-reviewer](../content-reviewer/SKILL.md) rather than judging them here.
+After delivering findings, ask: "Save these results for future sessions?" If yes, write `memory/influencer/content-amplifier/YYYY-MM-DD-<topic>.md` with: one-line verdict/headline, top 3-5 actionable items, open loops or blockers, and source data references. Only the auditor-class gates may write memory without asking — this skill asks first, and hands veto-like risks (missing disclosure, unsubstantiated claims) to [creator-content-auditor](../creator-content-auditor/SKILL.md) rather than judging them here.
 
 ## Next Best Skill
 
 **Primary**:
-- *paid mode* → [performance-analyzer](../../measure/performance-analyzer/SKILL.md) — measure amplification results once campaigns are live.
-- *repurpose mode* → [landing-optimizer](../../measure/landing-optimizer/SKILL.md) — drop the repurposed testimonials, hero videos, and quote cards onto the pages that convert.
+- *paid mode* → [performance-analyzer](../../report/performance-analyzer/SKILL.md) — measure amplification results once campaigns are live.
+- *repurpose mode* → [landing-optimizer](../../report/landing-optimizer/SKILL.md) — drop the repurposed testimonials, hero videos, and quote cards onto the pages that convert.
 
 **Alternates**:
 - [content-amplifier --mode paid](SKILL.md) — when repurposed ad variations are ready for paid spend (run only if repurpose ran this session and paid has not).
 - [contract-helper](../contract-helper/SKILL.md) — secure or expand usage rights before reuse (repurpose).
-- [budget-optimizer](../../plan/budget-optimizer/SKILL.md) — reallocate paid budget across the recommended tiers (paid).
+- [budget-optimizer](../../target/budget-optimizer/SKILL.md) — reallocate paid budget across the recommended tiers (paid).
 
 **Termination**: maintain a visited-set this session. If a recommended target (including the sibling mode of this skill) already ran, STOP and report the chain complete rather than re-invoking it. Max chain depth 3. When routing is ambiguous, present the options and stop instead of auto-following.

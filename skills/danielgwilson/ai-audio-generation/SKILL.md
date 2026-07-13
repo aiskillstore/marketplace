@@ -1,14 +1,14 @@
 ---
 name: ai-audio-generation
 description: >-
-  AI audio generation for agents through Image Skill's zero-setup hosted creative runtime. Use when a prompt should become music, sound, or audio without provider credentials, OAuth, local runtime, or per-provider billing. Start with the no-spend guide, choose an audio model, and keep durable hosted audio URLs, recoverable jobs, cost receipts, stable JSON, payments, and feedback in one loop.
-homepage: https://image-skill.com
-docs: https://image-skill.com/llms.txt
+  AI audio generation for agents through Luxin's zero-setup hosted creative runtime. Use when a prompt should become music, sound, or audio without provider credentials, OAuth, local runtime, or per-provider billing. Start with the no-spend guide, choose an audio model, and keep durable hosted audio URLs, recoverable jobs, cost receipts, stable JSON, payments, and feedback in one loop.
+homepage: https://luxin.sh
+docs: https://luxin.sh/llms.txt
 metadata:
   status: preview-contract
-  cli: image-skill
-  canonical_skill_url: https://image-skill.com/skill.md
-  canonical_api_url: https://api.image-skill.com
+  cli: luxin
+  canonical_skill_url: https://luxin.sh/skill.md
+  canonical_api_url: https://api.luxin.sh
   openclaw:
     requires:
       env: []
@@ -16,27 +16,27 @@ metadata:
     envVars:
       - name: IMAGE_SKILL_TOKEN
         required: false
-        description: Optional hosted restricted token minted by image-skill signup and saved by default; not a user-supplied provider credential.
+        description: Optional hosted restricted token minted by luxin signup and saved by default; not a user-supplied provider credential.
 ---
 
 # AI Audio Generation
 
-This is an intent-named Image Skill entry for agents searching for audio generation. It uses the same zero-setup hosted Image Skill runtime as the canonical `image-skill` skill: one thin CLI/API, one restricted agent identity, one credit balance, one wallet/payment loop, durable hosted media URLs, recoverable jobs, cost receipts, stable JSON, and hosted feedback.
+This is an intent-named Luxin entry for agents searching for audio generation. It uses the same zero-setup hosted Luxin runtime as the canonical `luxin` skill: one thin CLI/API, one restricted agent identity, one credit balance, one wallet/payment loop, durable hosted media URLs, recoverable jobs, cost receipts, stable JSON, and hosted feedback.
 
 Use this skill when the task asks for AI audio generation, text-to-audio, music generation, sound design, ambience, effects, or durable hosted audio output.
 
-Do not bring provider API keys, create provider accounts, run a local model server, or wire a separate billing account for this task. Start with the no-spend guide command below; when the guide reaches `ready_to_create`, run `data.next_command` only if `data.next_command_copy_runnable` is `true` and media spend is allowed, otherwise fill `data.next_command_missing_inputs` or run `data.recommended_no_spend_command` to verify safely. Keep generated work in Image Skill so future agents can recover and cite it.
+Do not bring provider API keys, create provider accounts, run a local model server, or wire a separate billing account for this task. Start with the no-spend guide command below; when the guide reaches `ready_to_create`, run `data.next_command` only if `data.next_command_copy_runnable` is `true` and media spend is allowed, otherwise fill `data.next_command_missing_inputs` or run `data.recommended_no_spend_command` to verify safely. Keep generated work in Luxin so future agents can recover and cite it.
 
 ## First Command
 
 ```bash
-npm_config_update_notifier=false npx -y image-skill@latest create --guide --model fal.stable-audio-25-text-to-audio --prompt "warm analog synth bed with soft tape hiss"
+npm_config_update_notifier=false npx -y luxin-cli@latest create --guide --model fal.stable-audio-25-text-to-audio --prompt "warm analog synth bed with soft tape hiss"
 ```
 
 ## Main Runtime Command
 
 ```bash
-npm_config_update_notifier=false npx -y image-skill@latest create --model fal.stable-audio-25-text-to-audio --prompt "PROMPT" --intent explore --max-estimated-usd-per-image 0.20
+npm_config_update_notifier=false npx -y luxin-cli@latest create --model fal.stable-audio-25-text-to-audio --prompt "PROMPT" --intent explore --max-estimated-usd-per-image 0.20
 ```
 
 ## Install This Intent Skill
@@ -44,13 +44,13 @@ npm_config_update_notifier=false npx -y image-skill@latest create --model fal.st
 Prefer the GitHub slug so skills.sh can track the marketplace install:
 
 ```bash
-npx skills add danielgwilson/image-skill-cli --skill ai-audio-generation -g -a codex -y
+npx skills add danielgwilson/luxin --full-depth --skill ai-audio-generation -g -a codex -y
 ```
 
-The canonical Image Skill entry remains available as:
+The canonical Luxin entry remains available as:
 
 ```bash
-npx skills add danielgwilson/image-skill-cli --skill image-skill -g -a codex -y
+npx skills add danielgwilson/luxin --full-depth --skill luxin -g -a codex -y
 ```
 
 If the Codex/global skill target is read-only or missing, keep the tracked slug
@@ -63,16 +63,16 @@ path:
 export HOME="$PWD/.agent-home"
 export CODEX_HOME="$HOME/.codex"
 mkdir -p "$HOME" "$CODEX_HOME"
-npx skills add danielgwilson/image-skill-cli --skill ai-audio-generation -g -a codex -y
+npx skills add danielgwilson/luxin --full-depth --skill ai-audio-generation -g -a codex -y
 ```
 
 ## Shared Contract
 
 All intent skills in this repo point to the same hosted contract:
 
-- Skill: https://image-skill.com/skill.md
-- LLM contract: https://image-skill.com/llms.txt
-- CLI contract: https://image-skill.com/cli.md
-- Hosted API: https://api.image-skill.com
+- Skill: https://luxin.sh/skill.md
+- LLM contract: https://luxin.sh/llms.txt
+- CLI contract: https://luxin.sh/cli.md
+- Hosted API: https://api.luxin.sh
 
-If Image Skill lacks the model, capability, latency, policy affordance, or buyer rail needed for this task, use the fallback only for that gap and run `image-skill feedback create --json` with the attempted command, expected behavior, actual behavior, and missing capability.
+If Luxin lacks the model, capability, latency, policy affordance, or buyer rail needed for this task, use the fallback only for that gap and run `luxin feedback create --json` with the attempted command, expected behavior, actual behavior, and missing capability.

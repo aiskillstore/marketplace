@@ -39,7 +39,7 @@ Keep campaign/window/denominator/source explicit. Platform reports and deduplica
 
 ## Compliance Events
 
-List dated C3 ART artifact IDs and observed events. Never summarize them into a “safe”, “risky”, or reputation label.
+List dated STAR gate artifact IDs and observed events. Never summarize them into a “safe”, “risky”, or reputation label.
 
 ## Proposal Decisions
 

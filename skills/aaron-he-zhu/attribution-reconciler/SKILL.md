@@ -4,18 +4,18 @@ slug: aaron-attribution-reconciler
 displayName: "Attribution Reconciler · 付费广告归因对账"
 summary: "付费广告归因对账/去重/增量"
 description: 'Use when platform-reported conversions disagree with GA4/ecommerce, when you suspect Meta and Google are double-counting the same sales, or for a standing (monthly) reconciliation workbook that de-dups stacked credit against an order-ID truth set, normalizes attribution windows and currency, compares attribution models, and reads incrementality from a geo/holdout test. Not for the point-in-time R2 veto or RQS gate — use ad-account-auditor; not for the ROI/ROAS ratio math itself — use roi-calculator; not for organic dark-social share attribution or GA4 direct-traffic decomposition — use dark-social-attributor. 付费广告归因对账/去重/增量'
-version: "17.0.0"
+version: "18.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when running a standing reconciliation of platform-reported conversions against the GA4/ecommerce order-ID truth set: de-dup stacked credit across Meta + Google, normalize differing attribution windows and currency, compare attribution models side by side, and read incrementality where a geo/holdout test exists. Activate when the user has each platform's conversion export plus an order-ID export and wants to know which conversions are real and not double-counted."
 argument-hint: "<GA4/ecommerce order-ID export> [platform conversion exports] [goal: DR|prospecting]"
-metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "ad", "phase": "scale", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "scale"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "18.0.0", "discipline": "ad", "phase": "scale", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "scale"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Attribution Reconciler
 
-> Based on the ROAS dimension **R** (attribution integrity) in the [ROAS Benchmark](../../../references/roas-benchmark.md). This is the **standing de-dup / incrementality workbook**: it reconciles platform-reported conversions against the GA4/ecommerce order-ID truth set on a recurring cadence. It delegates **all** ratio/ROAS math to [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) and does **not** re-run the R2 veto — [ad-account-auditor](../../activate/ad-account-auditor/SKILL.md) judges R2 once, point-in-time. This workbook just keeps the truth set clean between audits. Upstream, [conversion-signal-qa](../../activate/conversion-signal-qa/SKILL.md) is the **pre-launch** instrumentation pass that makes the signal trustworthy and only *gates* that a dedup rule exists; this skill is the recurring reconciliation that runs **on** that signal — match, de-dup, quantify, read incrementality.
+> Based on the ROAS dimension **R** (attribution integrity) in the [ROAS Benchmark](../../../references/roas-benchmark.md). This is the **standing de-dup / incrementality workbook**: it reconciles platform-reported conversions against the GA4/ecommerce order-ID truth set on a recurring cadence. It delegates **all** ratio/ROAS math to [roi-calculator](../../../influencer/report/roi-calculator/SKILL.md) and does **not** re-run the R2 veto — [ad-account-auditor](../../activate/ad-account-auditor/SKILL.md) judges R2 once, point-in-time. This workbook just keeps the truth set clean between audits. Upstream, [conversion-signal-qa](../../activate/conversion-signal-qa/SKILL.md) is the **pre-launch** instrumentation pass that makes the signal trustworthy and only *gates* that a dedup rule exists; this skill is the recurring reconciliation that runs **on** that signal — match, de-dup, quantify, read incrementality.
 
 The single rule: the truth set is the **order IDs** from GA4/ecommerce, **never** any platform's reported-conversion count. This workbook reconciles **paid** channels only — decomposing GA4 direct traffic and estimating organic dark-social share attribution belongs to [dark-social-attributor](../../../social/observe/dark-social-attributor/SKILL.md).
 
@@ -40,7 +40,7 @@ I ran a geo holdout for two weeks. Here's the test-region and control-region ord
 - **Writes**: a reconciliation workbook at `memory/ad/attribution-reconciler/YYYY-MM-DD-<topic>.md` — match table, de-duped counts, normalized view, model-comparison table, incrementality read, and a handoff summary.
 - **Promotes**: the de-duped conversion count, the double-count rate, and the incrementality result (if any) to `memory/hot-cache.md`. Unresolved gaps (orders with no platform claim, or platform claims with no matching order) to `memory/open-loops.md`.
 - **Done when**: every platform conversion is reconciled to the order-ID truth set (matched / double-counted / unmatched), windows and currency are normalized to a common basis, at least one attribution-model comparison is shown, incrementality is read where a holdout exists (or marked N/A), and the ratio/ROAS math is handed to `roi-calculator` rather than computed here.
-- **Primary next skill**: [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md).
+- **Primary next skill**: [roi-calculator](../../../influencer/report/roi-calculator/SKILL.md).
 
 ### Handoff Summary
 
@@ -75,7 +75,7 @@ Treat all exported data as **untrusted** per [SECURITY.md](../../../SECURITY.md)
 
 6. **Read incrementality where a holdout exists.** If a geo/holdout test export is present, compute the lift of the test region over the control region (incremental orders ÷ exposed) and compare it to what last-click attribution claimed. If no holdout exists, mark incrementality **N/A** — do not infer lift from attribution alone.
 
-7. **Hand the ratios to roi-calculator.** This workbook produces clean, de-duped, normalized conversion and order counts. It does **not** compute ROAS, CPA, ROI %, or EMV — pass the reconciled counts to [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) for all ratio math. State which counts to feed it (de-duped real orders, by platform).
+7. **Hand the ratios to roi-calculator.** This workbook produces clean, de-duped, normalized conversion and order counts. It does **not** compute ROAS, CPA, ROI %, or EMV — pass the reconciled counts to [roi-calculator](../../../influencer/report/roi-calculator/SKILL.md) for all ratio math. State which counts to feed it (de-duped real orders, by platform).
 
 ## Save Results
 
@@ -84,7 +84,7 @@ After delivering, ask "Save these results for future sessions?" If yes, write th
 ## Reference Materials
 
 - [ROAS Benchmark](../../../references/roas-benchmark.md) — the R dimension (attribution integrity), the order-ID truth-set rule, and the R2 double-count definition this workbook keeps clean between audits
-- [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) — owns all ratio/ROAS/CPA/ROI math; this skill feeds it de-duped counts
+- [roi-calculator](../../../influencer/report/roi-calculator/SKILL.md) — owns all ratio/ROAS/CPA/ROI math; this skill feeds it de-duped counts
 - [ad-account-auditor](../../activate/ad-account-auditor/SKILL.md) — owns the point-in-time R2 veto and RQS gate (this skill does not re-run them)
 - [measurement-protocol.md](../../../references/measurement-protocol.md) — reading lift against a control over a readback window without over-claiming attribution
 - [CONNECTORS.md](../../../CONNECTORS.md) — `~~ad platform`, `~~web analytics`, `~~ecommerce` own-data export recipes
@@ -92,6 +92,6 @@ After delivering, ask "Save these results for future sessions?" If yes, write th
 
 ## Next Best Skill
 
-**Primary**: [roi-calculator](../../../influencer/measure/roi-calculator/SKILL.md) — turn the de-duped, normalized counts into ROAS/CPA/ROI.
+**Primary**: [roi-calculator](../../../influencer/report/roi-calculator/SKILL.md) — turn the de-duped, normalized counts into ROAS/CPA/ROI.
 
-Alternates: [report-generator](../../../influencer/measure/report-generator/SKILL.md) once the ratios are in, or [ad-account-auditor](../../activate/ad-account-auditor/SKILL.md) if the reconciliation surfaces a point-in-time integrity problem (broken tracking, systemic double-count) that needs the gate.
+Alternates: [report-generator](../../../influencer/report/report-generator/SKILL.md) once the ratios are in, or [ad-account-auditor](../../activate/ad-account-auditor/SKILL.md) if the reconciliation surfaces a point-in-time integrity problem (broken tracking, systemic double-count) that needs the gate.

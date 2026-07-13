@@ -4,13 +4,13 @@ slug: aaron-bid-strategy-planner
 displayName: "Bid Strategy Planner · 出价策略"
 summary: "出价策略/tCPA目标/tROAS/学习期"
 description: 'Use when the user asks to "pick a bid strategy", "set a tCPA/tROAS target", or "plan the learning-phase entry"; produces a bid-strategy choice (tCPA / tROAS / max-conversions / manual CPC), the starting target math, a portfolio grouping map, and a learning-phase entry plan. Not for splitting the budget across campaigns — use budget-optimizer; not for in-flight pacing/scale moves — use budget-pacing-monitor; not for scoring the account — use ad-account-auditor. 出价策略/tCPA目标/tROAS/学习期'
-version: "17.0.0"
+version: "18.0.0"
 license: Apache-2.0
 compatibility: "Claude Code and compatible agent-skill hosts"
 homepage: "https://github.com/aaron-he-zhu/aaron-marketing-skills"
 when_to_use: "Use when choosing a bid strategy for a new or restructured paid campaign, setting an initial tCPA or tROAS target from CPA/ROAS history, deciding between automated (tCPA/tROAS/max-conversions) and manual CPC bidding, grouping campaigns into a bid portfolio, or planning how a campaign enters and exits the learning phase without churn. Not in-flight pacing — that is budget-pacing-monitor."
 argument-hint: "<goal: DR|prospecting> [conversion history: CPA/ROAS + volume] [campaign set]"
-metadata: {"author": "aaron-he-zhu", "version": "17.0.0", "discipline": "ad", "phase": "orchestrate", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "orchestrate"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
+metadata: {"author": "aaron-he-zhu", "version": "18.0.0", "discipline": "ad", "phase": "orchestrate", "geo-relevance": "low", "hermes": {"tags": ["marketing", "ad", "orchestrate"], "category": "ad"}, "openclaw": {"emoji": "🎯", "homepage": "https://github.com/aaron-he-zhu/aaron-marketing-skills"}}
 ---
 
 # Bid Strategy Planner
@@ -89,13 +89,13 @@ On user confirmation, save to `memory/ad/bid-strategy-planner/YYYY-MM-DD-<campai
 - Shared state model: [state-model.md](../../../references/state-model.md)
 - Connector recipes: [CONNECTORS.md](../../../CONNECTORS.md)
 - Sibling skills:
-  - [budget-optimizer](../../../influencer/plan/budget-optimizer/SKILL.md) — allocates the spend this strategy bids against
+  - [budget-optimizer](../../../influencer/target/budget-optimizer/SKILL.md) — allocates the spend this strategy bids against
   - [ad-creative-builder](../ad-creative-builder/SKILL.md) — the **O** units the same campaign runs
   - [ad-account-auditor](../../activate/ad-account-auditor/SKILL.md) — the ROAS gate
 
 ## Next Best Skill
 
 - **Primary**: [ad-account-auditor](../../activate/ad-account-auditor/SKILL.md) — score the campaign against ROAS (the **S** lever and the premature-scaling guardrail) once the strategy, target, and portfolio are set.
-- **If the budget behind the bid is not yet allocated**: [budget-optimizer](../../../influencer/plan/budget-optimizer/SKILL.md) — set the spend envelope the strategy bids within, then return here.
+- **If the budget behind the bid is not yet allocated**: [budget-optimizer](../../../influencer/target/budget-optimizer/SKILL.md) — set the spend envelope the strategy bids within, then return here.
 - **If the plan is live and you need in-flight pacing, not a starting plan** (NEEDS_INPUT): [budget-pacing-monitor](../../scale/budget-pacing-monitor/SKILL.md) — reads spend/delivery against plan mid-flight; this skill only sets the entry plan.
 - **Termination**: keep a visited-set. If the recommended next skill was already invoked in this session's chain, stop and report chain-complete. Default `max-depth: 3`. When routing is ambiguous, present the options and stop rather than auto-following; if the auditor returns a BLOCK verdict, stop and route to the named fix rather than re-running this skill.

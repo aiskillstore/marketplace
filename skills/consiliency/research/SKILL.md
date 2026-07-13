@@ -1,8 +1,3 @@
----
-name: research
-description: Multi-source parallel research with confidence-based synthesis.
----
-
 # Research Skill
 
 Multi-source parallel research with confidence-based synthesis.

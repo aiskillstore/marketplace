@@ -1,23 +1,20 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-09T12:50:51.050Z",
+    "generated_at": "2026-07-13T17:18:27.961Z",
     "slug": "consiliency-spawn-terminal",
     "source_url": "https://github.com/Consiliency/treesitter-chunker/tree/main/.ai-dev-kit/skills/spawn/terminal",
     "source_ref": "main",
     "model": "codex",
     "analysis_version": "3.0.0",
     "source_type": "community",
-    "content_hash": "d6f3d91caddd27ba77f399092ce96ef9981dcef8e5b958a94b57f62e764eb329",
-    "tree_hash": "8ba30f86b1fd978f085212612dee961db95d066f5a1e3753aeb819e44c6dfa06",
+    "content_hash": "2844360500f74f4c300708981f3f37e16699d8c4b264f6912acbfa231bc7d11d",
+    "tree_hash": "c9b923aec6e9134b32a7ee6459c92d8844ca3d00f7150985b66132e2d4f3d65c",
     "provenance": {
-      "model_requested": "gpt-5.5:high",
-      "model_effective": "codex:gpt-5.5:high",
+      "model_effective": "codex",
       "fallback_chain": [
         {
           "agent": "codex",
-          "model": "gpt-5.5",
-          "effort": "high",
           "outcome": "success"
         }
       ],
@@ -25,20 +22,20 @@
     }
   },
   "skill": {
-    "name": "spawn-terminal",
-    "description": "Open a separate terminal window for non-AI command-line tools after checking command help and options.",
-    "summary": "Runs user-requested CLI tools in a new terminal with a required help-check workflow.",
+    "name": "spawn:terminal",
+    "description": "Open a separate terminal window for non-AI CLI commands after reviewing command help and selecting output capture settings.",
+    "summary": "Launch user-requested CLI commands in a separate terminal with optional output capture and logging.",
     "icon": "📦",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "author": "Consiliency",
     "license": "MIT",
     "category": "devops",
     "tags": [
       "terminal",
       "cli",
+      "command-execution",
       "automation",
-      "developer-tools",
-      "command-runner"
+      "developer-tools"
     ],
     "supported_tools": [
       "claude",
@@ -55,21 +52,16 @@
     "is_blocked": false,
     "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "The skill is designed to run user-selected CLI commands in a spawned terminal, so several external-command findings are valid risk indicators. Some Markdown backtick matches are scanner noise, but the cross-directory reference to ../agent/fork_terminal.py is a real filesystem boundary concern.",
+    "summary": "The prose-only backtick and fixed relative-path detections are false positives. Five instructions or examples confirm intentional external command execution, and checking help does not constrain dangerous command syntax. No prompt injection or separate semantic threat was found.",
     "remediation": [
       {
-        "issue": "Arbitrary external command execution is the core workflow.",
-        "suggestion": "Require explicit user confirmation for the final command, show the exact command before launch, and refuse destructive or credential-handling commands unless the user clearly authorizes them.",
+        "issue": "User-selected commands can be launched without a command allowlist or explicit risk review.",
+        "suggestion": "Require confirmation showing the executable and arguments before launching commands with destructive, privileged, or network effects.",
         "severity": "medium"
       },
       {
-        "issue": "The skill references ../agent/fork_terminal.py outside its own directory.",
-        "suggestion": "Package the helper inside the skill or expose it through a documented tool interface instead of requiring relative parent-directory access.",
-        "severity": "high"
-      },
-      {
-        "issue": "The --help preflight still executes a user-selected binary.",
-        "suggestion": "Treat the help check as command execution, validate the program name first, and avoid running untrusted local binaries.",
+        "issue": "A help check does not prevent shell metacharacters, command substitution, or unsafe arguments.",
+        "suggestion": "Pass executable names and arguments as structured values, reject shell control operators, and avoid shell interpretation by default.",
         "severity": "medium"
       }
     ],
@@ -255,133 +247,80 @@
     "finding_verdicts": [
       {
         "id": "external_commands:SKILL.md:8:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.88,
-        "reason": "Line 8 states that the skill spawns a terminal to execute CLI commands. This is a legitimate feature, but it is still external command execution with user-controlled intent.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "Line 8 is descriptive Markdown with an inline skill name. It contains no Ruby backtick expression or executable command."
       },
       {
         "id": "external_commands:SKILL.md:22:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.72,
-        "reason": "Line 22 instructs the agent to run the requested command with --help. Even a help preflight executes a selected binary and can be risky for untrusted commands.",
+        "confidence": 0.88,
+        "reason": "The workflow directs the agent to run a user-selected executable with a help argument. Without command validation, shell syntax could execute unintended operations.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:23:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.86,
-        "reason": "Line 23 directs execution through fork_terminal(). That helper is the core command-launch path, so the external command finding is real.",
+        "confidence": 0.94,
+        "reason": "The instruction explicitly launches the selected command through fork_terminal(). The command originates from the user request and has no stated allowlist.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:31:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.89,
-        "reason": "Line 31 is a stop condition telling the user to use a different skill for AI agents. It references a skill name in Markdown backticks and does not execute a command."
+        "confidence": 0.99,
+        "reason": "Line 31 only names another skill in Markdown. It does not execute a shell command or Ruby expression."
       },
       {
         "id": "external_commands:SKILL.md:33:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.7,
-        "reason": "Line 33 repeats the requirement to run the selected command with --help before proceeding. This is safer than direct execution, but still invokes an external program.",
+        "confidence": 0.86,
+        "reason": "This instruction requires execution of a user-selected command with a help argument. Appending that argument is not a security boundary for shell input.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:43:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.68,
-        "reason": "Line 43 requires a completed --help execution checkpoint. The static match is a Markdown backtick, but the underlying workflow still includes command execution.",
+        "confidence": 0.84,
+        "reason": "The checkpoint confirms that an arbitrary selected executable was already run for help output. No input validation or shell isolation is specified.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
-        "verdict": "confirmed",
-        "confidence": 0.66,
-        "reason": "Line 59 identifies fork_terminal() as the command execution helper. This line is not injection by itself, but it confirms reliance on a terminal execution mechanism.",
-        "severity": "medium"
+        "verdict": "false_positive",
+        "confidence": 0.99,
+        "reason": "Line 59 uses backticks only to format a function name and fixed file path. It does not invoke the function."
       },
       {
         "id": "external_commands:SKILL.md:61:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.91,
-        "reason": "Lines 61-72 show Python examples calling fork_terminal() with npm, ffmpeg, and python commands. These examples demonstrate the external command execution behavior directly.",
+        "confidence": 0.82,
+        "reason": "The fenced example contains direct fork_terminal() calls that execute npm, ffmpeg, and Python command strings. The examples are fixed, but they confirm external command capability.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:72:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.82,
-        "reason": "Line 72 is only a Markdown code-fence delimiter, followed by guidance on when to use another skill. It does not add a separate command execution instruction."
+        "confidence": 0.99,
+        "reason": "Line 72 is only the closing marker of a Python code fence. The marker itself performs no external command execution."
       },
       {
         "id": "filesystem:SKILL.md:41:path-traversal-sequence",
-        "verdict": "confirmed",
-        "confidence": 0.84,
-        "reason": "Line 41 instructs the agent to read ../agent/fork_terminal.py, which crosses out of the skill directory. That parent-directory access is a real filesystem boundary risk.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "The parent-directory sequence is a fixed reference to a companion tool for documentation review. No user-controlled path or traversal construction is present."
       },
       {
         "id": "filesystem:SKILL.md:59:path-traversal-sequence",
-        "verdict": "confirmed",
-        "confidence": 0.8,
-        "reason": "Line 59 documents the helper path as ../agent/fork_terminal.py. Referencing a parent directory for required behavior creates a packaging and path traversal concern.",
-        "severity": "high"
+        "verdict": "false_positive",
+        "confidence": 0.98,
+        "reason": "This is a fixed relative location documenting the helper module. It is not derived from input and does not expose arbitrary filesystem access."
       }
     ],
     "semantic_findings": [],
     "critical_findings": [],
-    "high_findings": [
-      {
-        "title": "Path traversal sequence",
-        "description": "3. [ ] READ: '../agent/fork_terminal.py' to understand the tooling",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 41,
-            "line_end": 41
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "high",
-        "confidence": 0.84,
-        "confidence_reasoning": "Line 41 instructs the agent to read ../agent/fork_terminal.py, which crosses out of the skill directory. That parent-directory access is a real filesystem boundary risk."
-      },
-      {
-        "title": "Path traversal sequence",
-        "description": "The `fork_terminal()` function is located at `../agent/fork_terminal.py`:",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 59,
-            "line_end": 59
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "filesystem",
-        "source_severity": "high",
-        "confidence": 0.8,
-        "confidence_reasoning": "Line 59 documents the helper path as ../agent/fork_terminal.py. Referencing a parent directory for required behavior creates a packaging and path traversal concern."
-      }
-    ],
+    "high_findings": [],
     "medium_findings": [
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "Spawn a new terminal window to execute CLI commands. This skill is for generic command execution, NO",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 8,
-            "line_end": 8
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.88,
-        "confidence_reasoning": "Line 8 states that the skill spawns a terminal to execute CLI commands. This is a legitimate feature, but it is still external command execution with user-controlled intent."
-      },
       {
         "title": "Ruby/shell backtick execution",
         "description": "2. Run `<command> --help` first to verify syntax and options",
@@ -395,8 +334,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.72,
-        "confidence_reasoning": "Line 22 instructs the agent to run the requested command with --help. Even a help preflight executes a selected binary and can be risky for untrusted commands."
+        "confidence": 0.88,
+        "confidence_reasoning": "The workflow directs the agent to run a user-selected executable with a help argument. Without command validation, shell syntax could execute unintended operations."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -411,8 +350,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.86,
-        "confidence_reasoning": "Line 23 directs execution through fork_terminal(). That helper is the core command-launch path, so the external command finding is real."
+        "confidence": 0.94,
+        "confidence_reasoning": "The instruction explicitly launches the selected command through fork_terminal(). The command originates from the user request and has no stated allowlist."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -427,8 +366,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.7,
-        "confidence_reasoning": "Line 33 repeats the requirement to run the selected command with --help before proceeding. This is safer than direct execution, but still invokes an external program."
+        "confidence": 0.86,
+        "confidence_reasoning": "This instruction requires execution of a user-selected command with a help argument. Appending that argument is not a security boundary for shell input."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -443,24 +382,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.68,
-        "confidence_reasoning": "Line 43 requires a completed --help execution checkpoint. The static match is a Markdown backtick, but the underlying workflow still includes command execution."
-      },
-      {
-        "title": "Ruby/shell backtick execution",
-        "description": "The `fork_terminal()` function is located at `../agent/fork_terminal.py`:",
-        "locations": [
-          {
-            "file": "SKILL.md",
-            "line_start": 59,
-            "line_end": 59
-          }
-        ],
-        "review_kind": "capability",
-        "source_category": "external_commands",
-        "source_severity": "medium",
-        "confidence": 0.66,
-        "confidence_reasoning": "Line 59 identifies fork_terminal() as the command execution helper. This line is not injection by itself, but it confirms reliance on a terminal execution mechanism."
+        "confidence": 0.84,
+        "confidence_reasoning": "The checkpoint confirms that an arbitrary selected executable was already run for help output. No input validation or shell isolation is specified."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -475,8 +398,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.91,
-        "confidence_reasoning": "Lines 61-72 show Python examples calling fork_terminal() with npm, ffmpeg, and python commands. These examples demonstrate the external command execution behavior directly."
+        "confidence": 0.82,
+        "confidence_reasoning": "The fenced example contains direct fork_terminal() calls that execute npm, ffmpeg, and Python command strings. The examples are fixed, but they confirm external command capability."
       }
     ],
     "low_findings": [],
@@ -484,126 +407,125 @@
     "files_scanned": 2,
     "total_lines": 115,
     "audit_model": "codex",
-    "audited_at": "2026-07-09T12:50:51.050Z",
+    "audited_at": "2026-07-13T17:18:27.961Z",
     "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Run CLI Commands in a New Terminal",
-    "value_statement": "Developers often need long-running CLI tools without blocking their assistant session. This skill opens a new terminal, checks command help first, and then runs the requested non-AI command.",
+    "user_title": "Run CLI Commands in New Terminal Windows",
+    "value_statement": "Long-running CLI commands can occupy the active session and hide progress. This skill opens a separate terminal after checking command help.",
     "seo_keywords": [
       "Claude",
       "Codex",
       "Claude Code",
-      "spawn terminal skill",
-      "CLI command execution",
       "terminal automation",
-      "ffmpeg terminal",
-      "curl terminal",
-      "developer command runner",
-      "non-AI command execution"
+      "CLI commands",
+      "command execution",
+      "fork terminal",
+      "ffmpeg automation",
+      "curl commands",
+      "developer productivity"
     ],
     "actual_capabilities": [
-      "Identifies non-AI CLI command requests from the user.",
-      "Requires a --help check before running the final command.",
-      "Runs commands through a fork_terminal helper in a separate terminal.",
-      "Supports optional terminal output logging for debugging.",
-      "Supports blocking output capture when requested.",
-      "Directs AI-agent requests to a separate spawn:agent skill."
+      "Identifies the non-AI CLI command requested by the user.",
+      "Runs the selected command with its help option before launch.",
+      "Launches command strings in a separate terminal through fork_terminal().",
+      "Supports blocking output capture for commands that must complete before returning.",
+      "Can write complete terminal output to a debug file."
     ],
     "limitations": [
-      "It depends on an external fork_terminal helper outside the skill directory.",
-      "It does not validate that a requested command is safe.",
-      "It is not intended to spawn Claude, Codex, or other AI agents.",
-      "The --help check can still execute untrusted local binaries."
+      "Depends on a companion fork_terminal() implementation outside this skill directory.",
+      "Does not validate command safety beyond reviewing help output.",
+      "Handles non-AI CLI processes and redirects AI agent requests to another skill.",
+      "Opening a new terminal window depends on the host environment."
     ],
     "use_cases": [
       {
-        "title": "Run Build Commands",
-        "description": "Open a terminal for npm, Python, or other build tasks while keeping the assistant session available.",
-        "target_user": "Software developers"
+        "title": "Convert Media in a Separate Terminal",
+        "description": "Launch an ffmpeg conversion separately while preserving complete output in a debug file.",
+        "target_user": "Video editor"
       },
       {
-        "title": "Start Media Conversions",
-        "description": "Launch ffmpeg or similar tools in a separate terminal for long-running media work.",
-        "target_user": "Media engineers"
+        "title": "Run Frontend Build Tasks",
+        "description": "Start an npm build in another terminal without occupying the active assistant session.",
+        "target_user": "Web developer"
       },
       {
-        "title": "Check CLI Diagnostics",
-        "description": "Run curl, package managers, or scripts after reviewing command help and options.",
-        "target_user": "DevOps and support engineers"
+        "title": "Capture CLI Diagnostics",
+        "description": "Run a diagnostic command in blocking mode and return its captured output for review.",
+        "target_user": "Operations engineer"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Run a Simple Command",
-        "scenario": "Beginner request for a known CLI tool.",
-        "prompt": "Open a new terminal and run this non-AI command: npm run build."
+        "title": "Launch a Basic Command",
+        "prompt": "Open a new terminal and run [command]. Check its help first, then launch it without output capture.",
+        "scenario": "Beginner command launch"
       },
       {
-        "title": "Run a Long Task",
-        "scenario": "Keep the assistant session free while a process runs.",
-        "prompt": "Spawn a terminal for ffmpeg to convert video.mp4 into output.gif after checking the help options."
+        "title": "Save Terminal Output",
+        "prompt": "Run [command] in a new terminal. Review its help first and save the complete output to a debug file.",
+        "scenario": "Command execution with logging"
       },
       {
-        "title": "Capture Debug Output",
-        "scenario": "Need terminal output saved for later review.",
-        "prompt": "Run this Python script in a new terminal and log the full terminal output for debugging."
+        "title": "Wait for Captured Results",
+        "prompt": "Start [command] in blocking capture mode after checking its help. Return the captured output and log file path.",
+        "scenario": "Synchronous command diagnostics"
       },
       {
-        "title": "Verify Before Running",
-        "scenario": "Advanced command with options that should be checked first.",
-        "prompt": "Review the command help for curl, then open a terminal for the final request I provide."
+        "title": "Prepare a Complex CLI Task",
+        "prompt": "Assess this non-AI CLI task: [task]. Select a command, inspect help, explain important options, then launch it with requested capture settings.",
+        "scenario": "Advanced command selection and execution"
       }
     ],
     "output_examples": [
       {
-        "input": "Open a new terminal for npm run build.",
-        "output": "The assistant checks npm help, reviews the options, and launches the build command in a separate terminal."
+        "input": "Open a new terminal and run the npm build without capture.",
+        "output": "Reviewed npm help and opened a separate terminal for the build. Output capture and file logging are disabled."
       },
       {
-        "input": "Run ffmpeg conversion and save debug output.",
-        "output": "The assistant checks ffmpeg help, starts the conversion in a new terminal, and returns the log file path."
+        "input": "Convert the video to a GIF and save complete terminal output.",
+        "output": "Reviewed ffmpeg help, launched the conversion in a new terminal, and returned the debug log path."
       },
       {
-        "input": "Capture output from a Python script.",
-        "output": "The assistant checks Python help, runs the script with capture enabled, and returns the completed terminal output."
+        "input": "Run the Python diagnostic and wait for its result.",
+        "output": "Reviewed Python help, completed the diagnostic in blocking mode, and returned the captured terminal output."
       }
     ],
     "best_practices": [
-      "Review the exact command before the terminal is launched.",
-      "Use output logging for commands that may fail or run for a long time.",
-      "Use the separate spawn:agent workflow for Claude, Codex, or other AI agents."
+      "Review the exact executable, arguments, files, and destinations before launch.",
+      "Enable file logging when command output is needed for later diagnosis.",
+      "Use blocking capture only when the next task depends on command completion."
     ],
     "anti_patterns": [
-      "Do not use this skill for commands that delete, overwrite, or exfiltrate data without explicit approval.",
-      "Do not skip the help check when command syntax is unfamiliar.",
-      "Do not use this skill to start AI agents or coding assistants."
+      "Do not launch destructive or privileged commands without explicit user confirmation.",
+      "Do not treat help output as proof that a command is safe.",
+      "Do not use this skill to start Claude, Codex, or another AI agent."
     ],
     "faq": [
       {
-        "question": "What does this skill do?",
-        "answer": "It opens a separate terminal and runs a non-AI command-line tool after checking command help."
+        "question": "What commands can this skill run?",
+        "answer": "It can launch non-AI CLI commands supported by the host environment through the companion terminal helper."
       },
       {
-        "question": "Does it run AI agents?",
-        "answer": "No. It directs Claude, Codex, Claude Code, and similar agent requests to a separate agent workflow."
+        "question": "Does it check command syntax?",
+        "answer": "Yes. The workflow requires reviewing the selected command help before launching the full command."
       },
       {
-        "question": "Why does it run --help first?",
-        "answer": "The help check reduces syntax mistakes and makes command options visible before the final launch."
+        "question": "Can it return command output?",
+        "answer": "Yes. Blocking capture waits for completion and returns the command output."
       },
       {
-        "question": "Can it capture output?",
-        "answer": "Yes. The skill describes optional capture and logging modes through the terminal helper."
+        "question": "Can it save terminal output?",
+        "answer": "Yes. File logging can preserve complete terminal output and return the log path."
       },
       {
-        "question": "Is every command safe to run?",
-        "answer": "No. Users should review commands carefully, especially destructive commands or commands that handle secrets."
+        "question": "Can it launch AI coding agents?",
+        "answer": "No. Requests for Claude, Codex, Gemini, and similar agents should use the separate agent skill."
       },
       {
-        "question": "What tools can it launch?",
-        "answer": "It can launch typical CLI tools such as npm, ffmpeg, curl, and Python when the local environment supports them."
+        "question": "Does the skill guarantee command safety?",
+        "answer": "No. Help review checks syntax, but users must still assess permissions, side effects, and untrusted arguments."
       }
     ]
   },
