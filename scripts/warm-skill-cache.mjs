@@ -8,7 +8,7 @@ const DEFAULTS = {
   siteUrl: 'https://skillstore.io',
   locales: ['en', 'zh-hans', 'zh-hant', 'ja', 'ko', 'de', 'fr', 'es', 'pt', 'ru', 'ar'],
   concurrency: 10,
-  maxAttempts: 5,
+  maxAttempts: 16,
   retryWindowMinMs: 90_000,
   retryWindowMaxMs: 120_000,
   timeoutMs: 60_000,
@@ -21,12 +21,16 @@ const DEFAULTS = {
   cacheVersionHeader: 'x-kv-version',
 };
 
+const SUPPORTED_RESOURCES = new Set(['skills', 'packs']);
+const SUPPORTED_LOCALES = new Set(DEFAULTS.locales);
 const BUILD_TOKEN_RE = /^[0-9a-f]{40}\.[a-z0-9-]+$/i;
 const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 const RETRYABLE_CACHE_STATES = new Set(['MISS', 'STALE']);
 const RETRY_BASE_DELAY_MS = 1_000;
 const RETRY_MAX_DELAY_MS = 15_000;
-const VERIFICATION_RESERVE_PER_REQUEST_MS = 10_000;
+export const MAX_ENDPOINT_ATTEMPTS = DEFAULTS.maxAttempts;
+export const MAX_ERROR_RESPONSE_BYTES = 64 * 1024;
+export const ERROR_RESPONSE_TIMEOUT_MS = 5_000;
 export const MAX_EDGE_TRANSFORM_OVERHEAD = 16 * 1024;
 
 export class WarmError extends Error {
@@ -62,19 +66,95 @@ export function normalizeSlugs(input) {
   return slugs;
 }
 
-function buildSkillApiUrl(siteUrl, slug) {
-  const url = new URL(`/api/skills/${encodeURIComponent(slug)}`, `${siteUrl}/`);
-  url.searchParams.set('lang', 'en');
+export function normalizeWarmTargets(input) {
+  if (!Array.isArray(input)) {
+    throw new WarmError('Exact warm targets must be a JSON array');
+  }
+  const normalized = input.map((rawTarget, index) => {
+    if (!rawTarget || typeof rawTarget !== 'object' || Array.isArray(rawTarget)) {
+      throw new WarmError(`Warm target ${index + 1} must be an object`);
+    }
+    const resource = String(rawTarget.resource || '').trim();
+    const slug = String(rawTarget.slug || '').trim();
+    const locale = String(rawTarget.locale || '').trim();
+    if (!SUPPORTED_RESOURCES.has(resource)) {
+      throw new WarmError(`Warm target ${index + 1} has unsupported resource ${resource || '<missing>'}`);
+    }
+    if (!slug) throw new WarmError(`Warm target ${index + 1} is missing slug`);
+    if (!SUPPORTED_LOCALES.has(locale)) {
+      throw new WarmError(`Warm target ${index + 1} has unsupported locale ${locale || '<missing>'}`);
+    }
+    return { resource, slug, locale };
+  });
+  const deduped = new Map();
+  for (const target of normalized) {
+    deduped.set(`${target.resource}\0${target.slug}\0${target.locale}`, target);
+  }
+  const targets = [...deduped.values()].sort((left, right) =>
+    left.resource.localeCompare(right.resource) ||
+    left.slug.localeCompare(right.slug) ||
+    left.locale.localeCompare(right.locale)
+  );
+  if (targets.length === 0) {
+    throw new WarmError('Warm scope is empty; provide at least one exact target');
+  }
+  return targets;
+}
+
+export function parseWarmTargets(value, source = 'targets') {
+  const text = String(value || '').trim();
+  if (!text) throw new WarmError(`${source} is empty`);
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return normalizeWarmTargets(parsed);
+    if (parsed && typeof parsed === 'object') return normalizeWarmTargets([parsed]);
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+  }
+
+  const rows = text.split(/\r?\n/).map((row) => row.trim()).filter(Boolean);
+  try {
+    return normalizeWarmTargets(rows.map((row) => JSON.parse(row)));
+  } catch (error) {
+    if (error instanceof WarmError) throw error;
+    throw new WarmError(`${source} must contain a JSON array, object, or JSONL records`);
+  }
+}
+
+function targetsFromSlugs(slugs, locales) {
+  return normalizeWarmTargets(slugs.flatMap((slug) =>
+    locales.map((locale) => ({ resource: 'skills', slug, locale }))
+  ));
+}
+
+function buildDetailApiUrl(siteUrl, target) {
+  const url = new URL(`/api/${target.resource}/${encodeURIComponent(target.slug)}`, `${siteUrl}/`);
+  url.searchParams.set('lang', target.locale);
   return url;
 }
 
-function buildSkillPageUrl(siteUrl, slug, locale) {
-  const prefix = locale === 'en' ? '' : `/${locale}`;
-  return new URL(`${prefix}/skills/${encodeURIComponent(slug)}`, `${siteUrl}/`);
+function buildDetailPageUrl(siteUrl, target) {
+  const prefix = target.locale === 'en' ? '' : `/${target.locale}`;
+  return new URL(`${prefix}/${target.resource}/${encodeURIComponent(target.slug)}`, `${siteUrl}/`);
 }
 
 function buildSkillZipUrl(siteUrl, slug) {
   return new URL(`/api/skills/${encodeURIComponent(slug)}/download`, `${siteUrl}/`);
+}
+
+export function calculateWorstCaseRequests(
+  rawTargets,
+  { maxAttempts = MAX_ENDPOINT_ATTEMPTS, warmZip = false } = {}
+) {
+  const targets = normalizeWarmTargets(rawTargets);
+  const attempts = parsePositiveInteger(maxAttempts, 'max attempts');
+  const skillZipCount = warmZip
+    ? new Set(targets.filter((target) => target.resource === 'skills').map((target) => target.slug)).size
+    : 0;
+  // Two deployment probes surround the run. API/page state machines consume at
+  // most maxAttempts total requests. ZIP keeps maxAttempts fill attempts plus
+  // two ordinary HIT verifications for backward compatibility.
+  return 2 + (targets.length * 2 * attempts) + (skillZipCount * (attempts + 2));
 }
 
 function withBuildToken(url, token) {
@@ -292,6 +372,94 @@ async function cancelBody(body, reason) {
   }
 }
 
+async function readBoundedErrorBody(response, context, url, runSignal) {
+  const body = response.body;
+  if (!body) {
+    return { body: new Uint8Array(), declared: 0, actual: 0, edgeDelta: null, truncated: false };
+  }
+
+  const rawLength = response.headers.get('content-length');
+  const parsedLength = rawLength !== null && /^\d+$/.test(rawLength) ? Number(rawLength) : null;
+  if (parsedLength !== null && (!Number.isSafeInteger(parsedLength) || parsedLength > MAX_ERROR_RESPONSE_BYTES)) {
+    await cancelBody(body, new Error('error response body exceeds bounded drain limit'));
+    return {
+      body: new Uint8Array(),
+      declared: Number.isSafeInteger(parsedLength) ? parsedLength : null,
+      actual: 0,
+      edgeDelta: null,
+      truncated: true,
+    };
+  }
+
+  const reservationBytes = parsedLength ?? MAX_ERROR_RESPONSE_BYTES;
+  let reservation;
+  try {
+    reservation = context.budget.reserveResponseBytes(reservationBytes, url);
+  } catch (error) {
+    const fatal = context.abortRun(error);
+    await cancelBody(body, fatal);
+    throw fatal;
+  }
+
+  const timer = timeoutSignal(ERROR_RESPONSE_TIMEOUT_MS, runSignal);
+  const reader = body.getReader();
+  const chunks = [];
+  let bytesRead = 0;
+  let truncated = false;
+  const cancelReader = () => reader.cancel(timer.signal.reason || new Error('error body drain aborted')).catch(() => {});
+  timer.signal.addEventListener('abort', cancelReader, { once: true });
+  try {
+    while (true) {
+      if (timer.signal.aborted) {
+        if (context.abortReason) throw context.abortReason;
+        truncated = true;
+        break;
+      }
+      let next;
+      try {
+        next = await reader.read();
+      } catch (error) {
+        if (context.abortReason) throw context.abortReason;
+        truncated = true;
+        break;
+      }
+      if (next.done) break;
+      const chunk = next.value instanceof Uint8Array ? next.value : new Uint8Array(next.value);
+      const remaining = MAX_ERROR_RESPONSE_BYTES - bytesRead;
+      const acceptedBytes = Math.min(chunk.byteLength, remaining);
+      if (acceptedBytes > 0) {
+        const accepted = acceptedBytes === chunk.byteLength ? chunk : chunk.subarray(0, acceptedBytes);
+        context.budget.consumeBytes(accepted.byteLength, url, reservation, bytesRead);
+        chunks.push(accepted);
+        bytesRead += accepted.byteLength;
+      }
+      if (chunk.byteLength > acceptedBytes || bytesRead >= MAX_ERROR_RESPONSE_BYTES) {
+        truncated = true;
+        await reader.cancel(new Error('error response body reached bounded drain limit')).catch(() => {});
+        break;
+      }
+    }
+  } finally {
+    timer.signal.removeEventListener('abort', cancelReader);
+    timer.clear();
+    context.budget.releaseResponseBytes(reservation);
+  }
+
+  const result = new Uint8Array(bytesRead);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return {
+    body: result,
+    declared: parsedLength,
+    actual: bytesRead,
+    edgeDelta: null,
+    truncated,
+  };
+}
+
 async function readResponseBody(response, context, url, signal, allowEdgeTransform) {
   const body = response.body;
   let reservation = null;
@@ -477,6 +645,7 @@ async function sleepUnlessAborted(context, milliseconds) {
 function makeRecord({
   phase,
   kind,
+  resource = null,
   slug = null,
   locale = null,
   url,
@@ -492,6 +661,7 @@ function makeRecord({
   declared = null,
   actual = null,
   edgeDelta = null,
+  truncated = false,
   error = null,
 }) {
   const cfRay = response?.headers?.get('cf-ray') || null;
@@ -499,6 +669,7 @@ function makeRecord({
     timestamp: new Date().toISOString(),
     phase,
     kind,
+    resource,
     slug,
     locale,
     url,
@@ -512,6 +683,7 @@ function makeRecord({
     declared,
     actual,
     edgeDelta,
+    truncated,
     cfRay,
     colo: coloFromRay(cfRay),
     buildToken,
@@ -544,13 +716,24 @@ async function fetchRecorded(context, request) {
       redirect: 'follow',
       signal: timer.signal,
     });
-    bodyMetadata = await readResponseBody(
-      response,
-      context,
-      url,
-      timer.signal,
-      request.kind === 'page'
-    );
+    // Edge-generated errors are not application responses: they commonly omit
+    // build/cache/size headers. Classify them first and drain only a small,
+    // globally-budgeted diagnostic body. Strict application contracts apply to
+    // successful responses only.
+    bodyMetadata = response.ok
+      ? await readResponseBody(
+        response,
+        context,
+        url,
+        timer.signal,
+        request.kind === 'page'
+      )
+      : await readBoundedErrorBody(
+        response,
+        context,
+        url,
+        timer.signal
+      );
     body = bodyMetadata.body;
   } catch (error) {
     const effectiveError = context.abortReason || error;
@@ -621,6 +804,7 @@ async function fetchRecorded(context, request) {
     declared: bodyMetadata.declared,
     actual: bodyMetadata.actual,
     edgeDelta: bodyMetadata.edgeDelta,
+    truncated: bodyMetadata.truncated || false,
   });
   await context.report(record);
   return {
@@ -731,158 +915,262 @@ async function probeBuild(context, phase) {
   }
 }
 
-async function warmEndpoint(context, item) {
+function endpointDeadline(context, item) {
   const baseUrl = new URL(item.url);
-  const endpointStartedAt = context.now();
-  const endpointWindowMs = endpointWindow(
+  const startedAt = context.now();
+  const windowMs = endpointWindow(
     String(baseUrl),
     context.retryWindowMinMs,
     context.retryWindowMaxMs
   );
-  const deadlineAt = endpointStartedAt + endpointWindowMs;
-  const headers = {
+  const deadlineAt = startedAt + windowMs;
+  const remainingMs = () => Math.max(0, deadlineAt - context.now());
+  const error = (phase) => new WarmError(
+    `${item.kind} ${baseUrl} exhausted its ${windowMs}ms endpoint deadline during ${phase}`,
+    { deadlineAt, elapsedMs: context.now() - startedAt, phase }
+  );
+  return { baseUrl, windowMs, deadlineAt, remainingMs, error };
+}
+
+function endpointResult(item, baseUrl, records, innerAttempts) {
+  return {
+    kind: item.kind,
+    resource: item.resource,
+    slug: item.slug,
+    locale: item.locale,
+    url: String(baseUrl),
+    innerAttempts,
+    bytes: records.reduce((total, result) => total + result.record.bytes, 0),
+  };
+}
+
+async function warmKvEndpoint(context, item) {
+  const deadline = endpointDeadline(context, item);
+  const requiresInvalidatedMiss = context.mode === 'force' || context.scope === 'changed';
+  const noCacheHeaders = {
     Accept: item.accept,
     'Cache-Control': 'no-cache',
     Pragma: 'no-cache',
     'User-Agent': context.userAgent,
     'X-Skillstore-Callback': 'true',
   };
-
-  const remainingMs = () => Math.max(0, deadlineAt - context.now());
-  const deadlineError = (phase) => new WarmError(
-    `${item.kind} ${baseUrl} exhausted its ${endpointWindowMs}ms endpoint deadline during ${phase}`,
-    {
-      deadlineAt,
-      elapsedMs: context.now() - endpointStartedAt,
-      phase,
-    }
-  );
-  const verificationReserveMs = Math.min(
-    context.timeoutMs,
-    VERIFICATION_RESERVE_PER_REQUEST_MS
-  ) * 2;
-
-  const usesKvStateMachine = item.kind === 'api' || item.kind === 'page';
-  const requiresInvalidatedMiss = usesKvStateMachine &&
-    (context.mode === 'force' || context.scope === 'changed');
-  let acceptedResult = null;
+  const ordinaryHeaders = {
+    Accept: item.accept,
+    'User-Agent': context.userAgent,
+    'X-Skillstore-Callback': 'true',
+  };
+  const records = [];
   let cacheIdentity = null;
+  let consecutiveHits = 0;
+  let freshMissAttempt = 0;
+  let innerAttempt = 0;
+  let verificationAttempt = 0;
+  let shouldDelay = false;
+
   for (let attempt = 1; attempt <= context.maxAttempts; attempt++) {
-    if (attempt > 1) {
-      const availableForDelay = remainingMs() - verificationReserveMs - 1;
-      if (availableForDelay <= 0) throw deadlineError('inner-cache backoff');
-      const delayMs = Math.min(retryDelay(String(baseUrl), attempt), availableForDelay);
-      await sleepUnlessAborted(context, delayMs);
-      if (remainingMs() <= verificationReserveMs) throw deadlineError('inner-cache backoff');
+    if (context.abortReason) throw context.abortReason;
+    if (shouldDelay) {
+      const available = deadline.remainingMs() - 1;
+      if (available <= 0) throw deadline.error('cache propagation backoff');
+      await sleepUnlessAborted(
+        context,
+        Math.min(retryDelay(String(deadline.baseUrl), attempt), available)
+      );
     }
+    const remaining = deadline.remainingMs();
+    if (remaining <= 0) throw deadline.error('cache state request');
 
-    const innerTimeoutMs = Math.min(
-      context.timeoutMs,
-      remainingMs() - verificationReserveMs
-    );
-    if (innerTimeoutMs <= 0) throw deadlineError('inner-cache request');
-
+    const stabilizing = cacheIdentity !== null;
+    const phase = stabilizing ? 'ordinary-verification' : 'inner-cache';
+    const phaseAttempt = stabilizing ? ++verificationAttempt : ++innerAttempt;
+    const requestUrl = stabilizing
+      ? withBuildToken(deadline.baseUrl, context.buildToken)
+      : deadline.baseUrl;
     let result;
     try {
       result = await fetchRecorded(context, {
-        phase: 'inner-cache',
+        phase,
         kind: item.kind,
+        resource: item.resource,
         slug: item.slug,
         locale: item.locale,
-        url: baseUrl,
-        attempt,
+        url: requestUrl,
+        attempt: phaseAttempt,
         status: 0,
         bytes: 0,
         cacheHeader: item.cacheHeader,
-        headers,
-        timeoutMs: innerTimeoutMs,
+        headers: stabilizing ? ordinaryHeaders : noCacheHeaders,
+        timeoutMs: Math.min(context.timeoutMs, remaining),
       });
-      await assertPinnedBuild(context, result, `${item.kind} ${baseUrl}`);
     } catch (error) {
-      if (error instanceof WarmError && error.details?.fatal) {
-        throw context.abortRun(error);
-      }
-      if (attempt < context.maxAttempts) continue;
-      throw error;
+      if (error instanceof WarmError && error.details?.fatal) throw context.abortRun(error);
+      if (attempt >= context.maxAttempts) throw error;
+      shouldDelay = true;
+      continue;
     }
+    records.push(result);
 
-    const retryableStatus = RETRYABLE_STATUSES.has(result.response.status);
     if (!result.response.ok) {
-      if (retryableStatus && attempt < context.maxAttempts) continue;
-      throw new WarmError(
-        `${item.kind} ${baseUrl} returned HTTP ${result.response.status} with ${item.cacheHeader}=${result.cache || '<missing>'}`
-      );
-    }
-
-    if (!usesKvStateMachine) {
-      if (result.cache === 'HIT') {
-        acceptedResult = result;
-        break;
+      if (RETRYABLE_STATUSES.has(result.response.status) && attempt < context.maxAttempts) {
+        shouldDelay = true;
+        continue;
       }
-      if (RETRYABLE_CACHE_STATES.has(result.cache) && attempt < context.maxAttempts) continue;
       throw new WarmError(
-        `${item.kind} ${baseUrl} returned HTTP ${result.response.status} with ${item.cacheHeader}=${result.cache || '<missing>'}`
+        `${item.kind} ${deadline.baseUrl} returned HTTP ${result.response.status}`
       );
     }
+    await assertPinnedBuild(context, result, `${item.kind} ${requestUrl}`);
 
-    cacheIdentity = assertCacheIdentity(
-      context,
-      result,
-      `${item.kind} inner-cache attempt ${attempt} ${baseUrl}`,
-      cacheIdentity
-    );
-    if (requiresInvalidatedMiss) {
-      if (result.cache !== 'MISS' || result.cacheWrite !== 'STORED') {
+    if (!cacheIdentity) {
+      const observedIdentity = assertCacheIdentity(
+        context,
+        result,
+        `${item.kind} pre-stabilization attempt ${phaseAttempt} ${deadline.baseUrl}`
+      );
+      if (requiresInvalidatedMiss) {
+        if ((result.cache === 'HIT' || result.cache === 'STALE') && result.cacheWrite === 'SKIPPED') {
+          shouldDelay = true;
+          continue;
+        }
+        if (result.cache !== 'MISS' || result.cacheWrite !== 'STORED') {
+          throw cacheStateFailure(
+            context,
+            item,
+            result,
+            `${item.kind} invalidated cache ${deadline.baseUrl}`,
+            'pre-MISS HIT/STALE+SKIPPED or fresh MISS+STORED'
+          );
+        }
+      } else if (!(
+        (result.cache === 'MISS' && result.cacheWrite === 'STORED') ||
+        (result.cache === 'HIT' && result.cacheWrite === 'SKIPPED')
+      )) {
+        if (result.cache === 'STALE' && result.cacheWrite === 'SKIPPED') {
+          shouldDelay = true;
+          continue;
+        }
         throw cacheStateFailure(
           context,
           item,
           result,
-          `${item.kind} invalidated cache ${baseUrl}`,
-          'MISS+STORED'
+          `${item.kind} cache ${deadline.baseUrl}`,
+          'MISS+STORED or HIT+SKIPPED'
         );
       }
-      acceptedResult = result;
-      break;
+      cacheIdentity = observedIdentity;
+      freshMissAttempt = phaseAttempt;
+      consecutiveHits = 0;
+      shouldDelay = false;
+      continue;
     }
 
-    if ((result.cache === 'MISS' && result.cacheWrite === 'STORED') ||
-        (result.cache === 'HIT' && result.cacheWrite === 'SKIPPED')) {
-      acceptedResult = result;
-      break;
+    assertCacheIdentity(
+      context,
+      result,
+      `${item.kind} stabilization attempt ${phaseAttempt} ${requestUrl}`,
+      cacheIdentity
+    );
+    if (result.cache === 'HIT' && result.cacheWrite === 'SKIPPED') {
+      consecutiveHits += 1;
+      if (consecutiveHits === 2) {
+        return endpointResult(item, deadline.baseUrl, records, freshMissAttempt);
+      }
+      shouldDelay = false;
+      continue;
     }
-    if (result.cache === 'STALE' && result.cacheWrite === 'SKIPPED' &&
-        attempt < context.maxAttempts) {
+    if (result.cache === 'MISS' && result.cacheWrite === 'STORED') {
+      consecutiveHits = 0;
+      freshMissAttempt = phaseAttempt;
+      shouldDelay = false;
+      continue;
+    }
+    if (result.cache === 'STALE' && result.cacheWrite === 'SKIPPED') {
+      consecutiveHits = 0;
+      shouldDelay = true;
       continue;
     }
     throw cacheStateFailure(
       context,
       item,
       result,
-      `${item.kind} cache ${baseUrl}`,
-      'MISS+STORED or HIT+SKIPPED'
+      `${item.kind} stabilization ${requestUrl}`,
+      'MISS+STORED or two consecutive HIT+SKIPPED'
     );
   }
 
-  if (!acceptedResult) {
+  if (deadline.remainingMs() <= 0) throw deadline.error('cache state verification');
+  throw new WarmError(
+    `${item.kind} ${deadline.baseUrl} exhausted its ${context.maxAttempts}-attempt deterministic cap before reaching two consecutive HITs`,
+    { attempts: context.maxAttempts, deadlineAt: deadline.deadlineAt }
+  );
+}
+
+async function warmSimpleEndpoint(context, item) {
+  const deadline = endpointDeadline(context, item);
+  const records = [];
+  let acceptedResult = null;
+  let shouldDelay = false;
+  for (let attempt = 1; attempt <= context.maxAttempts; attempt++) {
+    if (shouldDelay) {
+      const available = deadline.remainingMs() - 1;
+      if (available <= 0) throw deadline.error('simple-cache backoff');
+      await sleepUnlessAborted(context, Math.min(retryDelay(String(deadline.baseUrl), attempt), available));
+    }
+    const remaining = deadline.remainingMs();
+    if (remaining <= 0) throw deadline.error('simple-cache request');
+    const result = await fetchRecorded(context, {
+      phase: 'inner-cache',
+      kind: item.kind,
+      resource: item.resource,
+      slug: item.slug,
+      locale: item.locale,
+      url: deadline.baseUrl,
+      attempt,
+      status: 0,
+      bytes: 0,
+      cacheHeader: item.cacheHeader,
+      headers: {
+        Accept: item.accept,
+        'Cache-Control': 'no-cache',
+        Pragma: 'no-cache',
+        'User-Agent': context.userAgent,
+        'X-Skillstore-Callback': 'true',
+      },
+      timeoutMs: Math.min(context.timeoutMs, remaining),
+    });
+    records.push(result);
+    if (!result.response.ok) {
+      if (RETRYABLE_STATUSES.has(result.response.status) && attempt < context.maxAttempts) {
+        shouldDelay = true;
+        continue;
+      }
+      throw new WarmError(`${item.kind} ${deadline.baseUrl} returned HTTP ${result.response.status}`);
+    }
+    await assertPinnedBuild(context, result, `${item.kind} ${deadline.baseUrl}`);
+    if (result.cache === 'HIT') {
+      acceptedResult = result;
+      break;
+    }
+    if (RETRYABLE_CACHE_STATES.has(result.cache) && attempt < context.maxAttempts) {
+      shouldDelay = true;
+      continue;
+    }
     throw new WarmError(
-      `${item.kind} ${baseUrl} never reached an acceptable cache state after ${context.maxAttempts} attempts`
+      `${item.kind} ${deadline.baseUrl} returned ${item.cacheHeader}=${result.cache || '<missing>'}`
     );
   }
+  if (!acceptedResult) {
+    throw new WarmError(`${item.kind} ${deadline.baseUrl} did not reach HIT within its attempt cap`);
+  }
 
-  const verificationUrl = withBuildToken(baseUrl, context.buildToken);
-  const verifications = [];
+  const verificationUrl = withBuildToken(deadline.baseUrl, context.buildToken);
   for (let attempt = 1; attempt <= 2; attempt++) {
-    if (context.abortReason) throw context.abortReason;
-    const requestsRemaining = 3 - attempt;
-    const verificationTimeoutMs = Math.min(
-      context.timeoutMs,
-      Math.floor(remainingMs() / requestsRemaining)
-    );
-    if (verificationTimeoutMs <= 0) throw deadlineError(`ordinary verification ${attempt}`);
-
-    const verification = await fetchRecorded(context, {
+    const remaining = deadline.remainingMs();
+    if (remaining <= 0) throw deadline.error(`ordinary verification ${attempt}`);
+    const result = await fetchRecorded(context, {
       phase: 'ordinary-verification',
       kind: item.kind,
+      resource: item.resource,
       slug: item.slug,
       locale: item.locale,
       url: verificationUrl,
@@ -895,49 +1183,26 @@ async function warmEndpoint(context, item) {
         'User-Agent': context.userAgent,
         'X-Skillstore-Callback': 'true',
       },
-      timeoutMs: verificationTimeoutMs,
+      timeoutMs: Math.min(context.timeoutMs, remaining),
     });
-    await assertPinnedBuild(
-      context,
-      verification,
-      `${item.kind} ordinary verification ${attempt} ${verificationUrl}`
-    );
-    if (usesKvStateMachine) {
-      assertCacheIdentity(
-        context,
-        verification,
-        `${item.kind} ordinary verification ${attempt} ${verificationUrl}`,
-        cacheIdentity
-      );
-      if (!verification.response.ok || verification.cache !== 'HIT' ||
-          verification.cacheWrite !== 'SKIPPED') {
-        throw cacheStateFailure(
-          context,
-          item,
-          verification,
-          `${item.kind} ordinary verification ${attempt} ${verificationUrl}`,
-          'HIT+SKIPPED'
-        );
-      }
-    } else if (!verification.response.ok || verification.cache !== 'HIT') {
+    records.push(result);
+    if (!result.response.ok) {
+      throw new WarmError(`${item.kind} verification returned HTTP ${result.response.status}`);
+    }
+    await assertPinnedBuild(context, result, `${item.kind} ordinary verification ${verificationUrl}`);
+    if (result.cache !== 'HIT') {
       throw new WarmError(
-        `${item.kind} ordinary verification ${attempt} replayed a non-HIT response: HTTP ${verification.response.status}, ${item.cacheHeader}=${verification.cache || '<missing>'}`
+        `${item.kind} ordinary verification replayed ${item.cacheHeader}=${result.cache || '<missing>'}`
       );
     }
-    verifications.push(verification);
   }
+  return endpointResult(item, deadline.baseUrl, records, acceptedResult.record.attempt);
+}
 
-  return {
-    kind: item.kind,
-    slug: item.slug,
-    locale: item.locale,
-    url: String(baseUrl),
-    innerAttempts: acceptedResult.record.attempt,
-    bytes: acceptedResult.record.bytes + verifications.reduce(
-      (total, result) => total + result.record.bytes,
-      0
-    ),
-  };
+async function warmEndpoint(context, item) {
+  return item.kind === 'api' || item.kind === 'page'
+    ? warmKvEndpoint(context, item)
+    : warmSimpleEndpoint(context, item);
 }
 
 async function mapWithConcurrency(items, concurrency, mapper) {
@@ -966,25 +1231,27 @@ function summarizeFailures(results) {
     .map((result) => result.error instanceof Error ? result.error.message : String(result.error));
 }
 
-function endpointItems(options, slugs) {
-  const api = slugs.map((slug) => ({
+function endpointItems(options, targets) {
+  const api = targets.map((target) => ({
     kind: 'api',
-    slug,
-    locale: 'en',
-    url: buildSkillApiUrl(options.siteUrl, slug),
+    ...target,
+    url: buildDetailApiUrl(options.siteUrl, target),
     cacheHeader: options.apiCacheHeader,
     accept: 'application/json',
   }));
-  const pages = slugs.flatMap((slug) => options.locales.map((locale) => ({
+  const pages = targets.map((target) => ({
     kind: 'page',
-    slug,
-    locale,
-    url: buildSkillPageUrl(options.siteUrl, slug, locale),
+    ...target,
+    url: buildDetailPageUrl(options.siteUrl, target),
     cacheHeader: options.pageCacheHeader,
     accept: 'text/html',
-  })));
-  const zips = options.warmZip ? slugs.map((slug) => ({
+  }));
+  const skillSlugs = [
+    ...new Set(targets.filter((target) => target.resource === 'skills').map((target) => target.slug)),
+  ];
+  const zips = options.warmZip ? skillSlugs.map((slug) => ({
     kind: 'zip',
+    resource: 'skills',
     slug,
     locale: null,
     url: buildSkillZipUrl(options.siteUrl, slug),
@@ -1018,6 +1285,10 @@ export async function runWarm(rawOptions) {
   if (!Array.isArray(options.locales) || options.locales.length === 0) {
     throw new WarmError('At least one locale is required');
   }
+  options.locales = [...new Set(options.locales.map((locale) => String(locale).trim()))];
+  for (const locale of options.locales) {
+    if (!SUPPORTED_LOCALES.has(locale)) throw new WarmError(`Unsupported locale: ${locale}`);
+  }
   if (!Number.isSafeInteger(options.retryWindowMinMs) || options.retryWindowMinMs <= 0 ||
       !Number.isSafeInteger(options.retryWindowMaxMs) || options.retryWindowMaxMs < options.retryWindowMinMs ||
       options.retryWindowMaxMs > 120_000) {
@@ -1026,8 +1297,10 @@ export async function runWarm(rawOptions) {
     );
   }
 
-  const slugs = normalizeSlugs(rawOptions.slugs);
-  const items = endpointItems(options, slugs);
+  const targets = rawOptions.targets
+    ? normalizeWarmTargets(rawOptions.targets)
+    : targetsFromSlugs(normalizeSlugs(rawOptions.slugs), options.locales);
+  const items = endpointItems(options, targets);
   const minimumRequests = 2 + (items.api.length + items.pages.length + items.zips.length) * 3;
   if (options.requestBudget < minimumRequests) {
     throw new WarmError(
@@ -1113,6 +1386,12 @@ export async function runWarm(rawOptions) {
   }, { api: 0, page: 0, zip: 0 });
   const plannedEndpointTotal = items.api.length + items.pages.length + items.zips.length;
   const completedEndpointTotal = endpointCounts.api + endpointCounts.page + endpointCounts.zip;
+  const uniqueSlugs = new Set(targets.map((target) => `${target.resource}\0${target.slug}`));
+  const uniqueLocales = new Set(targets.map((target) => target.locale));
+  const resourceCounts = targets.reduce((counts, target) => {
+    counts[target.resource] = (counts[target.resource] || 0) + 1;
+    return counts;
+  }, { skills: 0, packs: 0 });
   return {
     success: failures.length === 0,
     mode: rawOptions.mode || 'warm',
@@ -1120,8 +1399,10 @@ export async function runWarm(rawOptions) {
     startedAt,
     finishedAt: new Date().toISOString(),
     buildToken: context.buildToken,
-    slugs: slugs.length,
-    locales: options.locales.length,
+    targets: targets.length,
+    slugs: uniqueSlugs.size,
+    locales: uniqueLocales.size,
+    resources: resourceCounts,
     plannedEndpoints: {
       api: items.api.length,
       page: items.pages.length,
@@ -1158,13 +1439,16 @@ function markdownSummary(summary) {
   const failures = summary.failures.length
     ? `\n\n### Failures\n\n${summary.failures.map((failure) => `- ${failure}`).join('\n')}`
     : '';
-  return `## Skill cache warm verification\n\n` +
+  return `## Catalog cache warm verification\n\n` +
     `| Metric | Value |\n|---|---:|\n` +
     `| Result | ${status} |\n` +
     `| Mode | \`${summary.mode}\` |\n` +
     `| Scope | \`${summary.scope}\` |\n` +
     `| Build | \`${summary.buildToken || 'unavailable'}\` |\n` +
-    `| Skills | ${summary.slugs} |\n` +
+    `| Exact targets | ${summary.targets} |\n` +
+    `| Skill targets | ${summary.resources.skills} |\n` +
+    `| Pack targets | ${summary.resources.packs} |\n` +
+    `| Resource slugs | ${summary.slugs} |\n` +
     `| API endpoints | ${summary.completedEndpoints.api}/${summary.plannedEndpoints.api} |\n` +
     `| Page endpoints | ${summary.completedEndpoints.page}/${summary.plannedEndpoints.page} |\n` +
     `| ZIP endpoints | ${summary.completedEndpoints.zip}/${summary.plannedEndpoints.zip} |\n` +
@@ -1178,7 +1462,14 @@ function markdownSummary(summary) {
 async function cli(argv) {
   const args = parseArguments(argv);
   const slugsFile = args['slugs-file'];
-  if (!slugsFile) throw new WarmError('--slugs-file is required');
+  const targetsFile = args['targets-file'] || process.env.TARGETS_FILE || null;
+  const inlineTargets = args.targets || process.env.TARGETS || null;
+  if (!slugsFile && !targetsFile && !inlineTargets) {
+    throw new WarmError('--slugs-file, --targets, or --targets-file is required');
+  }
+  if (slugsFile && (targetsFile || inlineTargets)) {
+    throw new WarmError('--slugs-file cannot be combined with exact targets');
+  }
   const reportPath = args.report || 'warm-cache-report.jsonl';
   const summaryPath = args.summary || 'warm-cache-summary.json';
   const stream = createWriteStream(reportPath, { flags: 'w' });
@@ -1197,9 +1488,15 @@ async function cli(argv) {
 
   let summary;
   try {
-    const slugs = normalizeSlugs(await readFile(slugsFile, 'utf8'));
+    const exactTargets = [];
+    if (inlineTargets) exactTargets.push(...parseWarmTargets(inlineTargets, '--targets'));
+    if (targetsFile) {
+      exactTargets.push(...parseWarmTargets(await readFile(targetsFile, 'utf8'), '--targets-file'));
+    }
+    const targets = exactTargets.length > 0 ? normalizeWarmTargets(exactTargets) : null;
+    const slugs = slugsFile ? normalizeSlugs(await readFile(slugsFile, 'utf8')) : null;
     summary = await runWarm({
-      slugs,
+      ...(targets ? { targets } : { slugs }),
       siteUrl: args['site-url'] || process.env.SITE_URL || DEFAULTS.siteUrl,
       locales: String(args.locales || process.env.LOCALES || DEFAULTS.locales.join(' ')).split(/[\s,]+/).filter(Boolean),
       concurrency: args.concurrency || process.env.CONCURRENCY || DEFAULTS.concurrency,

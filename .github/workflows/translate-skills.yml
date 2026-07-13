@@ -4,10 +4,9 @@
 # IMPORTANT: This workflow is triggered BY sync-to-supabase.yml after data sync completes.
 # This ensures translation reads fresh data from the database, avoiding race conditions.
 #
-# Concurrency Strategy:
-# - Full translation (no skill_slugs): Only ONE allowed at a time, queued via 'translate-skills-full'
-# - Partial translation (with skill_slugs): Unlimited concurrency, each run gets unique group
-# This allows partial translations to run alongside a long-running full translation without conflicts.
+# Concurrency strategy: all translation runs are serialized because each run owns
+# a write -> exact invalidation -> verified warm transaction. Interleaving partial
+# runs could otherwise invalidate between another run's MISS and HIT evidence.
 
 name: Auto-Translate Skill Content
 
@@ -29,6 +28,10 @@ on:
         description: "Force re-translation of existing translations"
         type: boolean
         default: false
+      locale:
+        description: "Optional single locale for a bounded canary (for example zh-hans); empty translates all target locales"
+        type: string
+        default: ""
       concurrency:
         description: "Parallel skills per language (1-10, language-first parallelism)"
         type: string
@@ -51,11 +54,11 @@ env:
   CLI_VERSION: ${{ inputs.cli_version || 'latest' }}
   SHARD_THRESHOLD: 10
 
-# Dynamic concurrency groups:
-# - Full translation: 'translate-skills-full' (only 1 allowed, others queue)
-# - Partial translation: 'translate-skills-partial-{run_id}' (unlimited, no blocking)
+# Translation writes and cache finalization share one global owner. Serializing
+# the complete workflow prevents an older run from invalidating between a newer
+# run's exact invalidation and warm verification.
 concurrency:
-  group: ${{ (github.event.inputs.skill_slugs == '' && github.event_name == 'workflow_dispatch') && 'translate-skills-full' || format('translate-skills-partial-{0}', github.run_id) }}
+  group: translate-skills-cache-owner
   cancel-in-progress: false
 
 jobs:
@@ -350,7 +353,19 @@ jobs:
 
   translate:
     needs: detect-and-plan
-    if: needs.detect-and-plan.outputs.has_changes == 'true' && needs.detect-and-plan.outputs.shard_count != '0'
+    # This is the mutation boundary. If cache finalization is disabled or the
+    # bounded rollout cap is invalid/exceeded, translation must not write first
+    # and leave the existing 365-day detail cache stale.
+    if: >-
+      needs.detect-and-plan.outputs.has_changes == 'true' &&
+      needs.detect-and-plan.outputs.shard_count != '0' &&
+      fromJSON(vars.CACHE_FINALIZER_MAX_SKILLS || '5') >= 1 &&
+      fromJSON(vars.CACHE_FINALIZER_MAX_SKILLS || '5') <= 25 &&
+      fromJSON(needs.detect-and-plan.outputs.skill_count || '0') <= fromJSON(vars.CACHE_FINALIZER_MAX_SKILLS || '5') &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        vars.CACHE_FINALIZER_AUTOMATION_ENABLED == 'true'
+      )
     runs-on: self-hosted
     timeout-minutes: 1440
     continue-on-error: true
@@ -392,6 +407,10 @@ jobs:
           OFFSET: ${{ matrix.offset }}
           LIMIT: ${{ matrix.limit }}
           CONCURRENCY: ${{ inputs.concurrency || '8' }}
+          TARGET_LOCALE: ${{ inputs.locale }}
+          # Cache invalidation is owned by the exact post-translation finalizer.
+          # Never let a runner-level environment secret reactivate CLI best-effort invalidation.
+          CACHE_INVALIDATE_SECRET: ''
         run: |
           echo "=== Shard ${{ matrix.shard }} ==="
           
@@ -418,6 +437,18 @@ jobs:
           FORCE_FLAG=""
           if [ "${{ inputs.force }}" = "true" ]; then
             FORCE_FLAG="--force"
+          fi
+
+          LANG_FLAG=""
+          if [ -n "$TARGET_LOCALE" ]; then
+            case "$TARGET_LOCALE" in
+              zh-hans|zh-hant|ja|ko|de|fr|es|pt|ru|ar) ;;
+              *)
+                echo "::error::Unsupported translation locale: $TARGET_LOCALE"
+                exit 1
+                ;;
+            esac
+            LANG_FLAG="--lang $TARGET_LOCALE"
           fi
 
           configure_tls() {
@@ -476,7 +507,8 @@ jobs:
               --concurrency "$CURRENT_CONCURRENCY" \
               --output json \
               $MODEL_FLAG \
-              $FORCE_FLAG 2>"$ERR_FILE")
+              $FORCE_FLAG \
+              $LANG_FLAG 2>"$ERR_FILE")
             EXIT_CODE=$?
             set -e
             ERR_OUTPUT=$(cat "$ERR_FILE")
@@ -539,13 +571,16 @@ jobs:
           fi
 
       - name: Translate queued security audits
-        if: always()
+        if: always() && matrix.shard == 0 && inputs.locale == ''
         continue-on-error: true
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
           CONCURRENCY: ${{ inputs.concurrency || '8' }}
+          # Audit translation cache ownership will move to its own exact
+          # mutation manifest; never allow runner ambient secrets to invalidate here.
+          CACHE_INVALIDATE_SECRET: ''
         run: |
           MODEL_FLAG=""
           if [ -n "${{ inputs.model }}" ]; then
@@ -587,7 +622,11 @@ jobs:
 
   merge-results:
     needs: [detect-and-plan, translate]
-    if: always() && needs.detect-and-plan.outputs.has_changes == 'true' && needs.detect-and-plan.outputs.shard_count != '0'
+    if: >-
+      always() &&
+      needs.translate.result == 'success' &&
+      needs.detect-and-plan.outputs.has_changes == 'true' &&
+      needs.detect-and-plan.outputs.shard_count != '0'
     runs-on: self-hosted
     timeout-minutes: 30
     outputs:
@@ -661,8 +700,9 @@ jobs:
           TRANSLATED_SLUGS=""
           for result in ./results/shard-*-result.json; do
             if [ -f "$result" ]; then
-              # Extract slugs where at least one language was translated (not skipped)
-              SHARD_SLUGS=$(jq -r '[.languages[].skills[] | select(.status != "skipped") | .slug] | unique | .[]' "$result" 2>/dev/null || echo "")
+              # Only successful writes may enter cache finalization. Errors are
+              # not mutations and must never be treated as invalidation targets.
+              SHARD_SLUGS=$(jq -r '[.languages[].skills[] | select(.status == "translated" or .status == "stale_retranslated") | .slug] | unique | .[]' "$result" 2>/dev/null || echo "")
               if [ -n "$SHARD_SLUGS" ]; then
                 if [ -n "$TRANSLATED_SLUGS" ]; then
                   TRANSLATED_SLUGS="$TRANSLATED_SLUGS"$'\n'"$SHARD_SLUGS"
@@ -705,33 +745,64 @@ jobs:
           
           echo "result_json=$RESULT_JSON" >> $GITHUB_OUTPUT
 
-  invalidate-cache:
+  finalize-cache:
     needs: [detect-and-plan, translate, merge-results]
-    if: always() && needs.translate.result == 'success'
+    if: always() && needs.merge-results.result == 'success' && needs.merge-results.outputs.total_translated != '0' && (github.event_name == 'workflow_dispatch' || vars.CACHE_FINALIZER_AUTOMATION_ENABLED == 'true')
     runs-on: self-hosted
-    timeout-minutes: 15
-    outputs:
-      total_count: ${{ steps.invalidate.outputs.total_count }}
-      success_count: ${{ steps.invalidate.outputs.success_count }}
-      failed_count: ${{ steps.invalidate.outputs.failed_count }}
+    timeout-minutes: 60
     steps:
-      - name: Checkout repository
+      - name: Checkout cache finalizer
         uses: actions/checkout@v5
         with:
-          sparse-checkout: .github/actions
+          sparse-checkout: scripts
 
-      - name: Invalidate cache for translated skills
-        id: invalidate
-        uses: ./.github/actions/invalidate-cache
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
         with:
-          type: skills
-          # Use slugs_csv if provided (partial mode), otherwise use translated_slugs from merge-results (translate-all mode)
-          slugs: ${{ needs.detect-and-plan.outputs.slugs_csv || needs.merge-results.outputs.translated_slugs }}
-          secret: ${{ secrets.CACHE_INVALIDATE_SECRET }}
-          fail-on-error: false
+          node-version: 20
+          package-manager-cache: false
+
+      - name: Download exact translation results
+        uses: actions/download-artifact@v7
+        with:
+          pattern: translate-shard-*
+          merge-multiple: true
+          path: ./cache-finalizer-results
+
+      - name: Finalize translated cache targets
+        env:
+          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          SITE_URL: https://skillstore.io
+          CACHE_FINALIZER_MAX_SKILLS: ${{ vars.CACHE_FINALIZER_MAX_SKILLS || '5' }}
+        run: |
+          set -euo pipefail
+          node scripts/finalize-translation-cache.mjs \
+            --results-dir ./cache-finalizer-results \
+            --site-url "$SITE_URL" \
+            --concurrency 1 \
+            --max-skills "$CACHE_FINALIZER_MAX_SKILLS" \
+            --max-packs 100 \
+            --max-targets 250 \
+            --request-budget 5000 \
+            --byte-budget 536870912 \
+            --plan "$RUNNER_TEMP/cache-finalizer-plan.json" \
+            --report "$RUNNER_TEMP/cache-finalizer-report.jsonl" \
+            --summary "$RUNNER_TEMP/cache-finalizer-summary.json"
+
+      - name: Upload cache finalizer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cache-finalizer-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/cache-finalizer-plan.json
+            ${{ runner.temp }}/cache-finalizer-report.jsonl
+            ${{ runner.temp }}/cache-finalizer-summary.json
+          if-no-files-found: warn
+          retention-days: 14
 
   notify:
-    needs: [detect-and-plan, translate, merge-results, invalidate-cache]
+    needs: [detect-and-plan, translate, merge-results, finalize-cache]
     if: always() && needs.detect-and-plan.outputs.has_changes == 'true'
     runs-on: self-hosted
     timeout-minutes: 10
@@ -743,9 +814,6 @@ jobs:
           TRANSLATE_ALL: ${{ needs.detect-and-plan.outputs.translate_all }}
           IS_SHARDED: ${{ needs.detect-and-plan.outputs.is_sharded }}
           SHARD_COUNT: ${{ needs.detect-and-plan.outputs.shard_count }}
-          CACHE_INVALIDATE_TOTAL: ${{ needs.invalidate-cache.outputs.total_count || '0' }}
-          CACHE_INVALIDATE_SUCCESS: ${{ needs.invalidate-cache.outputs.success_count || '0' }}
-          CACHE_INVALIDATE_FAILED: ${{ needs.invalidate-cache.outputs.failed_count || '0' }}
         run: |
           echo "# Translation Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -796,13 +864,11 @@ jobs:
           fi
 
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [ "${{ needs.invalidate-cache.result }}" = "success" ] && [ "$CACHE_INVALIDATE_FAILED" -gt 0 ]; then
-            echo "⚠️ Cache invalidation failed for $CACHE_INVALIDATE_FAILED/$CACHE_INVALIDATE_TOTAL item(s)" >> $GITHUB_STEP_SUMMARY
-            echo "Translations were written, but affected pages may stay stale until cache is fixed or refreshed." >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.invalidate-cache.result }}" = "success" ]; then
-            echo "✅ Cache invalidated" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.invalidate-cache.result }}" = "skipped" ]; then
-            echo "⏭️ Cache invalidation skipped" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ needs.finalize-cache.result }}" = "success" ]; then
+            echo "✅ Exact cache invalidation and warm verification passed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.finalize-cache.result }}" = "skipped" ]; then
+            echo "⏭️ Cache finalization skipped (no successful translation mutations)" >> $GITHUB_STEP_SUMMARY
           else
-            echo "⚠️ Cache invalidation: ${{ needs.invalidate-cache.result }}" >> $GITHUB_STEP_SUMMARY
+            echo "❌ Cache finalization: ${{ needs.finalize-cache.result }}" >> $GITHUB_STEP_SUMMARY
+            echo "Translations were written, but automatic rollout remains blocked until the immutable plan is rerun." >> $GITHUB_STEP_SUMMARY
           fi
