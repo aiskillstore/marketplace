@@ -1,3 +1,8 @@
+---
+name: mapreduce
+description: Fan-out tasks to multiple AI providers or agent instances in parallel, then consolidate the results into a single high-quality output. Use for parallel planning, multi-implementation code generation, and debug consensus across Claude subagents and external CLI providers.
+---
+
 # MapReduce Skill
 
 > **Skill ID**: mapreduce

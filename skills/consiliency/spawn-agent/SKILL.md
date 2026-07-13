@@ -1,5 +1,5 @@
 ---
-name: spawn:agent
+name: spawn-agent
 description: "Spawn an AI coding agent in a new terminal (Claude, Codex, Gemini, Cursor, OpenCode, Copilot). Defaults to Claude Code if unspecified."
 ---
 

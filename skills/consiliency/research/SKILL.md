@@ -1,3 +1,8 @@
+---
+name: multi-source-research
+description: Coordinate quick, standard, or extensive research across web, documentation, and code sources, then synthesize findings with confidence labels.
+---
+
 # Research Skill
 
 Multi-source parallel research with confidence-based synthesis.

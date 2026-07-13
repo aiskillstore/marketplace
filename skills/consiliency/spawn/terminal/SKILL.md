@@ -1,5 +1,5 @@
 ---
-name: spawn:terminal
+name: spawn-terminal
 description: "Spawn a new terminal window to run CLI commands (ffmpeg, curl, python, etc.). Use for non-AI command execution."
 ---
 
