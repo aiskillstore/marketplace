@@ -16,6 +16,9 @@ const DEFAULTS = {
   apiCacheHeader: 'x-api-kv-cache',
   pageCacheHeader: 'x-page-kv-cache',
   zipCacheHeader: 'x-cache',
+  cacheWriteHeader: 'x-kv-write',
+  cacheKeyHeader: 'x-kv-key',
+  cacheVersionHeader: 'x-kv-version',
 };
 
 const BUILD_TOKEN_RE = /^[0-9a-f]{40}\.[a-z0-9-]+$/i;
@@ -24,6 +27,7 @@ const RETRYABLE_CACHE_STATES = new Set(['MISS', 'STALE']);
 const RETRY_BASE_DELAY_MS = 1_000;
 const RETRY_MAX_DELAY_MS = 15_000;
 const VERIFICATION_RESERVE_PER_REQUEST_MS = 10_000;
+export const MAX_EDGE_TRANSFORM_OVERHEAD = 16 * 1024;
 
 export class WarmError extends Error {
   constructor(message, details = {}) {
@@ -217,7 +221,7 @@ function parseDeclaredBytes(value, headerName) {
   return parsed;
 }
 
-function declaredResponseBytes(response) {
+function responseByteContract(response, allowEdgeTransform) {
   const contentLength = parseDeclaredBytes(
     response.headers.get('content-length'),
     'Content-Length'
@@ -232,13 +236,51 @@ function declaredResponseBytes(response) {
       { fatal: true, responseBytes: 0 }
     );
   }
-  if (contentLength !== null && skillstoreLength !== null && contentLength !== skillstoreLength) {
-    throw new WarmError(
-      `Conflicting response sizes: Content-Length=${contentLength}, x-skillstore-response-bytes=${skillstoreLength}`,
-      { fatal: true, responseBytes: 0 }
-    );
+  if (contentLength !== null && skillstoreLength !== null) {
+    if (!allowEdgeTransform && contentLength !== skillstoreLength) {
+      throw new WarmError(
+        `Conflicting response sizes: Content-Length=${contentLength}, x-skillstore-response-bytes=${skillstoreLength}`,
+        {
+          fatal: true,
+          responseBytes: 0,
+          declared: skillstoreLength,
+          actual: 0,
+          edgeDelta: -skillstoreLength,
+          contentLength,
+        }
+      );
+    }
+    if (allowEdgeTransform &&
+        (contentLength < skillstoreLength ||
+          contentLength > skillstoreLength + MAX_EDGE_TRANSFORM_OVERHEAD)) {
+      throw new WarmError(
+        `HTML Content-Length ${contentLength} must be between origin declared ${skillstoreLength} and ${skillstoreLength + MAX_EDGE_TRANSFORM_OVERHEAD}`,
+        {
+          fatal: true,
+          responseBytes: 0,
+          declared: skillstoreLength,
+          actual: 0,
+          edgeDelta: -skillstoreLength,
+          contentLength,
+        }
+      );
+    }
+    return {
+      declared: allowEdgeTransform ? skillstoreLength : contentLength,
+      expectedActual: contentLength,
+      edgeAllowance: allowEdgeTransform ? MAX_EDGE_TRANSFORM_OVERHEAD : 0,
+    };
   }
-  return contentLength ?? skillstoreLength;
+
+  const declared = contentLength ?? skillstoreLength;
+  const hasOriginDeclaration = skillstoreLength !== null;
+  return {
+    declared,
+    expectedActual: allowEdgeTransform && hasOriginDeclaration ? null : declared,
+    edgeAllowance: allowEdgeTransform && hasOriginDeclaration
+      ? MAX_EDGE_TRANSFORM_OVERHEAD
+      : 0,
+  };
 }
 
 async function cancelBody(body, reason) {
@@ -250,27 +292,69 @@ async function cancelBody(body, reason) {
   }
 }
 
-async function readResponseBody(response, context, url, signal) {
+async function readResponseBody(response, context, url, signal, allowEdgeTransform) {
   const body = response.body;
   let reservation = null;
   let declaredBytes;
+  let expectedActualBytes;
+  // Cloudflare may rewrite canonical HTML (for example Rocket Loader and JSD)
+  // after the Pages function has emitted its origin byte count. Only page
+  // responses get this bounded allowance; every other response stays exact.
+  let edgeAllowance = 0;
   try {
-    declaredBytes = declaredResponseBytes(response);
+    const contract = responseByteContract(response, allowEdgeTransform);
+    declaredBytes = contract.declared;
+    expectedActualBytes = contract.expectedActual;
+    edgeAllowance = contract.edgeAllowance;
+    const reservationBytes = declaredBytes + edgeAllowance;
+    if (!Number.isSafeInteger(reservationBytes)) {
+      throw new WarmError(`Response reservation exceeds the safe integer range for ${url}`, {
+        fatal: true,
+        responseBytes: 0,
+      });
+    }
     // This synchronous reservation occurs before getReader()/reader.read(), so
     // concurrent responses cannot collectively cross the hard run budget.
-    reservation = context.budget.reserveResponseBytes(declaredBytes, url);
+    reservation = context.budget.reserveResponseBytes(reservationBytes, url);
   } catch (error) {
-    const fatal = context.abortRun(error);
+    const failure = error instanceof WarmError
+      ? error
+      : new WarmError(error instanceof Error ? error.message : String(error), { fatal: true });
+    const evidenceDeclared = Number.isSafeInteger(declaredBytes)
+      ? declaredBytes
+      : failure.details?.declared ?? null;
+    const evidenceActual = failure.details?.actual ?? 0;
+    failure.details = {
+      ...failure.details,
+      declared: evidenceDeclared,
+      actual: evidenceActual,
+      edgeDelta: failure.details?.edgeDelta ??
+        (Number.isSafeInteger(evidenceDeclared) ? evidenceActual - evidenceDeclared : null),
+    };
+    const fatal = context.abortRun(failure);
     await cancelBody(body, fatal);
     throw fatal;
   }
 
   if (!body) {
     context.budget.releaseResponseBytes(reservation);
-    if (declaredBytes === 0) return new Uint8Array();
+    if (declaredBytes === 0) {
+      return {
+        body: new Uint8Array(),
+        declared: 0,
+        actual: 0,
+        edgeDelta: 0,
+      };
+    }
     const fatal = context.abortRun(new WarmError(
       `Response body ended before its declared ${declaredBytes} bytes for ${url}`,
-      { fatal: true, responseBytes: 0 }
+      {
+        fatal: true,
+        responseBytes: 0,
+        declared: declaredBytes,
+        actual: 0,
+        edgeDelta: -declaredBytes,
+      }
     ));
     throw fatal;
   }
@@ -291,9 +375,19 @@ async function readResponseBody(response, context, url, signal) {
       if (done) break;
       const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
       if (chunk.byteLength > reservation.remaining) {
+        const actual = bytesRead + chunk.byteLength;
         const fatal = context.abortRun(new WarmError(
-          `Response body exceeded its declared ${declaredBytes} bytes for ${url}`,
-          { fatal: true, responseBytes: bytesRead, chunkBytes: chunk.byteLength }
+          edgeAllowance > 0
+            ? `HTML response body exceeded declared bytes plus the ${MAX_EDGE_TRANSFORM_OVERHEAD}-byte edge transform allowance for ${url}`
+            : `Response body exceeded its declared ${declaredBytes} bytes for ${url}`,
+          {
+            fatal: true,
+            responseBytes: actual,
+            chunkBytes: chunk.byteLength,
+            declared: declaredBytes,
+            actual,
+            edgeDelta: actual - declaredBytes,
+          }
         ));
         await reader.cancel(fatal).catch(() => {});
         throw fatal;
@@ -301,17 +395,46 @@ async function readResponseBody(response, context, url, signal) {
       try {
         context.budget.consumeBytes(chunk.byteLength, url, reservation, bytesRead);
       } catch (error) {
-        const fatal = context.abortRun(error);
+        const actual = bytesRead + chunk.byteLength;
+        const failure = error instanceof WarmError
+          ? error
+          : new WarmError(error instanceof Error ? error.message : String(error), { fatal: true });
+        failure.details = {
+          ...failure.details,
+          declared: declaredBytes,
+          actual,
+          edgeDelta: actual - declaredBytes,
+        };
+        const fatal = context.abortRun(failure);
         await reader.cancel(fatal).catch(() => {});
         throw fatal;
       }
       chunks.push(chunk);
       bytesRead += chunk.byteLength;
     }
-    if (bytesRead !== declaredBytes) {
+    const edgeDelta = bytesRead - declaredBytes;
+    if (expectedActualBytes !== null && bytesRead !== expectedActualBytes) {
       throw context.abortRun(new WarmError(
-        `Response body ended at ${bytesRead} bytes; expected ${declaredBytes} for ${url}`,
-        { fatal: true, responseBytes: bytesRead }
+        `Response body ended at ${bytesRead} bytes; expected ${expectedActualBytes} for ${url}`,
+        {
+          fatal: true,
+          responseBytes: bytesRead,
+          declared: declaredBytes,
+          actual: bytesRead,
+          edgeDelta,
+        }
+      ));
+    }
+    if (expectedActualBytes === null && edgeDelta < 0) {
+      throw context.abortRun(new WarmError(
+        `HTML response body ended at ${bytesRead} bytes; expected at least its declared ${declaredBytes} bytes for ${url}`,
+        {
+          fatal: true,
+          responseBytes: bytesRead,
+          declared: declaredBytes,
+          actual: bytesRead,
+          edgeDelta,
+        }
       ));
     }
   } finally {
@@ -325,7 +448,12 @@ async function readResponseBody(response, context, url, signal) {
     result.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return result;
+  return {
+    body: result,
+    declared: declaredBytes,
+    actual: bytesRead,
+    edgeDelta: bytesRead - declaredBytes,
+  };
 }
 
 async function sleepUnlessAborted(context, milliseconds) {
@@ -355,9 +483,15 @@ function makeRecord({
   attempt,
   status,
   cache = null,
+  cacheWrite = null,
+  cacheKey = null,
+  cacheVersion = null,
   bytes,
   response,
   buildToken = null,
+  declared = null,
+  actual = null,
+  edgeDelta = null,
   error = null,
 }) {
   const cfRay = response?.headers?.get('cf-ray') || null;
@@ -371,7 +505,13 @@ function makeRecord({
     attempt,
     status,
     cache,
+    cacheWrite,
+    cacheKey,
+    cacheVersion,
     bytes,
+    declared,
+    actual,
+    edgeDelta,
     cfRay,
     colo: coloFromRay(cfRay),
     buildToken,
@@ -396,6 +536,7 @@ async function fetchRecorded(context, request) {
   fetchHeaders.set('Accept-Encoding', 'identity');
   let response;
   let body;
+  let bodyMetadata;
   try {
     response = await context.fetchImpl(url, {
       method: 'GET',
@@ -403,19 +544,46 @@ async function fetchRecorded(context, request) {
       redirect: 'follow',
       signal: timer.signal,
     });
-    body = await readResponseBody(response, context, url, timer.signal);
+    bodyMetadata = await readResponseBody(
+      response,
+      context,
+      url,
+      timer.signal,
+      request.kind === 'page'
+    );
+    body = bodyMetadata.body;
   } catch (error) {
     const effectiveError = context.abortReason || error;
     const message = effectiveError instanceof Error ? effectiveError.message : String(effectiveError);
     const responseBytes = error instanceof WarmError && Number.isSafeInteger(error.details?.responseBytes)
       ? error.details.responseBytes
       : contentBytes(body);
+    const failedCache = request.cacheHeader && response
+      ? (response.headers.get(request.cacheHeader) || '').trim().toUpperCase() || null
+      : null;
+    const failedCacheWrite = request.cacheHeader && response
+      ? (response.headers.get(context.cacheWriteHeader) || '').trim().toUpperCase() || null
+      : null;
+    const failedCacheKey = request.cacheHeader && response
+      ? (response.headers.get(context.cacheKeyHeader) || '').trim() || null
+      : null;
+    const failedCacheVersion = request.cacheHeader && response
+      ? (response.headers.get(context.cacheVersionHeader) || '').trim() || null
+      : null;
     const record = makeRecord({
       ...request,
       url,
       status: response?.status || 0,
+      cache: failedCache,
+      cacheWrite: failedCacheWrite,
+      cacheKey: failedCacheKey,
+      cacheVersion: failedCacheVersion,
       bytes: responseBytes,
       response,
+      buildToken: response?.headers?.get(context.buildHeader) || null,
+      declared: error instanceof WarmError ? error.details?.declared ?? null : null,
+      actual: error instanceof WarmError ? error.details?.actual ?? responseBytes : responseBytes,
+      edgeDelta: error instanceof WarmError ? error.details?.edgeDelta ?? null : null,
       error: message,
     });
     await context.report(record);
@@ -430,17 +598,41 @@ async function fetchRecorded(context, request) {
   const cache = request.cacheHeader
     ? (response.headers.get(request.cacheHeader) || '').trim().toUpperCase() || null
     : null;
+  const cacheWrite = request.cacheHeader
+    ? (response.headers.get(context.cacheWriteHeader) || '').trim().toUpperCase() || null
+    : null;
+  const cacheKey = request.cacheHeader
+    ? (response.headers.get(context.cacheKeyHeader) || '').trim() || null
+    : null;
+  const cacheVersion = request.cacheHeader
+    ? (response.headers.get(context.cacheVersionHeader) || '').trim() || null
+    : null;
   const record = makeRecord({
     ...request,
     url,
     status: response.status,
     cache,
+    cacheWrite,
+    cacheKey,
+    cacheVersion,
     bytes: contentBytes(body),
     response,
     buildToken,
+    declared: bodyMetadata.declared,
+    actual: bodyMetadata.actual,
+    edgeDelta: bodyMetadata.edgeDelta,
   });
   await context.report(record);
-  return { response, body, buildToken, cache, record };
+  return {
+    response,
+    body,
+    buildToken,
+    cache,
+    cacheWrite,
+    cacheKey,
+    cacheVersion,
+    record,
+  };
 }
 
 async function assertPinnedBuild(context, result, source) {
@@ -463,6 +655,37 @@ async function assertPinnedBuild(context, result, source) {
     });
     throw context.abortRun(failure);
   }
+}
+
+function assertCacheIdentity(context, result, source, expected = null) {
+  if (!result.cacheKey || !result.cacheVersion) {
+    throw context.abortRun(new WarmError(
+      `${source} did not expose ${context.cacheKeyHeader} and ${context.cacheVersionHeader}`,
+      { fatal: true, source }
+    ));
+  }
+  const identity = {
+    key: result.cacheKey,
+    version: result.cacheVersion,
+    build: result.buildToken,
+  };
+  if (expected &&
+      (identity.key !== expected.key ||
+        identity.version !== expected.version ||
+        identity.build !== expected.build)) {
+    throw context.abortRun(new WarmError(
+      `${source} changed cache identity: expected key=${expected.key}, version=${expected.version}, build=${expected.build}; received key=${identity.key}, version=${identity.version}, build=${identity.build}`,
+      { fatal: true, source, expected, actual: identity }
+    ));
+  }
+  return identity;
+}
+
+function cacheStateFailure(context, item, result, source, expected) {
+  return context.abortRun(new WarmError(
+    `${source} expected ${expected}; received HTTP ${result.response.status}, ${item.cacheHeader}=${result.cache || '<missing>'}, ${context.cacheWriteHeader}=${result.cacheWrite || '<missing>'}`,
+    { fatal: true, source }
+  ));
 }
 
 async function probeBuild(context, phase) {
@@ -539,7 +762,11 @@ async function warmEndpoint(context, item) {
     VERIFICATION_RESERVE_PER_REQUEST_MS
   ) * 2;
 
-  let hitResult = null;
+  const usesKvStateMachine = item.kind === 'api' || item.kind === 'page';
+  const requiresInvalidatedMiss = usesKvStateMachine &&
+    (context.mode === 'force' || context.scope === 'changed');
+  let acceptedResult = null;
+  let cacheIdentity = null;
   for (let attempt = 1; attempt <= context.maxAttempts; attempt++) {
     if (attempt > 1) {
       const availableForDelay = remainingMs() - verificationReserveMs - 1;
@@ -579,23 +806,66 @@ async function warmEndpoint(context, item) {
       throw error;
     }
 
-    if (result.response.ok && result.cache === 'HIT') {
-      hitResult = result;
-      break;
-    }
-
     const retryableStatus = RETRYABLE_STATUSES.has(result.response.status);
-    const retryableCache = result.response.ok && RETRYABLE_CACHE_STATES.has(result.cache);
-    if (!retryableStatus && !retryableCache) {
+    if (!result.response.ok) {
+      if (retryableStatus && attempt < context.maxAttempts) continue;
       throw new WarmError(
         `${item.kind} ${baseUrl} returned HTTP ${result.response.status} with ${item.cacheHeader}=${result.cache || '<missing>'}`
       );
     }
+
+    if (!usesKvStateMachine) {
+      if (result.cache === 'HIT') {
+        acceptedResult = result;
+        break;
+      }
+      if (RETRYABLE_CACHE_STATES.has(result.cache) && attempt < context.maxAttempts) continue;
+      throw new WarmError(
+        `${item.kind} ${baseUrl} returned HTTP ${result.response.status} with ${item.cacheHeader}=${result.cache || '<missing>'}`
+      );
+    }
+
+    cacheIdentity = assertCacheIdentity(
+      context,
+      result,
+      `${item.kind} inner-cache attempt ${attempt} ${baseUrl}`,
+      cacheIdentity
+    );
+    if (requiresInvalidatedMiss) {
+      if (result.cache !== 'MISS' || result.cacheWrite !== 'STORED') {
+        throw cacheStateFailure(
+          context,
+          item,
+          result,
+          `${item.kind} invalidated cache ${baseUrl}`,
+          'MISS+STORED'
+        );
+      }
+      acceptedResult = result;
+      break;
+    }
+
+    if ((result.cache === 'MISS' && result.cacheWrite === 'STORED') ||
+        (result.cache === 'HIT' && result.cacheWrite === 'SKIPPED')) {
+      acceptedResult = result;
+      break;
+    }
+    if (result.cache === 'STALE' && result.cacheWrite === 'SKIPPED' &&
+        attempt < context.maxAttempts) {
+      continue;
+    }
+    throw cacheStateFailure(
+      context,
+      item,
+      result,
+      `${item.kind} cache ${baseUrl}`,
+      'MISS+STORED or HIT+SKIPPED'
+    );
   }
 
-  if (!hitResult) {
+  if (!acceptedResult) {
     throw new WarmError(
-      `${item.kind} ${baseUrl} never reached ${item.cacheHeader}=HIT after ${context.maxAttempts} attempts`
+      `${item.kind} ${baseUrl} never reached an acceptable cache state after ${context.maxAttempts} attempts`
     );
   }
 
@@ -632,7 +902,24 @@ async function warmEndpoint(context, item) {
       verification,
       `${item.kind} ordinary verification ${attempt} ${verificationUrl}`
     );
-    if (!verification.response.ok || verification.cache !== 'HIT') {
+    if (usesKvStateMachine) {
+      assertCacheIdentity(
+        context,
+        verification,
+        `${item.kind} ordinary verification ${attempt} ${verificationUrl}`,
+        cacheIdentity
+      );
+      if (!verification.response.ok || verification.cache !== 'HIT' ||
+          verification.cacheWrite !== 'SKIPPED') {
+        throw cacheStateFailure(
+          context,
+          item,
+          verification,
+          `${item.kind} ordinary verification ${attempt} ${verificationUrl}`,
+          'HIT+SKIPPED'
+        );
+      }
+    } else if (!verification.response.ok || verification.cache !== 'HIT') {
       throw new WarmError(
         `${item.kind} ordinary verification ${attempt} replayed a non-HIT response: HTTP ${verification.response.status}, ${item.cacheHeader}=${verification.cache || '<missing>'}`
       );
@@ -645,8 +932,8 @@ async function warmEndpoint(context, item) {
     slug: item.slug,
     locale: item.locale,
     url: String(baseUrl),
-    innerAttempts: hitResult.record.attempt,
-    bytes: hitResult.record.bytes + verifications.reduce(
+    innerAttempts: acceptedResult.record.attempt,
+    bytes: acceptedResult.record.bytes + verifications.reduce(
       (total, result) => total + result.record.bytes,
       0
     ),
@@ -925,6 +1212,9 @@ async function cli(argv) {
       buildHeader: args['build-header'] || process.env.BUILD_HEADER || DEFAULTS.buildHeader,
       apiCacheHeader: args['api-cache-header'] || process.env.API_CACHE_HEADER || DEFAULTS.apiCacheHeader,
       pageCacheHeader: args['page-cache-header'] || process.env.PAGE_CACHE_HEADER || DEFAULTS.pageCacheHeader,
+      cacheWriteHeader: args['cache-write-header'] || process.env.CACHE_WRITE_HEADER || DEFAULTS.cacheWriteHeader,
+      cacheKeyHeader: args['cache-key-header'] || process.env.CACHE_KEY_HEADER || DEFAULTS.cacheKeyHeader,
+      cacheVersionHeader: args['cache-version-header'] || process.env.CACHE_VERSION_HEADER || DEFAULTS.cacheVersionHeader,
       expectedBuildToken: args['expected-build-token'] || process.env.EXPECTED_BUILD_TOKEN || null,
       mode: args.mode || process.env.WARM_MODE || 'warm',
       scope: args.scope || process.env.WARM_SCOPE || 'explicit',

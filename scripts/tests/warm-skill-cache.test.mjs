@@ -4,10 +4,17 @@ import { dirname, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { normalizeSlugs, runWarm, WarmError } from '../warm-skill-cache.mjs';
+import {
+  MAX_EDGE_TRANSFORM_OVERHEAD,
+  normalizeSlugs,
+  runWarm,
+  WarmError,
+} from '../warm-skill-cache.mjs';
 
 const BUILD_A = `${'a'.repeat(40)}.deploy-a`;
 const BUILD_B = `${'b'.repeat(40)}.deploy-b`;
+const CACHE_KEY_A = '00000000aaaa';
+const CACHE_VERSION_A = 'cache-version-a';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function response({
@@ -16,6 +23,9 @@ function response({
   apiCache,
   pageCache,
   zipCache,
+  cacheWrite,
+  cacheKey = CACHE_KEY_A,
+  cacheVersion = CACHE_VERSION_A,
   body = 'ok',
   ray = 'abc123-SJC',
   contentLength,
@@ -29,6 +39,14 @@ function response({
   if (apiCache) headers.set('x-api-kv-cache', apiCache);
   if (pageCache) headers.set('x-page-kv-cache', pageCache);
   if (zipCache) headers.set('x-cache', zipCache);
+  const kvCache = apiCache || pageCache;
+  if (kvCache) {
+    if (cacheWrite !== null) {
+      headers.set('x-kv-write', cacheWrite || (kvCache === 'MISS' ? 'STORED' : 'SKIPPED'));
+    }
+    if (cacheKey !== null) headers.set('x-kv-key', cacheKey);
+    if (cacheVersion !== null) headers.set('x-kv-version', cacheVersion);
+  }
   const actualBytes = new TextEncoder().encode(body).byteLength;
   if (!omitLength) headers.set('content-length', String(contentLength ?? actualBytes));
   if (responseBytes !== undefined) {
@@ -45,6 +63,9 @@ function streamingResponse({
   build = BUILD_A,
   apiCache,
   pageCache,
+  cacheWrite,
+  cacheKey = CACHE_KEY_A,
+  cacheVersion = CACHE_VERSION_A,
   chunks = [],
   contentLength,
   responseBytes,
@@ -57,6 +78,14 @@ function streamingResponse({
   });
   if (apiCache) headers.set('x-api-kv-cache', apiCache);
   if (pageCache) headers.set('x-page-kv-cache', pageCache);
+  const kvCache = apiCache || pageCache;
+  if (kvCache) {
+    if (cacheWrite !== null) {
+      headers.set('x-kv-write', cacheWrite || (kvCache === 'MISS' ? 'STORED' : 'SKIPPED'));
+    }
+    if (cacheKey !== null) headers.set('x-kv-key', cacheKey);
+    if (cacheVersion !== null) headers.set('x-kv-version', cacheVersion);
+  }
   if (contentLength !== undefined) headers.set('content-length', String(contentLength));
   if (responseBytes !== undefined) {
     headers.set('x-skillstore-response-bytes', String(responseBytes));
@@ -280,13 +309,284 @@ test('accepts the trusted Skillstore response-size header for dynamic pages', as
   assert.equal(new Headers(calls[4].init.headers).get('accept-encoding'), 'identity');
 });
 
-test('warms API before HTML, accepts MISS then HIT, and verifies two ordinary HITs', async () => {
+test('accepts bounded HTML edge transforms and records declared, actual, and edgeDelta', async () => {
+  const records = [];
+  const originHtml = '<html>cached</html>';
+  const edgeDelta = 1_157;
+  const transformedHtml = `${originHtml}${'x'.repeat(edgeDelta)}`;
+  const declared = new TextEncoder().encode(originHtml).byteLength;
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: transformedHtml,
+      omitLength: true,
+      responseBytes: declared,
+    });
+  };
+
+  const summary = await runWarm(baseOptions(fetchImpl, records));
+
+  assert.equal(summary.success, true);
+  assert.equal(summary.budget.reservedBytes, 0);
+  const pageRecords = records.filter((record) => record.kind === 'page');
+  assert.equal(pageRecords.length, 3);
+  for (const record of pageRecords) {
+    assert.equal(record.declared, declared);
+    assert.equal(record.actual, declared + edgeDelta);
+    assert.equal(record.edgeDelta, edgeDelta);
+    assert.equal(record.bytes, record.actual);
+  }
+  assert.equal(
+    summary.budget.bytes,
+    records.reduce((total, record) => total + record.actual, 0),
+    'unused edge reservations must be released instead of counted as downloaded bytes'
+  );
+});
+
+test('accepts HTML at the exact edge transform ceiling', async () => {
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: `x${'y'.repeat(MAX_EDGE_TRANSFORM_OVERHEAD)}`,
+      omitLength: true,
+      responseBytes: 1,
+    });
+  };
+
+  const summary = await runWarm(baseOptions(fetchImpl));
+
+  assert.equal(summary.success, true);
+  assert.equal(summary.budget.reservedBytes, 0);
+});
+
+test('accepts transformed HTML when Content-Length is within the origin allowance and exact', async () => {
+  const records = [];
+  const edgeDelta = 1_157;
+  const actual = 1 + edgeDelta;
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: `x${'y'.repeat(edgeDelta)}`,
+      contentLength: actual,
+      responseBytes: 1,
+    });
+  };
+
+  const summary = await runWarm(baseOptions(fetchImpl, records));
+
+  assert.equal(summary.success, true);
+  const page = records.find((record) => record.kind === 'page');
+  assert.equal(page?.declared, 1);
+  assert.equal(page?.actual, actual);
+  assert.equal(page?.edgeDelta, edgeDelta);
+});
+
+test('rejects HTML Content-Length below the origin declaration', async () => {
+  const summary = await runWarm(baseOptions(async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: 'x',
+      contentLength: 0,
+      responseBytes: 1,
+    });
+  }));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /must be between origin declared 1/i);
+});
+
+test('rejects HTML Content-Length above the edge transform allowance', async () => {
+  const contentLength = 1 + MAX_EDGE_TRANSFORM_OVERHEAD + 1;
+  const summary = await runWarm(baseOptions(async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: 'x'.repeat(contentLength),
+      contentLength,
+      responseBytes: 1,
+    });
+  }));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /must be between origin declared 1/i);
+});
+
+test('requires actual HTML bytes to exactly match an accepted Content-Length', async () => {
+  const records = [];
+  const summary = await runWarm(baseOptions(async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: 'abc',
+      contentLength: 2,
+      responseBytes: 1,
+    });
+  }, records));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /ended at 3 bytes; expected 2/i);
+  const failure = records.find((record) => record.kind === 'page' && record.error);
+  assert.equal(failure?.declared, 1);
+  assert.equal(failure?.actual, 3);
+  assert.equal(failure?.edgeDelta, 2);
+  assert.equal(failure?.cache, 'HIT');
+  assert.equal(failure?.cacheWrite, 'SKIPPED');
+  assert.equal(failure?.cacheKey, CACHE_KEY_A);
+  assert.equal(failure?.cacheVersion, CACHE_VERSION_A);
+  assert.equal(failure?.buildToken, BUILD_A);
+});
+
+test('rejects HTML shorter than declared and records the negative edge delta', async () => {
+  const records = [];
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: '',
+      omitLength: true,
+      responseBytes: 1,
+    });
+  };
+
+  const summary = await runWarm(baseOptions(fetchImpl, records));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /expected at least its declared 1 bytes/i);
+  const failure = records.find((record) => record.kind === 'page' && record.error);
+  assert.equal(failure?.declared, 1);
+  assert.equal(failure?.actual, 0);
+  assert.equal(failure?.edgeDelta, -1);
+});
+
+test('rejects HTML that exceeds the fixed edge transform allowance', async () => {
+  const records = [];
+  const actual = MAX_EDGE_TRANSFORM_OVERHEAD + 2;
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({
+      pageCache: 'HIT',
+      body: 'x'.repeat(actual),
+      omitLength: true,
+      responseBytes: 1,
+    });
+  };
+
+  const summary = await runWarm(baseOptions(fetchImpl, records));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /edge transform allowance/i);
+  const failure = records.find((record) => record.kind === 'page' && record.error);
+  assert.equal(failure?.declared, 1);
+  assert.equal(failure?.actual, actual);
+  assert.equal(failure?.edgeDelta, MAX_EDGE_TRANSFORM_OVERHEAD + 1);
+});
+
+test('continues to require exact byte equality for API responses', async () => {
+  const records = [];
+  const summary = await runWarm(baseOptions(async (url) => {
+    if (new URL(url).pathname === '/_app/version.json') return versionResponse();
+    return response({ apiCache: 'HIT', body: 'abc', contentLength: 2 });
+  }, records));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /exceeded its declared 2 bytes/i);
+  const failure = records.find((record) => record.kind === 'api' && record.error);
+  assert.equal(failure?.declared, 2);
+  assert.equal(failure?.actual, 3);
+  assert.equal(failure?.edgeDelta, 1);
+});
+
+test('continues to require exact byte equality for build probes', async () => {
+  const records = [];
+  const body = JSON.stringify({ version: BUILD_A });
+  const summary = await runWarm(baseOptions(async () => response({
+    build: BUILD_A,
+    body,
+    contentLength: new TextEncoder().encode(body).byteLength - 1,
+  }), records));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /exceeded its declared/i);
+  const failure = records.find((record) => record.kind === 'build' && record.error);
+  assert.equal(failure?.actual, failure.declared + 1);
+  assert.equal(failure?.edgeDelta, 1);
+});
+
+test('continues to require exact byte equality for ZIP responses', async () => {
+  const records = [];
+  const summary = await runWarm(baseOptions(async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.endsWith('/download')) {
+      return response({ zipCache: 'HIT', body: 'abc', contentLength: 2 });
+    }
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    return response({ pageCache: 'HIT', body: '<html></html>' });
+  }, records, { warmZip: true }));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /exceeded its declared 2 bytes/i);
+  const failure = records.find((record) => record.kind === 'zip' && record.error);
+  assert.equal(failure?.declared, 2);
+  assert.equal(failure?.actual, 3);
+  assert.equal(failure?.edgeDelta, 1);
+});
+
+test('atomically reserves the HTML declaration plus edge allowance', async () => {
+  const cancelled = [];
+  let pageCalls = 0;
+  const versionBytes = versionBodyBytes();
+  const apiBytes = 2 * 2 * 3;
+  const summary = await runWarm(baseOptions(async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname === '/_app/version.json') return versionResponse();
+    if (pathname.startsWith('/api/skills/')) return response({ apiCache: 'HIT' });
+    const index = pageCalls++;
+    return streamingResponse({
+      pageCache: 'HIT',
+      responseBytes: 60,
+      pending: true,
+      onCancel: () => { cancelled[index] = true; },
+    });
+  }, [], {
+    slugs: ['alpha', 'beta'],
+    concurrency: 2,
+    byteBudget: versionBytes + apiBytes + 60 + MAX_EDGE_TRANSFORM_OVERHEAD + 50,
+  }));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /byte budget/i);
+  assert.equal(summary.budget.reservedBytes, 0);
+  assert.deepEqual(cancelled, [true, true]);
+  assert.equal(pageCalls, 2);
+});
+
+test('verifies invalidated API and HTML as MISS+STORED then two HIT+SKIPPED responses', async () => {
   const calls = [];
   const records = [];
   const fetchImpl = sequencedFetch([
     { response: versionResponse() },
     { response: response({ apiCache: 'MISS', body: '{"data":{}}' }) },
-    { response: response({ apiCache: 'HIT', body: '{"data":{}}' }) },
     {
       assert: (url, init) => {
         assert.match(url, /__skillstore_build=/);
@@ -302,7 +602,6 @@ test('warms API before HTML, accepts MISS then HIT, and verifies two ordinary HI
       response: response({ apiCache: 'HIT', body: '{"data":{}}' }),
     },
     { response: response({ pageCache: 'MISS', body: '<html></html>' }) },
-    { response: response({ pageCache: 'HIT', body: '<html></html>' }) },
     {
       assert: (url, init) => {
         assert.match(url, /__skillstore_build=/);
@@ -320,20 +619,55 @@ test('warms API before HTML, accepts MISS then HIT, and verifies two ordinary HI
     { response: versionResponse() },
   ], calls);
 
-  const summary = await runWarm(baseOptions(fetchImpl, records));
+  const summary = await runWarm(baseOptions(fetchImpl, records, {
+    mode: 'warm',
+    scope: 'changed',
+  }));
 
   assert.equal(summary.success, true);
   assert.deepEqual(summary.completedEndpoints, { api: 1, page: 1, zip: 0 });
   assert.equal(summary.failedEndpoints, 0);
   assert.equal(summary.skippedEndpoints, 0);
-  assert.equal(summary.budget.requests, 10);
+  assert.equal(summary.budget.requests, 8);
   assert.match(calls[1].url, /\/api\/skills\/alpha/);
-  assert.match(calls[5].url, /\/skills\/alpha/);
+  assert.match(calls[4].url, /\/skills\/alpha/);
   assert.equal(new Headers(calls[1].init.headers).get('cache-control'), 'no-cache');
   const innerRecord = records.find((record) => record.phase === 'inner-cache');
   assert.equal(innerRecord?.colo, 'SJC');
-  for (const field of ['url', 'attempt', 'status', 'cache', 'bytes', 'cfRay', 'colo']) {
+  for (const field of [
+    'url',
+    'attempt',
+    'status',
+    'cache',
+    'cacheWrite',
+    'cacheKey',
+    'cacheVersion',
+    'bytes',
+    'declared',
+    'actual',
+    'edgeDelta',
+    'cfRay',
+    'colo',
+  ]) {
     assert.equal(Object.hasOwn(innerRecord, field), true, `JSONL evidence must include ${field}`);
+  }
+  assert.deepEqual(
+    records
+      .filter((record) => record.kind === 'api')
+      .map((record) => [record.cache, record.cacheWrite]),
+    [['MISS', 'STORED'], ['HIT', 'SKIPPED'], ['HIT', 'SKIPPED']]
+  );
+  assert.deepEqual(
+    records
+      .filter((record) => record.kind === 'page')
+      .map((record) => [record.cache, record.cacheWrite]),
+    [['MISS', 'STORED'], ['HIT', 'SKIPPED'], ['HIT', 'SKIPPED']]
+  );
+  for (const kind of ['api', 'page']) {
+    const chain = records.filter((record) => record.kind === kind);
+    assert.deepEqual([...new Set(chain.map((record) => record.cacheKey))], [CACHE_KEY_A]);
+    assert.deepEqual([...new Set(chain.map((record) => record.cacheVersion))], [CACHE_VERSION_A]);
+    assert.deepEqual([...new Set(chain.map((record) => record.buildToken))], [BUILD_A]);
   }
   assert.deepEqual(
     records
@@ -349,14 +683,74 @@ test('warms API before HTML, accepts MISS then HIT, and verifies two ordinary HI
   );
 });
 
+test('rejects an initial HIT for force and changed invalidation scopes', async () => {
+  for (const overrides of [
+    { mode: 'warm', scope: 'changed' },
+    { mode: 'force', scope: 'high-traffic' },
+  ]) {
+    let calls = 0;
+    const summary = await runWarm(baseOptions(async (url) => {
+      calls++;
+      if (new URL(url).pathname === '/_app/version.json') return versionResponse();
+      return response({ apiCache: 'HIT' });
+    }, [], overrides));
+
+    assert.equal(summary.success, false);
+    assert.match(summary.failures.join('\n'), /expected MISS\+STORED/i);
+    assert.equal(calls, 2, 'invalidated cache state must abort before verification traffic');
+  }
+});
+
+test('rejects an invalidated MISS that did not durably store', async () => {
+  const summary = await runWarm(baseOptions(async (url) => {
+    if (new URL(url).pathname === '/_app/version.json') return versionResponse();
+    return response({ apiCache: 'MISS', cacheWrite: 'SKIPPED' });
+  }, [], { mode: 'warm', scope: 'changed' }));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /expected MISS\+STORED/i);
+});
+
+test('fails closed when KV key or version evidence is missing', async () => {
+  const summary = await runWarm(baseOptions(async (url) => {
+    if (new URL(url).pathname === '/_app/version.json') return versionResponse();
+    return response({ apiCache: 'MISS', cacheKey: null });
+  }, [], { mode: 'warm', scope: 'changed' }));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /did not expose x-kv-key and x-kv-version/i);
+});
+
+test('fails when cache key or version changes across the verification chain', async () => {
+  const calls = [];
+  const fetchImpl = sequencedFetch([
+    { response: versionResponse() },
+    { response: response({ apiCache: 'MISS' }) },
+    {
+      response: response({
+        apiCache: 'HIT',
+        cacheKey: '00000000bbbb',
+        cacheVersion: 'cache-version-b',
+      }),
+    },
+  ], calls);
+
+  const summary = await runWarm(baseOptions(fetchImpl, [], {
+    mode: 'warm',
+    scope: 'changed',
+  }));
+
+  assert.equal(summary.success, false);
+  assert.match(summary.failures.join('\n'), /changed cache identity/i);
+  assert.equal(calls.length, 3);
+});
+
 test('fails a persistent MISS and does not start HTML warming', async () => {
   const calls = [];
   const fetchImpl = sequencedFetch([
     { response: versionResponse() },
     { response: response({ apiCache: 'MISS' }) },
     { response: response({ apiCache: 'MISS' }) },
-    { response: response({ apiCache: 'MISS' }) },
-    { response: versionResponse() },
   ], calls);
 
   const summary = await runWarm(baseOptions(fetchImpl));
@@ -366,7 +760,7 @@ test('fails a persistent MISS and does not start HTML warming', async () => {
   assert.equal(summary.completedEndpoints.page, 0);
   assert.equal(summary.failedEndpoints, 1);
   assert.equal(summary.skippedEndpoints, 1);
-  assert.match(summary.failures.join('\n'), /never reached.*HIT/i);
+  assert.match(summary.failures.join('\n'), /expected HIT\+SKIPPED/i);
   assert.equal(calls.some((call) => new URL(call.url).pathname === '/skills/alpha'), false);
 });
 
@@ -386,12 +780,22 @@ test('retries 429 and 5xx responses before accepting HIT', async () => {
     { response: versionResponse() },
   ], calls);
 
-  const summary = await runWarm(baseOptions(fetchImpl, records, { maxAttempts: 4 }));
+  const summary = await runWarm(baseOptions(fetchImpl, records, {
+    maxAttempts: 4,
+    mode: 'warm',
+    scope: 'high-traffic',
+  }));
 
   assert.equal(summary.success, true);
   assert.deepEqual(
     records.filter((record) => record.kind === 'api').map((record) => record.status),
     [429, 503, 200, 200, 200]
+  );
+  assert.deepEqual(
+    records
+      .filter((record) => record.kind === 'api' && record.status === 200)
+      .map((record) => [record.cache, record.cacheWrite]),
+    [['HIT', 'SKIPPED'], ['HIT', 'SKIPPED'], ['HIT', 'SKIPPED']]
   );
   assert.equal(summary.budget.requests, 10);
 });
@@ -400,7 +804,7 @@ test('never exceeds the hard 120 second deadline for one endpoint', async () => 
   let clock = 0;
   const fetchImpl = async (url) => {
     if (new URL(url).pathname === '/_app/version.json') return versionResponse();
-    return response({ apiCache: 'MISS' });
+    return response({ apiCache: 'STALE' });
   };
 
   const summary = await runWarm(baseOptions(fetchImpl, [], {
@@ -539,6 +943,9 @@ test('workflow checks out scripts, requires bounded skill scope, and has no reti
   assert.match(workflow, /approve_full_catalog/);
   assert.match(workflow, /request_budget/);
   assert.match(workflow, /byte_budget/);
+  assert.match(workflow, /CACHE_WRITE_HEADER: x-kv-write/);
+  assert.match(workflow, /CACHE_KEY_HEADER: x-kv-key/);
+  assert.match(workflow, /CACHE_VERSION_HEADER: x-kv-version/);
   assert.match(workflow, /Warm scope is empty/);
   assert.match(workflow, /node scripts\/warm-skill-cache\.mjs/);
   assert.match(workflow, /status=eq\.approved&public_eligible=eq\.true/);
