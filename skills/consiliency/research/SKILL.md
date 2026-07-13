@@ -1,3 +1,8 @@
+---
+name: research
+description: Multi-source parallel research across web, local documentation, and code, with confidence-based synthesis in quick, standard, or extensive modes.
+---
+
 # Research Skill
 
 Multi-source parallel research with confidence-based synthesis.

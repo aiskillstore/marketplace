@@ -1,3 +1,8 @@
+---
+name: mapreduce
+description: Fan out planning, implementation, or debugging work to parallel providers or agents, collect file-based outputs, and consolidate them using domain-specific scoring rubrics.
+---
+
 # MapReduce Skill
 
 > **Skill ID**: mapreduce
