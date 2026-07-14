@@ -36,6 +36,10 @@ test('pending-review auto-fix canonicalizes one anchored Submission ID for its o
   assert.doesNotMatch(result.body, new RegExp(uppercaseId));
   assert.equal(parseCanonicalSubmissionId(result.body), submissionId, 'on-pr-merge consumes the replacement body through the same canonical parser');
   assert.match(result.body, new RegExp('^\\*\\*Source PR Head SHA\\*\\*: `' + sourceHeadSha + '`$', 'm'));
+  assert.match(
+    result.body,
+    new RegExp('^\\*\\*Authorization Lease Ref\\*\\*: `refs/tags/autofix-approval-leases/' + submissionId + '`$', 'm'),
+  );
   assert.match(result.body, /Files Fixed \| 1/);
 });
 
@@ -102,17 +106,24 @@ test('workflows use the shared canonical parser and event-head lifecycle guard',
   ]);
   const createStep = validateWorkflow.match(/- name: Create PR for SKILL\.md fixes[\s\S]*?(?=\n\s{6}- name:)/)?.[0] ?? '';
 
+  assert.match(validateWorkflow, /pull_request:\s*\n\s+types:\s*\[[^\]]*edited[^\]]*\]/);
+  const concurrencyGroup = validateWorkflow.match(/concurrency:\s*\n\s+group:\s*([^\n]+)/)?.[1] ?? '';
+  assert.match(concurrencyGroup, /pull_request\.number/);
+  assert.doesNotMatch(concurrencyGroup, /head\.sha|github\.sha/);
   assert.match(validateWorkflow, /github\.event\.pull_request\.head\.sha/);
   assert.match(validateWorkflow, /git fetch --depth 1 origin "\$EVENT_HEAD_SHA"/);
   assert.match(validateWorkflow, /autofix-pr-lifecycle\.mjs[\s\S]*--mode preflight/);
+  assert.match(createStep, /autofix-pr-lifecycle\.mjs[\s\S]*--mode ensure-replacement/);
   assert.match(createStep, /autofix-pr-lifecycle\.mjs[\s\S]*--mode supersede/);
   assert.match(createStep, /--body-file/);
   assert.doesNotMatch(createStep, /PR_ARGS\+=\(--label/);
   assert.match(mergeWorkflow, /actions\/checkout@v5/);
-  assert.match(mergeWorkflow, /scripts\/submission-metadata\.mjs/);
+  assert.match(mergeWorkflow, /scripts\/submission-authorization\.mjs[\s\S]*--mode verify-merge/);
+  assert.match(mergeWorkflow, /authorization[\s\S]*Find pending skills and commit to skills directory/i);
   assert.doesNotMatch(mergeWorkflow, /grep -oE 'Submission ID/);
   assert.match(testWorkflow, /scripts\/build-autofix-pr-metadata\.mjs/);
   assert.match(testWorkflow, /scripts\/submission-metadata\.mjs/);
+  assert.match(testWorkflow, /scripts\/submission-authorization\.mjs/);
   assert.match(testWorkflow, /scripts\/autofix-pr-lifecycle\.mjs/);
   assert.match(testWorkflow, /\.github\/workflows\/validate-marketplace\.yml/);
   assert.match(testWorkflow, /\.github\/workflows\/on-pr-merge\.yml/);

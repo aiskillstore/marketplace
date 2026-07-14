@@ -5,7 +5,10 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
-import { canonicalizeSubmissionBody } from './submission-metadata.mjs';
+import {
+  authorizationLeaseRef,
+  canonicalizeSubmissionBody,
+} from './submission-metadata.mjs';
 
 function normalizeCount(value, name) {
   const count = Number(value);
@@ -92,12 +95,14 @@ export function buildAutoFixPrMetadata({
     throw new Error('Submission auto-fix metadata is missing a valid source PR head SHA');
   }
 
+  const leaseRef = authorizationLeaseRef(submissionId);
   const repairSummary = `## Automated SKILL.md Repair
 
 This replacement PR preserves the source submission metadata so its own merge can run the normal approval workflow.
 
 **Source PR**: #${sourcePrNumber}
 **Source PR Head SHA**: \`${sourceHeadSha}\`
+**Authorization Lease Ref**: \`${leaseRef}\`
 
 | Metric | Value |
 |--------|-------|
@@ -117,6 +122,7 @@ The replacement is bound to the exact source head above. The \`pending-review\` 
     submissionId,
     sourcePrNumber,
     sourceHeadSha,
+    leaseRef,
   };
 }
 
@@ -150,6 +156,7 @@ async function main() {
     submissionId: metadata.submissionId,
     sourcePrNumber: metadata.sourcePrNumber,
     sourceHeadSha: metadata.sourceHeadSha,
+    leaseRef: metadata.leaseRef ?? null,
   })}\n`);
 }
 

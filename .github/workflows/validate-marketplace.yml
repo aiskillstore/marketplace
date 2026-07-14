@@ -9,6 +9,7 @@ on:
       - "skills/**/skill-report.json"
       - "skills/**/SKILL.md"
   pull_request:
+    types: [opened, synchronize, reopened, edited, labeled]
     branches: [main]
     paths:
       # Validate both pending and skills on PR (CI gate)
@@ -24,9 +25,9 @@ env:
   # Enable auto-fix for push, PRs, and manual triggers (set to 'false' to disable)
   AUTO_FIX_ENABLED: ${{ contains(fromJSON('["pull_request", "push", "workflow_dispatch"]'), github.event_name) }}
 
-# One source PR/head can create or resume only one replacement lifecycle at a time.
+# Every head/body generation of one source PR shares one serialized lifecycle.
 concurrency:
-  group: validate-marketplace-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: validate-marketplace-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -455,28 +456,21 @@ jobs:
           [ "$MODIFIED_COUNT" -gt 0 ] && [ "$DELETED_COUNT" -eq 0 ] && PR_TITLE="$PR_TITLE)"
 
           if [ "$INHERIT_PENDING_REVIEW" = "true" ]; then
-            # Second live check is immediately before create/reuse; stale events stop here.
-            PREFLIGHT_JSON=$(node "$GITHUB_WORKSPACE/marketplace-repo/scripts/autofix-pr-lifecycle.mjs" \
-              --mode preflight \
+            # API response loss is deduped by the exact source lifecycle branch.
+            ENSURE_JSON=$(node "$GITHUB_WORKSPACE/marketplace-repo/scripts/autofix-pr-lifecycle.mjs" \
+              --mode ensure-replacement \
               --event-path "$GITHUB_EVENT_PATH" \
-              --repository "$REPOSITORY")
-            EXISTING_PR_NUMBER=$(printf '%s' "$PREFLIGHT_JSON" | jq -r '.existingReplacement.number // empty')
+              --repository "$REPOSITORY" \
+              --title "$PR_TITLE" \
+              --body-file "$PR_BODY_FILE" \
+              --head-ref "$BRANCH_NAME" \
+              --base-ref main \
+              --replacement-head-sha "$REPLACEMENT_HEAD_SHA")
+            PR_NUMBER=$(printf '%s' "$ENSURE_JSON" | jq -er '.number')
+            PR_URL=$(printf '%s' "$ENSURE_JSON" | jq -er '.url')
 
-            if [ -n "$EXISTING_PR_NUMBER" ]; then
-              gh pr edit "$EXISTING_PR_NUMBER" --title "$PR_TITLE" --body-file "$PR_BODY_FILE"
-              PR_NUMBER="$EXISTING_PR_NUMBER"
-              PR_URL=$(gh pr view "$PR_NUMBER" --json url --jq '.url')
-            else
-              # The replacement starts without approval capability.
-              PR_URL=$(gh pr create \
-                --title "$PR_TITLE" \
-                --body-file "$PR_BODY_FILE" \
-                --base main \
-                --head "$BRANCH_NAME")
-              PR_NUMBER=$(gh pr view "$PR_URL" --json number --jq '.number')
-            fi
-
-            # Reentrant fail-closed transfer: revoke/close source first, label replacement last.
+            # The lease makes only its exact holder consumer-authorized. Every API
+            # failure is re-read and compensated before this command returns.
             node "$GITHUB_WORKSPACE/marketplace-repo/scripts/autofix-pr-lifecycle.mjs" \
               --mode supersede \
               --event-path "$GITHUB_EVENT_PATH" \

@@ -29,14 +29,22 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Extract canonical submission ID from PR body
+      - name: Verify unique submission authorization lease
         id: extract_submission
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          METADATA_JSON=$(node scripts/submission-metadata.mjs --event-path "$GITHUB_EVENT_PATH")
-          SUBMISSION_ID=$(printf '%s' "$METADATA_JSON" | jq -er '.submissionId')
+          AUTHORIZATION_JSON=$(node scripts/submission-authorization.mjs \
+            --mode verify-merge \
+            --event-path "$GITHUB_EVENT_PATH" \
+            --repository "$REPOSITORY")
+          SUBMISSION_ID=$(printf '%s' "$AUTHORIZATION_JSON" | jq -er '.submissionId')
+          AUTHORIZATION_KIND=$(printf '%s' "$AUTHORIZATION_JSON" | jq -er '.authorizationKind')
           echo "submission_id=$SUBMISSION_ID" >> "$GITHUB_OUTPUT"
-          echo "📋 Found canonical submission ID: $SUBMISSION_ID"
+          echo "authorization_kind=$AUTHORIZATION_KIND" >> "$GITHUB_OUTPUT"
+          echo "📋 Verified unique $AUTHORIZATION_KIND authorization for submission: $SUBMISSION_ID"
 
       - name: Find pending skills and commit to skills directory
         env:
