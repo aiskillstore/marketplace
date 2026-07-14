@@ -158,22 +158,6 @@ jobs:
           NODE
           }
           
-          # Get skill slug from a changed file path
-          # Supports both flat (skills/name/) and namespaced (skills/owner/name/)
-          get_skill_slug() {
-            local path="$1"
-            local first=$(echo "$path" | cut -d'/' -f1)
-            local first_two=$(echo "$path" | cut -d'/' -f1,2)
-            
-            # Check if first segment is a published skill (flat structure)
-            if [ -f "skills/$first/skill-report.json" ]; then
-              echo "$first"
-            # Check if first two segments are a published skill (namespaced: owner/name)
-            elif [ -f "skills/$first_two/skill-report.json" ]; then
-              echo "$first_two"
-            fi
-          }
-          
           if [ -n "${{ inputs.slugs }}" ]; then
             echo "Specific slugs requested: ${{ inputs.slugs }}"
             CHANGED=$(resolve_manual_skills "${{ inputs.slugs }}")
@@ -184,17 +168,14 @@ jobs:
             CHANGED=$(find_all_skills | tr '\n' ' ')
             echo "mode=full" >> $GITHUB_OUTPUT
           else
-            # Get changed paths since last successful sync and extract skill slugs
-            # IMPORTANT: Use explicit HEAD to compare commits, not working directory
-            # On self-hosted runners, working directory may have stale files
-            CHANGED=$(git diff "$BASE_SHA" HEAD --name-only 2>/dev/null | \
-              grep '^skills/' | \
-              sed 's|^skills/||' | \
-              while read -r path; do
-                get_skill_slug "$path"
-              done | sort -u | tr '\n' ' ')
+            # Resolve both the diff and the published-skill inventory from pinned
+            # Git trees. A self-hosted runner checkout may be sparse or mutable;
+            # it must never turn a real commit diff into an empty sync plan.
+            CHANGED=$(node ./scripts/detect-changed-skills.mjs \
+              --base "$BASE_SHA" \
+              --head "${{ github.sha }}")
             echo "mode=incremental" >> $GITHUB_OUTPUT
-            echo "Diff range: $BASE_SHA..HEAD"
+            echo "Diff range: $BASE_SHA..${{ github.sha }}"
           fi
           
           echo "changed_skills=$CHANGED" >> $GITHUB_OUTPUT
@@ -225,9 +206,10 @@ jobs:
         if: steps.changes.outputs.skip_sync != 'true'
         uses: ./.github/actions/download-skillstore-cli
         with:
+          version: '2.2.1'
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
-          minimum-version: '2.2.0'
+          minimum-version: '2.2.1'
 
       - name: Sync skills to Supabase
         id: sync
