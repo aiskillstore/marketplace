@@ -15,7 +15,7 @@ on:
         description: 'Exact stable skillstore-cli version (X.Y.Z; latest is forbidden)'
         type: string
         required: true
-        default: '2.0.2'
+        default: '2.1.0'
       batch_size:
         description: 'Legacy production Skills to inspect in this batch (1-500)'
         type: number
@@ -268,7 +268,7 @@ jobs:
                     ((.skipped == true and .writeOccurred == false) or
                      (.skipped != true and (.artifact.revision | type) == "number" and
                       .artifact.revision >= 1 and (.artifact.created | type) == "boolean" and
-                      .writeOccurred == .artifact.created))
+                      .writeOccurred == true))
                   end)
                 )
               )
@@ -282,6 +282,60 @@ jobs:
             '{schemaVersion: 2, status: "verified", mode: $mode, planHash: $planHash, inventoryHash: $inventoryHash, plan: $plan[0], groups: $groups[0]}' \
             > "$SUMMARY_FILE"
 
+      - name: Invalidate production artifact and detail caches
+        id: cache-invalidate
+        if: >-
+          steps.inputs.outputs.mode == 'execute' &&
+          steps.plan.outputs.selected_count != '0' &&
+          steps.verify.outcome == 'success'
+        env:
+          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+        run: |
+          set -euo pipefail
+          : "${CACHE_INVALIDATE_SECRET:?CACHE_INVALIDATE_SECRET is required for execute mode}"
+          PLAN_FILE="$RUNNER_TEMP/artifact-backfill-plan.json"
+          EVIDENCE_DIR="$RUNNER_TEMP/artifact-backfill-cache-invalidation"
+          mkdir -p "$EVIDENCE_DIR"
+          mapfile -t SLUGS < <(jq -r '.selected[].slug' "$PLAN_FILE")
+
+          for ((OFFSET = 0; OFFSET < ${#SLUGS[@]}; OFFSET += 50)); do
+            BATCH=("${SLUGS[@]:OFFSET:50}")
+            BATCH_JSON=$(printf '%s\n' "${BATCH[@]}" | jq -R . | jq -s .)
+            RESPONSE_FILE="$EVIDENCE_DIR/batch-$((OFFSET / 50 + 1)).json"
+            jq -n --argjson slugs "$BATCH_JSON" '{
+              type: "skills",
+              slugs: $slugs,
+              invalidateApi: true,
+              invalidateArtifacts: true,
+              invalidateDependentPacks: true
+            }' | curl \
+              --fail-with-body \
+              --silent \
+              --show-error \
+              --retry 2 \
+              --retry-all-errors \
+              --connect-timeout 10 \
+              --max-time 120 \
+              --request POST \
+              --header "Authorization: Bearer $CACHE_INVALIDATE_SECRET" \
+              --header 'Content-Type: application/json' \
+              --data-binary @- \
+              --output "$RESPONSE_FILE" \
+              https://skillstore.io/api/cache/invalidate
+
+            jq -e --argjson expected "${#BATCH[@]}" '
+              .preflight == false and
+              .type == "skills" and
+              (.slugs | length) == $expected and
+              .invalidated.listVersionBumped == true
+            ' "$RESPONSE_FILE" >/dev/null || {
+              echo "::error::cache invalidation response violated the production contract"
+              exit 1
+            }
+          done
+
+          jq -s . "$EVIDENCE_DIR"/*.json > "$RUNNER_TEMP/artifact-backfill-cache-invalidation.json"
+
       - name: Publish resumable batch summary
         if: always() && steps.plan.outcome == 'success'
         env:
@@ -294,6 +348,7 @@ jobs:
           NEXT_START_AFTER: ${{ steps.plan.outputs.next_start_after }}
           REMAINING: ${{ steps.plan.outputs.remaining }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          CACHE_OUTCOME: ${{ steps.cache-invalidate.outcome }}
         run: |
           {
             echo "## Artifact-version backfill batch"
@@ -304,7 +359,10 @@ jobs:
             echo "- Plan SHA-256: \`$PLAN_SHA\`"
             echo "- Inventory SHA-256: \`$INVENTORY_SHA\`"
             echo "- Verification: \`$VERIFY_OUTCOME\`"
-            if [ "$VERIFY_OUTCOME" = "success" ] && [ -n "$NEXT_START_AFTER" ]; then
+            echo "- Cache invalidation: \`$CACHE_OUTCOME\`"
+            if [ "$VERIFY_OUTCOME" = "success" ] && \
+               { [ "$MODE" = "dry-run" ] || [ "$CACHE_OUTCOME" = "success" ]; } && \
+               [ -n "$NEXT_START_AFTER" ]; then
               echo "- Verified resume cursor: \`$NEXT_START_AFTER\`"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
@@ -321,6 +379,8 @@ jobs:
             ${{ runner.temp }}/artifact-backfill-result.json
             ${{ runner.temp }}/artifact-backfill-stderr.log
             ${{ runner.temp }}/artifact-backfill-summary.json
+            ${{ runner.temp }}/artifact-backfill-cache-invalidation.json
+            ${{ runner.temp }}/artifact-backfill-cache-invalidation/
             ${{ runner.temp }}/artifact-backfill-group-results/
           if-no-files-found: warn
           retention-days: 30

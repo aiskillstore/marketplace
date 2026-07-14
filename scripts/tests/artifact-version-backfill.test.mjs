@@ -198,5 +198,12 @@ test('workflow is pinned, evidence-producing, and isolated from normal fan-out',
   assert.match(workflow, /--artifact-only/);
   assert.match(workflow, /--legacy-only/);
   assert.match(workflow, /actions\/upload-artifact@v6/);
-  assert.doesNotMatch(workflow, /calculate-scores|trigger-translate|warm-cache|cache-invalidate/);
+  assert.match(workflow, /CACHE_INVALIDATE_SECRET/);
+  assert.match(workflow, /https:\/\/skillstore\.io\/api\/cache\/invalidate/);
+  assert.match(workflow, /--fail-with-body/);
+  assert.match(workflow, /artifact-backfill-cache-invalidation\.json/);
+  assert.match(workflow, /steps\.inputs\.outputs\.mode == 'execute'/);
+  assert.match(workflow, /id: cache-invalidate/);
+  assert.match(workflow, /CACHE_OUTCOME: \$\{\{ steps\.cache-invalidate\.outcome \}\}/);
+  assert.doesNotMatch(workflow, /calculate-scores|trigger-translate|warm-cache/);
 });
