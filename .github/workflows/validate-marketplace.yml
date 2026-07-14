@@ -360,6 +360,7 @@ jobs:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
 
@@ -392,6 +393,17 @@ jobs:
             exit 0
           fi
 
+          # Build replacement-PR metadata from the pull_request event itself.
+          # This survives squash merge because approval never depends on commit history.
+          PR_BODY_FILE="$RUNNER_TEMP/skill-md-autofix-pr-body-${GITHUB_RUN_ID}.md"
+          METADATA_JSON=$(node "$GITHUB_WORKSPACE/marketplace-repo/scripts/build-autofix-pr-metadata.mjs" \
+            --event-path "$GITHUB_EVENT_PATH" \
+            --event-name "$EVENT_NAME" \
+            --body-file "$PR_BODY_FILE" \
+            --modified-count "$MODIFIED_COUNT" \
+            --deleted-count "$DELETED_COUNT")
+          INHERIT_PENDING_REVIEW=$(printf '%s' "$METADATA_JSON" | jq -r '.inheritPendingReview')
+
           # Build commit message
           COMMIT_MSG="fix: auto-fix SKILL.md validation errors
 
@@ -416,33 +428,17 @@ jobs:
           [ "$DELETED_COUNT" -gt 0 ] && [ "$MODIFIED_COUNT" -eq 0 ] && PR_TITLE="$PR_TITLE ($DELETED_COUNT deleted)"
           [ "$MODIFIED_COUNT" -gt 0 ] && [ "$DELETED_COUNT" -eq 0 ] && PR_TITLE="$PR_TITLE)"
 
-          # Create PR
-          PR_URL=$(gh pr create \
-            --title "$PR_TITLE" \
-            --body "## Summary
+          PR_ARGS=(
+            --title "$PR_TITLE"
+            --body-file "$PR_BODY_FILE"
+            --base main
+            --head "$BRANCH_NAME"
+          )
+          if [ "$INHERIT_PENDING_REVIEW" = "true" ]; then
+            PR_ARGS+=(--label "pending-review")
+          fi
 
-          AI-powered auto-fix for SKILL.md validation errors.
-
-          | Metric | Value |
-          |--------|-------|
-          | Files Fixed | $MODIFIED_COUNT |
-          | Empty Skills Deleted | $DELETED_COUNT |
-          | Triggered By | ${{ github.event_name }} |
-
-          ### Fixes Applied
-          - Added missing YAML frontmatter
-          - Fixed \`name\` field format (lowercase alphanumeric with hyphens)
-          - Added missing \`description\` field
-          - Truncated overly long descriptions
-          - **Deleted empty skill directories** (unfixable)
-
-          ### After Merge
-          The \`sync-to-supabase.yml\` workflow will automatically update the database.
-
-          ---
-          *Automated fix by validate-marketplace.yml*" \
-            --base main \
-            --head "$BRANCH_NAME")
+          PR_URL=$(gh pr create "${PR_ARGS[@]}")
 
           echo "::notice::Created PR for SKILL.md fixes: $PR_URL"
           echo "🔗 PR Created: $PR_URL"
