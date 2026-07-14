@@ -207,6 +207,20 @@ jobs:
             echo "skip_sync=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Validate cache matrix capacity
+        if: steps.changes.outputs.skip_sync != 'true'
+        env:
+          CHANGED_SKILLS: ${{ steps.changes.outputs.changed_skills }}
+        run: |
+          set -euo pipefail
+          MAX_CACHE_ITEMS=25600 # 256 GitHub matrix jobs × 100 slugs per shard
+          TARGET_COUNT=$(printf '%s\n' "$CHANGED_SKILLS" | tr ' ' '\n' | sed '/^$/d' | sort -u | wc -l | tr -d ' ')
+          if [ "$TARGET_COUNT" -gt "$MAX_CACHE_ITEMS" ]; then
+            echo "::error::Sync target count $TARGET_COUNT exceeds cache matrix capacity $MAX_CACHE_ITEMS; refusing before Supabase write"
+            exit 1
+          fi
+          echo "Cache matrix preflight: $TARGET_COUNT target(s) within $MAX_CACHE_ITEMS capacity"
+
       - name: Download skillstore-cli
         if: steps.changes.outputs.skip_sync != 'true'
         uses: ./.github/actions/download-skillstore-cli

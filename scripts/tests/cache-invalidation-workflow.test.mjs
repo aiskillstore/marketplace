@@ -57,6 +57,7 @@ test('workflow matrix is artifact-backed, id-only, bounded, and max-parallel 3',
 test('workflow full_sync inputs above 100 use the configured bounded matrix', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const detectJob = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
+  const capacityGuard = section(workflow, '      - name: Validate cache matrix capacity', '      - name: Download skillstore-cli');
   const planJob = section(workflow, '  plan-cache-invalidation:', '  cache-invalidate-shard:');
   const shardJob = section(workflow, '  cache-invalidate-shard:', '  cache-invalidate:');
   const shardSize = Number(planJob.match(/--shard-size (\d+)/)?.[1]);
@@ -65,6 +66,13 @@ test('workflow full_sync inputs above 100 use the configured bounded matrix', ()
   assert.match(detectJob, /inputs\.full_sync.*true[\s\S]*CHANGED=\$\(find_all_skills/s);
   assert.equal(shardSize, 100);
   assert.equal(maxShards, 256);
+  assert.match(capacityGuard, /MAX_CACHE_ITEMS=25600/);
+  assert.match(capacityGuard, /exceeds cache matrix capacity/);
+  assert.ok(
+    workflow.indexOf('      - name: Validate cache matrix capacity')
+      < workflow.indexOf('      - name: Sync skills to Supabase'),
+    'matrix capacity must be checked before any Supabase write',
+  );
   assert.match(shardJob, /max-parallel: 3/);
 
   for (const [slugCount, expectedShards] of [[101, 2], [5263, 53]]) {
