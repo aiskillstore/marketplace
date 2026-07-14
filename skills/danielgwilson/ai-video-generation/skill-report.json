@@ -1,7 +1,7 @@
 {
   "schema_version": "2.0",
   "meta": {
-    "generated_at": "2026-07-14T17:41:18.429Z",
+    "generated_at": "2026-07-14T23:00:13.251Z",
     "slug": "danielgwilson-ai-video-generation",
     "source_url": "https://github.com/danielgwilson/image-skill-cli/tree/main/skills/ai-video-generation",
     "source_ref": "main",
@@ -9,7 +9,7 @@
     "analysis_version": "3.0.0",
     "source_type": "community",
     "content_hash": "452d026d9c3afdf34fcfb889dbd7d970282c0d17b06a86d4cedf54cda4812246",
-    "tree_hash": "b194594f625190bd5f1ddbf2cf9f56d8d0f369f46437f1d0edf5256914f386ad",
+    "tree_hash": "1e35c799fb37885d9b141f5d912ddf85591392f8904219be9423c689bb80914d",
     "provenance": {
       "model_effective": "codex",
       "fallback_chain": [
@@ -23,8 +23,8 @@
   },
   "skill": {
     "name": "ai-video-generation",
-    "description": "Generate hosted AI videos through Luxin without provider credentials or a local runtime. Discover models, estimate costs, create jobs, recover results, and share durable URLs.",
-    "summary": "Create and manage hosted AI video jobs through the Luxin CLI and API.",
+    "description": "Generate hosted AI videos from text prompts through Luxin, with model guidance, job recovery, cost receipts, and durable media URLs.",
+    "summary": "Create hosted AI videos through the Luxin CLI and API.",
     "icon": "📦",
     "author": "danielgwilson",
     "license": "MIT",
@@ -32,9 +32,8 @@
     "tags": [
       "ai-video",
       "text-to-video",
-      "video-generation",
-      "luxin",
-      "hosted-media"
+      "media-generation",
+      "luxin"
     ],
     "supported_tools": [
       "claude",
@@ -48,25 +47,30 @@
     ]
   },
   "security_audit": {
-    "risk_level": "high",
+    "risk_level": "medium",
     "is_blocked": false,
-    "safe_to_publish": false,
+    "safe_to_publish": true,
     "analysis_status": "ok",
-    "summary": "Five findings are confirmed because the instructions execute unpinned npm packages and install skills with automatic confirmation. Most backtick, URL, and hidden-path detections are Markdown or explicit workspace configuration. A high-severity semantic finding covers execution of service-supplied commands without local validation.",
+    "summary": "No prompt injection language was found. The skill directs agents to execute remote commands and unpinned packages, creating command-control and supply-chain risks. Hosted persistence, diagnostic sharing, and an image-specific spending flag add privacy and billing concerns.",
     "remediation": [
       {
-        "issue": "The examples execute npm packages without fixed versions and suppress confirmation.",
-        "suggestion": "Pin reviewed package versions, verify package integrity, and remove automatic confirmation from commands intended for agents.",
-        "severity": "medium"
-      },
-      {
-        "issue": "The skill directs agents to execute a command returned by the hosted service.",
-        "suggestion": "Return structured actions instead of shell commands, enforce an executable and argument allowlist, and require a visible approval before execution.",
+        "issue": "The guide can return data.next_command for the agent to execute.",
+        "suggestion": "Parse allowlisted response fields and construct fixed command arguments locally. Require confirmation before every returned command.",
         "severity": "high"
       },
       {
-        "issue": "Installation examples modify global agent skill state with automatic confirmation.",
-        "suggestion": "Default to workspace-scoped installation and require explicit approval before global installation or agent configuration changes.",
+        "issue": "The examples execute unpinned packages through npx with automatic approval.",
+        "suggestion": "Pin exact package versions and verify package integrity. Remove automatic approval where an interactive confirmation is possible.",
+        "severity": "medium"
+      },
+      {
+        "issue": "The video command uses an image-specific estimated spending flag.",
+        "suggestion": "Use a documented video spending limit and verify that the service rejects jobs exceeding the approved amount.",
+        "severity": "medium"
+      },
+      {
+        "issue": "Hosted jobs and feedback can retain prompts, commands, and diagnostic details.",
+        "suggestion": "Disclose retention behavior, redact sensitive values, and require explicit approval before sending feedback.",
         "severity": "medium"
       }
     ],
@@ -454,173 +458,194 @@
         "id": "external_commands:SKILL.md:24:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Line 24 uses backticks only for Markdown formatting around the skill name. It does not perform shell command substitution or execute a process."
+        "reason": "The backticks delimit the inline name luxin in prose. They do not perform Ruby or shell command substitution."
       },
       {
         "id": "external_commands:SKILL.md:28:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "The detected backticks format response field names and commands in prose; they are not Ruby or shell execution syntax. The separate instruction to trust a returned command is captured as a semantic finding."
+        "verdict": "confirmed",
+        "confidence": 0.96,
+        "reason": "The skill tells the agent to execute data.next_command returned by the hosted guide. A remote response can therefore influence the command executed locally.",
+        "severity": "high"
       },
       {
         "id": "external_commands:SKILL.md:32:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.96,
-        "reason": "Although the detector label is imprecise, lines 32-34 instruct execution of luxin-cli@latest through npx with automatic confirmation. An unpinned remote package can change between runs and introduces supply-chain risk.",
+        "confidence": 0.98,
+        "reason": "The fenced block executes luxin-cli@latest through npx with automatic approval. This downloads and runs mutable third-party package code.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:34:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Line 34 is a Markdown fence, and the remaining cited lines are headings and prose. This range contains no additional shell execution."
+        "reason": "The cited range contains a closing Markdown fence, headings, and an opening fence. It contains no Ruby or shell backtick execution."
       },
       {
         "id": "external_commands:SKILL.md:38:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.97,
-        "reason": "Lines 38-40 direct npx to execute the unpinned luxin-cli@latest package with automatic confirmation. The command can also initiate a hosted generation job with spending implications.",
+        "confidence": 0.98,
+        "reason": "The fenced block downloads and runs the unpinned luxin-cli@latest package. It also starts a hosted generation workflow that may spend credits.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:40:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "This range contains a closing Markdown fence, explanatory prose, and the next opening fence. It does not itself contain an executable command."
+        "reason": "The cited range only closes one Markdown block and introduces the next example. No command appears within this finding's range."
       },
       {
         "id": "external_commands:SKILL.md:46:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.96,
-        "reason": "Lines 46-48 run an unpinned package through npx and use global installation plus automatic confirmation. This can execute changed package code and modify Codex skill state.",
+        "confidence": 0.98,
+        "reason": "The example invokes an unversioned npx package with automatic approval and performs a global skill installation. Package changes can affect local agent state.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:48:ruby-shell-backtick-execution",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "The cited range consists of a closing fence, prose, and an opening fence. No command appears within these lines."
+        "confidence": 0.99,
+        "reason": "The cited range contains a closing fence, explanatory prose, and an opening fence. It does not contain an executable command."
       },
       {
         "id": "external_commands:SKILL.md:52:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.96,
-        "reason": "Lines 52-54 execute an unpinned package through npx and install the canonical skill globally with automatic confirmation. This creates supply-chain and agent-state modification risk.",
+        "confidence": 0.98,
+        "reason": "The example runs an unversioned npx installer with automatic approval and writes a global Codex skill. This creates a package supply-chain risk.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:54:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.98,
-        "reason": "The detected backticks are a Markdown fence and inline formatting for HOME and CODEX_HOME. The cited range does not use shell backtick substitution."
+        "reason": "The range contains a Markdown fence and prose about writable paths. It does not execute a shell command."
       },
       {
         "id": "external_commands:SKILL.md:59:ruby-shell-backtick-execution",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "Line 59 formats HOME paths with Markdown backticks. It contains no shell command substitution or process execution."
+        "reason": "The backticks format HOME and CODEX_HOME paths as inline code. They do not invoke command substitution."
       },
       {
         "id": "external_commands:SKILL.md:62:ruby-shell-backtick-execution",
         "verdict": "confirmed",
-        "confidence": 0.97,
-        "reason": "Lines 62-67 change HOME and CODEX_HOME, create directories, and execute an unpinned npx installer globally with automatic confirmation. These commands modify workspace and agent state.",
+        "confidence": 0.98,
+        "reason": "The fenced block changes HOME and CODEX_HOME, creates directories, and runs an unversioned npx installer. These commands modify workspace-local agent state.",
         "severity": "medium"
       },
       {
         "id": "external_commands:SKILL.md:67:ruby-shell-backtick-execution",
-        "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "Line 67 closes a Markdown code block, and the later cited lines contain contract links and prose. There is no Ruby or shell backtick execution."
+        "verdict": "confirmed",
+        "confidence": 0.93,
+        "reason": "The range instructs the agent to run luxin feedback create with command and behavior details. This command transmits diagnostic content to the hosted service.",
+        "severity": "medium"
       },
       {
         "id": "network:SKILL.md:5:hardcoded-url",
         "verdict": "false_positive",
         "confidence": 0.99,
-        "reason": "The HTTPS URL is declared as the skill homepage in metadata. This line does not send data or initiate a network request."
+        "reason": "This is an HTTPS homepage in metadata. The location does not perform a request or transmit data."
       },
       {
         "id": "network:SKILL.md:6:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "The HTTPS URL identifies Luxin documentation in metadata. It is a transparent reference and does not perform a network operation."
+        "confidence": 0.98,
+        "reason": "This is a transparent HTTPS documentation URL in metadata. A hardcoded documentation link is not itself a network operation."
       },
       {
         "id": "network:SKILL.md:10:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "This metadata value identifies the canonical skill document over HTTPS. No request, credential transfer, or hidden destination is present on this line."
+        "confidence": 0.97,
+        "reason": "The value identifies the canonical skill document on the advertised Luxin domain. The cited line does not fetch or execute that document."
       },
       {
         "id": "network:SKILL.md:11:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "This is a transparent HTTPS API endpoint declaration for the service the skill describes. The line contains no request logic or data transfer."
+        "confidence": 0.96,
+        "reason": "The line declares the expected Luxin API endpoint in metadata. It contains no request, credential, or data transmission."
       },
       {
         "id": "network:SKILL.md:73:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "Line 73 is a documentation link to the canonical skill. It does not initiate a request or expose data."
+        "confidence": 0.98,
+        "reason": "This is a reference link to the advertised service's skill document. The line does not initiate network access."
       },
       {
         "id": "network:SKILL.md:74:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "Line 74 is a documentation link to the published LLM contract. It does not perform network access."
+        "confidence": 0.98,
+        "reason": "This is an HTTPS documentation reference for the LLM contract. No request or sensitive transmission occurs on the cited line."
       },
       {
         "id": "network:SKILL.md:75:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.99,
-        "reason": "Line 75 is a documentation link to the CLI contract. The URL is disclosed and no request is executed."
+        "confidence": 0.98,
+        "reason": "This is an HTTPS documentation reference for the CLI contract. The URL alone does not execute network behavior."
       },
       {
         "id": "network:SKILL.md:76:hardcoded-url",
         "verdict": "false_positive",
-        "confidence": 0.98,
-        "reason": "Line 76 names the hosted HTTPS API used by the advertised service. It contains no request, payload, or credential handling."
+        "confidence": 0.96,
+        "reason": "The line identifies the hosted API used by the advertised workflow. It does not itself make a request or expose a secret."
       },
       {
         "id": "filesystem:SKILL.md:59:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.97,
-        "reason": "Line 59 explains where agent state is written and formats the paths as Markdown. It does not read, write, or enumerate hidden files."
+        "confidence": 0.99,
+        "reason": "The line documents where the installer writes agent state. It does not read hidden files or access existing secrets."
       },
       {
         "id": "filesystem:SKILL.md:63:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.93,
-        "reason": "Line 63 redirects HOME to a disclosed directory under the current workspace. It does not access an existing hidden file or secret."
+        "confidence": 0.98,
+        "reason": "The command redirects HOME to a new workspace-local directory. This confines later writes and does not access an existing hidden file."
       },
       {
         "id": "filesystem:SKILL.md:64:hidden-file-access",
         "verdict": "false_positive",
-        "confidence": 0.94,
-        "reason": "Line 64 sets CODEX_HOME beneath the newly redirected workspace HOME. It does not read existing Codex credentials or undisclosed hidden data."
+        "confidence": 0.98,
+        "reason": "The command sets CODEX_HOME beneath the newly assigned workspace-local HOME. It does not read or overwrite the user's existing Codex profile."
       }
     ],
     "semantic_findings": [
       {
-        "title": "Execution of Service-Supplied Commands",
-        "description": "The skill tells agents to run data.next_command when a service-controlled flag marks it runnable. No local executable or argument allowlist is required before execution.",
-        "severity": "high",
+        "title": "Hosted Persistence and Diagnostic Disclosure",
+        "description": "The workflow keeps generated work in Luxin and asks agents to submit commands and behavior details as feedback. Sensitive prompt or diagnostic content may persist outside the local environment.",
+        "severity": "medium",
         "locations": [
           {
             "file": "SKILL.md",
-            "line_start": 28,
+            "line_start": 24,
             "line_end": 28
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 78,
+            "line_end": 78
           }
         ],
-        "confidence": 0.95,
-        "confidence_reasoning": "Line 28 explicitly delegates command selection to hosted response data and only checks service-provided fields. This creates a direct command-injection trust boundary."
+        "confidence": 0.94,
+        "confidence_reasoning": "The skill explicitly describes durable hosted work and asks for attempted commands, expected behavior, and actual behavior in hosted feedback."
+      },
+      {
+        "title": "Image-Specific Limit Used for Video Spending",
+        "description": "The main video command uses --max-estimated-usd-per-image. If Luxin does not apply this option to video jobs, the intended spending cap may be ineffective.",
+        "severity": "medium",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 39
+          }
+        ],
+        "confidence": 0.78,
+        "confidence_reasoning": "The option name clearly targets images while the command selects a video model. The CLI's undocumented mapping to video costs remains uncertain."
       }
     ],
     "critical_findings": [],
     "high_findings": [
       {
-        "title": "Execution of Service-Supplied Commands",
-        "description": "The skill tells agents to run data.next_command when a service-controlled flag marks it runnable. No local executable or argument allowlist is required before execution.",
+        "title": "Ruby/shell backtick execution",
+        "description": "Do not bring provider API keys, create provider accounts, run a local model server, or wire a separa",
         "locations": [
           {
             "file": "SKILL.md",
@@ -628,11 +653,11 @@
             "line_end": 28
           }
         ],
-        "review_kind": "security",
-        "source_category": "semantic",
-        "source_severity": "high",
-        "confidence": 0.95,
-        "confidence_reasoning": "Line 28 explicitly delegates command selection to hosted response data and only checks service-provided fields. This creates a direct command-injection trust boundary."
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.96,
+        "confidence_reasoning": "The skill tells the agent to execute data.next_command returned by the hosted guide. A remote response can therefore influence the command executed locally."
       }
     ],
     "medium_findings": [
@@ -649,8 +674,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.96,
-        "confidence_reasoning": "Although the detector label is imprecise, lines 32-34 instruct execution of luxin-cli@latest through npx with automatic confirmation. An unpinned remote package can change between runs and introduces supply-chain risk."
+        "confidence": 0.98,
+        "confidence_reasoning": "The fenced block executes luxin-cli@latest through npx with automatic approval. This downloads and runs mutable third-party package code."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -665,8 +690,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.97,
-        "confidence_reasoning": "Lines 38-40 direct npx to execute the unpinned luxin-cli@latest package with automatic confirmation. The command can also initiate a hosted generation job with spending implications."
+        "confidence": 0.98,
+        "confidence_reasoning": "The fenced block downloads and runs the unpinned luxin-cli@latest package. It also starts a hosted generation workflow that may spend credits."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -681,8 +706,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.96,
-        "confidence_reasoning": "Lines 46-48 run an unpinned package through npx and use global installation plus automatic confirmation. This can execute changed package code and modify Codex skill state."
+        "confidence": 0.98,
+        "confidence_reasoning": "The example invokes an unversioned npx package with automatic approval and performs a global skill installation. Package changes can affect local agent state."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -697,8 +722,8 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.96,
-        "confidence_reasoning": "Lines 52-54 execute an unpinned package through npx and install the canonical skill globally with automatic confirmation. This creates supply-chain and agent-state modification risk."
+        "confidence": 0.98,
+        "confidence_reasoning": "The example runs an unversioned npx installer with automatic approval and writes a global Codex skill. This creates a package supply-chain risk."
       },
       {
         "title": "Ruby/shell backtick execution",
@@ -713,8 +738,61 @@
         "review_kind": "capability",
         "source_category": "external_commands",
         "source_severity": "medium",
-        "confidence": 0.97,
-        "confidence_reasoning": "Lines 62-67 change HOME and CODEX_HOME, create directories, and execute an unpinned npx installer globally with automatic confirmation. These commands modify workspace and agent state."
+        "confidence": 0.98,
+        "confidence_reasoning": "The fenced block changes HOME and CODEX_HOME, creates directories, and runs an unversioned npx installer. These commands modify workspace-local agent state."
+      },
+      {
+        "title": "Ruby/shell backtick execution",
+        "description": "```",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 67,
+            "line_end": 78
+          }
+        ],
+        "review_kind": "capability",
+        "source_category": "external_commands",
+        "source_severity": "medium",
+        "confidence": 0.93,
+        "confidence_reasoning": "The range instructs the agent to run luxin feedback create with command and behavior details. This command transmits diagnostic content to the hosted service."
+      },
+      {
+        "title": "Hosted Persistence and Diagnostic Disclosure",
+        "description": "The workflow keeps generated work in Luxin and asks agents to submit commands and behavior details as feedback. Sensitive prompt or diagnostic content may persist outside the local environment.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 24,
+            "line_end": 28
+          },
+          {
+            "file": "SKILL.md",
+            "line_start": 78,
+            "line_end": 78
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.94,
+        "confidence_reasoning": "The skill explicitly describes durable hosted work and asks for attempted commands, expected behavior, and actual behavior in hosted feedback."
+      },
+      {
+        "title": "Image-Specific Limit Used for Video Spending",
+        "description": "The main video command uses --max-estimated-usd-per-image. If Luxin does not apply this option to video jobs, the intended spending cap may be ineffective.",
+        "locations": [
+          {
+            "file": "SKILL.md",
+            "line_start": 39,
+            "line_end": 39
+          }
+        ],
+        "review_kind": "security",
+        "source_category": "semantic",
+        "source_severity": "medium",
+        "confidence": 0.78,
+        "confidence_reasoning": "The option name clearly targets images while the command selects a video model. The CLI's undocumented mapping to video costs remains uncertain."
       }
     ],
     "low_findings": [],
@@ -722,124 +800,125 @@
     "files_scanned": 1,
     "total_lines": 79,
     "audit_model": "codex",
-    "audited_at": "2026-07-14T17:41:18.429Z",
-    "agent_auto_install_policy": "confirmation_required",
+    "audited_at": "2026-07-14T23:00:13.251Z",
+    "agent_auto_install_policy": "allowed",
     "manual_install_policy": "allowed"
   },
   "content": {
-    "user_title": "Generate AI Videos with Luxin",
-    "value_statement": "Video generation often requires provider accounts, credentials, billing systems, and job tracking. This skill uses Luxin to guide creation, estimate spending, recover jobs, and return hosted video links.",
+    "user_title": "Create Hosted AI Videos with Luxin",
+    "value_statement": "Video generation often requires provider accounts, credentials, and separate billing. This skill uses Luxin to create hosted videos through one guided CLI workflow.",
     "seo_keywords": [
+      "AI video generation",
+      "text to video",
+      "hosted video generation",
+      "Luxin CLI",
       "Claude",
       "Codex",
       "Claude Code",
-      "AI video generation",
-      "text to video",
-      "Luxin CLI",
-      "hosted video",
-      "video model",
-      "generative media"
+      "agent video workflow",
+      "durable media URLs",
+      "video model selection"
     ],
     "actual_capabilities": [
-      "Starts a no-spend guide for the fal.ltx-video-13b-distilled model.",
-      "Creates hosted text-to-video jobs from a prompt through the Luxin CLI.",
-      "Applies intent and estimated spending limits to generation requests.",
-      "Returns durable hosted media URLs, job recovery data, cost receipts, and stable structured responses.",
-      "Installs the intent skill for Codex through the skills CLI."
+      "Starts a no-spend guide for a selected Luxin video model.",
+      "Creates hosted videos from text prompts through the Luxin CLI.",
+      "Returns durable media URLs, recoverable job records, and cost receipts.",
+      "Supports model discovery and readiness checks before generation.",
+      "Provides a hosted feedback command for missing capabilities and runtime issues."
     ],
     "limitations": [
-      "Requires network access to Luxin and npm services.",
-      "Depends on hosted Luxin model availability, latency, policies, credits, and payment support.",
-      "Uses external CLI packages and does not include a local video generation runtime.",
-      "Generated media quality and completion time depend on the selected hosted model."
+      "Requires network access and downloads current npm packages in the documented commands.",
+      "Depends on Luxin service availability, supported models, policies, and payment options.",
+      "Video generation may consume credits and requires explicit spending approval.",
+      "Prompts, outputs, jobs, and submitted feedback are processed by a hosted service."
     ],
     "use_cases": [
       {
-        "title": "Prototype social video",
-        "description": "Turn a short concept into a hosted motion draft for review and iteration.",
-        "target_user": "Creative teams"
+        "title": "Prototype Product Motion",
+        "description": "Create a short hosted product reveal and retain its URL for reviews or presentations.",
+        "target_user": "Product designers"
       },
       {
-        "title": "Generate a product reveal",
-        "description": "Generate a ten-second product reveal while setting an estimated spending limit.",
-        "target_user": "Product marketers"
+        "title": "Draft Social Video Concepts",
+        "description": "Generate motion concepts from campaign prompts while checking model choice and estimated cost first.",
+        "target_user": "Marketing teams"
       },
       {
-        "title": "Integrate agent workflows",
-        "description": "Create recoverable video jobs and retain durable URLs for later agent sessions.",
-        "target_user": "AI automation developers"
+        "title": "Automate Recoverable Video Jobs",
+        "description": "Start video jobs, inspect receipts, and recover hosted outputs across agent sessions.",
+        "target_user": "AI workflow developers"
       }
     ],
     "prompt_templates": [
       {
-        "title": "Create a simple clip",
-        "prompt": "Use the no-spend guide to prepare a ten-second video of [subject] in [style]. Do not create paid media until I approve.",
-        "scenario": "Start a guided video request with clear spending control."
+        "title": "Create a Short Video",
+        "prompt": "Create a ten-second hosted video of [subject] performing [action]. Use the guide first and show the estimated cost before any paid generation.",
+        "scenario": "Beginner text-to-video request"
       },
       {
-        "title": "Set visual direction",
-        "prompt": "Create a [duration] video showing [scene]. Use [camera movement], [lighting], and [mood], then report the estimated cost before generation.",
-        "scenario": "Define production details for a focused creative draft."
+        "title": "Compare Video Models",
+        "prompt": "Compare available Luxin video models for [goal]. Recommend one based on quality, speed, and estimated cost without starting a paid job.",
+        "scenario": "Model selection before generation"
       },
       {
-        "title": "Compare video models",
-        "prompt": "Compare available Luxin video models for [goal]. Recommend one based on quality, speed, and estimated cost, without starting a paid job.",
-        "scenario": "Select a suitable hosted model before generation."
+        "title": "Generate and Track a Campaign Clip",
+        "prompt": "Generate a [duration] campaign clip using [model] and this prompt: [prompt]. Confirm spending permission, then report job status, cost, and hosted URL.",
+        "scenario": "Managed production with cost review"
       },
       {
-        "title": "Run an approved workflow",
-        "prompt": "Prepare a hosted video job for [campaign]. Validate required inputs, cap estimated spending at [amount], request approval, then return job status and a durable URL.",
-        "scenario": "Manage an advanced generation workflow with recovery and cost controls."
+        "title": "Recover and Diagnose a Video Job",
+        "prompt": "Recover the Luxin job for [project or job identifier]. Summarize its status, receipt, output URL, and missing capability. Submit redacted feedback only after approval.",
+        "scenario": "Advanced recovery and service diagnosis"
       }
     ],
     "output_examples": [
       {
-        "input": "Prepare a ten-second handheld product reveal without spending credits yet.",
-        "output": "Guide status: ready for input review. Model: fal.ltx-video-13b-distilled. Paid generation remains paused until explicit approval."
+        "input": "Create a ten-second handheld product reveal after showing the estimated cost.",
+        "output": [
+          "Selected model: fal.ltx-video-13b-distilled.",
+          "Spending approval is required before generation.",
+          "After completion, the result includes job status, cost receipt, and hosted video URL."
+        ]
       },
       {
-        "input": "Recommend a video model for a fast animated concept and show the estimated cost.",
-        "output": "Model recommendation: a supported Luxin video model selected for speed. The response includes its estimated cost and required inputs before creation."
-      },
-      {
-        "input": "Recover my completed video job and provide the result.",
-        "output": "Job status: complete. The result includes a durable hosted media link and the available cost receipt."
+        "input": "Recover my previous campaign clip and explain why it failed.",
+        "output": "The job summary identifies its current state, available receipt, hosted output, and missing capability. Sensitive details remain excluded from feedback."
       }
     ],
     "best_practices": [
-      "Start with the no-spend guide and review missing inputs before creating media.",
-      "Set an estimated spending limit and obtain explicit approval before any paid generation.",
-      "Keep job identifiers, cost receipts, and hosted URLs for recovery and later citation."
+      "Run the no-spend guide before creating media or authorizing credits.",
+      "Pin CLI package versions and review every generated command before execution.",
+      "Remove confidential details from prompts and feedback sent to the hosted service."
     ],
     "anti_patterns": [
-      "Do not execute a service-returned command without validating its executable, arguments, and spending effects.",
-      "Do not use unpinned npm packages in automated or privileged environments.",
-      "Do not redirect HOME or install global skills without understanding the workspace and agent state changes."
+      "Do not execute a returned next command without validating its arguments and confirming spend.",
+      "Do not place provider credentials or private customer data in prompts or feedback.",
+      "Do not assume an image-specific cost option limits video generation charges."
     ],
     "faq": [
       {
-        "question": "Do I need provider API credentials?",
-        "answer": "No provider credentials are required. Luxin may create an optional restricted hosted token for its own service."
+        "question": "Does this skill require provider API keys?",
+        "answer": "No provider key is required. Luxin uses a hosted identity and shared credit workflow."
       },
       {
-        "question": "Can this skill run a local video model?",
-        "answer": "No. It uses the hosted Luxin runtime and does not provide a local generation server."
+        "question": "Can I inspect costs before generating a video?",
+        "answer": "Yes. Start with the guide and require an estimate plus explicit approval before any paid command."
       },
       {
-        "question": "Does the guide spend credits?",
-        "answer": "The guide is intended for no-spend preparation. A generation job may consume credits and should require explicit approval."
+        "question": "Where are generated videos stored?",
+        "answer": "Luxin stores generated work as hosted media with durable URLs and recoverable job records."
       },
       {
-        "question": "Can I recover a video later?",
-        "answer": "Yes. The skill describes recoverable jobs and durable hosted media URLs for later agent sessions."
+        "question": "Can the skill work without network access?",
+        "answer": "No. The CLI, hosted API, model runtime, and media URLs require network access."
       },
       {
-        "question": "Which video model does the example use?",
-        "answer": "The examples use fal.ltx-video-13b-distilled. Availability and alternatives depend on the current Luxin catalog."
+        "question": "Which video models are supported?",
+        "answer": "Support depends on Luxin model availability. The examples use fal.ltx-video-13b-distilled."
       },
       {
-        "question": "What should I do when Luxin lacks a needed capability?",
-        "answer": "Use a fallback only for the missing capability, then submit feedback describing the attempted command and result."
+        "question": "What should I include in feedback?",
+        "answer": "Include the attempted action and observed behavior after removing prompts, tokens, customer data, and other sensitive details."
       }
     ]
   },
