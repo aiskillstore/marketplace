@@ -624,6 +624,42 @@ test('execute readback proves exact artifact hash provenance and observation ide
     postInventory,
   });
   assert.equal(readback.executedCount, 1);
+
+  const equivalentUtcOffset = structuredClone(postInventory);
+  equivalentUtcOffset.artifacts[0].observed_at = '2026-01-01T00:00:00.000+00:00';
+  equivalentUtcOffset.observations[0].observed_at = '2026-01-01T00:00:00.000+00:00';
+  const offsetReadback = verifyArtifactVersionReadback({
+    mode: 'execute',
+    plan,
+    classification,
+    execution: { evidence: [{ slug: planned.slug, result }] },
+    preInventory,
+    postInventory: equivalentUtcOffset,
+  });
+  assert.equal(offsetReadback.executedCount, 1);
+
+  const invalidObservedAt = structuredClone(postInventory);
+  invalidObservedAt.artifacts[0].observed_at = '2026-02-31T00:00:00.000Z';
+  assert.throws(() => verifyArtifactVersionReadback({
+    mode: 'execute',
+    plan,
+    classification,
+    execution: { evidence: [{ slug: planned.slug, result }] },
+    preInventory,
+    postInventory: invalidObservedAt,
+  }), /install identity\/hash provenance readback mismatch/);
+
+  const microsecondDrift = structuredClone(postInventory);
+  microsecondDrift.observations[0].observed_at = '2026-01-01T00:00:00.000001+00:00';
+  assert.throws(() => verifyArtifactVersionReadback({
+    mode: 'execute',
+    plan,
+    classification,
+    execution: { evidence: [{ slug: planned.slug, result }] },
+    preInventory,
+    postInventory: microsecondDrift,
+  }), /Artifact observation readback mismatch/);
+
   const installIdentityDrift = structuredClone(postInventory);
   installIdentityDrift.artifacts[0].upstream_version_status = 'missing';
   assert.throws(() => verifyArtifactVersionReadback({

@@ -7,9 +7,57 @@ import { pathToFileURL } from 'node:url';
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ISO_TIMESTAMP_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(Z|([+-])(\d{2}):(\d{2}))$/;
 
 function fail(message) {
   throw new Error(message);
+}
+
+function parseStrictIsoTimestamp(value) {
+  if (typeof value !== 'string') return null;
+  const match = ISO_TIMESTAMP_RE.exec(value);
+  if (!match) return null;
+
+  const [
+    , yearText, monthText, dayText, hourText, minuteText, secondText,
+    fractionText, , offsetSign, offsetHourText, offsetMinuteText,
+  ] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  const offsetHour = Number(offsetHourText ?? 0);
+  const offsetMinute = Number(offsetMinuteText ?? 0);
+  if (
+    month < 1 || month > 12
+    || day < 1 || day > daysInMonth
+    || hour > 23
+    || minute > 59
+    || second > 59
+    || offsetHour > 23
+    || offsetMinute > 59
+  ) {
+    return null;
+  }
+
+  const localTime = new Date(0);
+  localTime.setUTCFullYear(year, month - 1, day);
+  localTime.setUTCHours(hour, minute, second, 0);
+  const offsetDirection = offsetSign === '-' ? -1 : 1;
+  const offsetMilliseconds = offsetDirection * (offsetHour * 60 + offsetMinute) * 60_000;
+  const epochMilliseconds = localTime.getTime() - offsetMilliseconds;
+  const fractionMicroseconds = BigInt((fractionText ?? '').padEnd(6, '0') || '0');
+  return BigInt(epochMilliseconds) * 1_000n + fractionMicroseconds;
+}
+
+function isSameIsoInstant(left, right) {
+  const leftEpoch = parseStrictIsoTimestamp(left);
+  const rightEpoch = parseStrictIsoTimestamp(right);
+  return leftEpoch !== null && rightEpoch !== null && leftEpoch === rightEpoch;
 }
 
 function rowsByKey(rows, key, label) {
@@ -193,7 +241,7 @@ export function verifyArtifactVersionReadback({
         || artifact.marketplace_commit_sha !== planned.marketplaceCommit
         || artifact.source_path !== planned.path
         || artifact.upstream_commit_sha !== artifactEvidence.upstreamCommit
-        || artifact.observed_at !== artifactEvidence.observedAt
+        || !isSameIsoInstant(artifact.observed_at, artifactEvidence.observedAt)
         || artifact.previous_version_id !== null
         || artifact.change_kind !== 'initial'
         || artifact.snapshot_status !== 'exact'
@@ -213,7 +261,7 @@ export function verifyArtifactVersionReadback({
         || observation.marketplace_commit_sha !== planned.marketplaceCommit
         || observation.source_path !== planned.path
         || observation.upstream_commit_sha !== artifactEvidence.upstreamCommit
-        || observation.observed_at !== artifactEvidence.observedAt
+        || !isSameIsoInstant(observation.observed_at, artifactEvidence.observedAt)
       ) {
         fail(`Artifact observation readback mismatch for ${planned.slug}`);
       }
