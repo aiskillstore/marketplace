@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import { fetchArtifactVersionInventory } from '../fetch-artifact-version-inventory.mjs';
 import { buildArtifactBackfillPlan, main } from '../plan-artifact-version-backfill.mjs';
+import { verifyArtifactVersionReadback } from '../verify-artifact-version-backfill.mjs';
 
 const HASH_A = 'a'.repeat(64);
 const HASH_B = 'b'.repeat(64);
@@ -44,6 +45,9 @@ function inventoryRow({ slug, path, commit, revision = 0, contentHash = HASH_A, 
     content_hash: contentHash,
     tree_hash: treeHash,
     artifact_revision: revision,
+    current_artifact_version_id: revision > 0 ? '123e4567-e89b-42d3-a456-426614174000' : null,
+    status: 'approved',
+    public_eligible: true,
   };
 }
 
@@ -70,6 +74,9 @@ test('plans only production legacy rows from their exact historical commit and p
     assert.equal(plan.totalLegacy, 1);
     assert.deepEqual(plan.selected.map((row) => row.slug), ['legacy-skill']);
     assert.equal(plan.selected[0].marketplaceCommit, legacyCommit);
+    assert.equal(plan.selected[0].status, 'approved');
+    assert.equal(plan.selected[0].publicEligible, true);
+    assert.equal(plan.selected[0].currentArtifactVersionId, null);
     assert.equal(plan.groups[0].marketplaceCommit, legacyCommit);
     assert.deepEqual(plan.groups[0].paths, ['skills/owner/legacy']);
     assert.equal(plan.selected.some((row) => row.slug === 'repo-only'), false);
@@ -186,24 +193,111 @@ test('fetches an exact paginated production inventory without count drift', asyn
   assert.deepEqual(ranges, ['0-999', '1000-1999']);
 });
 
+test('readback proves dry-run immutability and execute initialization', () => {
+  const commit = 'a'.repeat(40);
+  const before = {
+    slug: 'legacy-skill',
+    path: 'skills/owner/legacy',
+    marketplaceCommit: commit,
+    contentHash: HASH_A,
+    treeHash: HASH_B,
+    artifactRevision: 0,
+    currentArtifactVersionId: null,
+    status: 'approved',
+    publicEligible: true,
+  };
+  const unchanged = inventoryRow({ slug: before.slug, path: 'owner/legacy', commit });
+  const dryRun = verifyArtifactVersionReadback({
+    mode: 'dry-run',
+    plan: { selected: [before] },
+    postInventory: { rows: [unchanged] },
+  });
+  assert.equal(dryRun.verifiedCount, 1);
+
+  const initialized = {
+    ...unchanged,
+    artifact_revision: 1,
+    current_artifact_version_id: '123e4567-e89b-42d3-a456-426614174000',
+  };
+  const execute = verifyArtifactVersionReadback({
+    mode: 'execute',
+    plan: { selected: [before] },
+    postInventory: { rows: [initialized] },
+  });
+  assert.equal(execute.evidence[0].after.artifactRevision, 1);
+  assert.throws(() => verifyArtifactVersionReadback({
+    mode: 'execute',
+    plan: { selected: [before] },
+    postInventory: { rows: [{ ...initialized, artifact_revision: 2 }] },
+  }), /unexpected artifact_revision/);
+});
+
+test('readback fails closed on visibility or immutable identity drift', () => {
+  const commit = 'a'.repeat(40);
+  const before = {
+    slug: 'legacy-skill',
+    path: 'skills/owner/legacy',
+    marketplaceCommit: commit,
+    contentHash: HASH_A,
+    treeHash: HASH_B,
+    artifactRevision: 0,
+    currentArtifactVersionId: null,
+    status: 'approved',
+    publicEligible: true,
+  };
+  const changed = {
+    ...inventoryRow({ slug: before.slug, path: 'owner/legacy', commit }),
+    artifact_revision: 1,
+    current_artifact_version_id: '123e4567-e89b-42d3-a456-426614174000',
+    public_eligible: false,
+  };
+  assert.throws(() => verifyArtifactVersionReadback({
+    mode: 'execute',
+    plan: { selected: [before] },
+    postInventory: { rows: [changed] },
+  }), /publicEligible changed/);
+  assert.throws(() => verifyArtifactVersionReadback({
+    mode: 'dry-run',
+    plan: { selected: [before] },
+    postInventory: { rows: [{ ...changed, public_eligible: true }] },
+  }), /Dry-run changed artifact_revision/);
+});
+
 test('workflow is pinned, evidence-producing, and isolated from normal fan-out', () => {
   const workflow = readFileSync(
     resolve(import.meta.dirname, '../../.github/workflows/backfill-artifact-versions.yml'),
     'utf8'
   );
+  const inventoryFetcher = readFileSync(
+    resolve(import.meta.dirname, '../fetch-artifact-version-inventory.mjs'),
+    'utf8'
+  );
   assert.match(workflow, /cli_version:/);
+  assert.match(workflow, /default: '2\.1\.1'/);
+  assert.match(workflow, /CLI_VERSION" != "2\.1\.1"/);
   assert.match(workflow, /fetch-artifact-version-inventory\.mjs/);
   assert.match(workflow, /fetch-depth: 0/);
   assert.match(workflow, /git archive/);
   assert.match(workflow, /--artifact-only/);
   assert.match(workflow, /--legacy-only/);
   assert.match(workflow, /actions\/upload-artifact@v6/);
-  assert.match(workflow, /CACHE_INVALIDATE_SECRET/);
+  assert.match(workflow, /CACHE_INVALIDATE_SECRET: \$\{\{ secrets\.CACHE_INVALIDATE_SECRET \}\}/);
+  assert.match(workflow, /CACHE_INVALIDATE_SECRET:\?CACHE_INVALIDATE_SECRET is required for execute mode/);
+  assert.match(workflow, /jq -r '\.selected\[\]\.slug'/);
   assert.match(workflow, /https:\/\/skillstore\.io\/api\/cache\/invalidate/);
   assert.match(workflow, /--fail-with-body/);
   assert.match(workflow, /artifact-backfill-cache-invalidation\.json/);
+  assert.match(workflow, /artifact-backfill-inventory-post\.json/);
+  assert.match(workflow, /verify-artifact-version-backfill\.mjs/);
+  assert.match(inventoryFetcher, /current_artifact_version_id/);
+  assert.match(inventoryFetcher, /public_eligible/);
   assert.match(workflow, /steps\.inputs\.outputs\.mode == 'execute'/);
   assert.match(workflow, /id: cache-invalidate/);
+  assert.match(workflow, /steps\.readback\.outcome == 'success'/);
+  assert.ok(
+    workflow.indexOf('id: readback') < workflow.indexOf('id: cache-invalidate'),
+    'production readback must pass before cache invalidation publishes the new projection'
+  );
   assert.match(workflow, /CACHE_OUTCOME: \$\{\{ steps\.cache-invalidate\.outcome \}\}/);
   assert.doesNotMatch(workflow, /calculate-scores|trigger-translate|warm-cache/);
 });
