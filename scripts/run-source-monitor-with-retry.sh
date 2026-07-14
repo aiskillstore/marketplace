@@ -14,6 +14,7 @@ fi
 OUTPUT_FILE="${MONITOR_OUTPUT_FILE:?MONITOR_OUTPUT_FILE is required}"
 MAX_ATTEMPTS="${MONITOR_MAX_ATTEMPTS:-2}"
 RETRY_DELAY_SECONDS="${MONITOR_RETRY_DELAY_SECONDS:-15}"
+CERTIFICATE_ERROR='Failed to load skills: Error: unknown certificate verification error'
 
 if ! [[ "$MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
   echo "MONITOR_MAX_ATTEMPTS must be a positive integer" >&2
@@ -51,7 +52,20 @@ for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
   fi
 
   if [[ "$attempt" -lt "$MAX_ATTEMPTS" ]] \
-    && grep -Fqi 'unknown certificate verification error' "$attempt_log"; then
+    && awk -v expected="$CERTIFICATE_ERROR" '
+      {
+        sub(/\r$/, "")
+        if (length($0) > 0) {
+          nonempty_lines++
+          if ($0 != expected) {
+            unexpected_line = 1
+          }
+        }
+      }
+      END {
+        exit !(nonempty_lines == 1 && !unexpected_line)
+      }
+    ' "$attempt_log"; then
     echo "Transient certificate verification error detected; retrying once after ${RETRY_DELAY_SECONDS}s" \
       | tee -a "$OUTPUT_FILE"
     rm -f "$attempt_log"

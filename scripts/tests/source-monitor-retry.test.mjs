@@ -11,6 +11,7 @@ const workflow = new URL('../../.github/workflows/monitor-skill-sources.yml', im
 async function fixture(mode) {
   const dir = await mkdtemp(join(tmpdir(), 'source-monitor-retry-'));
   const counter = join(dir, 'count');
+  const sideEffects = join(dir, 'side-effects');
   const output = join(dir, 'output.log');
   const fake = join(dir, 'fake-monitor.sh');
   await writeFile(fake, `#!/usr/bin/env bash
@@ -19,26 +20,44 @@ count=0
 [ ! -f "$COUNTER_FILE" ] || count=$(cat "$COUNTER_FILE")
 count=$((count + 1))
 printf '%s' "$count" > "$COUNTER_FILE"
+record_side_effect() {
+  side_effects=0
+  [ ! -f "$SIDE_EFFECT_FILE" ] || side_effects=$(cat "$SIDE_EFFECT_FILE")
+  side_effects=$((side_effects + 1))
+  printf '%s' "$side_effects" > "$SIDE_EFFECT_FILE"
+}
 case "$FAKE_MODE" in
   cert-once)
     if [ "$count" -eq 1 ]; then
-      echo 'fatal: unknown certificate verification error'
+      echo 'Failed to load skills: Error: unknown certificate verification error'
       exit 1
     fi
     echo 'monitor completed'
     ;;
   cert-always)
-    echo 'fatal: unknown certificate verification error'
+    echo 'Failed to load skills: Error: unknown certificate verification error'
     exit 1
     ;;
   generic)
     echo 'fatal: repository contract failed'
     exit 42
     ;;
+  cert-before-unrelated-failure)
+    record_side_effect
+    echo 'Failed to load skills: Error: unknown certificate verification error'
+    echo 'fatal: repository contract failed'
+    exit 42
+    ;;
+  mutation-before-cert)
+    record_side_effect
+    echo 'Persisting locally mutated skill rows'
+    echo 'Failed to load skills: Error: unknown certificate verification error'
+    exit 1
+    ;;
 esac
 `, 'utf8');
   await chmod(fake, 0o755);
-  return { dir, counter, output, fake, mode };
+  return { dir, counter, sideEffects, output, fake, mode };
 }
 
 async function run(mode) {
@@ -48,6 +67,7 @@ async function run(mode) {
     env: {
       ...process.env,
       COUNTER_FILE: files.counter,
+      SIDE_EFFECT_FILE: files.sideEffects,
       FAKE_MODE: mode,
       MONITOR_OUTPUT_FILE: files.output,
       MONITOR_MAX_ATTEMPTS: '2',
@@ -55,9 +75,10 @@ async function run(mode) {
     },
   });
   const count = Number(await readFile(files.counter, 'utf8').catch(() => '0'));
+  const sideEffects = Number(await readFile(files.sideEffects, 'utf8').catch(() => '0'));
   const output = await readFile(files.output, 'utf8').catch(() => '');
   await rm(files.dir, { recursive: true, force: true });
-  return { result, count, output };
+  return { result, count, sideEffects, output };
 }
 
 test('retries the exact transient certificate error once and then succeeds', async () => {
@@ -72,6 +93,22 @@ test('does not retry unrelated monitor failures', async () => {
   const { result, count } = await run('generic');
   assert.equal(result.status, 42);
   assert.equal(count, 1);
+});
+
+test('does not retry when certificate text precedes an unrelated terminal failure', async () => {
+  const { result, count, sideEffects, output } = await run('cert-before-unrelated-failure');
+  assert.equal(result.status, 42);
+  assert.match(output, /Failed to load skills: Error: unknown certificate verification error/);
+  assert.match(output, /fatal: repository contract failed/);
+  assert.deepEqual({ attempts: count, sideEffects }, { attempts: 1, sideEffects: 1 });
+});
+
+test('does not retry after a mutation phase marker before the certificate failure', async () => {
+  const { result, count, sideEffects, output } = await run('mutation-before-cert');
+  assert.equal(result.status, 1);
+  assert.match(output, /Persisting locally mutated skill rows/);
+  assert.match(output, /Failed to load skills: Error: unknown certificate verification error/);
+  assert.deepEqual({ attempts: count, sideEffects }, { attempts: 1, sideEffects: 1 });
 });
 
 test('stops after the bounded certificate retry', async () => {
