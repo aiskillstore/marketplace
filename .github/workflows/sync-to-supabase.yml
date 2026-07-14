@@ -90,77 +90,13 @@ jobs:
             done | sort -u
           }
 
-          # Resolve workflow_dispatch input to repository skill paths. Operators
-          # usually pass public slugs such as "sickn33-mtls-configuration", while
-          # the CLI expects paths such as "skills/sickn33/mtls-configuration".
-          resolve_manual_skills() {
-            MANUAL_SKILL_INPUT="$1" node <<'NODE'
-          const fs = require('fs');
-          const path = require('path');
-
-          const raw = process.env.MANUAL_SKILL_INPUT || '';
-          const requested = [
-            ...new Set(
-              raw
-                .split(/[,\s]+/)
-                .map((item) => item.trim().replace(/^skills\//, '').replace(/\/skill-report\.json$/, ''))
-                .filter(Boolean),
-            ),
-          ];
-
-          const reports = [];
-          function walk(dir) {
-            for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-              const fullPath = path.join(dir, entry.name);
-              if (entry.isDirectory()) {
-                walk(fullPath);
-              } else if (entry.name === 'skill-report.json') {
-                reports.push(fullPath);
-              }
-            }
-          }
-
-          walk('skills');
-
-          const byPath = new Map();
-          const bySlug = new Map();
-          for (const reportPath of reports) {
-            const relativePath = path.dirname(reportPath).replace(/^skills\//, '');
-            byPath.set(relativePath, relativePath);
-            bySlug.set(relativePath.replace(/\//g, '-'), relativePath);
-
-            try {
-              const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-              const slug = report?.meta?.slug;
-              if (slug) bySlug.set(slug, relativePath);
-            } catch {
-              // Keep path-derived fallback mappings.
-            }
-          }
-
-          const resolved = [];
-          const missing = [];
-          for (const item of requested) {
-            const skillPath = byPath.get(item) || bySlug.get(item);
-            if (skillPath) {
-              resolved.push(skillPath);
-            } else {
-              missing.push(item);
-            }
-          }
-
-          if (missing.length > 0) {
-            console.error(`Could not resolve skill identifier(s): ${missing.join(', ')}`);
-            process.exit(1);
-          }
-
-          process.stdout.write([...new Set(resolved)].sort().join(' '));
-          NODE
-          }
-          
           if [ -n "${{ inputs.slugs }}" ]; then
             echo "Specific slugs requested: ${{ inputs.slugs }}"
-            CHANGED=$(resolve_manual_skills "${{ inputs.slugs }}")
+            # Resolve against the immutable workflow commit. A mutable self-hosted
+            # checkout may not have a skills/ directory at all.
+            CHANGED=$(node ./scripts/resolve-manual-skills.mjs \
+              --commit "${{ github.sha }}" \
+              --skills "${{ inputs.slugs }}")
             echo "Resolved manual skill paths: $CHANGED"
             echo "mode=manual-slugs" >> $GITHUB_OUTPUT
           elif [ "${{ inputs.full_sync }}" = "true" ]; then
