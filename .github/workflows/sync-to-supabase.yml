@@ -845,45 +845,35 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 15
     steps:
+      - name: Checkout cache invalidator
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts/invalidate-cache.sh
+          sparse-checkout-cone-mode: false
+
       - name: Invalidate cache for synced skills
         id: invalidate
         env:
-          SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
+          BATCH_SIZE: '10'
+          CACHE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          CONTENT_TYPE: skills
+          CURL_MAX_TIME: '30'
+          MAX_ATTEMPTS: '3'
           SITE_URL: https://skillstore.io
-          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          SLUGS_STR: ${{ needs.sync.outputs.synced_slugs }}
+        run: ./scripts/invalidate-cache.sh
+
+      - name: Report cache invalidation failure
+        if: failure() && steps.invalidate.outcome == 'failure'
         run: |
-          if [ -z "$SYNCED_SLUGS" ]; then
-            echo "No slugs to invalidate"
-            exit 0
-          fi
-
-          SLUGS_JSON=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | jq -R . | jq -s .)
-
-          echo "Invalidating cache for: $SYNCED_SLUGS"
-
-          set +e
-          RESPONSE=$(curl -sf -X POST "$SITE_URL/api/cache/invalidate" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $CACHE_INVALIDATE_SECRET" \
-            -d "{\"type\": \"skills\", \"slugs\": $SLUGS_JSON, \"invalidateApi\": true}" \
-            --max-time 30 2>&1)
-          EXIT_CODE=$?
-          set -e
-
-          if [ $EXIT_CODE -ne 0 ]; then
-            echo "::error::Cache invalidation failed; cache warming is blocked"
-            echo "Response: $RESPONSE"
-            cat << EOF >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Cache invalidation failed; cache warming is blocked"
+          cat << EOF >> "$GITHUB_STEP_SUMMARY"
           ## ❌ Cache invalidation failed
 
           Skill data was synced, but the long-lived production detail cache was not invalidated. Detail API entries can live for **365 days**, so cache warming must not continue with stale data.
 
           **Action required**: fix the invalidation error, rerun cache invalidation for the synced slugs, then rerun the scoped warm workflow.
           EOF
-            exit "$EXIT_CODE"
-          fi
-
-          echo "✅ Cache invalidated: $RESPONSE"
 
   # ============================================================
   # ENGLISH CACHE FINALIZER
