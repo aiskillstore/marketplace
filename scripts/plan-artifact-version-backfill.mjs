@@ -92,6 +92,8 @@ function normalizeInventory(inventory) {
       : String(raw.current_artifact_version_id).trim();
     const status = typeof raw.status === 'string' ? raw.status.trim() : '';
     const publicEligible = raw.public_eligible;
+    const publishedAt = typeof raw.published_at === 'string' ? raw.published_at.trim() : '';
+    const updatedAt = typeof raw.updated_at === 'string' ? raw.updated_at.trim() : '';
     if (!COMMIT_RE.test(marketplaceCommit)) fail(`Invalid production marketplace commit for ${slug}`);
     if (!SHA256_RE.test(contentHash)) fail(`Invalid production content_hash for ${slug}`);
     if (!SHA256_RE.test(treeHash)) fail(`Invalid production tree_hash for ${slug}`);
@@ -100,6 +102,12 @@ function normalizeInventory(inventory) {
     }
     if (!status) fail(`Invalid production status for ${slug}`);
     if (typeof publicEligible !== 'boolean') fail(`Invalid production public_eligible for ${slug}`);
+    if (!publishedAt || !Number.isFinite(Date.parse(publishedAt))) {
+      fail(`Invalid production published_at for ${slug}`);
+    }
+    if (!updatedAt || !Number.isFinite(Date.parse(updatedAt))) {
+      fail(`Invalid production updated_at for ${slug}`);
+    }
     if (artifactRevision === 0 && currentArtifactVersionId !== null) {
       fail(`Legacy production row has a current artifact id for ${slug}`);
     }
@@ -119,6 +127,8 @@ function normalizeInventory(inventory) {
       currentArtifactVersionId,
       status,
       publicEligible,
+      publishedAt,
+      updatedAt,
     };
   }).sort((left, right) => left.slug < right.slug ? -1 : left.slug > right.slug ? 1 : 0);
 }

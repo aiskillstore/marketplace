@@ -15,6 +15,8 @@ const SELECT = [
   'current_artifact_version_id',
   'status',
   'public_eligible',
+  'published_at',
+  'updated_at',
 ].join(',');
 
 function fail(message) {

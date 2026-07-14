@@ -48,6 +48,8 @@ function inventoryRow({ slug, path, commit, revision = 0, contentHash = HASH_A, 
     current_artifact_version_id: revision > 0 ? '123e4567-e89b-42d3-a456-426614174000' : null,
     status: 'approved',
     public_eligible: true,
+    published_at: '2026-01-02T03:04:05.000Z',
+    updated_at: '2026-07-14T16:50:53.000Z',
   };
 }
 
@@ -77,6 +79,8 @@ test('plans only production legacy rows from their exact historical commit and p
     assert.equal(plan.selected[0].status, 'approved');
     assert.equal(plan.selected[0].publicEligible, true);
     assert.equal(plan.selected[0].currentArtifactVersionId, null);
+    assert.equal(plan.selected[0].publishedAt, '2026-01-02T03:04:05.000Z');
+    assert.equal(plan.selected[0].updatedAt, '2026-07-14T16:50:53.000Z');
     assert.equal(plan.groups[0].marketplaceCommit, legacyCommit);
     assert.deepEqual(plan.groups[0].paths, ['skills/owner/legacy']);
     assert.equal(plan.selected.some((row) => row.slug === 'repo-only'), false);
@@ -205,6 +209,8 @@ test('readback proves dry-run immutability and execute initialization', () => {
     currentArtifactVersionId: null,
     status: 'approved',
     publicEligible: true,
+    publishedAt: '2026-01-02T03:04:05.000Z',
+    updatedAt: '2026-07-14T16:50:53.000Z',
   };
   const unchanged = inventoryRow({ slug: before.slug, path: 'owner/legacy', commit });
   const dryRun = verifyArtifactVersionReadback({
@@ -244,6 +250,8 @@ test('readback fails closed on visibility or immutable identity drift', () => {
     currentArtifactVersionId: null,
     status: 'approved',
     publicEligible: true,
+    publishedAt: '2026-01-02T03:04:05.000Z',
+    updatedAt: '2026-07-14T16:50:53.000Z',
   };
   const changed = {
     ...inventoryRow({ slug: before.slug, path: 'owner/legacy', commit }),
@@ -261,6 +269,21 @@ test('readback fails closed on visibility or immutable identity drift', () => {
     plan: { selected: [before] },
     postInventory: { rows: [{ ...changed, public_eligible: true }] },
   }), /Dry-run changed artifact_revision/);
+  assert.throws(() => verifyArtifactVersionReadback({
+    mode: 'execute',
+    plan: { selected: [before] },
+    postInventory: { rows: [{ ...changed, public_eligible: true, published_at: '2026-07-15T00:00:00.000Z' }] },
+  }), /publishedAt changed/);
+  assert.throws(() => verifyArtifactVersionReadback({
+    mode: 'dry-run',
+    plan: { selected: [before] },
+    postInventory: { rows: [{ ...inventoryRow({ slug: before.slug, path: 'owner/legacy', commit }), published_at: '2026-07-15T00:00:00.000Z' }] },
+  }), /publishedAt changed/);
+  assert.throws(() => verifyArtifactVersionReadback({
+    mode: 'execute',
+    plan: { selected: [before] },
+    postInventory: { rows: [{ ...changed, public_eligible: true, updated_at: '2026-07-15T00:00:00.000Z' }] },
+  }), /updatedAt changed/);
 });
 
 test('workflow is pinned, evidence-producing, and isolated from normal fan-out', () => {
@@ -273,8 +296,8 @@ test('workflow is pinned, evidence-producing, and isolated from normal fan-out',
     'utf8'
   );
   assert.match(workflow, /cli_version:/);
-  assert.match(workflow, /default: '2\.1\.1'/);
-  assert.match(workflow, /CLI_VERSION" != "2\.1\.1"/);
+  assert.match(workflow, /default: '2\.2\.1'/);
+  assert.match(workflow, /CLI_VERSION" != "2\.2\.1"/);
   assert.match(workflow, /fetch-artifact-version-inventory\.mjs/);
   assert.match(workflow, /fetch-depth: 0/);
   assert.match(workflow, /git archive/);
@@ -291,6 +314,11 @@ test('workflow is pinned, evidence-producing, and isolated from normal fan-out',
   assert.match(workflow, /verify-artifact-version-backfill\.mjs/);
   assert.match(inventoryFetcher, /current_artifact_version_id/);
   assert.match(inventoryFetcher, /public_eligible/);
+  assert.match(inventoryFetcher, /published_at/);
+  assert.match(inventoryFetcher, /updated_at/);
+  assert.match(workflow, /OFFSET \+= 10/);
+  assert.match(workflow, /OFFSET \/ 10 \+ 1/);
+  assert.doesNotMatch(workflow, /OFFSET \+= 50|OFFSET \/ 50|OFFSET:50/);
   assert.match(workflow, /steps\.inputs\.outputs\.mode == 'execute'/);
   assert.match(workflow, /id: cache-invalidate/);
   assert.match(workflow, /steps\.readback\.outcome == 'success'/);

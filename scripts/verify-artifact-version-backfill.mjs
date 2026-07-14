@@ -40,6 +40,8 @@ export function verifyArtifactVersionReadback({ mode, plan, postInventory }) {
       marketplaceCommit: after.marketplace_commit_sha === before.marketplaceCommit,
       contentHash: after.content_hash === before.contentHash,
       treeHash: after.tree_hash === before.treeHash,
+      publishedAt: after.published_at === before.publishedAt,
+      updatedAt: after.updated_at === before.updatedAt,
     };
     for (const [field, matches] of Object.entries(preserved)) {
       if (!matches) fail(`Post-run ${field} changed for ${before.slug}`);
@@ -79,6 +81,8 @@ export function verifyArtifactVersionReadback({ mode, plan, postInventory }) {
         marketplaceCommit: before.marketplaceCommit,
         contentHash: before.contentHash,
         treeHash: before.treeHash,
+        publishedAt: before.publishedAt,
+        updatedAt: before.updatedAt,
       },
       after: {
         artifactRevision: afterRevision,
@@ -89,6 +93,8 @@ export function verifyArtifactVersionReadback({ mode, plan, postInventory }) {
         marketplaceCommit: after.marketplace_commit_sha,
         contentHash: after.content_hash,
         treeHash: after.tree_hash,
+        publishedAt: after.published_at,
+        updatedAt: after.updated_at,
       },
     });
   }
