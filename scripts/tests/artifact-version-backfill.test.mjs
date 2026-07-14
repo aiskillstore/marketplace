@@ -692,6 +692,26 @@ test('workflow is bounded, exact-only, cursor-safe, and evidence-producing', () 
   );
   assert.match(workflow, /default: '2\.2\.2'/);
   assert.match(workflow, /CLI_VERSION" != "2\.2\.2"/);
+  assert.match(workflow, /sparse-checkout: ''/);
+  assert.match(workflow, /sparse-checkout-cone-mode: false/);
+  const checkoutGuard = workflow.indexOf('name: Normalize full checkout and verify backfill runtime');
+  const firstProductionRead = workflow.indexOf('name: Fetch exact production Skill catalog');
+  assert.ok(checkoutGuard > workflow.indexOf('uses: actions/checkout@v5'));
+  assert.ok(checkoutGuard < firstProductionRead);
+  const checkoutGuardBlock = workflow.slice(checkoutGuard, firstProductionRead);
+  assert.match(checkoutGuardBlock, /checked_out_sha=\$\(git rev-parse HEAD\)/);
+  assert.match(checkoutGuardBlock, /"\$checked_out_sha" != "\$GITHUB_SHA"/);
+  assert.match(checkoutGuardBlock, /git sparse-checkout disable[\s\S]*git reset --hard HEAD/);
+  assert.match(checkoutGuardBlock, /if \[ ! -f "\$required_path" \]/);
+  for (const requiredPath of [
+    '.github/actions/download-skillstore-cli/action.yml',
+    'scripts/fetch-artifact-version-inventory.mjs',
+    'scripts/plan-artifact-version-backfill.mjs',
+    'scripts/verify-artifact-version-classification.mjs',
+    'scripts/verify-artifact-version-backfill.mjs',
+  ]) {
+    assert.ok(checkoutGuardBlock.includes(requiredPath), `${requiredPath} must be verified before production reads`);
+  }
   assert.match(workflow, /batch_size must be an integer between 1 and 500/);
   assert.match(workflow, /execute requires the frozen end_at slug/);
   assert.match(workflow, /--repair-stale-report-hashes/);
