@@ -62,44 +62,41 @@ jobs:
           git config user.name "ai-skill-store[bot]"
           git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
 
-          # Find pending skills by looking for SKILL.md files
-          SKILL_PATHS=""
-          SKILL_NAMES=""
+          # Resolve every skill before moving anything. The resolver supports both:
+          # - flat pending/ produced by single-skill CLI output
+          # - legacy pending/author/skill-name
+          # Flat metadata is trusted only from skill-report.json (author) and
+          # SKILL.md frontmatter (slug); unsafe or ambiguous paths fail closed.
+          RESOLUTIONS=$(node ./scripts/resolve-pending-skill-path.mjs --repo . --format tsv)
 
-          for skill_file in $(find pending -name "SKILL.md" 2>/dev/null); do
-            SKILL_DIR=$(dirname "$skill_file")
-            SKILL_PATHS="$SKILL_PATHS $SKILL_DIR"
-
-            # Extract skill name from directory for commit message
-            NAME=$(basename "$SKILL_DIR")
-            SKILL_NAMES="$SKILL_NAMES /$NAME"
-          done
-
-          if [ -z "$SKILL_PATHS" ]; then
+          if [ -z "$RESOLUTIONS" ]; then
             echo "No pending skills found to approve"
             exit 0
           fi
 
-          echo "Found pending skills:$SKILL_PATHS"
+          declare -a PENDING_DIRS=()
+          declare -a TARGET_DIRS=()
+          SKILL_NAMES=""
+          while IFS=$'\t' read -r PENDING_DIR TARGET_DIR AUTHOR SKILL_NAME LAYOUT; do
+            [ -n "$PENDING_DIR" ] || continue
+            PENDING_DIRS+=("$PENDING_DIR")
+            TARGET_DIRS+=("$TARGET_DIR")
+            SKILL_NAMES="$SKILL_NAMES /$SKILL_NAME"
+            echo "Resolved $LAYOUT pending skill: $PENDING_DIR -> $TARGET_DIR (author=$AUTHOR, slug=$SKILL_NAME)"
+          done <<< "$RESOLUTIONS"
 
           echo "=== Moving skills from pending to skills ==="
-          for PENDING_DIR in $SKILL_PATHS; do
-            if [ -d "$PENDING_DIR" ] && [ -f "$PENDING_DIR/SKILL.md" ]; then
-              # Extract author (org) from pending path: pending/author/skill-name -> author
-              # Target path: skills/author/skill-name
-              AUTHOR=$(echo "$PENDING_DIR" | cut -d'/' -f2)
-              SKILL_NAME=$(basename "$PENDING_DIR")
-              TARGET_DIR="skills/$AUTHOR/$SKILL_NAME"
+          for index in "${!PENDING_DIRS[@]}"; do
+            PENDING_DIR="${PENDING_DIRS[$index]}"
+            TARGET_DIR="${TARGET_DIRS[$index]}"
 
-              echo "Moving $PENDING_DIR to $TARGET_DIR"
-
-              mkdir -p "$(dirname "$TARGET_DIR")"
-
-              if [ -d "$TARGET_DIR" ]; then
-                rm -rf "$TARGET_DIR"
-              fi
-
-              mv "$PENDING_DIR" "$TARGET_DIR"
+            mkdir -p "$(dirname "$TARGET_DIR")"
+            if [ -d "$TARGET_DIR" ]; then
+              rm -rf -- "$TARGET_DIR"
+            fi
+            mv -- "$PENDING_DIR" "$TARGET_DIR"
+            if [ "$PENDING_DIR" != "pending" ]; then
+              rmdir -- "$(dirname "$PENDING_DIR")" 2>/dev/null || true
             fi
           done
 
