@@ -27,7 +27,7 @@ function normalizePath(value, slug) {
     !path.startsWith('skills/') ||
     path.includes('\\') ||
     path.includes('//') ||
-    /[\u0000-\u001f\u007f?#]/.test(path) ||
+    /[\u0000-\u001f\u007f,?#]/.test(path) ||
     path.split('/').some((segment) => !segment || segment === '.' || segment === '..')
   ) {
     fail(`Invalid production plugin_path for ${slug}: ${value ?? '<null>'}`);
@@ -79,9 +79,11 @@ function normalizeInventory(inventory) {
   const seenPaths = new Set();
   return rows.map((raw) => {
     const slug = typeof raw?.slug === 'string' ? raw.slug.trim() : '';
+    const id = raw?.id == null ? '' : String(raw.id).trim();
     if (!slug || /[\u0000-\u001f\u007f,\s]/.test(slug)) fail('Production inventory contains an unsafe slug');
     if (seenSlugs.has(slug)) fail(`Production inventory contains duplicate slug ${slug}`);
     seenSlugs.add(slug);
+    if (!UUID_RE.test(id)) fail(`Invalid production id for ${slug}`);
 
     const marketplaceCommit = String(raw.marketplace_commit_sha ?? '').trim();
     const contentHash = String(raw.content_hash ?? '').trim();
@@ -92,6 +94,9 @@ function normalizeInventory(inventory) {
       : String(raw.current_artifact_version_id).trim();
     const status = typeof raw.status === 'string' ? raw.status.trim() : '';
     const publicEligible = raw.public_eligible;
+    const publicEligibilityAuditId = raw.public_eligibility_audit_id == null
+      ? null
+      : String(raw.public_eligibility_audit_id).trim();
     const publishedAt = typeof raw.published_at === 'string' ? raw.published_at.trim() : '';
     const updatedAt = typeof raw.updated_at === 'string' ? raw.updated_at.trim() : '';
     if (!COMMIT_RE.test(marketplaceCommit)) fail(`Invalid production marketplace commit for ${slug}`);
@@ -102,6 +107,9 @@ function normalizeInventory(inventory) {
     }
     if (!status) fail(`Invalid production status for ${slug}`);
     if (typeof publicEligible !== 'boolean') fail(`Invalid production public_eligible for ${slug}`);
+    if (publicEligibilityAuditId !== null && !UUID_RE.test(publicEligibilityAuditId)) {
+      fail(`Invalid production public_eligibility_audit_id for ${slug}`);
+    }
     if (!publishedAt || !Number.isFinite(Date.parse(publishedAt))) {
       fail(`Invalid production published_at for ${slug}`);
     }
@@ -118,6 +126,7 @@ function normalizeInventory(inventory) {
     if (seenPaths.has(path)) fail(`Production inventory contains duplicate plugin_path ${path}`);
     seenPaths.add(path);
     return {
+      id,
       slug,
       path,
       marketplaceCommit,
@@ -127,6 +136,7 @@ function normalizeInventory(inventory) {
       currentArtifactVersionId,
       status,
       publicEligible,
+      publicEligibilityAuditId,
       publishedAt,
       updatedAt,
     };
@@ -138,6 +148,7 @@ export function buildArtifactBackfillPlan({
   inventory,
   batchSize,
   startAfter = null,
+  endAt = null,
 }) {
   const root = resolve(repositoryRoot);
   const boundedBatchSize = parsePositiveInteger(batchSize, 'batch-size');
@@ -145,50 +156,78 @@ export function buildArtifactBackfillPlan({
 
   const catalog = normalizeInventory(inventory);
   const cursor = String(startAfter ?? '').trim() || null;
-  if (cursor && !catalog.some((row) => row.slug === cursor)) {
+  const rangeEnd = String(endAt ?? '').trim() || null;
+  const cursorIndex = cursor ? catalog.findIndex((row) => row.slug === cursor) : -1;
+  const rangeEndIndex = rangeEnd ? catalog.findIndex((row) => row.slug === rangeEnd) : catalog.length - 1;
+  if (cursor && cursorIndex < 0) {
     fail(`start-after is not an exact production Skill slug: ${cursor}`);
   }
+  if (rangeEnd && rangeEndIndex < 0) {
+    fail(`end-at is not an exact production Skill slug: ${rangeEnd}`);
+  }
+  if (cursor && rangeEnd && rangeEndIndex <= cursorIndex) {
+    fail('end-at must sort after start-after');
+  }
 
-  const eligible = catalog.filter((row) =>
-    row.artifactRevision === 0 && (!cursor || row.slug > cursor)
-  );
+  const indexedLegacy = catalog
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => row.artifactRevision === 0);
+  const allLegacy = indexedLegacy.map(({ row }) => row);
+  const eligible = indexedLegacy.filter(({ index }) =>
+    index > cursorIndex && index <= rangeEndIndex
+  ).map(({ row }) => row);
+  if (rangeEnd && eligible.length > boundedBatchSize) {
+    fail(`Pinned slug range contains ${eligible.length} legacy rows; maximum is ${boundedBatchSize}`);
+  }
   const selected = eligible.slice(0, boundedBatchSize);
   for (const row of selected) validatePinnedSnapshot(root, row);
 
-  const groupMap = new Map();
-  for (const row of selected) {
-    if (!groupMap.has(row.marketplaceCommit)) groupMap.set(row.marketplaceCommit, []);
-    groupMap.get(row.marketplaceCommit).push(row);
-  }
-  const groups = [...groupMap.entries()]
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-    .map(([marketplaceCommit, rows]) => ({
-      marketplaceCommit,
+  const batches = [];
+  for (let offset = 0; offset < selected.length; offset += boundedBatchSize) {
+    const rows = selected.slice(offset, offset + boundedBatchSize);
+    const groupMap = new Map();
+    for (const row of rows) {
+      if (!groupMap.has(row.marketplaceCommit)) groupMap.set(row.marketplaceCommit, []);
+      groupMap.get(row.marketplaceCommit).push(row);
+    }
+    const groups = [...groupMap.entries()]
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+      .map(([marketplaceCommit, groupRows]) => ({
+        marketplaceCommit,
+        count: groupRows.length,
+        paths: groupRows.map((row) => row.path),
+        slugs: groupRows.map((row) => row.slug),
+      }));
+    batches.push({
+      index: batches.length + 1,
       count: rows.length,
-      paths: rows.map((row) => row.path),
-      slugs: rows.map((row) => row.slug),
-    }));
+      firstSlug: rows[0].slug,
+      lastSlug: rows.at(-1).slug,
+      groups,
+    });
+  }
 
-  const lastSelected = selected.at(-1)?.slug ?? null;
-  const remainingAfterBatch = Math.max(0, eligible.length - selected.length);
-  const legacyAtOrBeforeCursor = cursor
-    ? catalog.filter((row) => row.artifactRevision === 0 && row.slug <= cursor).length
-    : 0;
+  const selectedEndIndex = selected.length > 0
+    ? catalog.findIndex((row) => row.slug === selected.at(-1).slug)
+    : cursorIndex;
 
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     inventoryCount: catalog.length,
-    totalLegacy: catalog.filter((row) => row.artifactRevision === 0).length,
+    totalLegacy: allLegacy.length,
     batchSize: boundedBatchSize,
     startAfter: cursor,
-    legacyAtOrBeforeCursor,
+    endAt: rangeEnd,
     selectedCount: selected.length,
-    lastSelected,
-    hasMore: remainingAfterBatch > 0,
-    nextStartAfter: remainingAfterBatch > 0 ? lastSelected : null,
-    remainingAfterBatch,
+    lastSelected: selected.at(-1)?.slug ?? null,
+    nextClassificationCursor: selected.at(-1)?.slug ?? null,
+    legacyAtOrBeforeCursor: cursor
+      ? indexedLegacy.filter(({ index }) => index <= cursorIndex).length
+      : 0,
+    remainingLegacyOutsideBatch: allLegacy.length - selected.length,
+    unclassifiedLegacyAfterBatch: indexedLegacy.filter(({ index }) => index > selectedEndIndex).length,
     selected,
-    groups,
+    batches,
   };
 }
 
@@ -216,6 +255,7 @@ export function main(argv = process.argv.slice(2)) {
     inventory,
     batchSize: args['batch-size'],
     startAfter: args['start-after'] || null,
+    endAt: args['end-at'] || null,
   });
   writeFileSync(resolve(args.output), `${JSON.stringify(plan, null, 2)}\n`);
   writeFileSync(
@@ -226,10 +266,12 @@ export function main(argv = process.argv.slice(2)) {
     inventoryCount: plan.inventoryCount,
     totalLegacy: plan.totalLegacy,
     selectedCount: plan.selectedCount,
-    groupCount: plan.groups.length,
-    hasMore: plan.hasMore,
-    nextStartAfter: plan.nextStartAfter,
-    remainingAfterBatch: plan.remainingAfterBatch,
+    lastSelected: plan.lastSelected,
+    nextClassificationCursor: plan.nextClassificationCursor,
+    remainingLegacyOutsideBatch: plan.remainingLegacyOutsideBatch,
+    unclassifiedLegacyAfterBatch: plan.unclassifiedLegacyAfterBatch,
+    batchCount: plan.batches.length,
+    groupCount: plan.batches.reduce((count, batch) => count + batch.groups.length, 0),
   })}\n`);
 }
 
