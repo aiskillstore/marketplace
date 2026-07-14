@@ -95,6 +95,24 @@ test('workflow treats an empty sync as a no-op before planning or invalidation',
   assert.match(workflow, /No skills to sync[\s\S]*skip_sync=true/);
 });
 
+test('incremental detection resolves both sides from pinned Git trees', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const detectJob = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
+
+  assert.match(detectJob, /node \.\/scripts\/detect-changed-skills\.mjs/);
+  assert.match(detectJob, /--base "\$BASE_SHA"/);
+  assert.match(detectJob, /--head "\$\{\{ github\.sha \}\}"/);
+  assert.doesNotMatch(detectJob, /get_skill_slug|\[ -f "skills\/\$first/);
+});
+
+test('sync downloads the canonical-hash CLI release', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const download = section(workflow, '      - name: Download skillstore-cli', '      - name: Sync skills to Supabase');
+
+  assert.match(download, /version: '2\.2\.1'/);
+  assert.match(download, /minimum-version: '2\.2\.1'/);
+});
+
 test('one permanently failed shard makes the aggregate fail closed', () => {
   const success = runAggregate();
   assert.equal(success.status, 0, success.stderr);
@@ -110,8 +128,10 @@ test('CI tracks and executes the planner, aggregate guard, and full script suite
   const workflow = readFileSync(TEST_WORKFLOW, 'utf8');
 
   assert.match(workflow, /scripts\/plan-cache-invalidation\.mjs/);
+  assert.match(workflow, /scripts\/detect-changed-skills\.mjs/);
   assert.match(workflow, /scripts\/check-cache-invalidation-aggregate\.sh/);
   assert.match(workflow, /node --check scripts\/plan-cache-invalidation\.mjs/);
+  assert.match(workflow, /node --check scripts\/detect-changed-skills\.mjs/);
   assert.match(workflow, /bash -n scripts\/check-cache-invalidation-aggregate\.sh/);
   assert.match(workflow, /node --test scripts\/tests\/\*\.test\.mjs/);
 });
