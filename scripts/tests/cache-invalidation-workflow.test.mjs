@@ -105,6 +105,25 @@ test('incremental detection resolves both sides from pinned Git trees', () => {
   assert.doesNotMatch(detectJob, /get_skill_slug|\[ -f "skills\/\$first/);
 });
 
+test('sync materializes only the detected paths from the exact workflow commit', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8');
+  const materialize = section(workflow, '      - name: Materialize changed skills', '      - name: Sync skills to Supabase');
+  const sync = section(workflow, '      - name: Sync skills to Supabase', '      - name: Remove generated report evidence');
+
+  assert.ok(
+    workflow.indexOf('      - name: Download skillstore-cli')
+      < workflow.indexOf('      - name: Materialize changed skills'),
+    'materialization must run after the helper checkout is available',
+  );
+  assert.match(materialize, /CHANGED_SKILLS: \$\{\{ steps\.changes\.outputs\.changed_skills \}\}/);
+  assert.match(materialize, /node \.\/scripts\/materialize-changed-skills\.mjs/);
+  assert.match(materialize, /--commit "\$GITHUB_SHA"/);
+  assert.match(materialize, /--skills "\$CHANGED_SKILLS"/);
+  assert.doesNotMatch(materialize, /checkout\s+\.\s*$|sparse-checkout disable|git clean/mi);
+  assert.match(sync, /skill sync --slugs "\$paths"/);
+  assert.match(sync, /--marketplace-commit "\$GITHUB_SHA"/);
+});
+
 test('sync downloads the canonical-hash CLI release', () => {
   const workflow = readFileSync(WORKFLOW, 'utf8');
   const download = section(workflow, '      - name: Download skillstore-cli', '      - name: Sync skills to Supabase');
@@ -129,9 +148,11 @@ test('CI tracks and executes the planner, aggregate guard, and full script suite
 
   assert.match(workflow, /scripts\/plan-cache-invalidation\.mjs/);
   assert.match(workflow, /scripts\/detect-changed-skills\.mjs/);
+  assert.match(workflow, /scripts\/materialize-changed-skills\.mjs/);
   assert.match(workflow, /scripts\/check-cache-invalidation-aggregate\.sh/);
   assert.match(workflow, /node --check scripts\/plan-cache-invalidation\.mjs/);
   assert.match(workflow, /node --check scripts\/detect-changed-skills\.mjs/);
+  assert.match(workflow, /node --check scripts\/materialize-changed-skills\.mjs/);
   assert.match(workflow, /bash -n scripts\/check-cache-invalidation-aggregate\.sh/);
   assert.match(workflow, /node --test scripts\/tests\/\*\.test\.mjs/);
 });
