@@ -100,6 +100,8 @@ test('incremental detection resolves both sides from pinned Git trees', () => {
   const detectJob = section(workflow, '      - name: Detect changed skills', '      - name: Download skillstore-cli');
 
   assert.match(detectJob, /node \.\/scripts\/detect-changed-skills\.mjs/);
+  assert.match(detectJob, /node \.\/scripts\/resolve-manual-skills\.mjs/);
+  assert.match(detectJob, /--commit "\$\{\{ github\.sha \}\}"/);
   assert.match(detectJob, /--base "\$BASE_SHA"/);
   assert.match(detectJob, /--head "\$\{\{ github\.sha \}\}"/);
   assert.doesNotMatch(detectJob, /get_skill_slug|\[ -f "skills\/\$first/);
@@ -149,10 +151,12 @@ test('CI tracks and executes the planner, aggregate guard, and full script suite
   assert.match(workflow, /scripts\/plan-cache-invalidation\.mjs/);
   assert.match(workflow, /scripts\/detect-changed-skills\.mjs/);
   assert.match(workflow, /scripts\/materialize-changed-skills\.mjs/);
+  assert.match(workflow, /scripts\/resolve-manual-skills\.mjs/);
   assert.match(workflow, /scripts\/check-cache-invalidation-aggregate\.sh/);
   assert.match(workflow, /node --check scripts\/plan-cache-invalidation\.mjs/);
   assert.match(workflow, /node --check scripts\/detect-changed-skills\.mjs/);
   assert.match(workflow, /node --check scripts\/materialize-changed-skills\.mjs/);
+  assert.match(workflow, /node --check scripts\/resolve-manual-skills\.mjs/);
   assert.match(workflow, /bash -n scripts\/check-cache-invalidation-aggregate\.sh/);
   assert.match(workflow, /node --test scripts\/tests\/\*\.test\.mjs/);
 });
