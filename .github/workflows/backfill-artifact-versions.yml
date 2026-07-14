@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Read-only validation or bounded production execution'
+        description: 'Classify only, or reclassify and execute the exact cohort'
         type: choice
         required: true
         default: dry-run
@@ -12,17 +12,22 @@ on:
           - dry-run
           - execute
       cli_version:
-        description: 'Exact stable skillstore-cli version (X.Y.Z; latest is forbidden)'
+        description: 'Exact audited skillstore-cli version (X.Y.Z; latest is forbidden)'
         type: string
         required: true
-        default: '2.1.1'
+        default: '2.2.2'
       batch_size:
-        description: 'Legacy production Skills to inspect in this batch (1-500)'
+        description: 'Maximum legacy Skills in this serial batch (1-500)'
         type: number
         required: true
-        default: 100
+        default: 500
       start_after:
-        description: 'Exact prior production slug cursor (blank starts at the beginning)'
+        description: 'Prior classification range end; blank starts at the beginning'
+        type: string
+        required: false
+        default: ''
+      end_at:
+        description: 'Frozen inclusive range end from dry-run; required for execute'
         type: string
         required: false
         default: ''
@@ -52,6 +57,7 @@ jobs:
           CLI_VERSION: ${{ inputs.cli_version }}
           BATCH_SIZE: ${{ inputs.batch_size }}
           START_AFTER: ${{ inputs.start_after }}
+          END_AT: ${{ inputs.end_at }}
         run: |
           set -euo pipefail
           if [[ "$MODE" != "dry-run" && "$MODE" != "execute" ]]; then
@@ -62,69 +68,77 @@ jobs:
             echo "::error::cli_version must be an exact stable X.Y.Z release"
             exit 1
           fi
-          if [ "$CLI_VERSION" != "2.1.1" ]; then
-            echo "::error::this workflow is pinned to the audited skillstore-cli 2.1.1"
+          if [ "$CLI_VERSION" != "2.2.2" ]; then
+            echo "::error::this workflow is pinned to the audited skillstore-cli 2.2.2"
             exit 1
           fi
           if ! [[ "$BATCH_SIZE" =~ ^[0-9]+$ ]] || [ "$BATCH_SIZE" -lt 1 ] || [ "$BATCH_SIZE" -gt 500 ]; then
             echo "::error::batch_size must be an integer between 1 and 500"
             exit 1
           fi
-          if [[ "$START_AFTER" == *$'\n'* || "$START_AFTER" == *$'\r'* ]]; then
-            echo "::error::start_after must be one exact production slug"
+          if [[ "$START_AFTER" == *$'\n'* || "$START_AFTER" == *$'\r'* || \
+                "$END_AT" == *$'\n'* || "$END_AT" == *$'\r'* ]]; then
+            echo "::error::cursor inputs must be exact production slugs"
+            exit 1
+          fi
+          if [ "$MODE" = "execute" ] && [ -z "$END_AT" ]; then
+            echo "::error::execute requires the frozen end_at slug produced by a dry-run"
             exit 1
           fi
           echo "mode=$MODE" >> "$GITHUB_OUTPUT"
           echo "cli_version=$CLI_VERSION" >> "$GITHUB_OUTPUT"
           echo "batch_size=$BATCH_SIZE" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch exact production artifact inventory
+      - name: Fetch exact production Skill catalog
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           set -euo pipefail
           node scripts/fetch-artifact-version-inventory.mjs \
-            --output "$RUNNER_TEMP/artifact-backfill-inventory.json"
+            --skills-only \
+            --output "$RUNNER_TEMP/artifact-backfill-catalog.json"
 
-      - name: Build deterministic DB-driven plan
+      - name: Build bounded deterministic plan
         id: plan
         env:
-          MODE: ${{ steps.inputs.outputs.mode }}
           BATCH_SIZE: ${{ steps.inputs.outputs.batch_size }}
           START_AFTER: ${{ inputs.start_after }}
+          END_AT: ${{ inputs.end_at }}
         run: |
           set -euo pipefail
           PLAN_FILE="$RUNNER_TEMP/artifact-backfill-plan.json"
           PATHS_FILE="$RUNNER_TEMP/artifact-backfill-paths.txt"
           PLAN_ARGS=(
             --repository-root "$GITHUB_WORKSPACE"
-            --inventory "$RUNNER_TEMP/artifact-backfill-inventory.json"
+            --inventory "$RUNNER_TEMP/artifact-backfill-catalog.json"
             --batch-size "$BATCH_SIZE"
             --output "$PLAN_FILE"
             --paths-output "$PATHS_FILE"
           )
-          if [ -n "$START_AFTER" ]; then
-            PLAN_ARGS+=(--start-after "$START_AFTER")
-          fi
+          if [ -n "$START_AFTER" ]; then PLAN_ARGS+=(--start-after "$START_AFTER"); fi
+          if [ -n "$END_AT" ]; then PLAN_ARGS+=(--end-at "$END_AT"); fi
           node scripts/plan-artifact-version-backfill.mjs "${PLAN_ARGS[@]}"
 
-          EARLIER_LEGACY=$(jq -r '.legacyAtOrBeforeCursor' "$PLAN_FILE")
-          if [ "$MODE" = "execute" ] && [ -n "$START_AFTER" ] && [ "$EARLIER_LEGACY" -ne 0 ]; then
-            echo "::error::$EARLIER_LEGACY legacy row(s) exist at or before start_after; restart from an earlier cursor"
-            exit 1
-          fi
-
           PLAN_SHA=$(sha256sum "$PLAN_FILE" | awk '{print $1}')
-          INVENTORY_SHA=$(sha256sum "$RUNNER_TEMP/artifact-backfill-inventory.json" | awk '{print $1}')
+          INVENTORY_SHA=$(sha256sum "$RUNNER_TEMP/artifact-backfill-catalog.json" | awk '{print $1}')
           echo "plan_sha=$PLAN_SHA" >> "$GITHUB_OUTPUT"
           echo "inventory_sha=$INVENTORY_SHA" >> "$GITHUB_OUTPUT"
           echo "selected_count=$(jq -r '.selectedCount' "$PLAN_FILE")" >> "$GITHUB_OUTPUT"
-          echo "group_count=$(jq -r '.groups | length' "$PLAN_FILE")" >> "$GITHUB_OUTPUT"
-          echo "has_more=$(jq -r '.hasMore' "$PLAN_FILE")" >> "$GITHUB_OUTPUT"
-          echo "next_start_after=$(jq -r '.nextStartAfter // ""' "$PLAN_FILE")" >> "$GITHUB_OUTPUT"
-          echo "remaining=$(jq -r '.remainingAfterBatch' "$PLAN_FILE")" >> "$GITHUB_OUTPUT"
+          echo "last_selected=$(jq -r '.lastSelected // ""' "$PLAN_FILE")" >> "$GITHUB_OUTPUT"
+          echo "unclassified_after=$(jq -r '.unclassifiedLegacyAfterBatch' "$PLAN_FILE")" >> "$GITHUB_OUTPUT"
+          echo "remaining_outside=$(jq -r '.remainingLegacyOutsideBatch' "$PLAN_FILE")" >> "$GITHUB_OUTPUT"
           echo "legacy_total=$(jq -r '.totalLegacy' "$PLAN_FILE")" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch bounded pre-run Skill, Pack, and artifact evidence
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$RUNNER_TEMP/artifact-backfill-plan.json" \
+            --output "$RUNNER_TEMP/artifact-backfill-inventory.json"
 
       - name: Generate GitHub App token
         if: steps.plan.outputs.selected_count != '0'
@@ -144,61 +158,132 @@ jobs:
           minimum-version: ${{ steps.inputs.outputs.cli_version }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
-      - name: Materialize pinned historical snapshots by commit
+      - name: Materialize bounded pinned snapshots
         if: steps.plan.outputs.selected_count != '0'
         run: |
           set -euo pipefail
           ROOT="$RUNNER_TEMP/artifact-backfill-materialized"
           mkdir -p "$ROOT"
-          while IFS= read -r GROUP; do
-            COMMIT=$(jq -r '.marketplaceCommit' <<< "$GROUP")
-            GROUP_DIR="$ROOT/$COMMIT"
-            mkdir -p "$GROUP_DIR"
-            mapfile -t PATHS < <(jq -r '.paths[]' <<< "$GROUP")
-            git archive --format=tar "$COMMIT" -- "${PATHS[@]}" | tar -xf - -C "$GROUP_DIR"
-          done < <(jq -c '.groups[]' "$RUNNER_TEMP/artifact-backfill-plan.json")
+          while IFS= read -r BATCH; do
+            INDEX=$(jq -r '.index' <<< "$BATCH")
+            while IFS= read -r GROUP; do
+              COMMIT=$(jq -r '.marketplaceCommit' <<< "$GROUP")
+              GROUP_DIR="$ROOT/batch-$INDEX/$COMMIT"
+              mkdir -p "$GROUP_DIR"
+              mapfile -t PATHS < <(jq -r '.paths[]' <<< "$GROUP")
+              git archive --format=tar "$COMMIT" -- "${PATHS[@]}" | tar -xf - -C "$GROUP_DIR"
+            done < <(jq -c '.groups[]' <<< "$BATCH")
+          done < <(jq -c '.batches[]' "$RUNNER_TEMP/artifact-backfill-plan.json")
 
-      - name: Run artifact-only commit groups
-        id: artifact-sync
-        if: steps.plan.outputs.selected_count != '0'
-        continue-on-error: true
+      - name: Classify every Skill in the bounded range
+        id: classify-cli
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          MODE: ${{ steps.inputs.outputs.mode }}
         run: |
           set -euo pipefail
           MATERIALIZED_ROOT="$RUNNER_TEMP/artifact-backfill-materialized"
-          RESULT_DIR="$RUNNER_TEMP/artifact-backfill-group-results"
-          RESULT_ROWS="$RUNNER_TEMP/artifact-backfill-result-rows.jsonl"
+          RESULT_DIR="$RUNNER_TEMP/artifact-backfill-classification-groups"
+          RESULT_ROWS="$RUNNER_TEMP/artifact-backfill-classification-rows.jsonl"
           mkdir -p "$RESULT_DIR"
           : > "$RESULT_ROWS"
-          : > "$RUNNER_TEMP/artifact-backfill-stderr.log"
-          FAILURES=0
-          MODE_ARGS=()
-          if [ "$MODE" = "dry-run" ]; then MODE_ARGS+=(--dry-run); fi
+          : > "$RUNNER_TEMP/artifact-backfill-classification-stderr.log"
+
+          while IFS= read -r BATCH; do
+            INDEX=$(jq -r '.index' <<< "$BATCH")
+            while IFS= read -r GROUP; do
+              COMMIT=$(jq -r '.marketplaceCommit' <<< "$GROUP")
+              COUNT=$(jq -r '.count' <<< "$GROUP")
+              mapfile -t PATHS < <(jq -r '.paths[]' <<< "$GROUP")
+              SLUG_PATHS=$(printf '%s\n' "${PATHS[@]}" | paste -sd,)
+              RAW_RESULT="$RESULT_DIR/batch-$INDEX-$COMMIT.json"
+              NORMALIZED_RESULT="$RESULT_DIR/batch-$INDEX-$COMMIT.normalized.json"
+              GROUP_STDERR="$RESULT_DIR/batch-$INDEX-$COMMIT.stderr.log"
+
+              set +e
+              (
+                cd "$MATERIALIZED_ROOT/batch-$INDEX/$COMMIT"
+                "$GITHUB_WORKSPACE/skillstore-cli" skill sync \
+                  --slugs "$SLUG_PATHS" \
+                  --artifact-only \
+                  --legacy-only \
+                  --repair-stale-report-hashes \
+                  --dry-run \
+                  --concurrency 5 \
+                  --marketplace-commit "$COMMIT" \
+                  --output json
+              ) > "$RAW_RESULT" 2> >(tee "$GROUP_STDERR" | tee -a "$RUNNER_TEMP/artifact-backfill-classification-stderr.log" >&2)
+              CLI_EXIT=$?
+              set -e
+
+              if [ -s "$RAW_RESULT" ] && jq -e . "$RAW_RESULT" >/dev/null 2>&1; then
+                jq -c . "$RAW_RESULT" > "$NORMALIZED_RESULT"
+              else
+                echo 'null' > "$NORMALIZED_RESULT"
+              fi
+              jq -n -c \
+                --argjson batchIndex "$INDEX" \
+                --arg marketplaceCommit "$COMMIT" \
+                --argjson selectedCount "$COUNT" \
+                --argjson exitCode "$CLI_EXIT" \
+                --slurpfile result "$NORMALIZED_RESULT" \
+                '{batchIndex: $batchIndex, marketplaceCommit: $marketplaceCommit, selectedCount: $selectedCount, exitCode: $exitCode, result: $result[0]}' \
+                >> "$RESULT_ROWS"
+            done < <(jq -c '.groups[]' <<< "$BATCH")
+          done < <(jq -c '.batches[]' "$RUNNER_TEMP/artifact-backfill-plan.json")
+
+          jq -s . "$RESULT_ROWS" > "$RUNNER_TEMP/artifact-backfill-classification-results.json"
+
+      - name: Verify complete no-write classification evidence
+        id: classification
+        run: |
+          set -euo pipefail
+          node scripts/verify-artifact-version-classification.mjs \
+            --phase classification \
+            --plan "$RUNNER_TEMP/artifact-backfill-plan.json" \
+            --results "$RUNNER_TEMP/artifact-backfill-classification-results.json" \
+            --output "$RUNNER_TEMP/artifact-backfill-classification.json"
+          echo "exact_count=$(jq -r '.counts.exact' "$RUNNER_TEMP/artifact-backfill-classification.json")" >> "$GITHUB_OUTPUT"
+          echo "legacy_count=$(jq -r '.counts.legacy_algorithm_equivalent' "$RUNNER_TEMP/artifact-backfill-classification.json")" >> "$GITHUB_OUTPUT"
+          echo "unproven_count=$(jq -r '.counts.actual_or_unproven_drift' "$RUNNER_TEMP/artifact-backfill-classification.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Execute only the classified exact cohort
+        id: execute-cli
+        if: steps.inputs.outputs.mode == 'execute' && steps.classification.outcome == 'success'
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          MATERIALIZED_ROOT="$RUNNER_TEMP/artifact-backfill-materialized"
+          RESULT_DIR="$RUNNER_TEMP/artifact-backfill-execution-groups"
+          RESULT_ROWS="$RUNNER_TEMP/artifact-backfill-execution-rows.jsonl"
+          mkdir -p "$RESULT_DIR"
+          : > "$RESULT_ROWS"
+          : > "$RUNNER_TEMP/artifact-backfill-execution-stderr.log"
 
           while IFS= read -r GROUP; do
+            INDEX=$(jq -r '.batchIndex' <<< "$GROUP")
             COMMIT=$(jq -r '.marketplaceCommit' <<< "$GROUP")
             COUNT=$(jq -r '.count' <<< "$GROUP")
             mapfile -t PATHS < <(jq -r '.paths[]' <<< "$GROUP")
             SLUG_PATHS=$(printf '%s\n' "${PATHS[@]}" | paste -sd,)
-            RAW_RESULT="$RESULT_DIR/$COMMIT.json"
-            NORMALIZED_RESULT="$RESULT_DIR/$COMMIT.normalized.json"
-            GROUP_STDERR="$RESULT_DIR/$COMMIT.stderr.log"
+            RAW_RESULT="$RESULT_DIR/batch-$INDEX-$COMMIT.json"
+            NORMALIZED_RESULT="$RESULT_DIR/batch-$INDEX-$COMMIT.normalized.json"
+            GROUP_STDERR="$RESULT_DIR/batch-$INDEX-$COMMIT.stderr.log"
 
             set +e
             (
-              cd "$MATERIALIZED_ROOT/$COMMIT"
+              cd "$MATERIALIZED_ROOT/batch-$INDEX/$COMMIT"
               "$GITHUB_WORKSPACE/skillstore-cli" skill sync \
                 --slugs "$SLUG_PATHS" \
                 --artifact-only \
                 --legacy-only \
-                "${MODE_ARGS[@]}" \
+                --repair-stale-report-hashes \
                 --concurrency 5 \
                 --marketplace-commit "$COMMIT" \
                 --output json
-            ) > "$RAW_RESULT" 2> >(tee "$GROUP_STDERR" | tee -a "$RUNNER_TEMP/artifact-backfill-stderr.log" >&2)
+            ) > "$RAW_RESULT" 2> >(tee "$GROUP_STDERR" | tee -a "$RUNNER_TEMP/artifact-backfill-execution-stderr.log" >&2)
             CLI_EXIT=$?
             set -e
 
@@ -208,136 +293,83 @@ jobs:
               echo 'null' > "$NORMALIZED_RESULT"
             fi
             jq -n -c \
+              --argjson batchIndex "$INDEX" \
               --arg marketplaceCommit "$COMMIT" \
               --argjson selectedCount "$COUNT" \
               --argjson exitCode "$CLI_EXIT" \
               --slurpfile result "$NORMALIZED_RESULT" \
-              '{marketplaceCommit: $marketplaceCommit, selectedCount: $selectedCount, exitCode: $exitCode, result: $result[0]}' \
+              '{batchIndex: $batchIndex, marketplaceCommit: $marketplaceCommit, selectedCount: $selectedCount, exitCode: $exitCode, result: $result[0]}' \
               >> "$RESULT_ROWS"
-            if [ "$CLI_EXIT" -ne 0 ]; then FAILURES=$((FAILURES + 1)); fi
-          done < <(jq -c '.groups[]' "$RUNNER_TEMP/artifact-backfill-plan.json")
+          done < <(jq -c '.exactBatches[]' "$RUNNER_TEMP/artifact-backfill-classification.json")
 
-          jq -s . "$RESULT_ROWS" > "$RUNNER_TEMP/artifact-backfill-result.json"
-          echo "failed_groups=$FAILURES" >> "$GITHUB_OUTPUT"
-          if [ "$FAILURES" -ne 0 ]; then exit 1; fi
+          jq -s . "$RESULT_ROWS" > "$RUNNER_TEMP/artifact-backfill-execution-results.json"
 
-      - name: Verify fail-closed result contract
-        id: verify
-        if: always() && steps.plan.outcome == 'success'
-        env:
-          MODE: ${{ steps.inputs.outputs.mode }}
-          PLAN_SHA: ${{ steps.plan.outputs.plan_sha }}
-          INVENTORY_SHA: ${{ steps.plan.outputs.inventory_sha }}
-          SELECTED_COUNT: ${{ steps.plan.outputs.selected_count }}
-          CLI_OUTCOME: ${{ steps.artifact-sync.outcome }}
+      - name: Verify exact-only execution evidence
+        id: execution
+        if: steps.inputs.outputs.mode == 'execute' && steps.classification.outcome == 'success'
         run: |
           set -euo pipefail
-          PLAN_FILE="$RUNNER_TEMP/artifact-backfill-plan.json"
-          RESULT_FILE="$RUNNER_TEMP/artifact-backfill-result.json"
-          SUMMARY_FILE="$RUNNER_TEMP/artifact-backfill-summary.json"
+          node scripts/verify-artifact-version-classification.mjs \
+            --phase execution \
+            --plan "$RUNNER_TEMP/artifact-backfill-plan.json" \
+            --classification "$RUNNER_TEMP/artifact-backfill-classification.json" \
+            --results "$RUNNER_TEMP/artifact-backfill-execution-results.json" \
+            --output "$RUNNER_TEMP/artifact-backfill-execution.json"
 
-          if [ "$SELECTED_COUNT" = "0" ]; then
-            jq -n --arg mode "$MODE" --arg planHash "$PLAN_SHA" --arg inventoryHash "$INVENTORY_SHA" \
-              --slurpfile plan "$PLAN_FILE" \
-              '{schemaVersion: 2, status: "complete", mode: $mode, planHash: $planHash, inventoryHash: $inventoryHash, plan: $plan[0], groups: []}' \
-              > "$SUMMARY_FILE"
-            exit 0
-          fi
-          if [ "$CLI_OUTCOME" != "success" ] || [ ! -s "$RESULT_FILE" ] || ! jq -e . "$RESULT_FILE" >/dev/null; then
-            echo "::error::one or more artifact-only commit groups failed or produced invalid JSON"
-            exit 1
-          fi
-
-          EXPECTED_MODE="artifact-only"
-          EXPECTED_DRY_RUN=false
-          if [ "$MODE" = "dry-run" ]; then EXPECTED_MODE="dry-run"; EXPECTED_DRY_RUN=true; fi
-          jq -e --slurpfile plan "$PLAN_FILE" --arg mode "$EXPECTED_MODE" \
-            --argjson dryRun "$EXPECTED_DRY_RUN" --argjson selected "$SELECTED_COUNT" '
-              length == ($plan[0].groups | length) and
-              ([.[].marketplaceCommit] == [$plan[0].groups[].marketplaceCommit]) and
-              ([.[].selectedCount] | add) == $selected and
-              ([.[].result.results[].slug] | length == (unique | length)) and
-              all(.[];
-                .exitCode == 0 and .result != null and .result.success == true and
-                .result.artifactOnly == true and .result.dryRun == $dryRun and .result.mode == $mode and
-                .result.errors == 0 and
-                ((.result.synced + .result.skipped) == .selectedCount) and
-                ((.result.results | length) == .selectedCount) and
-                all(.result.results[];
-                  .success == true and
-                  (if $dryRun then
-                    .writeOccurred == false and .artifact.revision == null and
-                    .artifact.created == null and .artifact.changeKind == null
-                  else
-                    ((.skipped == true and .writeOccurred == false) or
-                     (.skipped != true and (.artifact.revision | type) == "number" and
-                      .artifact.revision >= 1 and (.artifact.created | type) == "boolean" and
-                      .writeOccurred == true))
-                  end)
-                )
-              )
-            ' "$RESULT_FILE" >/dev/null || {
-              echo "::error::artifact-only CLI results violated the bounded backfill contract"
-              exit 1
-            }
-
-          jq -n --arg mode "$MODE" --arg planHash "$PLAN_SHA" --arg inventoryHash "$INVENTORY_SHA" \
-            --slurpfile plan "$PLAN_FILE" --slurpfile groups "$RESULT_FILE" \
-            '{schemaVersion: 2, status: "verified", mode: $mode, planHash: $planHash, inventoryHash: $inventoryHash, plan: $plan[0], groups: $groups[0]}' \
-            > "$SUMMARY_FILE"
-
-      - name: Refetch production state after CLI
+      - name: Refetch scoped production state
         id: post-inventory
         if: >-
           always() &&
-          steps.plan.outcome == 'success' &&
-          steps.plan.outputs.selected_count != '0' &&
-          steps.verify.outcome == 'success'
+          steps.classification.outcome == 'success' &&
+          (steps.inputs.outputs.mode == 'dry-run' || steps.execution.outcome == 'success')
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           set -euo pipefail
           node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$RUNNER_TEMP/artifact-backfill-inventory.json" \
             --output "$RUNNER_TEMP/artifact-backfill-inventory-post.json"
 
-      - name: Verify production state preservation
+      - name: Verify Skill, Pack, artifact, and observation readback
         id: readback
-        if: >-
-          always() &&
-          steps.verify.outcome == 'success' &&
-          steps.post-inventory.outcome == 'success'
+        if: steps.post-inventory.outcome == 'success'
         env:
           MODE: ${{ steps.inputs.outputs.mode }}
         run: |
           set -euo pipefail
-          node scripts/verify-artifact-version-backfill.mjs \
-            --mode "$MODE" \
-            --plan "$RUNNER_TEMP/artifact-backfill-plan.json" \
-            --post-inventory "$RUNNER_TEMP/artifact-backfill-inventory-post.json" \
+          ARGS=(
+            --mode "$MODE"
+            --plan "$RUNNER_TEMP/artifact-backfill-plan.json"
+            --classification "$RUNNER_TEMP/artifact-backfill-classification.json"
+            --pre-inventory "$RUNNER_TEMP/artifact-backfill-inventory.json"
+            --post-inventory "$RUNNER_TEMP/artifact-backfill-inventory-post.json"
             --output "$RUNNER_TEMP/artifact-backfill-readback.json"
+          )
+          if [ "$MODE" = "execute" ]; then
+            ARGS+=(--execution "$RUNNER_TEMP/artifact-backfill-execution.json")
+          fi
+          node scripts/verify-artifact-version-backfill.mjs "${ARGS[@]}"
 
-      - name: Invalidate production artifact and detail caches
+      - name: Invalidate exact cohort caches in batches of ten
         id: cache-invalidate
         if: >-
           steps.inputs.outputs.mode == 'execute' &&
-          steps.plan.outputs.selected_count != '0' &&
-          steps.verify.outcome == 'success' &&
+          steps.classification.outputs.exact_count != '0' &&
           steps.readback.outcome == 'success'
         env:
           CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
         run: |
           set -euo pipefail
           : "${CACHE_INVALIDATE_SECRET:?CACHE_INVALIDATE_SECRET is required for execute mode}"
-          PLAN_FILE="$RUNNER_TEMP/artifact-backfill-plan.json"
           EVIDENCE_DIR="$RUNNER_TEMP/artifact-backfill-cache-invalidation"
           mkdir -p "$EVIDENCE_DIR"
-          mapfile -t SLUGS < <(jq -r '.selected[].slug' "$PLAN_FILE")
+          mapfile -t SLUGS < <(jq -r '.evidence[].slug' "$RUNNER_TEMP/artifact-backfill-execution.json")
 
-          for ((OFFSET = 0; OFFSET < ${#SLUGS[@]}; OFFSET += 50)); do
-            BATCH=("${SLUGS[@]:OFFSET:50}")
+          for ((OFFSET = 0; OFFSET < ${#SLUGS[@]}; OFFSET += 10)); do
+            BATCH=("${SLUGS[@]:OFFSET:10}")
             BATCH_JSON=$(printf '%s\n' "${BATCH[@]}" | jq -R . | jq -s .)
-            RESPONSE_FILE="$EVIDENCE_DIR/batch-$((OFFSET / 50 + 1)).json"
+            RESPONSE_FILE="$EVIDENCE_DIR/batch-$((OFFSET / 10 + 1)).json"
             jq -n --argjson slugs "$BATCH_JSON" '{
               type: "skills",
               slugs: $slugs,
@@ -359,10 +391,10 @@ jobs:
               --output "$RESPONSE_FILE" \
               https://skillstore.io/api/cache/invalidate
 
-            jq -e --argjson expected "${#BATCH[@]}" '
+            jq -e --argjson requested "$BATCH_JSON" '
               .preflight == false and
               .type == "skills" and
-              (.slugs | length) == $expected and
+              .slugs == $requested and
               .invalidated.listVersionBumped == true
             ' "$RESPONSE_FILE" >/dev/null || {
               echo "::error::cache invalidation response violated the production contract"
@@ -372,55 +404,70 @@ jobs:
 
           jq -s . "$EVIDENCE_DIR"/*.json > "$RUNNER_TEMP/artifact-backfill-cache-invalidation.json"
 
-      - name: Publish resumable batch summary
+      - name: Publish bounded cohort summary
         if: always() && steps.plan.outcome == 'success'
         env:
           MODE: ${{ steps.inputs.outputs.mode }}
           CLI_VERSION: ${{ steps.inputs.outputs.cli_version }}
-          PLAN_SHA: ${{ steps.plan.outputs.plan_sha }}
-          INVENTORY_SHA: ${{ steps.plan.outputs.inventory_sha }}
+          START_AFTER: ${{ inputs.start_after }}
+          REQUESTED_END_AT: ${{ inputs.end_at }}
+          LAST_SELECTED: ${{ steps.plan.outputs.last_selected }}
           SELECTED_COUNT: ${{ steps.plan.outputs.selected_count }}
           LEGACY_TOTAL: ${{ steps.plan.outputs.legacy_total }}
-          NEXT_START_AFTER: ${{ steps.plan.outputs.next_start_after }}
-          REMAINING: ${{ steps.plan.outputs.remaining }}
-          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
-          CACHE_OUTCOME: ${{ steps.cache-invalidate.outcome }}
+          UNCLASSIFIED_AFTER: ${{ steps.plan.outputs.unclassified_after }}
+          REMAINING_OUTSIDE: ${{ steps.plan.outputs.remaining_outside }}
+          EXACT_COUNT: ${{ steps.classification.outputs.exact_count }}
+          LEGACY_COUNT: ${{ steps.classification.outputs.legacy_count }}
+          UNPROVEN_COUNT: ${{ steps.classification.outputs.unproven_count }}
+          PLAN_SHA: ${{ steps.plan.outputs.plan_sha }}
+          INVENTORY_SHA: ${{ steps.plan.outputs.inventory_sha }}
+          CLASSIFICATION_OUTCOME: ${{ steps.classification.outcome }}
+          EXECUTION_OUTCOME: ${{ steps.execution.outcome }}
           READBACK_OUTCOME: ${{ steps.readback.outcome }}
+          CACHE_OUTCOME: ${{ steps.cache-invalidate.outcome }}
         run: |
           {
-            echo "## Artifact-version backfill batch"
+            echo "## Bounded artifact-version cohort batch"
             echo ""
             echo "- Mode / CLI: \`$MODE\` / \`$CLI_VERSION\`"
-            echo "- Production legacy rows at plan time: \`$LEGACY_TOTAL\`"
-            echo "- Selected / remaining: \`$SELECTED_COUNT\` / \`$REMAINING\`"
-            echo "- Plan SHA-256: \`$PLAN_SHA\`"
-            echo "- Inventory SHA-256: \`$INVENTORY_SHA\`"
-            echo "- Verification: \`$VERIFY_OUTCOME\`"
-            echo "- Cache invalidation: \`$CACHE_OUTCOME\`"
-            echo "- Production readback: \`$READBACK_OUTCOME\`"
-            if [ "$VERIFY_OUTCOME" = "success" ] && [ "$READBACK_OUTCOME" = "success" ] && \
-               { [ "$MODE" = "dry-run" ] || [ "$CACHE_OUTCOME" = "success" ]; } && \
-               [ -n "$NEXT_START_AFTER" ]; then
-              echo "- Verified resume cursor: \`$NEXT_START_AFTER\`"
+            echo "- Frozen range: after \`${START_AFTER:-<start>}\`, through \`${REQUESTED_END_AT:-$LAST_SELECTED}\`"
+            echo "- Classified / production legacy at plan time: \`$SELECTED_COUNT\` / \`$LEGACY_TOTAL\`"
+            echo "- Cohorts in this batch: exact \`${EXACT_COUNT:-unknown}\`; legacy-equivalent \`${LEGACY_COUNT:-unknown}\`; unproven \`${UNPROVEN_COUNT:-unknown}\`"
+            echo "- Remaining legacy outside this batch: \`$REMAINING_OUTSIDE\`"
+            echo "- Still unclassified after this range: \`$UNCLASSIFIED_AFTER\`"
+            echo "- Plan / inventory SHA-256: \`$PLAN_SHA\` / \`$INVENTORY_SHA\`"
+            echo "- Classification / execution / readback / cache: \`$CLASSIFICATION_OUTCOME\` / \`$EXECUTION_OUTCOME\` / \`$READBACK_OUTCOME\` / \`$CACHE_OUTCOME\`"
+            echo ""
+            if [ "$MODE" = "dry-run" ] && [ "$CLASSIFICATION_OUTCOME" = "success" ]; then
+              echo "Execute must replay this exact range with \`start_after=$START_AFTER\` and \`end_at=$LAST_SELECTED\`."
+              if [ "$UNCLASSIFIED_AFTER" -gt 0 ]; then
+                echo "Next classification may continue with \`start_after=$LAST_SELECTED\`; this is a scan cursor, not a completion claim."
+              fi
             fi
+            echo "No completion cursor is published. Legacy-equivalent and unproven cohorts remain explicit follow-up work."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload immutable plan and execution evidence
+      - name: Upload immutable cohort evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
           name: artifact-version-backfill-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            ${{ runner.temp }}/artifact-backfill-catalog.json
             ${{ runner.temp }}/artifact-backfill-inventory.json
             ${{ runner.temp }}/artifact-backfill-inventory-post.json
             ${{ runner.temp }}/artifact-backfill-plan.json
             ${{ runner.temp }}/artifact-backfill-paths.txt
-            ${{ runner.temp }}/artifact-backfill-result.json
-            ${{ runner.temp }}/artifact-backfill-stderr.log
-            ${{ runner.temp }}/artifact-backfill-summary.json
+            ${{ runner.temp }}/artifact-backfill-classification-results.json
+            ${{ runner.temp }}/artifact-backfill-classification.json
+            ${{ runner.temp }}/artifact-backfill-classification-stderr.log
+            ${{ runner.temp }}/artifact-backfill-classification-groups/
+            ${{ runner.temp }}/artifact-backfill-execution-results.json
+            ${{ runner.temp }}/artifact-backfill-execution.json
+            ${{ runner.temp }}/artifact-backfill-execution-stderr.log
+            ${{ runner.temp }}/artifact-backfill-execution-groups/
             ${{ runner.temp }}/artifact-backfill-readback.json
             ${{ runner.temp }}/artifact-backfill-cache-invalidation.json
             ${{ runner.temp }}/artifact-backfill-cache-invalidation/
-            ${{ runner.temp }}/artifact-backfill-group-results/
           if-no-files-found: warn
           retention-days: 30
