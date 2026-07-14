@@ -2,12 +2,21 @@ import { defineCommand } from 'citty';
 import { access } from 'node:fs/promises';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import { fetchManifest, reportInstallation, reportSkillInstall, PluginApiError } from '../lib/plugin-api.js';
-import { fetchSkillManifest, downloadSkillZip, getSkillZipHash, SkillApiError } from '../lib/skill-api.js';
+import {
+	fetchSkillManifest,
+	downloadSkillZip,
+	formatSkillVersionIdentity,
+	getSkillLockVersionIdentity,
+	getSkillZipHash,
+	SkillApiError,
+} from '../lib/skill-api.js';
 import { verifyManifest, verifySkillManifest, verifyZipHash } from '../lib/plugin-verify.js';
 import { downloadAllSkills, printDownloadSummary } from '../lib/plugin-download.js';
 import { logger } from '../lib/plugin-logger.js';
 import { CANONICAL_SKILLS_DIR } from '../lib/agents.js';
 import { extractSkillZip, getCanonicalSkillPath, linkSkillToDirectory } from '../lib/installer.js';
+import { addToLock, getLockEntry } from '../lib/skill-lock.js';
+import { lockVerifiedPackMembers } from '../lib/pack-lock.js';
 
 /**
  * Normalize skill/plugin slug
@@ -103,6 +112,7 @@ async function installSkill(
 		const manifest = await fetchSkillManifest(config, slug);
 		logger.spinnerSuccess(`Found skill: "${manifest.skill.name}"`);
 		const zipHash = getSkillZipHash(manifest);
+		const lockIdentity = getSkillLockVersionIdentity(manifest.skill);
 
 		// Step 2: Verify manifest signature
 		if (!skipVerify) {
@@ -126,7 +136,7 @@ async function installSkill(
 		// Step 3: Show skill info
 		logger.box(`Skill: ${manifest.skill.name}`, [
 			`Slug: ${manifest.skill.slug}`,
-			`Version: ${manifest.skill.version}`,
+			`Version: ${formatSkillVersionIdentity(manifest.skill)}`,
 			`Author: ${manifest.skill.author || 'Unknown'}`,
 		]);
 
@@ -135,6 +145,18 @@ async function installSkill(
 		if (!overwrite) {
 			try {
 				await access(skillDir);
+				const existingLock = await getLockEntry(slug);
+				const identityChanged = existingLock && existingLock.zipHash === zipHash && (
+					existingLock.version !== lockIdentity.version
+					|| existingLock.authorVersion !== lockIdentity.authorVersion
+					|| (existingLock.skillstoreRevision ?? null) !== lockIdentity.skillstoreRevision
+					|| existingLock.versionStatus !== lockIdentity.versionStatus
+					|| (existingLock.treeHash ?? null) !== lockIdentity.treeHash
+				);
+				if (identityChanged && !dryRun) {
+					await addToLock({ ...existingLock, ...lockIdentity, zipHash });
+					logger.info(`Refreshed lock metadata: ${formatSkillVersionIdentity(lockIdentity)}`);
+				}
 				logger.warn(`Skill "${slug}" already exists. Use --overwrite to replace.`);
 				return;
 			} catch {
@@ -183,6 +205,15 @@ async function installSkill(
 		} else {
 			logger.spinnerSuccess('Linked skill');
 		}
+
+		// Keep install and add behavior equivalent for check/update management.
+		await addToLock({
+			slug,
+			...lockIdentity,
+			zipHash,
+			source: 'skillstore',
+			installedAt: new Date().toISOString(),
+		});
 
 		// Step 9: Report installation (non-blocking telemetry)
 		try {
@@ -299,6 +330,10 @@ async function installPlugin(
 				process.exit(1);
 			}
 			logger.spinnerSuccess(`Linked ${linkResults.length} skill${linkResults.length > 1 ? 's' : ''}`);
+			const lockResult = await lockVerifiedPackMembers(config, manifest.skills, downloadResult);
+			if (lockResult.skipped > 0) {
+				logger.warn(`${lockResult.skipped} pack member${lockResult.skipped > 1 ? 's were' : ' was'} installed but left unlocked`);
+			}
 		}
 
 		// Step 6: Report installation (non-blocking)

@@ -5,7 +5,7 @@ import { defineCommand, runMain } from 'citty';
 const main = defineCommand({
 	meta: {
 		name: 'skillstore',
-		version: '0.1.8',
+		version: '0.1.9',
 		description: 'Skillstore CLI - Manage AI skills for Claude, Codex, and Claude Code',
 	},
 	subCommands: {

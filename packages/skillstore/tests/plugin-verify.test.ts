@@ -317,6 +317,14 @@ describe('plugin-verify', () => {
 			expect(result.valid).toBe(true);
 		});
 
+		it('should accept pack payload schema 1.1 for nullable member versions', async () => {
+			const manifest = createValidManifest({ version: '1.1' });
+			manifest.skills[0].version = null;
+
+			await expect(verifyManifest(manifest, { skipSignature: true }))
+				.resolves.toMatchObject({ valid: true });
+		});
+
 		it('should validate a canonical pack manifest with Ed25519 signature', async () => {
 			const subtle = globalThis.crypto?.subtle || webcrypto.subtle;
 			const keyPair = await subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
@@ -491,6 +499,15 @@ describe('plugin-verify', () => {
 			const result = await verifySkillManifest(manifest);
 
 			expect(result.valid).toBe(true);
+		});
+
+		it('should accept single-skill payload schema 1.1 with a null version', async () => {
+			const manifest = createValidSkillManifest();
+			manifest.version = '1.1';
+			manifest.skill.version = null;
+
+			await expect(verifySkillManifest(manifest, { skipSignature: true }))
+				.resolves.toMatchObject({ valid: true });
 		});
 
 		it('should reject unsupported manifest version', async () => {
