@@ -24,6 +24,11 @@ env:
   # Enable auto-fix for push, PRs, and manual triggers (set to 'false' to disable)
   AUTO_FIX_ENABLED: ${{ contains(fromJSON('["pull_request", "push", "workflow_dispatch"]'), github.event_name) }}
 
+# One source PR/head can create or resume only one replacement lifecycle at a time.
+concurrency:
+  group: validate-marketplace-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+
 jobs:
   validate:
     runs-on: self-hosted
@@ -45,6 +50,7 @@ jobs:
         env:
           RUN_ID: ${{ github.run_id }}
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.head_ref }}
           REF_NAME: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
@@ -52,34 +58,42 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Determine branch name
           if [ "$EVENT_NAME" == "pull_request" ]; then
             BRANCH="$HEAD_REF"
           else
             BRANCH="$REF_NAME"
           fi
 
-          # Create unique temporary directory for this workflow run
           WORK_DIR="/tmp/marketplace-validate-$RUN_ID"
 
-          echo "WORK_DIR=$WORK_DIR" >> $GITHUB_ENV
-          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
-          echo "work_dir=$WORK_DIR" >> $GITHUB_OUTPUT
+          echo "WORK_DIR=$WORK_DIR" >> "$GITHUB_ENV"
+          echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
+          echo "work_dir=$WORK_DIR" >> "$GITHUB_OUTPUT"
 
           echo "📁 Creating temporary workspace: $WORK_DIR"
           echo "🌿 Target branch: $BRANCH"
 
-          # Cleanup any existing directory
           rm -rf "$WORK_DIR"
-          mkdir -p "$WORK_DIR"
 
-          # Clone repository to temporary workspace
-          echo "📦 Cloning repository..."
-          git clone --depth 1 --branch "$BRANCH" \
-            "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" \
-            "$WORK_DIR"
-
-          cd "$WORK_DIR"
+          if [ "$EVENT_NAME" == "pull_request" ]; then
+            # Repair exactly the commit that produced this event; never a later branch tip.
+            [ -n "$EVENT_HEAD_SHA" ] || { echo "::error::Missing pull_request head SHA"; exit 1; }
+            git clone --no-checkout --filter=blob:none \
+              "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" \
+              "$WORK_DIR"
+            cd "$WORK_DIR"
+            git fetch --depth 1 origin "$EVENT_HEAD_SHA"
+            git checkout -B "$BRANCH" "$EVENT_HEAD_SHA"
+            [ "$(git rev-parse HEAD)" = "$EVENT_HEAD_SHA" ] || {
+              echo "::error::Checked out SHA does not match the pull_request event head"
+              exit 1
+            }
+          else
+            git clone --depth 1 --branch "$BRANCH" \
+              "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git" \
+              "$WORK_DIR"
+            cd "$WORK_DIR"
+          fi
 
           # Configure git for potential commits
           git config user.name "github-actions[bot]"
@@ -364,7 +378,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Check if there are any changes (modifications or deletions)
           if git diff --quiet && git status --porcelain | grep -qE '^\s*D|^\?\?'; then
             : # There are deletions or untracked changes
           elif git diff --quiet; then
@@ -372,18 +385,10 @@ jobs:
             exit 0
           fi
 
-          # Configure git remote URL with authentication token
           echo "🔑 Configuring git authentication..."
           git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
 
-          # Create a new branch for the fixes
-          BRANCH_NAME="fix/skill-md-validation-$(date +%Y%m%d-%H%M%S)"
-          git checkout -b "$BRANCH_NAME"
-
-          # Stage all changes (modifications and deletions)
           git add -A
-
-          # Count changes by type
           MODIFIED_COUNT=$(git diff --cached --diff-filter=M --name-only | wc -l | tr -d ' ')
           DELETED_COUNT=$(git diff --cached --diff-filter=D --name-only | wc -l | tr -d ' ')
           TOTAL_COUNT=$((MODIFIED_COUNT + DELETED_COUNT))
@@ -393,8 +398,6 @@ jobs:
             exit 0
           fi
 
-          # Build replacement-PR metadata from the pull_request event itself.
-          # This survives squash merge because approval never depends on commit history.
           PR_BODY_FILE="$RUNNER_TEMP/skill-md-autofix-pr-body-${GITHUB_RUN_ID}.md"
           METADATA_JSON=$(node "$GITHUB_WORKSPACE/marketplace-repo/scripts/build-autofix-pr-metadata.mjs" \
             --event-path "$GITHUB_EVENT_PATH" \
@@ -404,7 +407,22 @@ jobs:
             --deleted-count "$DELETED_COUNT")
           INHERIT_PENDING_REVIEW=$(printf '%s' "$METADATA_JSON" | jq -r '.inheritPendingReview')
 
-          # Build commit message
+          EXISTING_PR_NUMBER=""
+          EXISTING_HEAD_SHA=""
+          if [ "$INHERIT_PENDING_REVIEW" = "true" ]; then
+            # First live check: source head/body/label must still match the triggering event.
+            PREFLIGHT_JSON=$(node "$GITHUB_WORKSPACE/marketplace-repo/scripts/autofix-pr-lifecycle.mjs" \
+              --mode preflight \
+              --event-path "$GITHUB_EVENT_PATH" \
+              --repository "$REPOSITORY")
+            BRANCH_NAME=$(printf '%s' "$PREFLIGHT_JSON" | jq -r '.branchName')
+            EXISTING_PR_NUMBER=$(printf '%s' "$PREFLIGHT_JSON" | jq -r '.existingReplacement.number // empty')
+            EXISTING_HEAD_SHA=$(printf '%s' "$PREFLIGHT_JSON" | jq -r '.existingReplacement.headSha // empty')
+          else
+            BRANCH_NAME="fix/skill-md-validation-$(date +%Y%m%d-%H%M%S)"
+          fi
+          git checkout -b "$BRANCH_NAME"
+
           COMMIT_MSG="fix: auto-fix SKILL.md validation errors
 
           AI-powered fix applied by GitHub Actions workflow."
@@ -415,32 +433,65 @@ jobs:
           COMMIT_MSG="$COMMIT_MSG
 
           Co-Authored-By: Claude <noreply@anthropic.com>"
-
           git commit -m "$COMMIT_MSG"
+          REPLACEMENT_HEAD_SHA=$(git rev-parse HEAD)
 
-          # Push the branch
-          git push origin "$BRANCH_NAME"
+          REMOTE_BRANCH_SHA=$(git ls-remote --heads origin "refs/heads/$BRANCH_NAME" | awk 'NR == 1 { print $1 }')
+          if [ -n "$EXISTING_HEAD_SHA" ] && [ "$REMOTE_BRANCH_SHA" != "$EXISTING_HEAD_SHA" ]; then
+            echo "::error::Replacement branch moved after preflight"
+            exit 1
+          fi
+          if [ -n "$REMOTE_BRANCH_SHA" ]; then
+            git push --force-with-lease="refs/heads/$BRANCH_NAME:$REMOTE_BRANCH_SHA" \
+              origin "HEAD:refs/heads/$BRANCH_NAME"
+          else
+            git push origin "HEAD:refs/heads/$BRANCH_NAME"
+          fi
 
-          # Build PR title
           PR_TITLE="fix: Auto-fix SKILL.md validation errors"
           [ "$MODIFIED_COUNT" -gt 0 ] && PR_TITLE="$PR_TITLE ($MODIFIED_COUNT fixed"
           [ "$DELETED_COUNT" -gt 0 ] && [ "$MODIFIED_COUNT" -gt 0 ] && PR_TITLE="$PR_TITLE, $DELETED_COUNT deleted)"
           [ "$DELETED_COUNT" -gt 0 ] && [ "$MODIFIED_COUNT" -eq 0 ] && PR_TITLE="$PR_TITLE ($DELETED_COUNT deleted)"
           [ "$MODIFIED_COUNT" -gt 0 ] && [ "$DELETED_COUNT" -eq 0 ] && PR_TITLE="$PR_TITLE)"
 
-          PR_ARGS=(
-            --title "$PR_TITLE"
-            --body-file "$PR_BODY_FILE"
-            --base main
-            --head "$BRANCH_NAME"
-          )
           if [ "$INHERIT_PENDING_REVIEW" = "true" ]; then
-            PR_ARGS+=(--label "pending-review")
+            # Second live check is immediately before create/reuse; stale events stop here.
+            PREFLIGHT_JSON=$(node "$GITHUB_WORKSPACE/marketplace-repo/scripts/autofix-pr-lifecycle.mjs" \
+              --mode preflight \
+              --event-path "$GITHUB_EVENT_PATH" \
+              --repository "$REPOSITORY")
+            EXISTING_PR_NUMBER=$(printf '%s' "$PREFLIGHT_JSON" | jq -r '.existingReplacement.number // empty')
+
+            if [ -n "$EXISTING_PR_NUMBER" ]; then
+              gh pr edit "$EXISTING_PR_NUMBER" --title "$PR_TITLE" --body-file "$PR_BODY_FILE"
+              PR_NUMBER="$EXISTING_PR_NUMBER"
+              PR_URL=$(gh pr view "$PR_NUMBER" --json url --jq '.url')
+            else
+              # The replacement starts without approval capability.
+              PR_URL=$(gh pr create \
+                --title "$PR_TITLE" \
+                --body-file "$PR_BODY_FILE" \
+                --base main \
+                --head "$BRANCH_NAME")
+              PR_NUMBER=$(gh pr view "$PR_URL" --json number --jq '.number')
+            fi
+
+            # Reentrant fail-closed transfer: revoke/close source first, label replacement last.
+            node "$GITHUB_WORKSPACE/marketplace-repo/scripts/autofix-pr-lifecycle.mjs" \
+              --mode supersede \
+              --event-path "$GITHUB_EVENT_PATH" \
+              --repository "$REPOSITORY" \
+              --replacement-pr "$PR_NUMBER" \
+              --replacement-head-sha "$REPLACEMENT_HEAD_SHA"
+          else
+            PR_URL=$(gh pr create \
+              --title "$PR_TITLE" \
+              --body-file "$PR_BODY_FILE" \
+              --base main \
+              --head "$BRANCH_NAME")
           fi
 
-          PR_URL=$(gh pr create "${PR_ARGS[@]}")
-
-          echo "::notice::Created PR for SKILL.md fixes: $PR_URL"
+          echo "::notice::Created or resumed PR for SKILL.md fixes: $PR_URL"
           echo "🔗 PR Created: $PR_URL"
 
       - name: Fail if SKILL.md errors remain

@@ -18,24 +18,25 @@ jobs:
           client-id: ${{ vars.APP_CLIENT_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
 
+      - name: Checkout the exact merged revision
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: '24'
 
-      - name: Extract submission ID from PR body
+      - name: Extract canonical submission ID from PR body
         id: extract_submission
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          # Extract submission ID from PR body: **Submission ID**: `UUID`
-          SUBMISSION_ID=$(echo "$PR_BODY" | grep -oE 'Submission ID.*`[0-9a-f-]{36}`' | grep -oE '[0-9a-f-]{36}' || echo "")
-          echo "submission_id=$SUBMISSION_ID" >> $GITHUB_OUTPUT
-          if [ -n "$SUBMISSION_ID" ]; then
-            echo "📋 Found submission ID: $SUBMISSION_ID"
-          else
-            echo "⚠️ No submission ID found in PR body"
-          fi
+          set -euo pipefail
+          METADATA_JSON=$(node scripts/submission-metadata.mjs --event-path "$GITHUB_EVENT_PATH")
+          SUBMISSION_ID=$(printf '%s' "$METADATA_JSON" | jq -er '.submissionId')
+          echo "submission_id=$SUBMISSION_ID" >> "$GITHUB_OUTPUT"
+          echo "📋 Found canonical submission ID: $SUBMISSION_ID"
 
       - name: Find pending skills and commit to skills directory
         env:

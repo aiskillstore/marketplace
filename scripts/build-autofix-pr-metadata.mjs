@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 
 import { readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 
-const SUBMISSION_ID_RE = /Submission ID[^\r\n]*`([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`/i;
+import { canonicalizeSubmissionBody } from './submission-metadata.mjs';
 
 function normalizeCount(value, name) {
   const count = Number(value);
@@ -56,11 +56,20 @@ export function buildAutoFixPrMetadata({
   const deletedCount = normalizeCount(rawDeletedCount, 'deletedCount');
   const pullRequest = eventName === 'pull_request' ? event?.pull_request : null;
   const sourceBody = typeof pullRequest?.body === 'string' ? pullRequest.body : '';
-  const submissionId = sourceBody.match(SUBMISSION_ID_RE)?.[1]?.toLowerCase() ?? null;
   const pendingReview = hasLabel(pullRequest, 'pending-review');
+  let canonicalSource = null;
 
+  if (pullRequest) {
+    try {
+      canonicalSource = canonicalizeSubmissionBody(sourceBody);
+    } catch (error) {
+      if (pendingReview) throw error;
+    }
+  }
+
+  const submissionId = canonicalSource?.submissionId ?? null;
   if (pullRequest && pendingReview !== Boolean(submissionId)) {
-    throw new Error('Submission auto-fix metadata is incomplete: pending-review and a valid Submission ID must be present together');
+    throw new Error('Submission auto-fix metadata is incomplete: pending-review and exactly one anchored Submission ID must be present together');
   }
 
   if (!pullRequest || !pendingReview || !submissionId) {
@@ -69,6 +78,7 @@ export function buildAutoFixPrMetadata({
       inheritPendingReview: false,
       submissionId: null,
       sourcePrNumber: null,
+      sourceHeadSha: null,
     };
   }
 
@@ -77,28 +87,36 @@ export function buildAutoFixPrMetadata({
     throw new Error('Submission auto-fix metadata is missing a valid source PR number');
   }
 
+  const sourceHeadSha = typeof pullRequest?.head?.sha === 'string' ? pullRequest.head.sha.toLowerCase() : '';
+  if (!/^[0-9a-f]{40}$/.test(sourceHeadSha)) {
+    throw new Error('Submission auto-fix metadata is missing a valid source PR head SHA');
+  }
+
   const repairSummary = `## Automated SKILL.md Repair
 
 This replacement PR preserves the source submission metadata so its own merge can run the normal approval workflow.
 
+**Source PR**: #${sourcePrNumber}
+**Source PR Head SHA**: \`${sourceHeadSha}\`
+
 | Metric | Value |
 |--------|-------|
-| Source PR | #${sourcePrNumber} |
 | Files Fixed | ${modifiedCount} |
 | Empty Skills Deleted | ${deletedCount} |
 | Triggered By | ${eventName} |
 
-The \`pending-review\` label is inherited explicitly. Approval does not depend on source commits surviving a squash merge.
+The replacement is bound to the exact source head above. The \`pending-review\` label is transferred only after the source PR loses approval capability.
 
 ---
 *Automated fix by validate-marketplace.yml*
 `;
 
   return {
-    body: `${sourceBody.trimEnd()}\n\n---\n\n${repairSummary}`,
+    body: `${canonicalSource.body.trimEnd()}\n\n---\n\n${repairSummary}`,
     inheritPendingReview: true,
     submissionId,
     sourcePrNumber,
+    sourceHeadSha,
   };
 }
 
@@ -131,6 +149,7 @@ async function main() {
     inheritPendingReview: metadata.inheritPendingReview,
     submissionId: metadata.submissionId,
     sourcePrNumber: metadata.sourcePrNumber,
+    sourceHeadSha: metadata.sourceHeadSha,
   })}\n`);
 }
 
