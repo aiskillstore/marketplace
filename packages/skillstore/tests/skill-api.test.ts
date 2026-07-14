@@ -3,8 +3,11 @@ import {
 	fetchSkillInfo,
 	fetchSkillManifest,
 	downloadSkillZip,
+	formatSkillVersionIdentity,
+	getSkillVersionIdentity,
 	getSkillDownloadUrlFromManifest,
 	getSkillZipHash,
+	normalizeSkillManifest,
 	SkillApiError,
 	type SkillInfo,
 	type SkillManifest,
@@ -258,6 +261,30 @@ describe('skill-api', () => {
 			generatedAt: '2024-01-01T00:00:00Z',
 		};
 
+		it('should project Ed25519 convenience fields from the signed payload', () => {
+			const signedSkill = { slug: 'safe', name: 'Safe', version: '2.0.1' };
+			const manifest = normalizeSkillManifest({
+				version: '1.0',
+				skill: { slug: 'evil', name: 'Evil', version: '9.9.9' },
+				artifact: { url: 'https://evil.test/x.zip', sha256: 'evil' },
+				signed: {
+					kind: 'skill',
+					version: '1.0',
+					skill: signedSkill,
+					artifact: { url: 'https://safe.test/x.zip', sha256: 'safe' },
+				},
+				signature: {
+					algorithm: 'Ed25519', keyId: 'k',
+					publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'x' },
+					signedAt: '2026-07-14T00:00:00Z', value: 'sig',
+				},
+				generatedAt: '2026-07-14T00:00:00Z',
+			});
+
+			expect(manifest.skill.slug).toBe('safe');
+			expect(manifest.artifact?.url).toBe('https://safe.test/x.zip');
+		});
+
 		const modernManifest: SkillManifest = {
 			kind: 'skill',
 			version: '1.0',
@@ -328,6 +355,74 @@ describe('skill-api', () => {
 
 			expect(getSkillDownloadUrlFromManifest(config, manifest, 'test-skill')).toBe(
 				'https://api.test.com/skills/test-skill/download'
+			);
+		});
+
+		it('should preserve the complete dual-version identity', () => {
+			const identity = getSkillVersionIdentity({
+				slug: 'test-skill',
+				name: 'Test Skill',
+				version: '2.0.1',
+				authorVersion: '2.0.1',
+				skillstoreRevision: 2,
+				versionStatus: 'valid',
+				treeHash: 'tree-hash-r2',
+			});
+
+			expect(identity).toEqual({
+				authorVersion: '2.0.1',
+				skillstoreRevision: 2,
+				versionStatus: 'valid',
+				treeHash: 'tree-hash-r2',
+			});
+		});
+
+		it('should represent an undeclared author version without emitting vnull', () => {
+			const skill = {
+				slug: 'test-skill',
+				name: 'Test Skill',
+				version: null,
+				skillstoreRevision: 1,
+			} satisfies SkillManifest['skill'];
+
+			expect(getSkillVersionIdentity(skill)).toEqual({
+				authorVersion: null,
+				skillstoreRevision: 1,
+				versionStatus: 'missing',
+				treeHash: null,
+			});
+			expect(formatSkillVersionIdentity(skill)).toBe('Not declared (r1)');
+		});
+
+		it('should remain compatible with legacy manifests', () => {
+			expect(getSkillVersionIdentity(legacyManifest.skill)).toEqual({
+				authorVersion: '1.0.0',
+				skillstoreRevision: null,
+				versionStatus: 'legacy_unknown',
+				treeHash: null,
+			});
+			expect(formatSkillVersionIdentity(legacyManifest.skill)).toBe('v1.0.0');
+		});
+
+		it('should not relabel an explicit null authorVersion legacy alias', () => {
+			const skill = {
+				slug: 'legacy-skill',
+				name: 'Legacy Skill',
+				version: '1.0.2',
+				authorVersion: null,
+				versionStatus: 'legacy_unknown',
+			} satisfies SkillManifest['skill'];
+
+			expect(getSkillVersionIdentity(skill).authorVersion).toBeNull();
+			expect(formatSkillVersionIdentity(skill)).toBe('Legacy v1.0.2 (unverified)');
+		});
+
+		it('should visibly distinguish revisions under the same author version', () => {
+			expect(formatSkillVersionIdentity({ version: '2.0.1', skillstoreRevision: 1 })).toBe(
+				'v2.0.1 (r1)'
+			);
+			expect(formatSkillVersionIdentity({ version: '2.0.1', skillstoreRevision: 2 })).toBe(
+				'v2.0.1 (r2)'
 			);
 		});
 	});

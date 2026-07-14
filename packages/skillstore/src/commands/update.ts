@@ -1,6 +1,13 @@
 import { defineCommand } from 'citty';
 import { getAllLockedSkills, addToLock, type SkillLockEntry } from '../lib/skill-lock.js';
-import { fetchSkillManifest, downloadSkillZip, getSkillZipHash, SkillApiError } from '../lib/skill-api.js';
+import {
+	fetchSkillManifest,
+	downloadSkillZip,
+	formatSkillVersionIdentity,
+	getSkillLockVersionIdentity,
+	getSkillZipHash,
+	SkillApiError,
+} from '../lib/skill-api.js';
 import { verifySkillManifest, verifyZipHash } from '../lib/plugin-verify.js';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import { logger } from '../lib/plugin-logger.js';
@@ -78,7 +85,11 @@ export default defineCommand({
 			}
 
 			// Find skills that need updates
-			const updates: { skill: SkillLockEntry; latestVersion: string; latestHash: string }[] = [];
+			const updates: {
+				skill: SkillLockEntry;
+				latestIdentity: ReturnType<typeof getSkillLockVersionIdentity>;
+				latestHash: string;
+			}[] = [];
 
 			for (const skill of skillsToCheck) {
 				try {
@@ -88,12 +99,29 @@ export default defineCommand({
 						logger.warn(`Failed to check "${skill.slug}": manifest is missing ZIP hash`);
 						continue;
 					}
+					if (!skipVerify) {
+						const verifyResult = await verifySkillManifest(manifest);
+						if (!verifyResult.valid) {
+							logger.warn(`Failed to check "${skill.slug}": manifest verification failed`);
+							continue;
+						}
+					}
+					const latestIdentity = getSkillLockVersionIdentity(manifest.skill);
 					if (skill.zipHash !== latestHash) {
 						updates.push({
 							skill,
-							latestVersion: manifest.skill.version,
+							latestIdentity,
 							latestHash,
 						});
+					} else if (!dryRun) {
+						const identityChanged = skill.version !== latestIdentity.version
+							|| skill.authorVersion !== latestIdentity.authorVersion
+							|| (skill.skillstoreRevision ?? null) !== latestIdentity.skillstoreRevision
+							|| skill.versionStatus !== latestIdentity.versionStatus
+							|| (skill.treeHash ?? null) !== latestIdentity.treeHash;
+						if (identityChanged) {
+							await addToLock({ ...skill, ...latestIdentity, zipHash: latestHash });
+						}
 					}
 				} catch (err) {
 					if (err instanceof SkillApiError && err.statusCode === 404) {
@@ -115,7 +143,7 @@ export default defineCommand({
 			console.log(`Updates available (${updates.length}):`);
 			for (const update of updates) {
 				console.log(
-					`  - ${update.skill.slug}  v${update.skill.version} → v${update.latestVersion}`
+					`  - ${update.skill.slug}  ${formatSkillVersionIdentity(update.skill)} → ${formatSkillVersionIdentity(update.latestIdentity)}`
 				);
 			}
 			console.log('');
@@ -136,7 +164,7 @@ export default defineCommand({
 			let failCount = 0;
 
 			for (const update of updates) {
-				const { skill, latestVersion } = update;
+				const { skill } = update;
 
 				try {
 					logger.startSpinner(`Updating ${skill.slug}...`);
@@ -144,6 +172,7 @@ export default defineCommand({
 					// Fetch manifest
 					const manifest = await fetchSkillManifest(config, skill.slug);
 					const zipHash = getSkillZipHash(manifest);
+					const lockIdentity = getSkillLockVersionIdentity(manifest.skill);
 					if (!zipHash) {
 						logger.spinnerError(`${skill.slug}: Manifest is missing ZIP hash`);
 						failCount++;
@@ -182,7 +211,7 @@ export default defineCommand({
 					// Update lock file
 					await addToLock({
 						slug: skill.slug,
-						version: manifest.skill.version,
+						...lockIdentity,
 						zipHash,
 						source: 'skillstore',
 						installedAt: skill.installedAt,
@@ -195,7 +224,9 @@ export default defineCommand({
 						// Ignore telemetry errors
 					}
 
-					logger.spinnerSuccess(`${skill.slug}: v${skill.version} → v${latestVersion}`);
+					logger.spinnerSuccess(
+						`${skill.slug}: ${formatSkillVersionIdentity(skill)} → ${formatSkillVersionIdentity(lockIdentity)}`
+					);
 					successCount++;
 				} catch (err) {
 					logger.spinnerError(

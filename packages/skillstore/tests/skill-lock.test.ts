@@ -99,6 +99,43 @@ describe('skill-lock', () => {
 			expect(lock.version).toBe(LOCK_VERSION);
 			expect(lock.skills['test-skill']).toEqual(mockLockEntry);
 		});
+
+		it('should keep old version-1 lockfiles readable', async () => {
+			vi.mocked(readFile).mockResolvedValue(JSON.stringify(mockLock));
+
+			const lock = await readSkillLock();
+
+			expect(LOCK_VERSION).toBe(1);
+			expect(lock).toEqual(mockLock);
+		});
+
+		it('should preserve nullable and additive dual-version fields', async () => {
+			const dualVersionLock: SkillLock = {
+				version: LOCK_VERSION,
+				skills: {
+					'test-skill': {
+						...mockLockEntry,
+						version: null,
+						authorVersion: null,
+						skillstoreRevision: 3,
+						versionStatus: 'missing',
+						treeHash: 'immutable-tree-hash',
+					},
+				},
+			};
+			vi.mocked(readFile).mockResolvedValue(JSON.stringify(dualVersionLock));
+
+			const lock = await readSkillLock();
+
+			expect(lock).toEqual(dualVersionLock);
+			expect(lock.skills['test-skill']).toMatchObject({
+				version: null,
+				authorVersion: null,
+				skillstoreRevision: 3,
+				versionStatus: 'missing',
+				treeHash: 'immutable-tree-hash',
+			});
+		});
 	});
 
 	describe('writeSkillLock', () => {
@@ -121,6 +158,27 @@ describe('skill-lock', () => {
 
 			expect(parsed).toEqual(mockLock);
 			expect(writtenContent).toContain('\n'); // Pretty formatted
+		});
+
+		it('should round-trip the dual-version identity without changing lock format', async () => {
+			const entry: SkillLockEntry = {
+				...mockLockEntry,
+				version: '2.0.1',
+				authorVersion: '2.0.1',
+				skillstoreRevision: 2,
+				versionStatus: 'valid',
+				treeHash: 'tree-hash-r2',
+			};
+			const lock: SkillLock = {
+				version: LOCK_VERSION,
+				skills: { [entry.slug]: entry },
+			};
+
+			await writeSkillLock(lock);
+			const writtenContent = vi.mocked(writeFile).mock.calls[0][1] as string;
+			vi.mocked(readFile).mockResolvedValue(writtenContent);
+
+			expect(await readSkillLock()).toEqual(lock);
 		});
 	});
 

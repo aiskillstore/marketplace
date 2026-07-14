@@ -1,13 +1,24 @@
 import { defineCommand } from 'citty';
 import { getAllLockedSkills, type SkillLockEntry } from '../lib/skill-lock.js';
-import { fetchSkillManifest, getSkillZipHash, SkillApiError } from '../lib/skill-api.js';
+import {
+	fetchSkillManifest,
+	formatSkillVersionIdentity,
+	getSkillLockVersionIdentity,
+	getSkillZipHash,
+	SkillApiError,
+} from '../lib/skill-api.js';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import { logger } from '../lib/plugin-logger.js';
+import { verifySkillManifest } from '../lib/plugin-verify.js';
 
 interface UpdateInfo {
 	skill: SkillLockEntry;
-	currentVersion: string;
-	latestVersion: string;
+	currentVersion: string | null;
+	latestVersion: string | null;
+	latestAuthorVersion: string | null;
+	latestVersionStatus: string;
+	currentRevision: number | null;
+	latestRevision: number | null;
 	hasUpdate: boolean;
 }
 
@@ -64,11 +75,21 @@ export default defineCommand({
 						errors.push({ slug: skill.slug, error: 'Manifest is missing ZIP hash' });
 						continue;
 					}
+					const verifyResult = await verifySkillManifest(manifest);
+					if (!verifyResult.valid) {
+						errors.push({ slug: skill.slug, error: 'Manifest verification failed' });
+						continue;
+					}
+					const latestIdentity = getSkillLockVersionIdentity(manifest.skill);
 
 					const info: UpdateInfo = {
 						skill,
 						currentVersion: skill.version,
-						latestVersion: manifest.skill.version,
+						latestVersion: latestIdentity.version,
+						latestAuthorVersion: latestIdentity.authorVersion,
+						latestVersionStatus: latestIdentity.versionStatus,
+						currentRevision: skill.skillstoreRevision ?? null,
+						latestRevision: manifest.skill.skillstoreRevision ?? null,
 						hasUpdate: skill.zipHash !== latestHash,
 					};
 
@@ -97,6 +118,10 @@ export default defineCommand({
 								slug: u.skill.slug,
 								currentVersion: u.currentVersion,
 								latestVersion: u.latestVersion,
+								latestAuthorVersion: u.latestAuthorVersion,
+								latestVersionStatus: u.latestVersionStatus,
+								currentRevision: u.currentRevision,
+								latestRevision: u.latestRevision,
 							})),
 							upToDate: upToDate.map((u) => u.skill.slug),
 							errors,
@@ -116,7 +141,7 @@ export default defineCommand({
 					const isLast = i === updates.length - 1;
 					const prefix = isLast ? '└─' : '├─';
 					console.log(
-						`  ${prefix} ${update.skill.slug}  v${update.currentVersion} → v${update.latestVersion}`
+						`  ${prefix} ${update.skill.slug}  ${formatSkillVersionIdentity(update.skill)} → ${formatSkillVersionIdentity({ version: update.latestVersion, authorVersion: update.latestAuthorVersion, skillstoreRevision: update.latestRevision, versionStatus: update.latestVersionStatus })}`
 					);
 				}
 				console.log('');
@@ -129,7 +154,9 @@ export default defineCommand({
 					const skill = upToDate[i];
 					const isLast = i === upToDate.length - 1;
 					const prefix = isLast ? '└─' : '├─';
-					console.log(`  ${prefix} ${skill.skill.slug}  v${skill.currentVersion} (latest)`);
+					console.log(
+						`  ${prefix} ${skill.skill.slug}  ${formatSkillVersionIdentity(skill.skill)} (latest)`
+					);
 				}
 				console.log('');
 			}

@@ -109,7 +109,9 @@ describe('plugin-api', () => {
 							version: '2026.07.04',
 							visibility: 'public',
 						},
-						skills: [],
+						skills: [
+							{ slug: 'skill-1', name: 'Skill 1', contentHash: 'abc', downloadUrl: 'https://example.com/SKILL.md' },
+						],
 					},
 					signature: {
 						algorithm: 'Ed25519',
@@ -131,6 +133,71 @@ describe('plugin-api', () => {
 			expect(result.pack?.slug).toBe('frontend-ui-builder-pack');
 			expect(result.skills).toHaveLength(1);
 			expect(typeof result.signature).toBe('object');
+		});
+
+		it('should preserve additive dual-version fields on pack members', async () => {
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: () =>
+					Promise.resolve({
+						kind: 'pack',
+						version: '1.0',
+						generatedAt: '2026-07-14T00:00:00Z',
+						pack: { slug: 'test-pack', name: 'Test Pack', version: '2026.07.14' },
+						skills: [
+							{
+								slug: 'owner-skill',
+								name: 'Owner Skill',
+								version: null,
+								authorVersion: null,
+								skillstoreRevision: 2,
+								versionStatus: 'missing',
+								treeHash: 'tree-hash-r2',
+								contentHash: 'content-hash',
+								downloadUrl: 'https://example.com/SKILL.md',
+							},
+						],
+						signature: 'signature',
+					}),
+			});
+
+			const result = await fetchManifest(config, 'test-pack');
+
+			expect(result.skills[0]).toMatchObject({
+				version: null,
+				authorVersion: null,
+				skillstoreRevision: 2,
+				versionStatus: 'missing',
+				treeHash: 'tree-hash-r2',
+			});
+		});
+
+		it('should ignore tampered top-level pack aliases and skills for Ed25519 envelopes', async () => {
+			mockFetch.mockResolvedValueOnce({
+				ok: true,
+				json: () => Promise.resolve({
+					kind: 'pack', version: '1.0', generatedAt: 'evil',
+					plugin: { slug: 'evil', name: 'Evil', version: '9.9.9' },
+					pack: { slug: 'evil', name: 'Evil', version: '9.9.9' },
+					skills: [{ slug: 'evil', name: 'Evil', contentHash: 'evil', downloadUrl: 'https://evil.test' }],
+					signed: {
+						kind: 'pack', version: '1.0', generatedAt: 'safe',
+						pack: { slug: 'safe', name: 'Safe', version: '1.0.0', visibility: 'public' },
+						skills: [{ slug: 'safe-skill', name: 'Safe', contentHash: 'safe', downloadUrl: 'https://safe.test' }],
+					},
+					signature: {
+						algorithm: 'Ed25519', keyId: 'k',
+						publicKeyJwk: { kty: 'OKP', crv: 'Ed25519', x: 'x' },
+						signedAt: 'safe', value: 'sig',
+					},
+				}),
+			});
+
+			const result = await fetchManifest(config, 'safe');
+			expect(result.plugin.slug).toBe('safe');
+			expect(result.pack?.slug).toBe('safe');
+			expect(result.skills[0].slug).toBe('safe-skill');
+			expect(result.generatedAt).toBe('safe');
 		});
 
 		it('should throw PluginApiError on 404', async () => {

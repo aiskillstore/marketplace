@@ -30,6 +30,12 @@ export interface ManifestSkillArtifact {
 export interface ManifestSkill {
 	slug: string;
 	name: string;
+	/** Compatibility alias for authorVersion. */
+	version?: string | null;
+	authorVersion?: string | null;
+	skillstoreRevision?: number | null;
+	versionStatus?: string;
+	treeHash?: string | null;
 	contentHash: string;
 	downloadUrl: string;
 	artifact?: ManifestSkillArtifact;
@@ -49,7 +55,7 @@ export interface ManifestSignatureInfo {
 
 /** Plugin manifest response */
 export interface PluginManifest {
-	version: '1.0';
+	version: '1.0' | '1.1';
 	kind?: 'pack';
 	plugin: {
 		slug: string;
@@ -155,9 +161,14 @@ function normalizeManifest(rawManifest: unknown): PluginManifest {
 	const pack = isJsonObject(manifest.pack) ? manifest.pack : null;
 	const signed = isJsonObject(manifest.signed) ? manifest.signed : null;
 	const signedPack = signed && isJsonObject(signed.pack) ? signed.pack : null;
-	const sourcePack = pack || signedPack;
+	const signature = isJsonObject(manifest.signature) ? manifest.signature : null;
+	const hasEd25519Envelope = signature?.algorithm === 'Ed25519' && !!signed;
+	const signedVersion = signed?.version === '1.0' || signed?.version === '1.1'
+		? signed.version
+		: null;
+	const sourcePack = hasEd25519Envelope ? signedPack || pack : pack || signedPack;
 
-	if (!manifest.plugin && sourcePack?.slug && sourcePack.name) {
+	if ((hasEd25519Envelope || !manifest.plugin) && sourcePack?.slug && sourcePack.name) {
 		manifest.plugin = {
 			slug: String(sourcePack.slug),
 			name: String(sourcePack.name),
@@ -165,7 +176,7 @@ function normalizeManifest(rawManifest: unknown): PluginManifest {
 		};
 	}
 
-	if (!manifest.pack && sourcePack?.slug && sourcePack.name) {
+	if ((hasEd25519Envelope || !manifest.pack) && sourcePack?.slug && sourcePack.name) {
 		manifest.pack = {
 			slug: String(sourcePack.slug),
 			name: String(sourcePack.name),
@@ -174,15 +185,21 @@ function normalizeManifest(rawManifest: unknown): PluginManifest {
 		};
 	}
 
-	if (!manifest.skills && signed && Array.isArray(signed.skills)) {
+	if (hasEd25519Envelope && signed && Array.isArray(signed.skills)) {
+		manifest.skills = signed.skills;
+	} else if (!manifest.skills && signed && Array.isArray(signed.skills)) {
 		manifest.skills = signed.skills;
 	}
 
-	if (!manifest.version) {
-		manifest.version = signed?.version || '1.0';
+	if (hasEd25519Envelope && signedVersion) {
+		manifest.version = signedVersion;
+	} else if (!manifest.version) {
+		manifest.version = signedVersion || '1.0';
 	}
 
-	if (!manifest.generatedAt && signed?.generatedAt) {
+	if (hasEd25519Envelope && signed?.generatedAt) {
+		manifest.generatedAt = signed.generatedAt;
+	} else if (!manifest.generatedAt && signed?.generatedAt) {
 		manifest.generatedAt = signed.generatedAt;
 	}
 

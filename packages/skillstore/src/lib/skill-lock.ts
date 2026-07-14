@@ -16,8 +16,16 @@ export const LOCK_VERSION = 1;
 export interface SkillLockEntry {
 	/** Skill slug */
 	slug: string;
-	/** Skill version */
-	version: string;
+	/** Compatibility alias for the author-declared version. */
+	version: string | null;
+	/** Author-declared upstream version. */
+	authorVersion?: string | null;
+	/** Monotonic Skillstore content revision. */
+	skillstoreRevision?: number | null;
+	/** Version provenance/status reported by Skillstore. */
+	versionStatus?: string;
+	/** Immutable installable content identity. */
+	treeHash?: string | null;
 	/** ZIP file SHA256 hash */
 	zipHash: string;
 	/** Source (always 'skillstore' for now) */

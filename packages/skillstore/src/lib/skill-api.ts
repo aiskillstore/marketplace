@@ -29,13 +29,18 @@ export interface SkillZipArtifact {
 }
 
 export interface SkillManifest {
-	version: '1.0';
+	version: '1.0' | '1.1';
 	kind?: 'skill';
 	schemaVersion?: '2.0';
 	skill: {
 		slug: string;
 		name: string;
-		version: string;
+		/** Compatibility alias for authorVersion. */
+		version: string | null;
+		authorVersion?: string | null;
+		skillstoreRevision?: number | null;
+		versionStatus?: string;
+		treeHash?: string | null;
 		author?: string;
 		zipHash?: string;
 	};
@@ -45,10 +50,84 @@ export interface SkillManifest {
 	generatedAt: string;
 	signed?: {
 		kind?: 'skill';
-		version?: '1.0';
+		version?: '1.0' | '1.1';
 		generatedAt?: string;
 		skill?: SkillManifest['skill'];
 		artifact?: SkillZipArtifact;
+	};
+}
+
+function hasOwn(value: object, key: PropertyKey): boolean {
+	return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+/**
+ * Canonicalize an Ed25519 envelope onto its signed payload. Callers may safely
+ * use the top-level convenience fields after signature verification.
+ */
+export function normalizeSkillManifest(manifest: SkillManifest): SkillManifest {
+	if (typeof manifest.signature === 'object' && manifest.signed?.kind === 'skill') {
+		return {
+			...manifest,
+			version: manifest.signed.version ?? manifest.version,
+			generatedAt: manifest.signed.generatedAt ?? manifest.generatedAt,
+			skill: manifest.signed.skill ?? manifest.skill,
+			artifact: manifest.signed.artifact ?? manifest.artifact,
+		};
+	}
+	return manifest;
+}
+
+export interface SkillVersionIdentity {
+	authorVersion: string | null;
+	skillstoreRevision: number | null;
+	versionStatus: string;
+	treeHash: string | null;
+}
+
+/** Normalize additive dual-version fields while retaining old manifest support. */
+export function getSkillVersionIdentity(skill: SkillManifest['skill']): SkillVersionIdentity {
+	const authorVersion = hasOwn(skill, 'authorVersion')
+		? skill.authorVersion ?? null
+		: skill.version ?? null;
+
+	return {
+		authorVersion,
+		skillstoreRevision: skill.skillstoreRevision ?? null,
+		versionStatus: skill.versionStatus || (authorVersion ? 'legacy_unknown' : 'missing'),
+		treeHash: skill.treeHash ?? null,
+	};
+}
+
+/** Human-readable identity that still distinguishes r1/r2 under one author version. */
+export function formatSkillVersionIdentity(skill: {
+	version?: string | null;
+	authorVersion?: string | null;
+	skillstoreRevision?: number | null;
+	versionStatus?: string;
+}): string {
+	const explicitAuthorVersion = hasOwn(skill, 'authorVersion');
+	const authorVersion = explicitAuthorVersion ? skill.authorVersion ?? null : skill.version ?? null;
+	const legacyAlias = explicitAuthorVersion && authorVersion === null && skill.version
+		? `Legacy v${skill.version.replace(/^v/i, '')} (unverified)`
+		: null;
+	const versionLabel = authorVersion
+		? `v${authorVersion.replace(/^v/i, '')}`
+		: legacyAlias || 'Not declared';
+	return skill.skillstoreRevision == null ? versionLabel : `${versionLabel} (r${skill.skillstoreRevision})`;
+}
+
+/** Keep the old lockfile field as an alias without claiming it is author-owned. */
+export function getSkillVersionAlias(skill: SkillManifest['skill']): string | null {
+	return skill.version ?? getSkillVersionIdentity(skill).authorVersion;
+}
+
+export function getSkillLockVersionIdentity(skill: SkillManifest['skill']): SkillVersionIdentity & {
+	version: string | null;
+} {
+	return {
+		version: getSkillVersionAlias(skill),
+		...getSkillVersionIdentity(skill),
 	};
 }
 
@@ -196,7 +275,7 @@ export async function fetchSkillManifest(
 		);
 	}
 
-	return (await response.json()) as SkillManifest;
+	return normalizeSkillManifest((await response.json()) as SkillManifest);
 }
 
 /**

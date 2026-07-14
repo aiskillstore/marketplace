@@ -1,6 +1,7 @@
 import { defineCommand } from 'citty';
 import { getAllLockedSkills } from '../lib/skill-lock.js';
 import { logger } from '../lib/plugin-logger.js';
+import { formatSkillVersionIdentity } from '../lib/skill-api.js';
 
 /**
  * List installed skills
@@ -51,7 +52,9 @@ export default defineCommand({
 				const prefix = isLast ? '└─' : '├─';
 
 				const relativeTime = getRelativeTime(new Date(skill.updatedAt));
-				console.log(`  ${prefix} ${skill.slug}  v${skill.version}  (${relativeTime})`);
+				console.log(
+					`  ${prefix} ${skill.slug}  ${formatSkillVersionIdentity(skill)}  (${relativeTime})`
+				);
 			}
 
 			console.log('');

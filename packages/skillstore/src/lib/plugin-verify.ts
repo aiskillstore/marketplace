@@ -183,7 +183,7 @@ export async function verifyManifest(
 	options: { skipSignature?: boolean } = {}
 ): Promise<VerifyResult> {
 	// Validate manifest structure
-	if (!manifest.version || manifest.version !== '1.0') {
+	if (manifest.version !== '1.0' && manifest.version !== '1.1') {
 		return { valid: false, error: 'Unsupported manifest version' };
 	}
 
@@ -266,7 +266,7 @@ export async function verifySkillManifest(
 	options: { skipSignature?: boolean } = {}
 ): Promise<VerifyResult> {
 	// Validate manifest structure
-	if (!manifest.version || manifest.version !== '1.0') {
+	if (manifest.version !== '1.0' && manifest.version !== '1.1') {
 		return { valid: false, error: 'Unsupported manifest version' };
 	}
 

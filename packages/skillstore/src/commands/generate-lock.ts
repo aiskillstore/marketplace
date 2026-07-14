@@ -1,10 +1,19 @@
 import { defineCommand } from 'citty';
 import { readdir, access } from 'node:fs/promises';
+import { join } from 'node:path';
 import { writeSkillLock, LOCK_VERSION, type SkillLock, type SkillLockEntry } from '../lib/skill-lock.js';
-import { fetchSkillManifest, getSkillZipHash, SkillApiError } from '../lib/skill-api.js';
+import {
+	fetchSkillManifest,
+	formatSkillVersionIdentity,
+	getSkillLockVersionIdentity,
+	getSkillZipHash,
+	SkillApiError,
+} from '../lib/skill-api.js';
 import { getPluginConfig } from '../lib/plugin-config.js';
 import { logger } from '../lib/plugin-logger.js';
 import { CANONICAL_SKILLS_DIR } from '../lib/agents.js';
+import { verifySkillManifest } from '../lib/plugin-verify.js';
+import { readInstalledSkillReceipt } from '../lib/skill-receipt.js';
 
 /**
  * Generate lock file from installed skills
@@ -73,22 +82,45 @@ export default defineCommand({
 					// Try to fetch manifest from skillstore.io
 					const manifest = await fetchSkillManifest(config, slug);
 					const zipHash = getSkillZipHash(manifest);
+					const lockIdentity = getSkillLockVersionIdentity(manifest.skill);
 					if (!zipHash) {
 						skipped.push({ slug, reason: 'manifest is missing ZIP hash' });
 						console.log(`  ✗ ${slug} (manifest is missing ZIP hash)`);
 						continue;
 					}
+					const verifyResult = await verifySkillManifest(manifest);
+					if (!verifyResult.valid) {
+						skipped.push({ slug, reason: 'manifest verification failed' });
+						console.log(`  ✗ ${slug} (manifest verification failed)`);
+						continue;
+					}
+					const receipt = await readInstalledSkillReceipt(join(dir, slug));
+					if (!receipt) {
+						skipped.push({ slug, reason: 'verified Skillstore receipt missing' });
+						console.log(`  ✗ ${slug} (verified Skillstore receipt missing)`);
+						continue;
+					}
+					if (
+						lockIdentity.skillstoreRevision == null
+						|| !lockIdentity.treeHash
+						|| receipt.skillstoreRevision !== lockIdentity.skillstoreRevision
+						|| receipt.treeHash !== lockIdentity.treeHash.toLowerCase()
+					) {
+						skipped.push({ slug, reason: 'installed receipt does not match current artifact' });
+						console.log(`  ✗ ${slug} (installed receipt does not match current artifact)`);
+						continue;
+					}
 
 					matched.push({
 						slug,
-						version: manifest.skill.version,
+						...lockIdentity,
 						zipHash,
 						source: 'skillstore',
 						installedAt: new Date().toISOString(),
 						updatedAt: new Date().toISOString(),
 					});
 
-					console.log(`  ✓ ${slug} (v${manifest.skill.version})`);
+					console.log(`  ✓ ${slug} (${formatSkillVersionIdentity(manifest.skill)})`);
 				} catch (err) {
 					if (err instanceof SkillApiError && err.statusCode === 404) {
 						skipped.push({ slug, reason: 'not from skillstore.io' });
@@ -106,9 +138,9 @@ export default defineCommand({
 			console.log('');
 
 			if (matched.length === 0) {
-				logger.warn('No skills matched with skillstore.io');
+				logger.warn('No installed skills could be verified for update tracking');
 				console.log('');
-				console.log('Skills not from skillstore.io cannot be tracked for updates.');
+				console.log('Only skills with a valid Skillstore manifest and matching install receipt can be tracked.');
 				return;
 			}
 
@@ -128,7 +160,7 @@ export default defineCommand({
 				console.log('Would generate lock file with:');
 				console.log(`  - ${matched.length} skill${matched.length > 1 ? 's' : ''} from skillstore.io`);
 				if (skipped.length > 0) {
-					console.log(`  - ${skipped.length} skipped (not from skillstore.io)`);
+					console.log(`  - ${skipped.length} skipped (not verifiable for update tracking)`);
 				}
 				console.log('');
 				console.log(JSON.stringify(lock, null, 2));
