@@ -15,7 +15,7 @@ on:
         description: 'Exact stable skillstore-cli version (X.Y.Z; latest is forbidden)'
         type: string
         required: true
-        default: '2.1.0'
+        default: '2.1.1'
       batch_size:
         description: 'Legacy production Skills to inspect in this batch (1-500)'
         type: number
@@ -60,6 +60,10 @@ jobs:
           fi
           if ! [[ "$CLI_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::cli_version must be an exact stable X.Y.Z release"
+            exit 1
+          fi
+          if [ "$CLI_VERSION" != "2.1.1" ]; then
+            echo "::error::this workflow is pinned to the audited skillstore-cli 2.1.1"
             exit 1
           fi
           if ! [[ "$BATCH_SIZE" =~ ^[0-9]+$ ]] || [ "$BATCH_SIZE" -lt 1 ] || [ "$BATCH_SIZE" -gt 500 ]; then
@@ -282,12 +286,44 @@ jobs:
             '{schemaVersion: 2, status: "verified", mode: $mode, planHash: $planHash, inventoryHash: $inventoryHash, plan: $plan[0], groups: $groups[0]}' \
             > "$SUMMARY_FILE"
 
+      - name: Refetch production state after CLI
+        id: post-inventory
+        if: >-
+          always() &&
+          steps.plan.outcome == 'success' &&
+          steps.plan.outputs.selected_count != '0' &&
+          steps.verify.outcome == 'success'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --output "$RUNNER_TEMP/artifact-backfill-inventory-post.json"
+
+      - name: Verify production state preservation
+        id: readback
+        if: >-
+          always() &&
+          steps.verify.outcome == 'success' &&
+          steps.post-inventory.outcome == 'success'
+        env:
+          MODE: ${{ steps.inputs.outputs.mode }}
+        run: |
+          set -euo pipefail
+          node scripts/verify-artifact-version-backfill.mjs \
+            --mode "$MODE" \
+            --plan "$RUNNER_TEMP/artifact-backfill-plan.json" \
+            --post-inventory "$RUNNER_TEMP/artifact-backfill-inventory-post.json" \
+            --output "$RUNNER_TEMP/artifact-backfill-readback.json"
+
       - name: Invalidate production artifact and detail caches
         id: cache-invalidate
         if: >-
           steps.inputs.outputs.mode == 'execute' &&
           steps.plan.outputs.selected_count != '0' &&
-          steps.verify.outcome == 'success'
+          steps.verify.outcome == 'success' &&
+          steps.readback.outcome == 'success'
         env:
           CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
         run: |
@@ -349,6 +385,7 @@ jobs:
           REMAINING: ${{ steps.plan.outputs.remaining }}
           VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           CACHE_OUTCOME: ${{ steps.cache-invalidate.outcome }}
+          READBACK_OUTCOME: ${{ steps.readback.outcome }}
         run: |
           {
             echo "## Artifact-version backfill batch"
@@ -360,7 +397,8 @@ jobs:
             echo "- Inventory SHA-256: \`$INVENTORY_SHA\`"
             echo "- Verification: \`$VERIFY_OUTCOME\`"
             echo "- Cache invalidation: \`$CACHE_OUTCOME\`"
-            if [ "$VERIFY_OUTCOME" = "success" ] && \
+            echo "- Production readback: \`$READBACK_OUTCOME\`"
+            if [ "$VERIFY_OUTCOME" = "success" ] && [ "$READBACK_OUTCOME" = "success" ] && \
                { [ "$MODE" = "dry-run" ] || [ "$CACHE_OUTCOME" = "success" ]; } && \
                [ -n "$NEXT_START_AFTER" ]; then
               echo "- Verified resume cursor: \`$NEXT_START_AFTER\`"
@@ -374,11 +412,13 @@ jobs:
           name: artifact-version-backfill-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/artifact-backfill-inventory.json
+            ${{ runner.temp }}/artifact-backfill-inventory-post.json
             ${{ runner.temp }}/artifact-backfill-plan.json
             ${{ runner.temp }}/artifact-backfill-paths.txt
             ${{ runner.temp }}/artifact-backfill-result.json
             ${{ runner.temp }}/artifact-backfill-stderr.log
             ${{ runner.temp }}/artifact-backfill-summary.json
+            ${{ runner.temp }}/artifact-backfill-readback.json
             ${{ runner.temp }}/artifact-backfill-cache-invalidation.json
             ${{ runner.temp }}/artifact-backfill-cache-invalidation/
             ${{ runner.temp }}/artifact-backfill-group-results/

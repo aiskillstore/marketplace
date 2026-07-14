@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const COMMIT_RE = /^[0-9a-f]{40}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_BATCH_SIZE = 500;
 
 function fail(message) {
@@ -86,11 +87,24 @@ function normalizeInventory(inventory) {
     const contentHash = String(raw.content_hash ?? '').trim();
     const treeHash = String(raw.tree_hash ?? '').trim();
     const artifactRevision = Number(raw.artifact_revision);
+    const currentArtifactVersionId = raw.current_artifact_version_id == null
+      ? null
+      : String(raw.current_artifact_version_id).trim();
+    const status = typeof raw.status === 'string' ? raw.status.trim() : '';
+    const publicEligible = raw.public_eligible;
     if (!COMMIT_RE.test(marketplaceCommit)) fail(`Invalid production marketplace commit for ${slug}`);
     if (!SHA256_RE.test(contentHash)) fail(`Invalid production content_hash for ${slug}`);
     if (!SHA256_RE.test(treeHash)) fail(`Invalid production tree_hash for ${slug}`);
     if (!Number.isSafeInteger(artifactRevision) || artifactRevision < 0) {
       fail(`Invalid production artifact_revision for ${slug}`);
+    }
+    if (!status) fail(`Invalid production status for ${slug}`);
+    if (typeof publicEligible !== 'boolean') fail(`Invalid production public_eligible for ${slug}`);
+    if (artifactRevision === 0 && currentArtifactVersionId !== null) {
+      fail(`Legacy production row has a current artifact id for ${slug}`);
+    }
+    if (artifactRevision > 0 && !UUID_RE.test(currentArtifactVersionId || '')) {
+      fail(`Versioned production row lacks a valid current artifact id for ${slug}`);
     }
     const path = normalizePath(raw.plugin_path, slug);
     if (seenPaths.has(path)) fail(`Production inventory contains duplicate plugin_path ${path}`);
@@ -102,6 +116,9 @@ function normalizeInventory(inventory) {
       contentHash,
       treeHash,
       artifactRevision,
+      currentArtifactVersionId,
+      status,
+      publicEligible,
     };
   }).sort((left, right) => left.slug < right.slug ? -1 : left.slug > right.slug ? 1 : 0);
 }

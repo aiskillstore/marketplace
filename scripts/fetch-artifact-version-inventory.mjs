@@ -5,7 +5,17 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const PAGE_SIZE = 1000;
-const SELECT = 'slug,plugin_path,marketplace_commit_sha,content_hash,tree_hash,artifact_revision';
+const SELECT = [
+  'slug',
+  'plugin_path',
+  'marketplace_commit_sha',
+  'content_hash',
+  'tree_hash',
+  'artifact_revision',
+  'current_artifact_version_id',
+  'status',
+  'public_eligible',
+].join(',');
 
 function fail(message) {
   throw new Error(message);
