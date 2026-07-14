@@ -24,9 +24,9 @@ on:
         type: string
         default: ''
       concurrency:
-        description: 'Parallel database updates (1-10)'
+        description: 'Parallel database updates (production-safe default: 1)'
         type: string
-        default: '5'
+        default: '1'
       dry_run:
         description: 'Preview without updating database'
         type: boolean
@@ -48,6 +48,9 @@ jobs:
   recalculate:
     runs-on: self-hosted
     timeout-minutes: 1440
+    concurrency:
+      group: production-skill-score-writes
+      cancel-in-progress: false
     steps:
       - name: Generate GitHub App Token
         id: app-token
@@ -84,7 +87,7 @@ jobs:
           CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
           INPUT_SLUG: ${{ inputs.slug }}
           INPUT_LIMIT: ${{ inputs.limit }}
-          INPUT_CONCURRENCY: ${{ inputs.concurrency || '5' }}
+          INPUT_CONCURRENCY: ${{ inputs.concurrency || '1' }}
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
           INPUT_TIMEOUT_SECONDS: ${{ inputs.timeout_seconds || '180' }}
         run: |
@@ -128,7 +131,9 @@ jobs:
           WRAPPER_ARGS=(
             --cli "$GITHUB_WORKSPACE/skillstore-cli"
             --concurrency "$INPUT_CONCURRENCY"
-            --max-attempts 3
+            # The CLI already retries transient Supabase requests. A second
+            # wrapper retry layer can multiply a slow database wave.
+            --max-attempts 1
             --retry-base-seconds 5
             --timeout-seconds "$INPUT_TIMEOUT_SECONDS"
           )

@@ -366,6 +366,21 @@ test('recalculate-scores workflow default all-skills path uses per-slug wrapper'
 	assert.match(workflow, /WRAPPER_ARGS\+=\( --recalculate \)/, 'workflow must fall back to legacy --recalculate when the release asset is older than the tag');
 });
 
+test('production score writers serialize and avoid multiplicative retries', () => {
+	const recalc = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
+	const sync = readFileSync(SYNC_WORKFLOW, 'utf8');
+	for (const workflow of [recalc, sync]) {
+		assert.match(workflow, /group:\s*production-skill-score-writes/,
+			'production score jobs must share one cross-workflow concurrency group');
+		assert.match(workflow, /--max-attempts 1/,
+			'the workflow wrapper must not multiply the CLI request retry layer');
+	}
+	assert.match(recalc, /default:\s*'1'/, 'scheduled score concurrency must default to one');
+	assert.match(recalc, /INPUT_CONCURRENCY:\s*\$\{\{ inputs\.concurrency \|\| '1' \}\}/,
+		'recalculate fallback concurrency must remain one');
+	assert.match(sync, /--concurrency 1/, 'incremental sync scoring must remain single-writer');
+});
+
 test('workflows fail no-success/global scoring failures instead of masking them', () => {
 	const recalc = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
 	const sync = readFileSync(SYNC_WORKFLOW, 'utf8');
