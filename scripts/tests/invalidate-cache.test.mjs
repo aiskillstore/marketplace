@@ -304,6 +304,18 @@ test('HTTP 503 takes precedence over curl exit 18 and retries within the finite 
   assert.doesNotMatch(result.stderr, /curl transport failure/);
 });
 
+test('HTTP 200 takes precedence over curl exit 18 and succeeds without retrying', () => {
+  const { result, payloads, sleeps } = runInvalidator({
+    slugs: 'alpha',
+    results: 'http:200:18,http:200',
+  });
+
+  assert.equal(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  assert.equal(payloads.length, 1);
+  assert.deepEqual(sleeps, []);
+  assert.doesNotMatch(result.stderr, /curl transport failure|retrying/);
+});
+
 test('status 000 with curl exit 28 uses transport retries within the finite budget', () => {
   const { result, payloads, sleeps } = runInvalidator({
     slugs: 'alpha',
@@ -366,11 +378,11 @@ test('an exhausted batch fails immediately without sending later batches', () =>
   assert.equal(outputs.total_count, outputs.success_count + outputs.failed_count);
 });
 
-test('sync workflow uses the local bounded invalidator and preserves downstream success gates', () => {
+test('sync workflow uses an artifact-backed bounded invalidator and preserves downstream success gates', () => {
   const workflow = readFileSync(SYNC_WORKFLOW, 'utf8');
   const invalidationJob = workflow.slice(
+    workflow.indexOf('  cache-invalidate-shard:'),
     workflow.indexOf('  cache-invalidate:'),
-    workflow.indexOf('  # ENGLISH CACHE FINALIZER'),
   );
   const finalizerJob = workflow.slice(
     workflow.indexOf('  finalize-english-cache:'),
@@ -383,19 +395,17 @@ test('sync workflow uses the local bounded invalidator and preserves downstream 
     0,
     'workflow invokes the invalidator directly, so it must be committed executable',
   );
-  assert.match(invalidationJob, /sparse-checkout: scripts\/invalidate-cache\.sh/);
-  assert.match(invalidationJob, /sparse-checkout-cone-mode: false/);
+  assert.match(invalidationJob, /scripts\/invalidate-cache\.sh/);
+  assert.match(invalidationJob, /name: synced-slugs/);
   assert.match(invalidationJob, /BATCH_SIZE: ['"]10['"]/);
   assert.match(invalidationJob, /CONTENT_TYPE: skills/);
   assert.match(invalidationJob, /CURL_MAX_TIME: ['"]30['"]/);
   assert.match(invalidationJob, /MAX_ATTEMPTS: ['"]3['"]/);
+  assert.match(invalidationJob, /MAX_ITEMS: ['"]100['"]/);
   assert.match(invalidationJob, /run: \.\/scripts\/invalidate-cache\.sh/);
   assert.doesNotMatch(invalidationJob, /uses: \.\/\.github\/actions\/invalidate-cache/);
   assert.doesNotMatch(invalidationJob, /curl .*api\/cache\/invalidate/);
-  assert.match(
-    invalidationJob,
-    /Report cache invalidation failure[\s\S]*if: failure\(\) && steps\.invalidate\.outcome == 'failure'/,
-  );
+  assert.doesNotMatch(invalidationJob, /needs\.sync\.outputs\.synced_slugs/);
   assert.match(finalizerJob, /needs: \[sync, calculate-scores, cache-invalidate\]/);
   assert.match(finalizerJob, /needs\.cache-invalidate\.result == 'success'/);
   assert.match(triggerJob, /needs: \[sync, cache-invalidate, finalize-english-cache\]/);
@@ -405,11 +415,11 @@ test('sync workflow uses the local bounded invalidator and preserves downstream 
   );
 });
 
-test('sync cache invalidation has a fixed 10-batch budget below its job timeout', () => {
+test('each cache invalidation shard has a fixed 10-batch budget below its own timeout', () => {
   const workflow = readFileSync(SYNC_WORKFLOW, 'utf8');
   const invalidationJob = workflow.slice(
+    workflow.indexOf('  cache-invalidate-shard:'),
     workflow.indexOf('  cache-invalidate:'),
-    workflow.indexOf('  # ENGLISH CACHE FINALIZER'),
   );
   const readInteger = (name) => {
     const match = invalidationJob.match(
@@ -437,13 +447,13 @@ test('sync cache invalidation has a fixed 10-batch budget below its job timeout'
 
   if (timeoutMinutes === undefined || timeoutMinutes < 25) {
     violations.push(
-      `cache-invalidate timeout-minutes must be at least 25 (found ${timeoutMinutes ?? 'missing'})`,
+      `cache-invalidate-shard timeout-minutes must be at least 25 (found ${timeoutMinutes ?? 'missing'})`,
     );
   }
   for (const [name, expected] of Object.entries(expectedSettings)) {
     if (settings[name] !== expected) {
       violations.push(
-        `cache-invalidate must fix ${name}=${expected} (found ${settings[name] ?? 'missing'})`,
+        `cache-invalidate-shard must fix ${name}=${expected} (found ${settings[name] ?? 'missing'})`,
       );
     }
   }

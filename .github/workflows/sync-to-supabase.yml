@@ -33,7 +33,6 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 240
     outputs:
-      synced_slugs: ${{ steps.sync.outputs.synced_slugs }}
       synced_skill_count: ${{ steps.synced-plan.outputs.skill_count }}
       skip_sync: ${{ steps.changes.outputs.skip_sync }}
     steps:
@@ -421,16 +420,18 @@ jobs:
             exit 1
           fi
 
-          echo "synced_slugs=$SYNCED_SLUGS" >> $GITHUB_OUTPUT
-          echo "::notice::Synced skills: $SYNCED_SLUGS"
+          printf '%s\n' "$SYNCED_SLUGS" | tr ',' '\n' | sed '/^$/d' | sort -u > synced-slugs.txt
+          SYNCED_COUNT=$(wc -l < synced-slugs.txt | tr -d ' ')
+          echo "synced_count=$SYNCED_COUNT" >> "$GITHUB_OUTPUT"
+          echo "::notice::Synced $SYNCED_COUNT skill(s); slug payload saved to artifact input"
 
       - name: Remove generated report evidence from synced audits
-        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_slugs != ''
+        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SYNCED_SLUGS: ${{ steps.sync.outputs.synced_slugs }}
         run: |
+          SYNCED_SLUGS=$(paste -sd, synced-slugs.txt)
           SANITIZED_COUNT=0
           SANITIZE_ERRORS=0
 
@@ -598,22 +599,17 @@ jobs:
 
       - name: Save synced slugs to artifact
         id: synced-plan
-        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_slugs != ''
-        env:
-          SYNCED_SLUGS: ${{ steps.sync.outputs.synced_slugs }}
+        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'
         run: |
-          # Write slugs to file (one per line for easy processing)
-          echo "$SYNCED_SLUGS" | tr ',' '\n' > synced-slugs.txt
           SLUG_COUNT=$(wc -l < synced-slugs.txt | tr -d ' ')
           echo "skill_count=$SLUG_COUNT" >> "$GITHUB_OUTPUT"
           echo "📦 Saved $SLUG_COUNT slugs to artifact"
 
       - name: Resolve published submissions
         id: published_submissions
-        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_slugs != ''
+        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'
         env:
           BASE_SHA: ${{ steps.last_sync.outputs.base_sha }}
-          SYNCED_SLUGS: ${{ steps.sync.outputs.synced_slugs }}
         run: |
           node <<'NODE'
           const fs = require('fs');
@@ -621,8 +617,8 @@ jobs:
 
           const baseSha = process.env.BASE_SHA || 'HEAD~1';
           const syncedSlugs = new Set(
-            (process.env.SYNCED_SLUGS || '')
-              .split(',')
+            fs.readFileSync('synced-slugs.txt', 'utf8')
+              .split(/\r?\n/)
               .map((slug) => slug.trim())
               .filter(Boolean),
           );
@@ -757,7 +753,7 @@ jobs:
           done
 
       - name: Upload synced slugs artifact
-        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_slugs != ''
+        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'
         uses: actions/upload-artifact@v6
         with:
           name: synced-slugs
@@ -770,7 +766,7 @@ jobs:
   # ============================================================
   calculate-scores:
     needs: sync
-    if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != ''
+    if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_skill_count != '0'
     runs-on: self-hosted
     timeout-minutes: 120
     steps:
@@ -791,13 +787,19 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
+      - name: Download synced slug plan
+        uses: actions/download-artifact@v7
+        with:
+          name: synced-slugs
+          path: ./score-plan
+
       - name: Calculate quality scores for synced skills
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
         run: |
           echo "🎯 Calculating quality scores (per-slug with retry)"
+          SYNCED_SLUGS=$(paste -sd, ./score-plan/synced-slugs.txt)
 
           # Delegate to the per-slug wrapper so a single breakdown update
           # failure (e.g. transient Supabase TimeoutError) is logged and
@@ -836,25 +838,75 @@ jobs:
           fi
 
   # ============================================================
-  # CACHE INVALIDATION JOB
-  # Invalidates API and page cache for synced skills
+  # CACHE INVALIDATION PLAN
+  # Builds an id-only matrix from the synced-slugs artifact. Slug payloads
+  # stay in the artifact and never enter job outputs or matrix entries.
   # ============================================================
-  cache-invalidate:
-    needs: [sync, calculate-scores]
-    if: needs.sync.outputs.skip_sync != 'true'
+  plan-cache-invalidation:
+    needs: sync
+    if: needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_skill_count != '0'
+    runs-on: self-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      shard_count: ${{ steps.plan.outputs.shard_count }}
+      slug_count: ${{ steps.plan.outputs.slug_count }}
+    steps:
+      - name: Checkout cache invalidation planner
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/plan-cache-invalidation.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Download synced slug artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: synced-slugs
+          path: ./cache-invalidation-plan
+
+      - name: Plan bounded cache invalidation shards
+        id: plan
+        run: node ./scripts/plan-cache-invalidation.mjs plan --slugs-file ./cache-invalidation-plan/synced-slugs.txt --shard-size 100 --max-shards 256
+
+  # ============================================================
+  # CACHE INVALIDATION SHARDS
+  # Every child has an independent 25-minute budget and reads at most 100
+  # slugs from the artifact. max-parallel protects the production endpoint.
+  # ============================================================
+  cache-invalidate-shard:
+    needs: [sync, calculate-scores, plan-cache-invalidation]
+    if: needs.sync.outputs.skip_sync != 'true' && needs.plan-cache-invalidation.outputs.shard_count != '0'
     runs-on: self-hosted
     timeout-minutes: 25
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan-cache-invalidation.outputs.matrix) }}
     steps:
-      - name: Checkout cache invalidator
+      - name: Checkout cache invalidation scripts
         uses: actions/checkout@v5
         with:
           persist-credentials: false
-          sparse-checkout: scripts/invalidate-cache.sh
+          sparse-checkout: |
+            scripts/invalidate-cache.sh
+            scripts/plan-cache-invalidation.mjs
           sparse-checkout-cone-mode: false
 
-      - name: Invalidate cache for synced skills
+      - name: Download synced slug artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: synced-slugs
+          path: ./cache-invalidation-plan
+
+      - name: Extract bounded shard ${{ matrix.shard }}
+        run: node ./scripts/plan-cache-invalidation.mjs extract --slugs-file ./cache-invalidation-plan/synced-slugs.txt --shard-size 100 --shard-id "${{ matrix.shard }}" --output "$RUNNER_TEMP/cache-invalidation-shard.txt"
+
+      - name: Invalidate cache for shard ${{ matrix.shard }}
         id: invalidate
         env:
           BATCH_SIZE: '10'
@@ -865,19 +917,50 @@ jobs:
           MAX_ITEMS: '100'
           RETRY_BASE_SECONDS: '5'
           SITE_URL: https://skillstore.io
-          SLUGS_STR: ${{ needs.sync.outputs.synced_slugs }}
+          SLUGS_FILE: ${{ runner.temp }}/cache-invalidation-shard.txt
         run: ./scripts/invalidate-cache.sh
 
-      - name: Report cache invalidation failure
+      - name: Report shard failure
         if: failure() && steps.invalidate.outcome == 'failure'
+        run: echo "::error::Cache invalidation shard ${{ matrix.shard }} failed"
+
+  # ============================================================
+  # CACHE INVALIDATION AGGREGATE
+  # Always evaluates the matrix result. Any failed/cancelled/skipped child
+  # keeps this job non-success and blocks all downstream cache consumers.
+  # ============================================================
+  cache-invalidate:
+    needs: [sync, calculate-scores, plan-cache-invalidation, cache-invalidate-shard]
+    if: always() && needs.sync.result == 'success' && needs.sync.outputs.skip_sync != 'true'
+    runs-on: self-hosted
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout cache invalidation aggregate guard
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/check-cache-invalidation-aggregate.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Require every cache invalidation shard to succeed
+        env:
+          CACHE_PLAN_RESULT: ${{ needs.plan-cache-invalidation.result }}
+          CACHE_SHARD_RESULT: ${{ needs.cache-invalidate-shard.result }}
+          SCORE_RESULT: ${{ needs.calculate-scores.result }}
+        run: ./scripts/check-cache-invalidation-aggregate.sh
+
+      - name: Report cache invalidation failure
+        if: failure()
         run: |
-          echo "::error::Cache invalidation failed; cache warming is blocked"
+          echo "::error::Cache invalidation failed; cache warming is blocked; translation is blocked"
           cat << EOF >> "$GITHUB_STEP_SUMMARY"
           ## ❌ Cache invalidation failed
 
-          Skill data was synced, but the long-lived production detail cache was not invalidated. Detail API entries can live for **365 days**, so cache warming must not continue with stale data.
+          Skill data was synced, but at least one bounded cache invalidation shard did not succeed. Detail API entries can live for **365 days**, so downstream cache finalization and translation remain blocked.
 
-          **Action required**: fix the invalidation error, rerun cache invalidation for the synced slugs, then rerun the scoped warm workflow.
+          **Action required**: fix the failed shard, rerun cache invalidation for the synced artifact, then rerun the scoped warm workflow.
           EOF
 
   # ============================================================
@@ -957,10 +1040,16 @@ jobs:
   # ============================================================
   trigger-translate:
     needs: [sync, cache-invalidate, finalize-english-cache]
-    if: always() && needs.sync.result == 'success' && needs.cache-invalidate.result == 'success' && needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_slugs != '' && !contains(github.event.head_commit.message || '', '[bulk-source-monitor]')
+    if: always() && needs.sync.result == 'success' && needs.cache-invalidate.result == 'success' && needs.sync.outputs.skip_sync != 'true' && needs.sync.outputs.synced_skill_count != '0' && !contains(github.event.head_commit.message || '', '[bulk-source-monitor]')
     runs-on: self-hosted
     timeout-minutes: 15
     steps:
+      - name: Download synced slug plan
+        uses: actions/download-artifact@v7
+        with:
+          name: synced-slugs
+          path: ./translation-plan
+
       - name: Generate GitHub App Token
         id: app-token
         uses: actions/create-github-app-token@v3
@@ -971,16 +1060,17 @@ jobs:
       - name: Trigger translation workflow
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          SYNCED_SLUGS: ${{ needs.sync.outputs.synced_slugs }}
+          SYNCED_SKILL_COUNT: ${{ needs.sync.outputs.synced_skill_count }}
           ENGLISH_CACHE_FINALIZER_RESULT: ${{ needs.finalize-english-cache.result }}
         run: |
-          SLUG_COUNT=$(echo "$SYNCED_SLUGS" | tr ',' '\n' | grep -c . || echo 0)
+          SLUG_COUNT="$SYNCED_SKILL_COUNT"
           THRESHOLD=500
 
           echo "🌍 Triggering translation for $SLUG_COUNT synced skills"
 
           if [ "$SLUG_COUNT" -le "$THRESHOLD" ]; then
             # Small batch: pass slugs directly in payload
+            SYNCED_SLUGS=$(paste -sd, ./translation-plan/synced-slugs.txt)
             echo "   Mode: direct (≤$THRESHOLD slugs)"
             gh api repos/${{ github.repository }}/dispatches \
               --method POST \
