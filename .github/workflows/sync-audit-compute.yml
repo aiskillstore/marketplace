@@ -24,7 +24,15 @@ jobs:
       LEGACY_TOKENS: '1308077250'
       LEGACY_COST_USD: '2568.41704016099988706'
     steps:
+      - name: Checkout research refresh helper
+        uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/refresh-security-research-stats.sh
+          sparse-checkout-cone-mode: false
+
       - name: Sync audit compute snapshot
+        id: sync-compute
         run: |
           set -euo pipefail
 
@@ -111,3 +119,21 @@ jobs:
             echo "- Public total: \`$total_tokens\` tokens / \`$total_cost\` USD"
             echo "- RPC response: \`$response\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Refresh security research snapshot
+        id: security-research-refresh
+        continue-on-error: true
+        env:
+          SKILLSTORE_API_URL: https://skillstore.io
+          SECURITY_RESEARCH_AUTOMATION_KEY: ${{ secrets.SECURITY_RESEARCH_AUTOMATION_KEY }}
+        run: ./scripts/refresh-security-research-stats.sh
+
+      - name: Report security research refresh failure
+        if: steps.sync-compute.outcome == 'success' && steps.security-research-refresh.outcome == 'failure'
+        run: |
+          echo "::warning::Audit compute snapshot sync succeeded, but the security research snapshot refresh failed"
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          ## Security Research Refresh Warning
+
+          The audit-compute snapshot remains committed. The dedicated refresh endpoint failed after bounded retries; the stale-only safety-net workflow will retry without replaying the compute sync.
+          EOF

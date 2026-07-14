@@ -597,6 +597,25 @@ jobs:
         run: |
           echo "::notice::Sync completed - Mode: ${{ steps.changes.outputs.mode }}, Skills: ${{ steps.changes.outputs.changed_skills }}"
 
+      - name: Refresh security research snapshot
+        id: security-research-refresh
+        if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'
+        continue-on-error: true
+        env:
+          SKILLSTORE_API_URL: https://skillstore.io
+          SECURITY_RESEARCH_AUTOMATION_KEY: ${{ secrets.SECURITY_RESEARCH_AUTOMATION_KEY }}
+        run: ./scripts/refresh-security-research-stats.sh
+
+      - name: Report security research refresh failure
+        if: steps.security-research-refresh.outcome == 'failure'
+        run: |
+          echo "::warning::Skill sync succeeded, but the security research snapshot refresh failed"
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          ## Security Research Refresh Warning
+
+          The Skill sync remains committed. The dedicated refresh endpoint failed after bounded retries; the stale-only safety-net workflow will retry without replaying the core sync.
+          EOF
+
       - name: Save synced slugs to artifact
         id: synced-plan
         if: steps.changes.outputs.skip_sync != 'true' && steps.sync.outputs.synced_count != '0'
