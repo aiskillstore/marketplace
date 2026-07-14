@@ -49,6 +49,42 @@ jobs:
         with:
           fetch-depth: 0
           clean: true
+          # A persistent self-hosted workspace can inherit sparse-checkout
+          # configuration from an earlier job. Keep this explicitly empty so
+          # checkout does not intentionally select a subset of the repository.
+          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+
+      - name: Normalize full checkout and verify backfill runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          checked_out_sha=$(git rev-parse HEAD)
+          if [ "$checked_out_sha" != "$GITHUB_SHA" ]; then
+            echo "::error::Checkout identity mismatch: expected $GITHUB_SHA, got $checked_out_sha"
+            exit 1
+          fi
+
+          # actions/checkout attempts this itself, but a reused self-hosted
+          # worktree has previously remained sparse afterwards. Reapply the
+          # normalization and materialize every tracked path from this commit.
+          git sparse-checkout disable
+          git reset --hard HEAD
+
+          required_paths=(
+            .github/actions/download-skillstore-cli/action.yml
+            scripts/fetch-artifact-version-inventory.mjs
+            scripts/plan-artifact-version-backfill.mjs
+            scripts/verify-artifact-version-classification.mjs
+            scripts/verify-artifact-version-backfill.mjs
+          )
+          for required_path in "${required_paths[@]}"; do
+            if [ ! -f "$required_path" ]; then
+              echo "::error file=$required_path::Required backfill runtime file is missing after checkout"
+              exit 1
+            fi
+          done
 
       - name: Validate bounded inputs
         id: inputs
