@@ -1,6 +1,9 @@
 # Skill Store — Marketplace Repository
 
-This is the open-source content repository behind **[Skill Store](https://skillstore.io)**. It stores every approved [Agent Skill](https://agentskills.io/specification), the records that go with it, and the automated security audits each skill must pass before it ships.
+This is the open-source content repository behind
+**[Skill Store](https://skillstore.io)**. It stores every approved
+[Agent Skill](https://agentskills.io/specification), the records that go with
+it, and the automated security audits published with each skill.
 
 > **This repo is a companion to the Skill Store platform, not the place to submit skills.**
 > Skills are added through [skillstore.io](https://skillstore.io) — its review pipeline writes to this repo automatically. Please **do not open a pull request here to add a skill**; PRs adding skills will be closed. See [Contributing a skill](#contributing-a-skill) below.
@@ -49,7 +52,14 @@ Every submission is scanned automatically before it can be published. The audit 
 - Obfuscated or minified code
 - Credential / secret handling
 
-Skills that fail are not published.
+Security analysis is report-only: findings inform maintainers and users, but a
+risk result does not automatically block an otherwise approved skill from being
+published. See our [Security Trust Center](https://skillstore.io/security) for
+the methodology, limitations, and risk-level definitions.
+
+Live Security Passport example:
+
+[![Skillstore security](https://skillstore.io/badges/skills/consiliency-research/security.svg)](https://skillstore.io/skills/consiliency-research?utm_source=security_passport_badge)
 
 ## Repository layout
 
