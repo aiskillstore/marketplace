@@ -67,9 +67,15 @@ case "$result" in
     exit "\${result#transport:}"
     ;;
   http:*)
-    status="\${result#http:}"
+    response="\${result#http:}"
+    status="\${response%%:*}"
+    curl_exit=0
+    if [ "$response" != "$status" ]; then
+      curl_exit="\${response#*:}"
+    fi
     printf '{"ok":true}' > "$response_file"
     printf '%s' "$status"
+    exit "$curl_exit"
     ;;
   *)
     echo "unknown fake curl result: $result" >&2
@@ -88,6 +94,7 @@ function runInvalidator({
   secret = SECRET,
   batchSize = 2,
   maxAttempts = 3,
+  maxItems = 100,
   retryBaseSeconds = 1,
   results = 'http:200',
   contentType = 'skills',
@@ -119,6 +126,7 @@ function runInvalidator({
       SLUGS_FILE: slugsFile,
       BATCH_SIZE: String(batchSize),
       MAX_ATTEMPTS: String(maxAttempts),
+      MAX_ITEMS: String(maxItems),
       RETRY_BASE_SECONDS: String(retryBaseSeconds),
       CURL_CONNECT_TIMEOUT: '1',
       CURL_MAX_TIME: '2',
@@ -195,6 +203,20 @@ test('single and 96-item inputs use deterministic bounded JSON batches', () => {
   assert.deepEqual(unbounded.payloads, []);
 });
 
+test('inputs above the explicit 100-item budget fail before making an HTTP request', () => {
+  const slugs = Array.from({ length: 101 }, (_, index) => `skill-${index}`);
+  const { result, payloads, sleeps } = runInvalidator({
+    slugs: slugs.join(','),
+    batchSize: 10,
+    maxItems: 100,
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.deepEqual(payloads, []);
+  assert.deepEqual(sleeps, []);
+  assert.match(result.stderr, /item count 101 exceeds MAX_ITEMS 100/);
+});
+
 test('temporary workspace failure fails closed before making an HTTP request', () => {
   const { result, payloads, outputs } = runInvalidator({
     slugs: 'alpha',
@@ -241,6 +263,59 @@ test('HTTP 408, 429, and 5xx responses are transient and use finite retries', ()
     assert.equal(sleeps.length, 1);
     assert.deepEqual(payloads[0], payloads[1]);
   }
+});
+
+test('HTTP 401 takes precedence over curl exit 18 and fails after one request', () => {
+  const { result, payloads, sleeps } = runInvalidator({
+    slugs: 'alpha',
+    results: 'http:401:18,http:200',
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(payloads.length, 1);
+  assert.deepEqual(sleeps, []);
+  assert.match(result.stderr, /Non-transient HTTP 401/);
+});
+
+test('HTTP 403 takes precedence over curl exit 28 and fails after one request', () => {
+  const { result, payloads, sleeps } = runInvalidator({
+    slugs: 'alpha',
+    results: 'http:403:28,http:200',
+  });
+
+  assert.notEqual(result.status, 0);
+  assert.equal(payloads.length, 1);
+  assert.deepEqual(sleeps, []);
+  assert.match(result.stderr, /Non-transient HTTP 403/);
+});
+
+test('HTTP 503 takes precedence over curl exit 18 and retries within the finite budget', () => {
+  const { result, payloads, sleeps } = runInvalidator({
+    slugs: 'alpha',
+    maxAttempts: 3,
+    results: 'http:503:18,http:503:18,http:200',
+  });
+
+  assert.equal(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  assert.equal(payloads.length, 3);
+  assert.ok(payloads.every((payload) => JSON.stringify(payload) === JSON.stringify(payloads[0])));
+  assert.deepEqual(sleeps, ['1', '2']);
+  assert.match(result.stderr, /Transient HTTP 503/);
+  assert.doesNotMatch(result.stderr, /curl transport failure/);
+});
+
+test('status 000 with curl exit 28 uses transport retries within the finite budget', () => {
+  const { result, payloads, sleeps } = runInvalidator({
+    slugs: 'alpha',
+    maxAttempts: 3,
+    results: 'http:000:28,http:000:28,http:200',
+  });
+
+  assert.equal(result.status, 0, `STDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+  assert.equal(payloads.length, 3);
+  assert.ok(payloads.every((payload) => JSON.stringify(payload) === JSON.stringify(payloads[0])));
+  assert.deepEqual(sleeps, ['1', '2']);
+  assert.match(result.stderr, /Transient curl transport failure \(exit 28\)/);
 });
 
 test('non-transient curl failures fail closed without retrying', () => {
@@ -328,4 +403,61 @@ test('sync workflow uses the local bounded invalidator and preserves downstream 
     triggerJob,
     /if: always\(\) && needs\.sync\.result == 'success' && needs\.cache-invalidate\.result == 'success'/,
   );
+});
+
+test('sync cache invalidation has a fixed 10-batch budget below its job timeout', () => {
+  const workflow = readFileSync(SYNC_WORKFLOW, 'utf8');
+  const invalidationJob = workflow.slice(
+    workflow.indexOf('  cache-invalidate:'),
+    workflow.indexOf('  # ENGLISH CACHE FINALIZER'),
+  );
+  const readInteger = (name) => {
+    const match = invalidationJob.match(
+      new RegExp(`^\\s+${name}:\\s*['"]?(\\d+)['"]?\\s*$`, 'm'),
+    );
+    return match ? Number(match[1]) : undefined;
+  };
+
+  const timeoutMinutes = readInteger('timeout-minutes');
+  const settings = {
+    BATCH_SIZE: readInteger('BATCH_SIZE'),
+    MAX_ATTEMPTS: readInteger('MAX_ATTEMPTS'),
+    CURL_MAX_TIME: readInteger('CURL_MAX_TIME'),
+    RETRY_BASE_SECONDS: readInteger('RETRY_BASE_SECONDS'),
+    MAX_ITEMS: readInteger('MAX_ITEMS'),
+  };
+  const expectedSettings = {
+    BATCH_SIZE: 10,
+    MAX_ATTEMPTS: 3,
+    CURL_MAX_TIME: 30,
+    RETRY_BASE_SECONDS: 5,
+    MAX_ITEMS: 100,
+  };
+  const violations = [];
+
+  if (timeoutMinutes === undefined || timeoutMinutes < 25) {
+    violations.push(
+      `cache-invalidate timeout-minutes must be at least 25 (found ${timeoutMinutes ?? 'missing'})`,
+    );
+  }
+  for (const [name, expected] of Object.entries(expectedSettings)) {
+    if (settings[name] !== expected) {
+      violations.push(
+        `cache-invalidate must fix ${name}=${expected} (found ${settings[name] ?? 'missing'})`,
+      );
+    }
+  }
+  assert.deepEqual(violations, []);
+
+  const maxBatches = Math.ceil(settings.MAX_ITEMS / settings.BATCH_SIZE);
+  const retrySleepSeconds = settings.RETRY_BASE_SECONDS
+    * ((settings.MAX_ATTEMPTS - 1) * settings.MAX_ATTEMPTS / 2);
+  const worstSecondsPerBatch = settings.MAX_ATTEMPTS * settings.CURL_MAX_TIME
+    + retrySleepSeconds;
+  const worstCaseSeconds = maxBatches * worstSecondsPerBatch;
+
+  assert.equal(maxBatches, 10);
+  assert.equal(worstSecondsPerBatch, 105);
+  assert.equal(worstCaseSeconds, 1050);
+  assert.ok(worstCaseSeconds < timeoutMinutes * 60);
 });

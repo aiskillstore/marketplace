@@ -4,6 +4,7 @@ set -euo pipefail
 
 MAX_BATCH_SIZE=30
 BATCH_SIZE="${BATCH_SIZE:-10}"
+MAX_ITEMS="${MAX_ITEMS:-100}"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-3}"
 RETRY_BASE_SECONDS="${RETRY_BASE_SECONDS:-5}"
 CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-10}"
@@ -56,6 +57,17 @@ while IFS= read -r slug; do
 done < "$ITEMS_FILE"
 
 TOTAL=${#SLUGS[@]}
+if ! [[ "$MAX_ITEMS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "::error::MAX_ITEMS must be a positive integer" >&2
+  exit 1
+fi
+
+if [ "${#TOTAL}" -gt "${#MAX_ITEMS}" ] ||
+  { [ "${#TOTAL}" -eq "${#MAX_ITEMS}" ] && [[ "$TOTAL" > "$MAX_ITEMS" ]]; }; then
+  echo "::error::item count $TOTAL exceeds MAX_ITEMS $MAX_ITEMS" >&2
+  exit 1
+fi
+
 if [ "$TOTAL" -eq 0 ]; then
   write_counts 0 0 0
   echo "No items to invalidate"
@@ -138,19 +150,6 @@ request_batch_once() {
     curl_exit=$?
   fi
 
-  if [ "$curl_exit" -ne 0 ]; then
-    case "$curl_exit" in
-      5|6|7|16|18|28|35|52|55|56|92)
-        echo "    Transient curl transport failure (exit $curl_exit)" >&2
-        return 75
-        ;;
-      *)
-        echo "    Non-transient curl failure (exit $curl_exit)" >&2
-        return 1
-        ;;
-    esac
-  fi
-
   case "$status" in
     2[0-9][0-9])
       return 0
@@ -158,6 +157,23 @@ request_batch_once() {
     408|429|5[0-9][0-9])
       echo "    Transient HTTP $status" >&2
       return 75
+      ;;
+    ''|000)
+      if [ "$curl_exit" -ne 0 ]; then
+        case "$curl_exit" in
+          5|6|7|16|18|28|35|52|55|56|92)
+            echo "    Transient curl transport failure (exit $curl_exit)" >&2
+            return 75
+            ;;
+          *)
+            echo "    Non-transient curl failure (exit $curl_exit)" >&2
+            return 1
+            ;;
+        esac
+      fi
+
+      echo "    Invalid HTTP status '$status'" >&2
+      return 1
       ;;
     [0-9][0-9][0-9])
       echo "    Non-transient HTTP $status" >&2
