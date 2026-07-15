@@ -20,7 +20,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,8 +31,11 @@ const WRAPPER = join(REPO_ROOT, 'scripts', 'recalculate-scores.sh');
 const FAKE_CLI = join(REPO_ROOT, 'scripts', 'tests', 'fake-cli.sh');
 const RECALCULATE_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'recalculate-scores.yml');
 const SYNC_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'sync-to-supabase.yml');
+const SCRAPE_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'scrape-skills-sh.yml');
+const TEST_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'test-recalculate-scores.yml');
 const MONITOR_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'monitor-skill-sources.yml');
 const DOWNLOAD_CLI_ACTION = join(REPO_ROOT, '.github', 'actions', 'download-skillstore-cli', 'action.yml');
+const WORKFLOWS_DIR = join(REPO_ROOT, '.github', 'workflows');
 
 function runWrapper({
 	mode,
@@ -49,10 +52,13 @@ function runWrapper({
 	slowSlug,
 	slowSeconds,
 	timeoutSeconds = 0,
+	resultFiles = false,
 }) {
 	const tmp = mkdtempSync(join(tmpdir(), 'recalc-test-'));
 	const fakeCli = join(tmp, 'skillstore-cli');
 	const log = join(tmp, 'fake-cli.log');
+	const successSlugs = join(tmp, 'successful-slugs.txt');
+	const failedSlugs = join(tmp, 'failed-slugs.txt');
 	// Copy fake CLI to a stable path with the +x bit set.
 	writeFileSync(fakeCli, readFileSync(FAKE_CLI), { mode: 0o755 });
 
@@ -87,6 +93,9 @@ function runWrapper({
 		args.push('--slugs', 'a,b,c,d,e');
 	}
 	if (dryRun) args.push('--dry-run');
+	if (resultFiles) {
+		args.push('--success-slugs-file', successSlugs, '--failed-slugs-file', failedSlugs);
+	}
 
 	const result = spawnSync('/bin/bash', args, {
 		env,
@@ -94,7 +103,7 @@ function runWrapper({
 		timeout: 30_000,
 	});
 
-	return { result, tmp, fakeCli, log };
+	return { result, tmp, fakeCli, log, successSlugs, failedSlugs };
 }
 
 function lastSummary(stdout) {
@@ -166,6 +175,19 @@ test('a slug that fails repeatedly lets the run finish; partial success -> exit 
 	assert.match(result.stdout, /doomed/, 'failed slug name should be surfaced in summary');
 });
 
+test('writes exact disjoint success and terminal-failure slug artifacts', () => {
+	const { result, successSlugs, failedSlugs } = runWrapper({
+		mode: 'fail-slug-always',
+		failSlug: 'doomed',
+		slugs: 'beta,doomed,alpha',
+		maxAttempts: 1,
+		resultFiles: true,
+	});
+	assert.equal(result.status, 0);
+	assert.equal(readFileSync(successSlugs, 'utf8'), 'alpha\nbeta\n');
+	assert.equal(readFileSync(failedSlugs, 'utf8'), 'doomed\n');
+});
+
 test('all slugs fail -> exit 1 (no partial success)', () => {
 	// Use a different env that fails every slug. Easiest: re-run the
 	// fail-slug-always mode but with a slug set where the FAIL_SLUG
@@ -202,6 +224,21 @@ test('all slugs succeed -> exit 0, errors=0', () => {
 	assert.equal(sum.processed, '3');
 	assert.equal(sum.errors, '0');
 	assert.equal(sum.updated, '3');
+	assert.match(result.stdout, /Final errors:\s*0/, 'fixture must model the fixed CLI 2.8.0 score summary contract');
+});
+
+test('CLI exit 0 without processing the target is a terminal failure', () => {
+	const { result } = runWrapper({
+		mode: 'no-skills',
+		slugs: 'missing-slug',
+		maxAttempts: 1,
+	});
+	assert.equal(result.status, 1);
+	assert.match(result.stdout, /score ultimately failed for slug=missing-slug/);
+	const summary = lastSummary(result.stdout);
+	assert.equal(summary.processed, '1');
+	assert.equal(summary.updated, '0');
+	assert.equal(summary.errors, '1');
 });
 
 test('per-slug mode honors wrapper-level concurrency', () => {
@@ -356,10 +393,14 @@ test('recalculate-scores workflow default all-skills path uses per-slug wrapper'
 	assert.match(workflow, /WRAPPER_ARGS\+=\( --slugs-file "\$SLUGS_FILE" \)/, 'default full run must pass a slug file, not a giant CSV argv');
 	assert.match(workflow, /--timeout-seconds "\$INPUT_TIMEOUT_SECONDS"/, 'default full run must bound each per-skill CLI child');
 	assert.match(workflow, /CACHE_INVALIDATE_SECRET= bash scripts\/recalculate-scores\.sh/, 'per-slug CLI children must not invalidate cache one-by-one');
-	assert.match(workflow, /INVALIDATE_SLUGS_FILE="\$SLUGS_FILE"/, 'workflow must reuse the full slug file for batched cache invalidation');
-	assert.match(workflow, /Batch invalidating skill score cache/, 'workflow must batch invalidate score cache after successful scoring');
-	assert.match(workflow, /\/api\/cache\/invalidate/, 'workflow must call the Skillstore cache invalidation endpoint');
-	assert.match(workflow, /invalidateArtifacts:\s*false/, 'score recalculation must not invalidate unchanged skill artifacts');
+	assert.match(workflow, /--success-slugs-file "\$SUCCESS_SLUGS_FILE"/, 'workflow must materialize exact successes');
+	assert.match(workflow, /--failed-slugs-file "\$FAILED_SLUGS_FILE"/, 'workflow must materialize exact terminal failures');
+	assert.match(workflow, /name: score-closure-\$\{\{ github\.run_id \}\}/, 'score closure must cross jobs as an artifact');
+	assert.match(workflow, /cache-closure:[\s\S]*runs-on: ubuntu-latest/, 'cache closure must leave the self-hosted runner');
+	assert.match(workflow, /uses: \.\/\.github\/actions\/invalidate-cache/, 'hosted closure must reuse the bounded invalidation action');
+	assert.match(workflow, /invalidate-artifacts: 'false'/, 'score recalculation must not invalidate unchanged skill artifacts');
+	assert.match(workflow, /invalidate-dependent-packs: 'false'/, 'score-only closure must not traverse unchanged Pack artifacts');
+	assert.doesNotMatch(workflow, /Batch cache invalidation failed; scores were already written/, 'cache failure must not be downgraded to a warning');
 	assert.doesNotMatch(workflow, /WRAPPER_ARGS\+=\( --slugs "\$SLUGS_CSV" \)/, 'default full run must not put all slugs in one argv');
 	assert.doesNotMatch(workflow, /SLUGS_CSV=/, 'workflow must not build an all-skills CSV that can exceed ARG_MAX');
 	assert.match(workflow, /SUPPORTS_SLUGS=0/, 'workflow must feature-probe whether the downloaded CLI supports --slugs');
@@ -381,12 +422,62 @@ test('production score writers serialize and avoid multiplicative retries', () =
 	assert.match(sync, /--concurrency 1/, 'incremental sync scoring must remain single-writer');
 });
 
+test('every workflow that invokes the score wrapper is enumerated and holds the production writer mutex', () => {
+	const writerWorkflows = readdirSync(WORKFLOWS_DIR)
+		.filter((name) => name.endsWith('.yml'))
+		.filter((name) => readFileSync(join(WORKFLOWS_DIR, name), 'utf8').includes('bash scripts/recalculate-scores.sh'))
+		.sort();
+	assert.deepEqual(writerWorkflows, [
+		'recalculate-scores.yml',
+		'recover-score-cache-closure.yml',
+		'scrape-skills-sh.yml',
+		'sync-to-supabase.yml',
+	]);
+	for (const name of writerWorkflows) {
+		const workflow = readFileSync(join(WORKFLOWS_DIR, name), 'utf8');
+		assert.match(workflow, /group:\s*production-skill-score-writes/,
+			`${name} must serialize its production score write`);
+	}
+
+	const scrape = readFileSync(SCRAPE_WORKFLOW, 'utf8');
+	const [nonWritingScrape, scoreJob] = scrape.split('\n  rescore-metrics:');
+	assert.ok(scoreJob, 'skills.sh scoring must be isolated in its own job');
+	assert.doesNotMatch(nonWritingScrape, /production-skill-score-writes/,
+		'the non-writing scrape phase must not wait on the production score mutex');
+	assert.match(scoreJob, /concurrency:[\s\S]*group:\s*production-skill-score-writes/,
+		'the isolated skills.sh score job must hold the mutex');
+});
+
+test('malicious cli_version input cannot become shell syntax or select an unpinned binary', () => {
+	const workflow = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
+	const inputUsages = workflow.split('\n').filter((line) => line.includes('inputs.cli_version'));
+	assert.equal(inputUsages.length, 2);
+	for (const line of inputUsages) {
+		assert.match(line, /^\s+INPUT_CLI_VERSION:\s*\$\{\{ inputs\.cli_version/,
+			'operator input may enter the workflow only as an environment value');
+	}
+	assert.match(workflow, /\[\[ "\$INPUT_CLI_VERSION" =~ \^\(cli-v\)\?\[0-9\]\+\\\.\[0-9\]\+\\\.\[0-9\]\+\$ \]\]/);
+	assert.match(workflow, /version:\s*\$\{\{ env\.SCORE_CLI_VERSION \}\}/,
+		'the downloaded binary must come from the fixed workflow environment');
+	assert.doesNotMatch(workflow, /version:\s*\$\{\{ inputs\.cli_version/);
+	assert.equal(/^(cli-v)?[0-9]+\.[0-9]+\.[0-9]+$/.test('2.8.0; echo "$SUPABASE_SERVICE_ROLE_KEY"'), false);
+});
+
+test('score test workflow is triggered when the skills.sh production writer changes', () => {
+	const workflow = readFileSync(TEST_WORKFLOW, 'utf8');
+	assert.equal(
+		[...workflow.matchAll(/"\.github\/workflows\/scrape-skills-sh\.yml"/g)].length,
+		2,
+		'pull_request and push path filters must both cover the skills.sh writer',
+	);
+});
+
 test('workflows fail no-success/global scoring failures instead of masking them', () => {
 	const recalc = readFileSync(RECALCULATE_WORKFLOW, 'utf8');
 	const sync = readFileSync(SYNC_WORKFLOW, 'utf8');
 	assert.match(recalc, /SUCCESSFUL=\$\(\( \$\{PROCESSED:-0\} - \$\{ERRORS:-0\} \)\)/);
 	assert.match(recalc, /Recalculation failed: no skills were scored successfully/);
-	assert.match(recalc, /exit "\$EXIT_CODE"/);
+	assert.match(recalc, /Score recalculation has \$\{ERRORS:-0\} terminal failure\(s\); recovery is required/);
 	assert.match(sync, /tee score-output\.log/);
 	assert.match(sync, /Quality scoring failed: no synced skills were scored successfully/);
 	assert.match(sync, /exit "\$EXIT_CODE"/);

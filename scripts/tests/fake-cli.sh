@@ -11,6 +11,7 @@
 #                            the slug in FAKE_CLI_TIMEOUT_SLUG, then
 #                            succeed.
 #   recalc-fail            - --recalculate mode always fails
+#   no-skills              - exits 0 but proves no target was processed
 #   help                   - print usage
 #
 # It records every invocation to $FAKE_CLI_LOG (one line per call:
@@ -69,7 +70,7 @@ if [ "$RECALC" -eq 1 ]; then
 		*)
 			echo "Processed: 5"
 			echo "Updated: 5"
-			echo "Errors: 0"
+			echo "Final errors: 0"
 			echo "Duration: 10s"
 			exit 0
 			;;
@@ -88,6 +89,9 @@ slug_call_count() {
 for slug in "${ARR[@]}"; do
 	slug="$(echo "$slug" | xargs)"  # trim
 	case "$MODE" in
+		no-skills)
+			echo "No skills found"
+			;;
 		success)
 			echo "[ok] slug=$slug"
 			;;
@@ -126,9 +130,17 @@ for slug in "${ARR[@]}"; do
 	esac
 done
 
+if [ "$MODE" = "no-skills" ]; then
+	echo "Processed: 0"
+	echo "Updated: 0"
+	echo "Final errors: 0"
+	echo "Duration: 0s"
+	exit 0
+fi
+
 # Emit summary lines that the wrapper's legacy mode might parse.
 echo "Processed: ${#ARR[@]}"
 echo "Updated: ${#ARR[@]}"
-echo "Errors: 0"
+echo "Final errors: 0"
 echo "Duration: 1s"
 exit 0

@@ -24,6 +24,14 @@ inputs:
     description: 'Batch size for API calls'
     required: false
     default: '30'
+  invalidate-artifacts:
+    description: 'Whether immutable ZIP/install artifact keys must also be deleted'
+    required: false
+    default: 'true'
+  invalidate-dependent-packs:
+    description: 'Whether dependent Pack cache closure must also be deleted'
+    required: false
+    default: 'true'
   fail-on-error:
     description: 'Fail the action when one or more cache invalidations fail'
     required: false
@@ -54,6 +62,8 @@ runs:
         SLUGS_STR: ${{ inputs.slugs }}
         SLUGS_FILE: ${{ inputs['slugs-file'] }}
         FAIL_ON_ERROR: ${{ inputs['fail-on-error'] }}
+        INVALIDATE_ARTIFACTS: ${{ inputs['invalidate-artifacts'] }}
+        INVALIDATE_DEPENDENT_PACKS: ${{ inputs['invalidate-dependent-packs'] }}
       run: |
         set -euo pipefail
 
@@ -61,6 +71,14 @@ runs:
           echo "::error::fail-on-error must be true or false"
           exit 1
         fi
+
+        for boolean_name in INVALIDATE_ARTIFACTS INVALIDATE_DEPENDENT_PACKS; do
+          boolean_value="${!boolean_name}"
+          if [ "$boolean_value" != "true" ] && [ "$boolean_value" != "false" ]; then
+            echo "::error::$boolean_name must be true or false"
+            exit 1
+          fi
+        done
 
         case "$CONTENT_TYPE" in
           skills|packs|plugins|releases) ;;
@@ -132,7 +150,15 @@ runs:
           jq -n \
             --arg type "$CONTENT_TYPE" \
             --argjson slugs "$json_array" \
-            '{type: $type, slugs: $slugs}' > "$body_file"
+            --argjson invalidateArtifacts "$INVALIDATE_ARTIFACTS" \
+            --argjson invalidateDependentPacks "$INVALIDATE_DEPENDENT_PACKS" \
+            '{
+              type: $type,
+              slugs: $slugs,
+              invalidateApi: true,
+              invalidateArtifacts: $invalidateArtifacts,
+              invalidateDependentPacks: $invalidateDependentPacks
+            }' > "$body_file"
 
           status=$(curl -sS -o "$response_file" -w "%{http_code}" \
             --connect-timeout 10 \
@@ -147,6 +173,25 @@ runs:
           rm -f "$body_file"
 
           if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+            if ! jq -e \
+              --arg type "$CONTENT_TYPE" \
+              --argjson requested "$json_array" \
+              --argjson invalidateArtifacts "$INVALIDATE_ARTIFACTS" \
+              --argjson invalidateDependentPacks "$INVALIDATE_DEPENDENT_PACKS" \
+              '.preflight == false
+                and (.type == $type or .requestedType == $type)
+                and ((.slugs | sort) == ($requested | sort))
+                and (.invalidated.total | type == "number")
+                and (.invalidated.api | type == "number")
+                and (.invalidated.artifacts | type == "number")
+                and ($invalidateArtifacts or .invalidated.artifacts == 0)
+                and ($invalidateDependentPacks or ((.closure.dependentPacks.all // []) | length) == 0)' \
+              "$response_file" >/dev/null; then
+              echo "Cache invalidation response violated the requested closure contract" >&2
+              sed -n '1,20p' "$response_file" >&2 || true
+              rm -f "$response_file"
+              return 1
+            fi
             cat "$response_file"
             rm -f "$response_file"
             return 0
