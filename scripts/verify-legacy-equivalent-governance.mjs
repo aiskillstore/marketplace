@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const CLI_VERSION = '2.4.4';
+const CLI_VERSION = '2.5.0';
 const MAX_BATCH_SIZE = 500;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const COMMIT_RE = /^[0-9a-f]{40}$/;
@@ -333,6 +333,49 @@ function legacyGroups(plan, classification) {
   return groups;
 }
 
+export function validateLegacyPreviousReportManifest(manifest, plan) {
+  if (
+    manifest?.schemaVersion !== 1
+    || manifest?.status !== 'legacy_previous_reports_materialized'
+    || manifest?.selectedCount !== plan?.selectedCount
+    || !Array.isArray(manifest?.entries)
+    || manifest.entries.length !== plan?.selectedCount
+  ) {
+    fail('previous-report manifest has an invalid summary');
+  }
+  const selected = asMap(plan?.selected, 'path', 'plan previous-report paths');
+  const seen = new Set();
+  let priorPath = null;
+  for (const entry of manifest.entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail('previous-report manifest entry is not an object');
+    }
+    const keys = Object.keys(entry).sort();
+    if (canonicalJson(keys) !== canonicalJson([
+      'currentCommit', 'parentCommit', 'path', 'present', 'sha256',
+    ])) {
+      fail('previous-report manifest entry has unexpected fields');
+    }
+    const planned = selected.get(entry.path);
+    if (
+      !planned
+      || seen.has(entry.path)
+      || entry.currentCommit !== planned.marketplaceCommit
+      || !COMMIT_RE.test(String(entry.parentCommit || ''))
+      || entry.parentCommit === entry.currentCommit
+      || typeof entry.present !== 'boolean'
+      || (entry.present && !SHA256_RE.test(String(entry.sha256 || '')))
+      || (!entry.present && entry.sha256 !== null)
+      || (priorPath !== null && priorPath >= entry.path)
+    ) {
+      fail(`previous-report manifest mismatch for ${entry?.path ?? '<missing>'}`);
+    }
+    seen.add(entry.path);
+    priorPath = entry.path;
+  }
+  if (seen.size !== selected.size) fail('previous-report manifest does not cover the frozen plan');
+}
+
 function validateAdminWrapper(wrapper, expected, mode, classification) {
   if (
     wrapper?.batchIndex !== expected.batchIndex
@@ -409,6 +452,10 @@ export function createLegacyGovernanceBoundary({
     classification,
     JSON.parse(readFileSync(paths.sourceEvidence, 'utf8'))
   );
+  validateLegacyPreviousReportManifest(
+    JSON.parse(readFileSync(paths.previousReportManifest, 'utf8')),
+    plan,
+  );
   const groups = legacyGroups(plan, classification);
   if (!Array.isArray(dryRunResults) || dryRunResults.length !== groups.length) {
     fail('dry-run result group count does not match the frozen legacy cohort');
@@ -436,6 +483,7 @@ export function createLegacyGovernanceBoundary({
       preInventory: sha256File(paths.preInventory),
       dryRunResults: sha256File(paths.dryRunResults),
       sourceEvidence: sha256File(paths.sourceEvidence),
+      previousReportManifest: sha256File(paths.previousReportManifest),
     },
     groups,
   };
@@ -469,6 +517,10 @@ export function verifyLegacyGovernanceBoundary({
     }
   }
   const expectedGroups = legacyGroups(plan, classification);
+  validateLegacyPreviousReportManifest(
+    JSON.parse(readFileSync(paths.previousReportManifest, 'utf8')),
+    plan,
+  );
   if (canonicalJson(boundary.groups) !== canonicalJson(expectedGroups)) {
     fail('downloaded boundary groups do not match plan/classification');
   }
@@ -746,6 +798,7 @@ export function main(argv = process.argv.slice(2)) {
         preInventory: resolve(args['pre-inventory']),
         dryRunResults: resolve(args['dry-run-results']),
         sourceEvidence: resolve(args['source-evidence']),
+        previousReportManifest: resolve(args['previous-report-manifest']),
       },
       metadata: {
         runId: args['run-id'],
@@ -770,6 +823,7 @@ export function main(argv = process.argv.slice(2)) {
         preInventory: resolve(args['frozen-inventory']),
         dryRunResults: resolve(args['dry-run-results']),
         sourceEvidence: resolve(args['frozen-source-evidence']),
+        previousReportManifest: resolve(args['previous-report-manifest']),
       },
       expectedRunId: args['expected-run-id'],
     });

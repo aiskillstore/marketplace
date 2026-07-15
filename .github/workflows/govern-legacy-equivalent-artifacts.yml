@@ -15,7 +15,7 @@ on:
         description: 'Exact audited skillstore-cli version'
         type: string
         required: true
-        default: '2.4.4'
+        default: '2.5.0'
       batch_size:
         description: 'Maximum Skills classified by a new dry-run boundary (1-500)'
         type: number
@@ -69,6 +69,7 @@ jobs:
             .github/actions/download-skillstore-cli/action.yml \
             scripts/fetch-artifact-version-inventory.mjs \
             scripts/plan-artifact-version-backfill.mjs \
+            scripts/materialize-legacy-previous-reports.mjs \
             scripts/verify-artifact-version-classification.mjs \
             scripts/fetch-legacy-equivalent-governance-readback.mjs \
             scripts/verify-legacy-equivalent-governance.mjs; do
@@ -85,7 +86,7 @@ jobs:
           DRY_RUN_ID: ${{ inputs.dry_run_id }}
         run: |
           set -euo pipefail
-          test "$CLI_VERSION" = '2.4.4' || { echo '::error::workflow is pinned to skillstore-cli 2.4.4'; exit 1; }
+          test "$CLI_VERSION" = '2.5.0' || { echo '::error::workflow is pinned to skillstore-cli 2.5.0'; exit 1; }
           test "$GITHUB_REF_NAME" = 'main' || { echo '::error::frozen boundaries may only be created from main'; exit 1; }
           [[ "$BATCH_SIZE" =~ ^[0-9]+$ ]] && [ "$BATCH_SIZE" -ge 1 ] && [ "$BATCH_SIZE" -le 500 ] || {
             echo '::error::batch_size must be between 1 and 500'; exit 1;
@@ -144,18 +145,26 @@ jobs:
         uses: ./.github/actions/download-skillstore-cli
         with:
           token: ${{ steps.app-token.outputs.token }}
-          version: '2.4.4'
-          minimum-version: '2.4.4'
+          version: '2.5.0'
+          minimum-version: '2.5.0'
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
-      - name: Verify audited CLI 2.4.4 binary identity
+      - name: Verify audited CLI 2.5.0 binary identity
         run: |
           set -euo pipefail
-          expected='4ee53da0adf5b1ab990f065edacff5e9ec60a37ce015e10decf76c65828321b0'
+          expected='e6110fa711ac570d4c4fa03bf03b57e5857ddc158a54a891500f72eb2023441e'
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
           test "$actual" = "$expected" || {
-            echo '::error::CLI 2.4.4 binary does not match the audited linux-x64 digest'; exit 1;
+            echo '::error::CLI 2.5.0 binary does not match the audited linux-x64 digest'; exit 1;
           }
+
+      - name: Materialize frozen first-parent report evidence
+        run: >-
+          node scripts/materialize-legacy-previous-reports.mjs
+          --repository-root "$GITHUB_WORKSPACE"
+          --plan "$RUNNER_TEMP/plan.json"
+          --output-root "$RUNNER_TEMP/legacy-previous-reports"
+          --manifest "$RUNNER_TEMP/legacy-previous-report-manifest.json"
 
       - name: Materialize pinned snapshots
         run: |
@@ -191,6 +200,7 @@ jobs:
               set +e
               (cd "$RUNNER_TEMP/materialized/batch-$index/$commit" && "$GITHUB_WORKSPACE/skillstore-cli" skill sync \
                 --slugs "$slug_paths" --artifact-only --legacy-only --repair-stale-report-hashes \
+                --legacy-previous-report-root "$RUNNER_TEMP/legacy-previous-reports/batch-$index/$commit" \
                 --dry-run --concurrency 5 --marketplace-commit "$commit" --output json) > "$raw"
               exit_code=$?
               set -e
@@ -244,6 +254,7 @@ jobs:
             "$GITHUB_WORKSPACE/skillstore-cli" skill govern-legacy-equivalent \
               --classification "$RUNNER_TEMP/classification.json" \
               --root "$RUNNER_TEMP/materialized/batch-$index/$commit" \
+              --legacy-previous-report-root "$RUNNER_TEMP/legacy-previous-reports/batch-$index/$commit" \
               --slugs "$slugs" --dry-run --concurrency 1 --result-file "$result"
             jq -n -c --argjson batchIndex "$index" --arg marketplaceCommit "$commit" \
               --argjson selectedCount "$count" --argjson slugs "$(jq -c .slugs <<< "$group")" \
@@ -276,15 +287,17 @@ jobs:
           cp "$RUNNER_TEMP/pre-inventory.json" "$boundary/pre-inventory.json"
           cp "$RUNNER_TEMP/governance-dry-run.json" "$boundary/governance-dry-run.json"
           cp "$RUNNER_TEMP/source-evidence.json" "$boundary/source-evidence.json"
+          cp "$RUNNER_TEMP/legacy-previous-report-manifest.json" "$boundary/legacy-previous-report-manifest.json"
           node scripts/verify-legacy-equivalent-governance.mjs --phase freeze \
             --plan "$boundary/plan.json" --classification "$boundary/classification.json" \
             --pre-inventory "$boundary/pre-inventory.json" --dry-run-results "$boundary/governance-dry-run.json" \
             --source-evidence "$boundary/source-evidence.json" \
+            --previous-report-manifest "$boundary/legacy-previous-report-manifest.json" \
             --run-id "$GITHUB_RUN_ID" --repository "$GITHUB_REPOSITORY" \
-            --workflow-commit "$GITHUB_SHA" --cli-version '2.4.4' \
+            --workflow-commit "$GITHUB_SHA" --cli-version '2.5.0' \
             --cli-sha256 "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" \
             --output "$boundary/boundary.json"
-          (cd "$boundary" && sha256sum plan.json classification.json pre-inventory.json governance-dry-run.json source-evidence.json boundary.json > SHA256SUMS)
+          (cd "$boundary" && sha256sum plan.json classification.json pre-inventory.json governance-dry-run.json source-evidence.json legacy-previous-report-manifest.json boundary.json > SHA256SUMS)
 
       - name: Upload strict frozen-boundary evidence
         if: success()
@@ -302,7 +315,7 @@ jobs:
           {
             echo '## Legacy-equivalent frozen boundary'
             echo "- Run ID: \`$GITHUB_RUN_ID\`"
-            echo "- CLI: \`2.4.4\`"
+            echo "- CLI: \`2.5.0\`"
             echo "- Selected: \`${{ steps.plan.outputs.selected_count }}\` (maximum 500)"
             echo "- Scan end: \`${{ steps.plan.outputs.last_selected }}\`"
             echo "- Hash-equivalent: \`$(jq -r .governance.hashEquivalentCount "$RUNNER_TEMP/classification.json")\`; governable: \`$(jq -r .governance.eligibleCount "$RUNNER_TEMP/classification.json")\`; source-audit unproven: \`$(jq -r .governance.unprovenCount "$RUNNER_TEMP/classification.json")\`"
@@ -316,7 +329,7 @@ jobs:
           set -euo pipefail
           boundary="$RUNNER_TEMP/legacy-boundary"
           mkdir -p "$boundary"
-          for item in plan hash-classification classification pre-inventory governance-dry-run source-evidence source-evidence-after classification-results legacy-groups; do
+          for item in plan hash-classification classification pre-inventory governance-dry-run source-evidence source-evidence-after classification-results legacy-groups legacy-previous-report-manifest; do
             source="$RUNNER_TEMP/$item.json"
             [ ! -f "$source" ] || cp "$source" "$boundary/$item.json"
           done
@@ -360,12 +373,13 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git sparse-checkout disable
           git reset --hard HEAD
-          test "$CLI_VERSION" = '2.4.4' || { echo '::error::workflow is pinned to skillstore-cli 2.4.4'; exit 1; }
+          test "$CLI_VERSION" = '2.5.0' || { echo '::error::workflow is pinned to skillstore-cli 2.5.0'; exit 1; }
           test "$GITHUB_REF_NAME" = 'main' || { echo '::error::execute may only run from main'; exit 1; }
           [[ "$DRY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::execute requires a numeric dry_run_id'; exit 1; }
           [ -z "$START_AFTER$END_AT" ] || { echo '::error::execute uses only its frozen boundary'; exit 1; }
           for path in scripts/fetch-artifact-version-inventory.mjs \
             scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            scripts/materialize-legacy-previous-reports.mjs \
             scripts/verify-legacy-equivalent-governance.mjs; do
             test -f "$path" || { echo "::error file=$path::Missing governance runtime"; exit 1; }
           done
@@ -393,6 +407,20 @@ jobs:
             echo '::error::boundary workflow commit is not an ancestor of this main execution'; exit 1;
           }
 
+      - name: Recompute and match frozen first-parent report evidence
+        run: |
+          set -euo pipefail
+          node scripts/materialize-legacy-previous-reports.mjs \
+            --repository-root "$GITHUB_WORKSPACE" \
+            --plan "$RUNNER_TEMP/boundary/plan.json" \
+            --output-root "$RUNNER_TEMP/current-legacy-previous-reports" \
+            --manifest "$RUNNER_TEMP/current-legacy-previous-report-manifest.json"
+          cmp \
+            "$RUNNER_TEMP/boundary/legacy-previous-report-manifest.json" \
+            "$RUNNER_TEMP/current-legacy-previous-report-manifest.json" || {
+              echo '::error::first-parent report evidence differs from the frozen boundary'; exit 1;
+            }
+
       - name: Refetch current scoped production state
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -416,6 +444,7 @@ jobs:
             --current-inventory "$RUNNER_TEMP/current-inventory.json" \
             --frozen-source-evidence "$RUNNER_TEMP/boundary/source-evidence.json" \
             --current-source-evidence "$RUNNER_TEMP/current-source-evidence.json" \
+            --previous-report-manifest "$RUNNER_TEMP/boundary/legacy-previous-report-manifest.json" \
             --dry-run-results "$RUNNER_TEMP/boundary/governance-dry-run.json" \
             --expected-run-id '${{ inputs.dry_run_id }}' --output "$RUNNER_TEMP/execution-preflight.json"
 
@@ -427,22 +456,22 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           repositories: marketplace,skillstore
 
-      - name: Download exact audited CLI 2.4.4
+      - name: Download exact audited CLI 2.5.0
         uses: ./.github/actions/download-skillstore-cli
         with:
           token: ${{ steps.app-token.outputs.token }}
-          version: '2.4.4'
-          minimum-version: '2.4.4'
+          version: '2.5.0'
+          minimum-version: '2.5.0'
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
       - name: Verify frozen CLI binary identity
         run: |
           set -euo pipefail
-          audited='4ee53da0adf5b1ab990f065edacff5e9ec60a37ce015e10decf76c65828321b0'
+          audited='e6110fa711ac570d4c4fa03bf03b57e5857ddc158a54a891500f72eb2023441e'
           expected=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/boundary.json")
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
           test "$expected" = "$audited" && test "$actual" = "$audited" || {
-            echo '::error::CLI 2.4.4 binary differs from the frozen dry-run boundary'; exit 1;
+            echo '::error::CLI 2.5.0 binary differs from the frozen dry-run boundary'; exit 1;
           }
 
       - name: Materialize only frozen legacy groups
@@ -476,6 +505,7 @@ jobs:
             "$GITHUB_WORKSPACE/skillstore-cli" skill govern-legacy-equivalent \
               --classification "$RUNNER_TEMP/boundary/classification.json" \
               --root "$RUNNER_TEMP/materialized/batch-$index/$commit" \
+              --legacy-previous-report-root "$RUNNER_TEMP/current-legacy-previous-reports/batch-$index/$commit" \
               --slugs "$slugs" --concurrency 1 --result-file "$result"
             jq -n -c --argjson batchIndex "$index" --arg marketplaceCommit "$commit" \
               --argjson selectedCount "$count" --argjson slugs "$(jq -c .slugs <<< "$group")" \
@@ -538,6 +568,7 @@ jobs:
             ${{ runner.temp }}/execution-preflight.json
             ${{ runner.temp }}/current-inventory.json
             ${{ runner.temp }}/current-source-evidence.json
+            ${{ runner.temp }}/current-legacy-previous-report-manifest.json
             ${{ runner.temp }}/execution-results.json
             ${{ runner.temp }}/post-inventory.json
             ${{ runner.temp }}/governance-readback.json
@@ -552,7 +583,7 @@ jobs:
           {
             echo '## Legacy-equivalent execution verified'
             echo "- Frozen boundary run: \`${{ inputs.dry_run_id }}\`"
-            echo '- CLI: `2.4.4`'
+            echo '- CLI: `2.5.0`'
             echo "- Executed: \`$(jq -r .executedCount "$RUNNER_TEMP/execution-verification.json")\`"
             echo '- Artifact, observation, derived audit, score binding, Pack timestamps, and no-attestation invariants passed.'
             echo '- Cache authorization was preflighted before writes; API and artifact invalidation was bounded to groups of ten.'
