@@ -7,22 +7,11 @@ on:
         type: choice
         required: true
         options: [dry-run, execute]
-      classification_run_id:
-        description: Successful legacy-governance dry-run containing the frozen classification
-        type: string
-        required: true
       dry_run_id:
         description: Successful binding dry-run ID; execute only
         type: string
         required: false
-      expected_targeted:
-        type: number
-        required: true
-        default: 61
-      expected_drift:
-        type: number
-        required: true
-        default: 24
+        default: ''
 
 permissions:
   actions: read
@@ -42,13 +31,15 @@ jobs:
       - name: Validate immutable operator boundary
         env:
           MODE: ${{ inputs.mode }}
-          SOURCE_RUN: ${{ inputs.classification_run_id }}
           DRY_RUN: ${{ inputs.dry_run_id }}
         run: |
           set -euo pipefail
-          test "$GITHUB_REF_NAME" = main
-          [[ "$SOURCE_RUN$DRY_RUN" != *[^0-9]* ]]
-          if [ "$MODE" = execute ]; then test -n "$DRY_RUN"; else test -z "$DRY_RUN"; fi
+          test "$GITHUB_REF_NAME" = main || { echo '::error::binding boundaries may only run from main'; exit 1; }
+          if [ "$MODE" = execute ]; then
+            [[ "$DRY_RUN" =~ ^[1-9][0-9]*$ ]] || { echo '::error::execute requires a numeric binding dry_run_id'; exit 1; }
+          else
+            test -z "$DRY_RUN" || { echo '::error::dry-run does not accept a source override'; exit 1; }
+          fi
       - id: token
         uses: actions/create-github-app-token@v3
         with:
@@ -67,35 +58,105 @@ jobs:
           set -euo pipefail
           actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
           test "$actual" = 'cc987bdb22b3c19b7f7dec60b707032979823579167c0b911e408771ed9e13d7'
-      - name: Download frozen hash-classification boundary
-        env: { GH_TOKEN: '${{ steps.token.outputs.token }}' }
+      - name: Download the three immutable governance source boundaries
+        if: inputs.mode == 'dry-run'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
         run: |
           set -euo pipefail
-          source_run='${{ inputs.mode == 'execute' && inputs.dry_run_id || inputs.classification_run_id }}'
-          mkdir -p "$RUNNER_TEMP/source"
-          gh run download "$source_run" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/source"
-          if [ '${{ inputs.mode }}' = execute ]; then
-            boundary=$(find "$RUNNER_TEMP/source" -type d -name 'legacy-audit-binding-boundary-*' -print -quit)
-          else
-            boundary=$(find "$RUNNER_TEMP/source" -type d -name 'legacy-equivalent-boundary-*' -print -quit)
-          fi
-          test -n "$boundary"
-          cp -R "$boundary" "$RUNNER_TEMP/boundary"
+          manifest=scripts/data/legacy-audit-binding-source-boundaries-v1.json
+          root="$RUNNER_TEMP/source-governance-boundaries"; mkdir -p "$root"
+          jq -c '.sources[]' "$manifest" | while read -r source; do
+            run_id=$(jq -r .runId <<< "$source"); head_sha=$(jq -r .headSha <<< "$source")
+            artifact=$(jq -r .artifactName <<< "$source"); target="$root/$run_id"; mkdir -p "$target"
+            run_json=$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" \
+              --json databaseId,conclusion,event,headBranch,headSha,workflowName,url)
+            jq -e --arg id "$run_id" --arg headSha "$head_sha" '
+              (.databaseId | tostring) == $id and .conclusion == "success"
+              and .event == "workflow_dispatch" and .headBranch == "main"
+              and .headSha == $headSha and .workflowName == "Govern Legacy-Equivalent Artifacts"
+            ' <<< "$run_json" >/dev/null
+            gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "$target"
+            test "$(sha256sum "$target/SHA256SUMS" | awk '{print $1}')" = "$(jq -r .sha256sumsSha256 <<< "$source")"
+            (cd "$target" && sha256sum --check SHA256SUMS)
+            test "$(sha256sum "$target/classification.json" | awk '{print $1}')" = "$(jq -r .classificationSha256 <<< "$source")"
+            git merge-base --is-ancestor "$head_sha" "$GITHUB_SHA"
+          done
+      - name: Select the exact current raw32 cohort from fixed boundaries
+        if: inputs.mode == 'dry-run'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          manifest=scripts/data/legacy-audit-binding-source-boundaries-v1.json
+          root="$RUNNER_TEMP/source-governance-boundaries"
+          mkdir -p "$RUNNER_TEMP/boundary"
+          node scripts/build-legacy-audit-binding-source-cohort.mjs --phase candidate \
+            --manifest "$manifest" --sources-root "$root" --output "$RUNNER_TEMP/boundary/candidate-scope.json"
+          node scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            --classification "$RUNNER_TEMP/boundary/candidate-scope.json" \
+            --output "$RUNNER_TEMP/candidate-source-evidence.json"
+          node scripts/build-legacy-audit-binding-source-cohort.mjs --phase select \
+            --manifest "$manifest" --sources-root "$root" \
+            --source-evidence "$RUNNER_TEMP/candidate-source-evidence.json" \
+            --classification-output "$RUNNER_TEMP/boundary/classification.json" \
+            --plan-output "$RUNNER_TEMP/boundary/plan.json"
+      - name: Authenticate and download the exact binding dry-run boundary
+        if: inputs.mode == 'execute'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          DRY_RUN: ${{ inputs.dry_run_id }}
+        run: |
+          set -euo pipefail
+          run_json=$(gh run view "$DRY_RUN" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,conclusion,event,headBranch,headSha,workflowName,url)
+          jq -e --arg id "$DRY_RUN" '
+            (.databaseId | tostring) == $id and .conclusion == "success"
+            and .event == "workflow_dispatch" and .headBranch == "main"
+            and .workflowName == "Bind Legacy Audit Subjects"
+          ' <<< "$run_json" >/dev/null
+          mkdir -p "$RUNNER_TEMP/boundary"
+          gh run download "$DRY_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "legacy-audit-binding-boundary-$DRY_RUN" --dir "$RUNNER_TEMP/boundary"
+          (cd "$RUNNER_TEMP/boundary" && sha256sum --check SHA256SUMS)
+          head_sha=$(jq -r .headSha <<< "$run_json")
+          jq -e --arg runId "$DRY_RUN" --arg repository "$GITHUB_REPOSITORY" --arg headSha "$head_sha" '
+            .schemaVersion == 1 and .status == "binding_dry_run_frozen" and .runId == $runId
+            and .repository == $repository and .workflowCommit == $headSha
+            and .cliVersion == "2.7.0" and .expectedTargeted == 61 and .expectedDrift == 24
+          ' "$RUNNER_TEMP/boundary/binding-boundary.json" >/dev/null
+          cmp scripts/data/legacy-audit-binding-source-boundaries-v1.json "$RUNNER_TEMP/boundary/source-boundaries.json"
+          jq -e --slurpfile manifest "$RUNNER_TEMP/boundary/source-boundaries.json" \
+            '.sourceBoundaries == $manifest[0].sources' \
+            "$RUNNER_TEMP/boundary/binding-boundary.json" >/dev/null
+          node scripts/build-legacy-audit-binding-source-cohort.mjs --phase candidate \
+            --manifest "$RUNNER_TEMP/boundary/source-boundaries.json" \
+            --sources-root "$RUNNER_TEMP/boundary/source-governance-boundaries" \
+            --output "$RUNNER_TEMP/current-candidate-scope.json"
+          cmp "$RUNNER_TEMP/current-candidate-scope.json" "$RUNNER_TEMP/boundary/candidate-scope.json"
+          git merge-base --is-ancestor "$head_sha" "$GITHUB_SHA"
       - name: Freeze or verify exact pre-write evidence
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: |
           set -euo pipefail
-          classification="$RUNNER_TEMP/boundary/hash-classification.json"
+          classification="$RUNNER_TEMP/boundary/classification.json"
           test -f "$classification"
+          jq -e '
+            .schemaVersion == 1
+            and .status == "classified"
+            and .counts.exact == 0
+            and .counts.legacy_algorithm_equivalent == 61
+            and .counts.actual_or_unproven_drift == 24
+          ' "$classification" >/dev/null
           node scripts/fetch-legacy-equivalent-governance-readback.mjs \
             --classification "$classification" --output "$RUNNER_TEMP/source-evidence.json"
           node scripts/build-legacy-audit-binding-plan.mjs \
             --classification "$classification" --source-evidence "$RUNNER_TEMP/source-evidence.json" \
             --repository-root "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/binding-plan.json" \
-            --expected-targeted '${{ inputs.expected_targeted }}' \
-            --expected-drift '${{ inputs.expected_drift }}'
+            --expected-targeted 61 --expected-drift 24
           node scripts/fetch-artifact-version-inventory.mjs \
             --scope-inventory "$RUNNER_TEMP/boundary/plan.json" \
             --output "$RUNNER_TEMP/binding-inventory.json"
@@ -116,10 +177,14 @@ jobs:
         env:
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: >-
-          "$GITHUB_WORKSPACE/skillstore-cli" skill bind-legacy-audit
-          --plan "$RUNNER_TEMP/binding-plan.json" --root "$RUNNER_TEMP/reports"
-          --dry-run --concurrency 1 --result-file "$RUNNER_TEMP/binding-dry-run.json"
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/skillstore-cli" skill bind-legacy-audit \
+            --plan "$RUNNER_TEMP/binding-plan.json" --root "$RUNNER_TEMP/reports" \
+            --dry-run --concurrency 1 --result-file "$RUNNER_TEMP/binding-dry-run.json"
+          if [ '${{ inputs.mode }}' = execute ]; then
+            cmp "$RUNNER_TEMP/binding-dry-run.json" "$RUNNER_TEMP/boundary/binding-dry-run.json"
+          fi
       - name: Record binding evidence only
         if: inputs.mode == 'execute'
         env:
@@ -137,7 +202,7 @@ jobs:
         run: |
           set -euo pipefail
           node scripts/fetch-legacy-equivalent-governance-readback.mjs \
-            --classification "$RUNNER_TEMP/boundary/hash-classification.json" \
+            --classification "$RUNNER_TEMP/boundary/classification.json" \
             --output "$RUNNER_TEMP/post-source-evidence.json"
           node scripts/fetch-artifact-version-inventory.mjs \
             --scope-inventory "$RUNNER_TEMP/boundary/plan.json" \
@@ -146,8 +211,8 @@ jobs:
           jq -S 'del(.bindings)' "$RUNNER_TEMP/post-source-evidence.json" > "$RUNNER_TEMP/after-without-bindings.json"
           cmp "$RUNNER_TEMP/before-without-bindings.json" "$RUNNER_TEMP/after-without-bindings.json"
           cmp "$RUNNER_TEMP/binding-inventory.json" "$RUNNER_TEMP/post-binding-inventory.json"
-          test "$(jq '.bindings | length' "$RUNNER_TEMP/post-source-evidence.json")" = '${{ inputs.expected_targeted }}'
-          test "$(jq '[.results[] | select(.status == "created" or .status == "existing")] | length' "$RUNNER_TEMP/binding-execute.json")" = '${{ inputs.expected_targeted }}'
+          test "$(jq '.bindings | length' "$RUNNER_TEMP/post-source-evidence.json")" = 61
+          test "$(jq '[.results[] | select(.status == "created" or .status == "existing")] | length' "$RUNNER_TEMP/binding-execute.json")" = 61
       - name: Freeze dry-run boundary
         if: inputs.mode == 'dry-run'
         run: |
@@ -155,13 +220,33 @@ jobs:
           out="$RUNNER_TEMP/legacy-audit-binding-boundary-$GITHUB_RUN_ID"; mkdir -p "$out"
           cp "$RUNNER_TEMP/binding-plan.json" "$RUNNER_TEMP/source-evidence.json" \
             "$RUNNER_TEMP/binding-inventory.json" "$RUNNER_TEMP/binding-dry-run.json" \
-            "$RUNNER_TEMP/boundary/hash-classification.json" "$RUNNER_TEMP/boundary/plan.json" "$out/"
-      - uses: actions/upload-artifact@v6
-        if: always()
+            "$RUNNER_TEMP/candidate-source-evidence.json" \
+            "$RUNNER_TEMP/boundary/classification.json" "$RUNNER_TEMP/boundary/plan.json" \
+            "$RUNNER_TEMP/boundary/candidate-scope.json" "$out/"
+          cp scripts/data/legacy-audit-binding-source-boundaries-v1.json "$out/source-boundaries.json"
+          cp -R "$RUNNER_TEMP/source-governance-boundaries" "$out/source-governance-boundaries"
+          jq -n --arg runId "$GITHUB_RUN_ID" --arg repository "$GITHUB_REPOSITORY" \
+            --arg workflowCommit "$GITHUB_SHA" \
+            --slurpfile sourceManifest scripts/data/legacy-audit-binding-source-boundaries-v1.json \
+            '{schemaVersion:1,status:"binding_dry_run_frozen",runId:$runId,repository:$repository,
+              workflowCommit:$workflowCommit,sourceBoundaries:$sourceManifest[0].sources,cliVersion:"2.7.0",
+              cliSha256:"cc987bdb22b3c19b7f7dec60b707032979823579167c0b911e408771ed9e13d7",
+              expectedTargeted:61,expectedDrift:24}' > "$out/binding-boundary.json"
+          (cd "$out" && find . -type f ! -path './SHA256SUMS' -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+      - name: Upload exact binding dry-run boundary
+        if: success() && inputs.mode == 'dry-run'
+        uses: actions/upload-artifact@v6
         with:
-          name: legacy-audit-binding-${{ inputs.mode }}-${{ github.run_id }}
+          name: legacy-audit-binding-boundary-${{ github.run_id }}
+          path: ${{ runner.temp }}/legacy-audit-binding-boundary-${{ github.run_id }}/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload binding execution evidence
+        if: always() && inputs.mode == 'execute'
+        uses: actions/upload-artifact@v6
+        with:
+          name: legacy-audit-binding-execution-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/legacy-audit-binding-boundary-*
             ${{ runner.temp }}/binding-*.json
             ${{ runner.temp }}/post-source-evidence.json
             ${{ runner.temp }}/post-binding-inventory.json

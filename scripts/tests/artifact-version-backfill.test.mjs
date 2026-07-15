@@ -12,6 +12,7 @@ import {
   verifyArtifactVersionExecution,
 } from '../verify-artifact-version-classification.mjs';
 import { verifyArtifactVersionReadback } from '../verify-artifact-version-backfill.mjs';
+import { qualifyLegacyGovernanceClassification } from '../verify-legacy-equivalent-governance.mjs';
 
 const HASH_A = 'a'.repeat(64);
 const HASH_B = 'b'.repeat(64);
@@ -78,9 +79,10 @@ function inventoryRow({
   };
 }
 
-function hashRepair(before, classification) {
+function hashRepair(before, classification, legacyTreeEvidence = 'plain') {
   const exact = classification === 'exact';
   const legacyEquivalent = classification === 'legacy_algorithm_equivalent';
+  const previousReportEquivalent = legacyEquivalent && legacyTreeEvidence === 'previous-report';
   return {
     requested: true,
     applied: false,
@@ -105,21 +107,30 @@ function hashRepair(before, classification) {
     reportTreeHashScheme: exact
       ? 'canonical_entries_v1'
       : legacyEquivalent
-        ? 'legacy_path_sha256_merkle_v1'
+        ? previousReportEquivalent
+          ? 'legacy_path_sha256_merkle_previous_report_v1'
+          : 'legacy_path_sha256_merkle_v1'
         : 'unproven',
     packagedTreeHash: exact ? before.treeHash : HASH_D,
     packagedTreeHashScheme: 'canonical_entries_v1',
     legacyCalculatedContentHash: legacyEquivalent ? before.contentHash : HASH_D,
     legacyCalculatedContentHashScheme: 'skill_md_strip_version_trim_v1',
-    legacyCalculatedTreeHash: legacyEquivalent ? before.treeHash : HASH_C,
+    legacyCalculatedTreeHash: legacyEquivalent && !previousReportEquivalent ? before.treeHash : HASH_C,
     legacyCalculatedTreeHashScheme: 'legacy_path_sha256_merkle_v1',
+    previousReportSha256: previousReportEquivalent ? HASH_D : null,
+    previousReportInputRelation: previousReportEquivalent
+      ? 'canonical_install_plus_previous_generated_report'
+      : null,
+    legacyPreviousReportCalculatedTreeHash: previousReportEquivalent ? before.treeHash : null,
+    legacyPreviousReportCalculatedTreeHashScheme:
+      'legacy_path_sha256_merkle_previous_report_v1',
     observationTimeSource: exact ? 'report_generated_at' : 'backfill_execution_time',
     observedAt: exact ? '2026-01-01T00:00:00.000Z' : '2026-07-15T00:00:00.000Z',
   };
 }
 
-function dryRunResult(before, classification) {
-  const repair = hashRepair(before, classification);
+function dryRunResult(before, classification, legacyTreeEvidence = 'plain') {
+  const repair = hashRepair(before, classification, legacyTreeEvidence);
   return {
     slug: before.slug,
     skillId: before.id,
@@ -152,11 +163,15 @@ function dryRunResult(before, classification) {
   };
 }
 
-function groupWrappers(plan, classificationBySlug) {
+function groupWrappers(plan, classificationBySlug, legacyTreeEvidenceBySlug = {}) {
   return plan.batches.flatMap((batch) => batch.groups.map((group) => {
     const results = group.slugs.map((slug) => {
       const before = plan.selected.find((row) => row.slug === slug);
-      return dryRunResult(before, classificationBySlug[slug]);
+      return dryRunResult(
+        before,
+        classificationBySlug[slug],
+        legacyTreeEvidenceBySlug[slug]
+      );
     });
     return {
       batchIndex: batch.index,
@@ -384,7 +399,7 @@ test('classifies every planned row and derives an exact-only execution cohort', 
       alpha: 'exact',
       beta: 'legacy_algorithm_equivalent',
       charlie: 'actual_or_unproven_drift',
-    }),
+    }, { beta: 'previous-report' }),
   });
   assert.deepEqual(classification.counts, {
     exact: 1,
@@ -393,6 +408,187 @@ test('classifies every planned row and derives an exact-only execution cohort', 
   });
   assert.deepEqual(classification.exactBatches[0].slugs, ['alpha']);
   assert.equal(classification.remainingCohorts.total, 2);
+});
+
+test('strictly proves previous-report legacy evidence without weakening plain legacy or drift', () => {
+  const before = {
+    id: SKILL_ID,
+    slug: 'alpha',
+    path: 'skills/a/one',
+    marketplaceCommit: 'a'.repeat(40),
+    contentHash: HASH_A,
+    treeHash: HASH_B,
+    artifactRevision: 0,
+    currentArtifactVersionId: null,
+    status: 'approved',
+    publicEligible: true,
+    publicEligibilityAuditId: AUDIT_ID,
+    publishedAt: '2026-01-02T03:04:05.000Z',
+    updatedAt: '2026-07-14T16:50:53.000Z',
+  };
+  const plan = {
+    selected: [before],
+    batches: [{ index: 1, groups: [{
+      marketplaceCommit: before.marketplaceCommit,
+      count: 1,
+      slugs: [before.slug],
+      paths: [before.path],
+    }] }],
+  };
+  const previousReportWrappers = () => groupWrappers(
+    plan,
+    { alpha: 'legacy_algorithm_equivalent' },
+    { alpha: 'previous-report' }
+  );
+
+  const proven = classifyArtifactVersionResults({
+    plan,
+    groupResults: previousReportWrappers(),
+  });
+  assert.equal(proven.counts.legacy_algorithm_equivalent, 1);
+
+  for (const [field, value] of [
+    ['previousReportSha256', 'not-a-sha256'],
+    ['previousReportInputRelation', 'wrong-input-relation'],
+    ['legacyPreviousReportCalculatedTreeHash', HASH_C],
+    ['legacyPreviousReportCalculatedTreeHashScheme', 'wrong-tree-scheme'],
+  ]) {
+    const wrappers = previousReportWrappers();
+    wrappers[0].result.results[0].artifact.hashRepair[field] = value;
+    assert.throws(
+      () => classifyArtifactVersionResults({ plan, groupResults: wrappers }),
+      /Previous-report legacy evidence is incomplete|Hash classification is not independently proven/,
+      field
+    );
+  }
+
+  const plain = classifyArtifactVersionResults({
+    plan,
+    groupResults: groupWrappers(plan, { alpha: 'legacy_algorithm_equivalent' }),
+  });
+  assert.equal(plain.counts.legacy_algorithm_equivalent, 1);
+
+  const ambiguousPreviousReport = previousReportWrappers();
+  const ambiguousRepair = ambiguousPreviousReport[0].result.results[0].artifact.hashRepair;
+  ambiguousRepair.legacyCalculatedTreeHash = ambiguousRepair.reportTreeHash;
+  assert.throws(
+    () => classifyArtifactVersionResults({ plan, groupResults: ambiguousPreviousReport }),
+    /not independently proven/
+  );
+
+  ambiguousRepair.reportTreeHashScheme = 'legacy_path_sha256_merkle_v1';
+  const normalizedPlain = classifyArtifactVersionResults({
+    plan,
+    groupResults: ambiguousPreviousReport,
+  });
+  assert.equal(normalizedPlain.counts.legacy_algorithm_equivalent, 1);
+
+  const prePreviousReportCliPlain = groupWrappers(
+    plan,
+    { alpha: 'legacy_algorithm_equivalent' }
+  );
+  const oldRepair = prePreviousReportCliPlain[0].result.results[0].artifact.hashRepair;
+  delete oldRepair.previousReportSha256;
+  delete oldRepair.previousReportInputRelation;
+  delete oldRepair.legacyPreviousReportCalculatedTreeHash;
+  delete oldRepair.legacyPreviousReportCalculatedTreeHashScheme;
+  const oldPlain = classifyArtifactVersionResults({
+    plan,
+    groupResults: prePreviousReportCliPlain,
+  });
+  assert.equal(oldPlain.counts.legacy_algorithm_equivalent, 1);
+
+  const disguisedDrift = groupWrappers(plan, { alpha: 'actual_or_unproven_drift' });
+  const repair = disguisedDrift[0].result.results[0].artifact.hashRepair;
+  repair.previousReportSha256 = HASH_D;
+  repair.previousReportInputRelation = 'canonical_install_plus_previous_generated_report';
+  repair.legacyCalculatedContentHash = repair.reportContentHash;
+  repair.legacyPreviousReportCalculatedTreeHash = repair.reportTreeHash;
+  assert.throws(
+    () => classifyArtifactVersionResults({ plan, groupResults: disguisedDrift }),
+    /not independently proven/
+  );
+});
+
+test('qualifies all 472 Batch 7 previous-report rows through v2 evidence, not raw-digest binding', () => {
+  const commit = 'a'.repeat(40);
+  const selected = Array.from({ length: 472 }, (_, index) => ({
+    id: uuidFor(1000 + index),
+    slug: `batch7-v2-${String(index).padStart(3, '0')}`,
+    path: `skills/batch7/v2-${String(index).padStart(3, '0')}`,
+    marketplaceCommit: commit,
+    contentHash: HASH_A,
+    treeHash: HASH_B,
+    artifactRevision: 0,
+    currentArtifactVersionId: null,
+    status: 'approved',
+    publicEligible: true,
+    publicEligibilityAuditId: uuidFor(2000 + index),
+    publishedAt: '2026-01-02T03:04:05.000Z',
+    updatedAt: '2026-07-14T16:50:53.000Z',
+  }));
+  const plan = {
+    selected,
+    batches: [{ index: 1, groups: [{
+      marketplaceCommit: commit,
+      count: selected.length,
+      slugs: selected.map((row) => row.slug),
+      paths: selected.map((row) => row.path),
+    }] }],
+  };
+  const classifications = Object.fromEntries(
+    selected.map((row) => [row.slug, 'legacy_algorithm_equivalent'])
+  );
+  const previousReportEvidence = Object.fromEntries(
+    selected.map((row) => [row.slug, 'previous-report'])
+  );
+  const classification = classifyArtifactVersionResults({
+    plan,
+    groupResults: groupWrappers(plan, classifications, previousReportEvidence),
+  });
+  assert.equal(classification.counts.legacy_algorithm_equivalent, 472);
+
+  const sourceEvidence = {
+    schemaVersion: 1,
+    status: 'source_evidence_fetched',
+    skillIds: selected.map((row) => row.id).sort(),
+    skills: selected.map((row) => ({ id: row.id, slug: row.slug })),
+    audits: selected.map((row, index) => ({
+      id: row.publicEligibilityAuditId,
+      skill_id: row.id,
+      version: 1,
+      content_hash: `v2:${row.marketplaceCommit}:${row.contentHash}:${row.treeHash}:${String(index).padStart(32, '0')}`,
+      audit_payload_hash: null,
+      subject_marketplace_commit_sha: null,
+      subject_content_hash: null,
+      subject_tree_hash: null,
+      subject_plugin_path: null,
+      derived_from_audit_id: null,
+      derivation_kind: null,
+    })),
+    bindings: [],
+  };
+  const qualified = qualifyLegacyGovernanceClassification({
+    classification,
+    sourceEvidence,
+  });
+  assert.equal(qualified.governance.hashEquivalentCount, 472);
+  assert.equal(qualified.governance.eligibleCount, 472);
+  assert.equal(qualified.governance.unprovenCount, 0);
+  assert.equal(qualified.governance.eligible.every((row) => row.reason === 'eligible_v2'), true);
+
+  const rawDigestWithoutBinding = structuredClone(sourceEvidence);
+  rawDigestWithoutBinding.audits[0].content_hash = 'f'.repeat(32);
+  const rawQualified = qualifyLegacyGovernanceClassification({
+    classification,
+    sourceEvidence: rawDigestWithoutBinding,
+  });
+  assert.equal(rawQualified.governance.eligibleCount, 471);
+  assert.equal(rawQualified.governance.unprovenCount, 1);
+  assert.equal(
+    rawQualified.governance.unproven[0].reason,
+    'source_audit_binding_unproven_legacy_digest'
+  );
 });
 
 test('classification rejects operational failures or incomplete evidence', () => {
