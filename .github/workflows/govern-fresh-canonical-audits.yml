@@ -1,0 +1,489 @@
+name: Govern Fresh Canonical Audits
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Freeze a no-write fresh-audit boundary, or execute one frozen boundary'
+        type: choice
+        required: true
+        default: dry-run
+        options: [dry-run, execute]
+      cohort_path:
+        description: 'Repository-relative lineage-unproven cohort JSON; dry-run only'
+        type: string
+        required: false
+        default: 'governance/fresh-canonical-audit/remaining-lineage.json'
+      start_after:
+        description: 'Exact prior batch end slug; dry-run only'
+        type: string
+        required: false
+        default: ''
+      previous_boundary_run_id:
+        description: 'Immediately preceding successful fresh dry-run boundary; production inventory must prove it was executed'
+        type: string
+        required: false
+        default: ''
+      previous_execute_run_id:
+        description: 'Successful execute run for previous_boundary_run_id; required when start_after is set'
+        type: string
+        required: false
+        default: ''
+      batch_size:
+        description: 'Fresh audits per frozen batch (1-10)'
+        type: number
+        required: true
+        default: 10
+      model:
+        description: 'Fresh audit model override'
+        type: string
+        required: false
+        default: ''
+      dry_run_id:
+        description: 'Successful dry-run workflow run ID; execute only'
+        type: string
+        required: false
+        default: ''
+      cli_version:
+        description: 'Exact audited CLI version'
+        type: string
+        required: true
+        default: '2.8.0'
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: artifact-version-backfill-production
+  cancel-in-progress: false
+
+jobs:
+  freeze-boundary:
+    if: inputs.mode == 'dry-run'
+    runs-on: self-hosted
+    timeout-minutes: 360
+    steps:
+      - name: Checkout complete Marketplace history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Validate dry-run inputs and governance runtime
+        env:
+          CLI_VERSION: ${{ inputs.cli_version }}
+          COHORT_PATH: ${{ inputs.cohort_path }}
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+          START_AFTER: ${{ inputs.start_after }}
+          PREVIOUS_BOUNDARY_RUN_ID: ${{ inputs.previous_boundary_run_id }}
+          PREVIOUS_EXECUTE_RUN_ID: ${{ inputs.previous_execute_run_id }}
+        run: |
+          set -euo pipefail
+          test "$CLI_VERSION" = '2.8.0' || { echo '::error::workflow is pinned to CLI 2.8.0'; exit 1; }
+          test -z "$DRY_RUN_ID" || { echo '::error::dry-run cannot consume dry_run_id'; exit 1; }
+          if test -n "$START_AFTER"; then
+            [[ "$PREVIOUS_BOUNDARY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::cursor continuation requires numeric previous_boundary_run_id'; exit 1; }
+            [[ "$PREVIOUS_EXECUTE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::cursor continuation requires numeric previous_execute_run_id'; exit 1; }
+          else
+            test -z "$PREVIOUS_BOUNDARY_RUN_ID" || { echo '::error::initial batch cannot consume previous_boundary_run_id'; exit 1; }
+            test -z "$PREVIOUS_EXECUTE_RUN_ID" || { echo '::error::initial batch cannot consume previous_execute_run_id'; exit 1; }
+          fi
+          test -f "$COHORT_PATH" || { echo '::error::lineage-unproven cohort is missing'; exit 1; }
+          test -f scripts/prepare-fresh-canonical-audit-batch.mjs
+          test -f .github/actions/download-skillstore-cli/action.yml
+
+      - name: Authenticate the immediately preceding boundary chain
+        if: inputs.start_after != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_BOUNDARY_RUN_ID: ${{ inputs.previous_boundary_run_id }}
+          PREVIOUS_EXECUTE_RUN_ID: ${{ inputs.previous_execute_run_id }}
+          START_AFTER: ${{ inputs.start_after }}
+        run: |
+          set -euo pipefail
+          run_json=$(gh run view "$PREVIOUS_BOUNDARY_RUN_ID" --repo "$GITHUB_REPOSITORY" --json databaseId,conclusion,event,headBranch,headSha,workflowName)
+          jq -e --argjson id "$PREVIOUS_BOUNDARY_RUN_ID" '.databaseId==$id and .conclusion=="success" and .event=="workflow_dispatch" and .headBranch=="main" and .workflowName=="Govern Fresh Canonical Audits"' <<< "$run_json" >/dev/null
+          mkdir -p "$RUNNER_TEMP/previous-boundary"
+          gh run download "$PREVIOUS_BOUNDARY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "fresh-canonical-audit-boundary-$PREVIOUS_BOUNDARY_RUN_ID" \
+            --dir "$RUNNER_TEMP/previous-boundary"
+          (cd "$RUNNER_TEMP/previous-boundary" && sha256sum --check SHA256SUMS)
+          test "$(jq -r .lastSelected "$RUNNER_TEMP/previous-boundary/metadata.json")" = "$START_AFTER"
+          test "$(jq -r .lastSelected "$RUNNER_TEMP/previous-boundary/selected-cohort.json")" = "$START_AFTER"
+          jq -n --slurpfile metadata "$RUNNER_TEMP/previous-boundary/metadata.json" \
+            --slurpfile selection "$RUNNER_TEMP/previous-boundary/selected-cohort.json" \
+            '{metadata:$metadata[0],selection:$selection[0]}' > "$RUNNER_TEMP/previous-boundary-chain-base.json"
+
+          execute_json=$(gh run view "$PREVIOUS_EXECUTE_RUN_ID" --repo "$GITHUB_REPOSITORY" --json databaseId,conclusion,event,headBranch,headSha,workflowName)
+          jq -e --argjson id "$PREVIOUS_EXECUTE_RUN_ID" '.databaseId==$id and .conclusion=="success" and .event=="workflow_dispatch" and .headBranch=="main" and .workflowName=="Govern Fresh Canonical Audits"' <<< "$execute_json" >/dev/null
+          mkdir -p "$RUNNER_TEMP/previous-execution"
+          gh run download "$PREVIOUS_EXECUTE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "fresh-canonical-audit-execution-$PREVIOUS_EXECUTE_RUN_ID" \
+            --dir "$RUNNER_TEMP/previous-execution"
+          (cd "$RUNNER_TEMP/previous-execution/boundary" && sha256sum --check SHA256SUMS)
+          cmp "$RUNNER_TEMP/previous-boundary/SHA256SUMS" \
+            "$RUNNER_TEMP/previous-execution/boundary/SHA256SUMS"
+          (cd "$RUNNER_TEMP/previous-execution/execution-proof" && sha256sum --check SHA256SUMS)
+          proof="$RUNNER_TEMP/previous-execution/execution-proof/proof.json"
+          jq -e --arg executeRunId "$PREVIOUS_EXECUTE_RUN_ID" \
+            --arg dryRunId "$PREVIOUS_BOUNDARY_RUN_ID" --arg lastSelected "$START_AFTER" \
+            --arg executeHeadSha "$(jq -r .headSha <<< "$execute_json")" \
+            '.status=="fresh_canonical_audit_execution_complete" and .executeRunId==$executeRunId and .dryRunId==$dryRunId and .lastSelected==$lastSelected and .workflowCommit==$executeHeadSha and .scoreFinalized==true and .timestampFinalized==true and .cacheClosureCompleted==true and .packClosureCompleted==true and .productionSmokeCompleted==true' \
+            "$proof" >/dev/null
+          test "$(jq -r .cohortSha256 "$proof")" = "$(jq -r .cohortSha256 "$RUNNER_TEMP/previous-boundary/metadata.json")"
+          test "$(jq -r .executedCount "$proof")" = "$(jq -r .count "$RUNNER_TEMP/previous-boundary/selected-cohort.json")"
+          test "$(jq -r .executionResultsSha256 "$proof")" = "$(sha256sum "$RUNNER_TEMP/previous-execution/execution-results.json" | awk '{print $1}')"
+          test "$(jq -r .postInventorySha256 "$proof")" = "$(sha256sum "$RUNNER_TEMP/previous-execution/post-inventory.json" | awk '{print $1}')"
+          jq -e --slurpfile selected "$RUNNER_TEMP/previous-boundary/selected-cohort.json" '
+            [$selected[0].rows[].skillId] as $ids |
+            [.rows[] | select(.id as $id | $ids | index($id))] as $rows |
+            ($rows|length)==($ids|length) and all($rows[]; .artifact_revision>=1 and (.current_artifact_version_id|type)=="string")
+          ' "$RUNNER_TEMP/previous-execution/post-inventory.json" >/dev/null
+          jq -n --slurpfile chain "$RUNNER_TEMP/previous-boundary-chain-base.json" \
+            --slurpfile proof "$proof" \
+            '$chain[0] + {executionProof:$proof[0]}' > "$RUNNER_TEMP/previous-boundary-chain.json"
+
+      - name: Fetch exact production cursor inventory
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/fetch-artifact-version-inventory.mjs --skills-only \
+            --output "$RUNNER_TEMP/pre-inventory.json"
+
+      - name: Select one bounded cohort from immutable lineage evidence
+        id: plan
+        env:
+          COHORT_PATH: ${{ inputs.cohort_path }}
+          START_AFTER: ${{ inputs.start_after }}
+          BATCH_SIZE: ${{ inputs.batch_size }}
+        run: |
+          set -euo pipefail
+          continuation_args=()
+          test -z "$START_AFTER" || continuation_args=(--previous-boundary "$RUNNER_TEMP/previous-boundary-chain.json")
+          node scripts/prepare-fresh-canonical-audit-batch.mjs \
+            --repository-root "$GITHUB_WORKSPACE" --cohort "$COHORT_PATH" \
+            --start-after "$START_AFTER" --batch-size "$BATCH_SIZE" \
+            --production-inventory "$RUNNER_TEMP/pre-inventory.json" \
+            "${continuation_args[@]}" \
+            --output "$RUNNER_TEMP/selected-cohort.json"
+          echo "count=$(jq -r .count "$RUNNER_TEMP/selected-cohort.json")" >> "$GITHUB_OUTPUT"
+          echo "last_selected=$(jq -r .lastSelected "$RUNNER_TEMP/selected-cohort.json")" >> "$GITHUB_OUTPUT"
+          echo "remaining=$(jq -r .remaining "$RUNNER_TEMP/selected-cohort.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Materialize only frozen commit-addressed paths
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/materialized"
+          while IFS= read -r group; do
+            commit=$(jq -r .marketplaceCommit <<< "$group")
+            target="$root/$commit"
+            mkdir -p "$target"
+            mapfile -t paths < <(jq -r '.paths[]' <<< "$group")
+            git archive --format=tar "$commit" -- "${paths[@]}" | tar -xf - -C "$target"
+          done < <(jq -c '.groups[]' "$RUNNER_TEMP/selected-cohort.json")
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Download exact fresh-governance CLI 2.8.0
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          version: '2.8.0'
+          minimum-version: '2.8.0'
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Hard-block until the released Linux binary digest is audited
+        run: |
+          set -euo pipefail
+          audited='TODO_RELEASE_CLI_2_8_0_SHA256'
+          actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
+          [[ "$audited" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::replace CLI 2.8.0 digest TODO before any run'; exit 1; }
+          test "$actual" = "$audited" || { echo '::error::CLI 2.8.0 digest mismatch'; exit 1; }
+
+      - name: Run genuinely fresh audits against each frozen commit
+        env:
+          SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
+          MODEL: ${{ inputs.model }}
+        run: |
+          set -euo pipefail
+          run_nonce=$(node -e "process.stdout.write(require('node:crypto').randomUUID())")
+          run_started_at=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+          mkdir -p "$RUNNER_TEMP/fresh-audit-manifests"
+          while IFS= read -r group; do
+            commit=$(jq -r .marketplaceCommit <<< "$group")
+            slugs=$(jq -r '.slugs | join(",")' <<< "$group")
+            count=$(jq -r .count <<< "$group")
+            model_args=()
+            test -z "$MODEL" || model_args=(--model "$MODEL")
+            "$GITHUB_WORKSPACE/skillstore-cli" skill audit \
+              "$RUNNER_TEMP/materialized/$commit/skills" --slugs "$slugs" \
+              --checkpoint-file "$RUNNER_TEMP/audit-$commit.checkpoint.json" \
+              --correlation-id "$GITHUB_RUN_ID-$commit" \
+              --fresh-run-manifest-file "$RUNNER_TEMP/fresh-audit-manifests/$commit.json" \
+              --fresh-run-nonce "$run_nonce" --fresh-run-id "$GITHUB_RUN_ID" \
+              --fresh-run-started-at "$run_started_at" --fresh-selected-count "$count" \
+              "${model_args[@]}"
+          done < <(jq -c '.groups[]' "$RUNNER_TEMP/selected-cohort.json")
+          jq -s --arg nonce "$run_nonce" --arg runId "$GITHUB_RUN_ID" --arg startedAt "$run_started_at" '
+            if length == 0 or any(.runNonce != $nonce or .runId != $runId or .startedAt != $startedAt or .status != "fresh_audit_run_complete") then error("fresh audit group manifest mismatch") else {
+              schemaVersion:1,status:"fresh_audit_run_complete",runNonce:$nonce,runId:$runId,startedAt:$startedAt,
+              selectedCount:(map(.selectedCount)|add),selectedSlugs:(map(.selectedSlugs[])|sort),completed:(map(.completed[])|sort_by(.slug))
+            } end' "$RUNNER_TEMP"/fresh-audit-manifests/*.json > "$RUNNER_TEMP/fresh-audit-run.json"
+          test "$(jq -r .selectedCount "$RUNNER_TEMP/fresh-audit-run.json")" = "$(jq -r .count "$RUNNER_TEMP/selected-cohort.json")"
+          diff -u <(jq -S '.selectedSlugs' "$RUNNER_TEMP/fresh-audit-run.json") \
+            <(jq -S '[.rows[].slug] | sort' "$RUNNER_TEMP/selected-cohort.json")
+
+      - name: Freeze production CAS and fresh v3 audit evidence without writes
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/skillstore-cli" skill govern-fresh-canonical-audit \
+            --cohort "$RUNNER_TEMP/selected-cohort.json" \
+            --audit-run-manifest "$RUNNER_TEMP/fresh-audit-run.json" \
+            --root "$RUNNER_TEMP/materialized" --dry-run \
+            --result-file "$RUNNER_TEMP/fresh-boundary.json"
+
+      - name: Freeze exact audited reports and execution boundary
+        env:
+          COHORT_PATH: ${{ inputs.cohort_path }}
+        run: |
+          set -euo pipefail
+          boundary="$RUNNER_TEMP/fresh-canonical-boundary"
+          mkdir -p "$boundary/reports" "$boundary/runtime/.github/workflows" \
+            "$boundary/runtime/.github/actions/download-skillstore-cli" "$boundary/runtime/scripts"
+          cp "$RUNNER_TEMP/selected-cohort.json" "$boundary/selected-cohort.json"
+          cp "$RUNNER_TEMP/fresh-boundary.json" "$boundary/fresh-boundary.json"
+          cp "$RUNNER_TEMP/fresh-audit-run.json" "$boundary/fresh-audit-run.json"
+          cp "$RUNNER_TEMP/pre-inventory.json" "$boundary/pre-inventory.json"
+          cp .github/workflows/govern-fresh-canonical-audits.yml \
+            "$boundary/runtime/.github/workflows/govern-fresh-canonical-audits.yml"
+          cp .github/actions/download-skillstore-cli/action.yml \
+            "$boundary/runtime/.github/actions/download-skillstore-cli/action.yml"
+          cp scripts/prepare-fresh-canonical-audit-batch.mjs \
+            "$boundary/runtime/scripts/prepare-fresh-canonical-audit-batch.mjs"
+          while IFS=$'\t' read -r commit path; do
+            source="$RUNNER_TEMP/materialized/$commit/$path/skill-report.json"
+            target="$boundary/reports/$commit/$path/skill-report.json"
+            mkdir -p "$(dirname "$target")"
+            cp "$source" "$target"
+          done < <(jq -r '.rows[] | [.marketplaceCommit,.path] | @tsv' "$boundary/selected-cohort.json")
+          jq -n \
+            --arg runId "$GITHUB_RUN_ID" --arg repository "$GITHUB_REPOSITORY" \
+            --arg workflowCommit "$GITHUB_SHA" --arg cliVersion '2.8.0' \
+            --arg cliSha256 "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" \
+            --arg cohortPath "$COHORT_PATH" --arg startAfter '${{ inputs.start_after }}' \
+            --arg lastSelected "$(jq -r .lastSelected "$RUNNER_TEMP/selected-cohort.json")" \
+            --arg previousBoundaryRunId '${{ inputs.previous_boundary_run_id }}' \
+            --arg previousExecuteRunId '${{ inputs.previous_execute_run_id }}' \
+            --arg cohortSha256 "$(sha256sum "$COHORT_PATH" | awk '{print $1}')" \
+            --arg preInventorySha256 "$(sha256sum "$RUNNER_TEMP/pre-inventory.json" | awk '{print $1}')" \
+            '{schemaVersion:1,status:"fresh_canonical_audit_frozen",runId:$runId,repository:$repository,workflowCommit:$workflowCommit,cliVersion:$cliVersion,cliSha256:$cliSha256,cohortPath:$cohortPath,cohortSha256:$cohortSha256,startAfter:$startAfter,lastSelected:$lastSelected,previousBoundaryRunId:$previousBoundaryRunId,previousExecuteRunId:$previousExecuteRunId,preInventorySha256:$preInventorySha256}' \
+            > "$boundary/metadata.json"
+          (cd "$boundary" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+
+      - name: Upload strict fresh-audit boundary
+        uses: actions/upload-artifact@v6
+        with:
+          name: fresh-canonical-audit-boundary-${{ github.run_id }}
+          path: ${{ runner.temp }}/fresh-canonical-boundary/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish no-write boundary summary
+        run: |
+          {
+            echo '## Fresh canonical audit boundary'
+            echo "- Selected: \`${{ steps.plan.outputs.count }}\` (maximum 10)"
+            echo "- Last selected: \`${{ steps.plan.outputs.last_selected }}\`"
+            echo "- Remaining: \`${{ steps.plan.outputs.remaining }}\`"
+            echo '- Every report is a new v3 audit over an exact historical commit/path; no production write occurred.'
+            echo "- Execute with \`dry_run_id=$GITHUB_RUN_ID\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  execute-boundary:
+    if: inputs.mode == 'execute'
+    concurrency:
+      group: production-skill-score-writes
+      cancel-in-progress: false
+    runs-on: self-hosted
+    timeout-minutes: 180
+    steps:
+      - name: Checkout complete Marketplace history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          clean: true
+
+      - name: Validate execute inputs
+        env:
+          CLI_VERSION: ${{ inputs.cli_version }}
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+          START_AFTER: ${{ inputs.start_after }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main || { echo '::error::execute requires main'; exit 1; }
+          test "$CLI_VERSION" = '2.8.0' || { echo '::error::workflow is pinned to CLI 2.8.0'; exit 1; }
+          [[ "$DRY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::numeric dry_run_id required'; exit 1; }
+          test -z "$START_AFTER" || { echo '::error::execute cannot accept a scan cursor'; exit 1; }
+
+      - name: Download and authenticate the successful frozen boundary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+        run: |
+          set -euo pipefail
+          run_json=$(gh run view "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" --json databaseId,conclusion,event,headBranch,headSha,workflowName)
+          jq -e --argjson id "$DRY_RUN_ID" '.databaseId==$id and .conclusion=="success" and .event=="workflow_dispatch" and .headBranch=="main" and .workflowName=="Govern Fresh Canonical Audits"' <<< "$run_json" >/dev/null
+          mkdir -p "$RUNNER_TEMP/boundary"
+          gh run download "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "fresh-canonical-audit-boundary-$DRY_RUN_ID" --dir "$RUNNER_TEMP/boundary"
+          (cd "$RUNNER_TEMP/boundary" && sha256sum --check SHA256SUMS)
+          test "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/metadata.json")" = "$(jq -r .headSha <<< "$run_json")"
+          git merge-base --is-ancestor "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/metadata.json")" "$GITHUB_SHA"
+          cmp .github/workflows/govern-fresh-canonical-audits.yml \
+            "$RUNNER_TEMP/boundary/runtime/.github/workflows/govern-fresh-canonical-audits.yml"
+          cmp .github/actions/download-skillstore-cli/action.yml \
+            "$RUNNER_TEMP/boundary/runtime/.github/actions/download-skillstore-cli/action.yml"
+          cmp scripts/prepare-fresh-canonical-audit-batch.mjs \
+            "$RUNNER_TEMP/boundary/runtime/scripts/prepare-fresh-canonical-audit-batch.mjs"
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Download exact audited CLI 2.8.0
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          version: '2.8.0'
+          minimum-version: '2.8.0'
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Verify frozen CLI identity
+        run: |
+          set -euo pipefail
+          audited='TODO_RELEASE_CLI_2_8_0_SHA256'
+          expected=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/metadata.json")
+          actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
+          [[ "$audited" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::replace CLI 2.8.0 digest TODO'; exit 1; }
+          test "$expected" = "$audited" && test "$actual" = "$audited"
+
+      - name: Rematerialize exact source and overlay only frozen fresh reports
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/materialized"
+          while IFS= read -r group; do
+            commit=$(jq -r .marketplaceCommit <<< "$group")
+            target="$root/$commit"
+            mkdir -p "$target"
+            mapfile -t paths < <(jq -r '.paths[]' <<< "$group")
+            git archive --format=tar "$commit" -- "${paths[@]}" | tar -xf - -C "$target"
+          done < <(jq -c '.groups[]' "$RUNNER_TEMP/boundary/selected-cohort.json")
+          while IFS=$'\t' read -r commit path; do
+            cp "$RUNNER_TEMP/boundary/reports/$commit/$path/skill-report.json" \
+              "$root/$commit/$path/skill-report.json"
+          done < <(jq -r '.rows[] | [.marketplaceCommit,.path] | @tsv' "$RUNNER_TEMP/boundary/selected-cohort.json")
+
+      - name: Execute resumable compound governance, score, and cache closure
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          SKILLSTORE_SITE_URL: https://skillstore.io
+        run: |
+          set -euo pipefail
+          "$GITHUB_WORKSPACE/skillstore-cli" skill govern-fresh-canonical-audit \
+            --boundary "$RUNNER_TEMP/boundary/fresh-boundary.json" \
+            --root "$RUNNER_TEMP/materialized" \
+            --result-file "$RUNNER_TEMP/execution-results.json"
+
+      - name: Fetch exact post-execution artifact and Pack evidence
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          jq '{schemaVersion:1,scopedSkillIds:[.rows[].skillId],rows:.rows}' \
+            "$RUNNER_TEMP/boundary/selected-cohort.json" > "$RUNNER_TEMP/scope.json"
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$RUNNER_TEMP/scope.json" --output "$RUNNER_TEMP/post-inventory.json"
+          test "$(jq -r '[.artifacts[] | select(.artifact_revision==1)] | length' "$RUNNER_TEMP/post-inventory.json")" \
+            = "$(jq -r .count "$RUNNER_TEMP/boundary/selected-cohort.json")"
+          test "$(jq --slurpfile scope "$RUNNER_TEMP/scope.json" -r '[.rows[] as $row | select(($scope[0].scopedSkillIds | index($row.id)) != null) | select($row.artifact_revision==1 and $row.current_artifact_version_id!=null)] | length' "$RUNNER_TEMP/post-inventory.json")" \
+            = "$(jq -r .count "$RUNNER_TEMP/boundary/selected-cohort.json")"
+
+      - name: Checkout current Skillstore production smoke harness
+        uses: actions/checkout@v5
+        with:
+          repository: aiskillstore/skillstore
+          token: ${{ steps.app-token.outputs.token }}
+          path: skillstore-smoke
+
+      - name: Verify every P0/P1 download, install, NPX, Pack, and MCP channel
+        env:
+          SMOKE_PUBLIC_CLI_PACKAGES: skillstore@0.1.9,skillstore@latest
+          SMOKE_EXPECTED_PUBLIC_CLI_VERSION: 0.1.9
+          SMOKE_EXPECTED_SIGNING_KEY_ID: EP0Myk7rTk_J0RdG1fvpkP
+          SMOKE_EXPECTED_SIGNING_PUBLIC_KEY_X: 2tbC6eNY4T9sx4Pvuo_NwHlXGyWWz95WAtHyHUTqzs8
+          SMOKE_EXPECT_INTERACTION_RECOVERY: true
+        run: >-
+          node skillstore-smoke/scripts/smoke/production-smoke.mjs
+          --base-url https://skillstore.io
+          --attempts 3
+          --retry-ms 3000
+
+      - name: Seal successful execute closure for the next cursor
+        run: |
+          set -euo pipefail
+          expected=$(jq -r .count "$RUNNER_TEMP/boundary/selected-cohort.json")
+          test "$(jq length "$RUNNER_TEMP/execution-results.json")" = "$expected"
+          proof="$RUNNER_TEMP/execution-proof"
+          mkdir -p "$proof"
+          jq -n \
+            --arg executeRunId "$GITHUB_RUN_ID" --arg dryRunId '${{ inputs.dry_run_id }}' \
+            --arg workflowCommit "$GITHUB_SHA" \
+            --arg lastSelected "$(jq -r .lastSelected "$RUNNER_TEMP/boundary/selected-cohort.json")" \
+            --arg cohortSha256 "$(jq -r .cohortSha256 "$RUNNER_TEMP/boundary/metadata.json")" \
+            --arg executionResultsSha256 "$(sha256sum "$RUNNER_TEMP/execution-results.json" | awk '{print $1}')" \
+            --arg postInventorySha256 "$(sha256sum "$RUNNER_TEMP/post-inventory.json" | awk '{print $1}')" \
+            --argjson executedCount "$expected" \
+            '{schemaVersion:1,status:"fresh_canonical_audit_execution_complete",executeRunId:$executeRunId,dryRunId:$dryRunId,workflowCommit:$workflowCommit,lastSelected:$lastSelected,cohortSha256:$cohortSha256,executedCount:$executedCount,executionResultsSha256:$executionResultsSha256,postInventorySha256:$postInventorySha256,scoreFinalized:true,timestampFinalized:true,cacheClosureCompleted:true,packClosureCompleted:true,productionSmokeCompleted:true}' \
+            > "$proof/proof.json"
+          (cd "$proof" && sha256sum proof.json > SHA256SUMS)
+
+      - name: Upload execution and smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: fresh-canonical-audit-execution-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/boundary/
+            ${{ runner.temp }}/execution-results.json
+            ${{ runner.temp }}/post-inventory.json
+            ${{ runner.temp }}/execution-proof/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish verified execution summary
+        run: |
+          {
+            echo '## Fresh canonical audit execution verified'
+            echo "- Frozen boundary: \`${{ inputs.dry_run_id }}\`"
+            echo "- Executed: \`$(jq length "$RUNNER_TEMP/execution-results.json")\`"
+            echo '- Canonical r1, independent v3 source audits, fresh scores, cache/Pack closure, and all production P0/P1 install channels passed.'
+          } >> "$GITHUB_STEP_SUMMARY"
