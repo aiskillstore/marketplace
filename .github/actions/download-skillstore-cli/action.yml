@@ -17,11 +17,18 @@ inputs:
     description: 'Fail if the resolved CLI is older than this version (for example, 1.52.2)'
     required: false
     default: ''
+  require-checksum:
+    description: 'Require and verify checksums.txt from the immutable CLI release'
+    required: false
+    default: 'false'
 
 outputs:
   cli-path:
     description: 'Path to the CLI binary'
     value: ${{ github.workspace }}/skillstore-cli
+  cli-sha256:
+    description: 'Verified SHA-256 of the downloaded CLI (empty unless require-checksum=true)'
+    value: ${{ steps.checksum.outputs.cli-sha256 }}
 
 runs:
   using: composite
@@ -55,6 +62,7 @@ runs:
       env:
         CACHE_DIR: ${{ inputs.cache-dir }}
         RELEASE_TAG: ${{ steps.resolve.outputs.release-tag }}
+        REQUIRE_CHECKSUM: ${{ inputs.require-checksum }}
       run: |
         # Auto-create cache directory if it doesn't exist
         if [ ! -d "$CACHE_DIR" ]; then
@@ -76,14 +84,19 @@ runs:
           cp "$CACHE_FILE" "$GITHUB_WORKSPACE/skillstore-cli"
           chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
 
-          EXPECTED_VERSION=${RELEASE_TAG#cli-v}
-          CACHED_VERSION=$("$GITHUB_WORKSPACE/skillstore-cli" --version 2>&1 | grep -Eo '[0-9]+([.][0-9]+){1,3}([-+][0-9A-Za-z._-]+)?' | head -n1 || true)
-          if [ "$CACHED_VERSION" != "$EXPECTED_VERSION" ]; then
-            echo "::warning::Local CLI cache version mismatch: expected $EXPECTED_VERSION, got ${CACHED_VERSION:-unknown}. Invalidating cache entry."
-            rm -f "$CACHE_FILE" "$GITHUB_WORKSPACE/skillstore-cli"
-            echo "cache-hit=false" >> $GITHUB_OUTPUT
-            echo "cache-file=$CACHE_FILE" >> $GITHUB_OUTPUT
-            exit 0
+          # Legacy callers do not require a release checksum, so retain their
+          # stale-cache self-healing behavior. Checksum-required callers must
+          # never execute cache bytes before the checksum gate below.
+          if [ "$REQUIRE_CHECKSUM" != "true" ]; then
+            EXPECTED_VERSION=${RELEASE_TAG#cli-v}
+            CACHED_VERSION=$("$GITHUB_WORKSPACE/skillstore-cli" --version 2>&1 | grep -Eo '[0-9]+([.][0-9]+){1,3}([-+][0-9A-Za-z._-]+)?' | head -n1 || true)
+            if [ "$CACHED_VERSION" != "$EXPECTED_VERSION" ]; then
+              echo "::warning::Local CLI cache version mismatch: expected $EXPECTED_VERSION, got ${CACHED_VERSION:-unknown}. Invalidating cache entry."
+              rm -f "$CACHE_FILE" "$GITHUB_WORKSPACE/skillstore-cli"
+              echo "cache-hit=false" >> "$GITHUB_OUTPUT"
+              echo "cache-file=$CACHE_FILE" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           fi
 
           echo "cache-hit=true" >> $GITHUB_OUTPUT
@@ -134,30 +147,47 @@ runs:
 
         chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
 
-    - name: Save to local cache (self-hosted runners)
-      if: inputs.cache-dir != '' && steps.local-cache.outputs.cache-hit != 'true' && steps.local-cache.outputs.cache-disabled != 'true'
-      shell: bash
-      env:
-        CACHE_DIR: ${{ inputs.cache-dir }}
-      run: |
-        CACHE_FILE="${{ steps.local-cache.outputs.cache-file }}"
-
-        # Ensure cache directory exists (should already exist from check step)
-        mkdir -p "$CACHE_DIR"
-
-        # Copy to cache
-        cp "$GITHUB_WORKSPACE/skillstore-cli" "$CACHE_FILE"
-
-        echo "✅ Saved to local cache: $CACHE_FILE"
-        echo "📋 File size: $(du -h "$CACHE_FILE" | cut -f1)"
-        echo "🚀 Next run will use cached version (instant!)"
-
     - name: Restore executable permissions
       if: inputs.cache-dir == '' && steps.cache-cli.outputs.cache-hit == 'true'
       shell: bash
       run: |
         echo "✅ Using cached CLI (${{ steps.resolve.outputs.release-tag }})"
         chmod +x "$GITHUB_WORKSPACE/skillstore-cli"
+
+    # This must run before the first execution and before a downloaded binary is
+    # written to the shared self-hosted cache. A cache hit is untrusted input too.
+    - name: Verify release checksum before execution
+      id: checksum
+      if: inputs.require-checksum == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CLI_REPO: aiskillstore/skillstore
+        RELEASE_TAG: ${{ steps.resolve.outputs.release-tag }}
+      run: |
+        CHECKSUM_DIR=$(mktemp -d)
+        trap 'rm -rf "$CHECKSUM_DIR"' EXIT
+        gh release download "$RELEASE_TAG" \
+          --repo "$CLI_REPO" \
+          --pattern checksums.txt \
+          --dir "$CHECKSUM_DIR"
+
+        EXPECTED=$(awk '$2 == "skillstore-cli-linux-x64" { print $1 }' "$CHECKSUM_DIR/checksums.txt")
+        if ! [[ "$EXPECTED" =~ ^[0-9a-f]{64}$ ]]; then
+          echo "::error::Release $RELEASE_TAG has no valid checksum for skillstore-cli-linux-x64"
+          exit 1
+        fi
+        if command -v sha256sum >/dev/null 2>&1; then
+          ACTUAL=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{ print $1 }')
+        else
+          ACTUAL=$(shasum -a 256 "$GITHUB_WORKSPACE/skillstore-cli" | awk '{ print $1 }')
+        fi
+        if [ "$ACTUAL" != "$EXPECTED" ]; then
+          echo "::error::CLI checksum mismatch for $RELEASE_TAG: expected $EXPECTED, got $ACTUAL"
+          exit 1
+        fi
+        echo "cli-sha256=$ACTUAL" >> "$GITHUB_OUTPUT"
+        echo "✅ Verified CLI SHA-256 before execution: $ACTUAL"
 
     - name: Verify CLI
       id: verify
@@ -211,3 +241,20 @@ runs:
           fi
           echo "✅ Minimum CLI version satisfied: $ACTUAL_VERSION >= $MINIMUM_VERSION"
         fi
+
+    - name: Save verified CLI to local cache (self-hosted runners)
+      if: inputs.cache-dir != '' && steps.local-cache.outputs.cache-hit != 'true' && steps.local-cache.outputs.cache-disabled != 'true'
+      shell: bash
+      env:
+        CACHE_DIR: ${{ inputs.cache-dir }}
+      run: |
+        CACHE_FILE="${{ steps.local-cache.outputs.cache-file }}"
+        mkdir -p "$CACHE_DIR"
+        TEMP_CACHE_FILE="${CACHE_FILE}.tmp.$$"
+        trap 'rm -f "$TEMP_CACHE_FILE"' EXIT
+        cp "$GITHUB_WORKSPACE/skillstore-cli" "$TEMP_CACHE_FILE"
+        chmod +x "$TEMP_CACHE_FILE"
+        mv -f "$TEMP_CACHE_FILE" "$CACHE_FILE"
+
+        echo "✅ Saved verified CLI atomically: $CACHE_FILE"
+        echo "📋 Cache file size: $(du -h "$CACHE_FILE" | cut -f1)"

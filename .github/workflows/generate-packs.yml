@@ -1,185 +1,470 @@
-# Generate a curated skill pack on a clean self-hosted runner.
-# Runs the full pipeline: candidate skills (keyword + real search->install
-# behavior) -> best-of-breed verify (PK) -> LLM compose -> whole-pack verify
-# -> optionally write a candidate to Supabase (review_status=generated).
-# Clean runner HOME = accurate used-skill scoring (no personal global skills).
-# Uses `skillstore-cli pack generate` (CLI >= 1.41.0 for --scenario).
-
 name: Generate Pack
 
 on:
-  # Daily candidate generation: one scenario/day on a 7-day rotation. The CLI's
-  # built-in catalog (`--scenario daily-rotation`) picks today's scenario and
-  # forces a stable slug, so re-runs are idempotent and approved packs are never
-  # overwritten (an approved slug writes a rolling `-candidate` instead).
   schedule:
     - cron: '17 19 * * *'
   workflow_dispatch:
     inputs:
       scenario:
-        description: 'Built-in scenario id or "daily-rotation" (fills task/keywords/slug; leave task/keywords blank)'
+        description: 'Optional exact production scenario id/slug; blank uses the dynamic queue'
         type: string
         required: false
-      task:
-        description: 'End-to-end task the pack must solve (ignored when scenario is set)'
-        type: string
-        required: false
-      keywords:
-        description: 'Comma-separated candidate search terms (ignored when scenario is set)'
-        type: string
-        required: false
-      max_candidates:
-        description: 'Max skills to PK (default: 5)'
-        type: string
-        default: '5'
-      pick:
-        description: 'Max skills in the final pack (default: 3)'
-        type: string
-        default: '3'
-      model:
-        description: 'Run agent (default: sonnet -> Claude Code, where skills load)'
-        type: string
-        default: 'sonnet'
-      judge_model:
-        description: 'Judge agent (default: gpt-5.5 -> Codex, independent)'
-        type: string
-        default: 'gpt-5.5'
-      runs:
-        description: 'Run+judge iterations per verify (default: 1)'
-        type: string
-        default: '1'
-      threshold:
-        description: 'Pass threshold for the median score 0-10 (default: 7)'
-        type: string
-        default: '7'
-      write:
-        description: 'Write the candidate pack to Supabase (review_status=generated)'
+      auto_publish:
+        description: 'Request auto-publish; repository rollout gate must also be enabled'
         type: boolean
         default: false
-      cli_version:
-        description: 'Skillstore CLI version (default: latest)'
-        type: string
-        default: 'latest'
+
+permissions:
+  contents: read
 
 concurrency:
-  group: generate-pack
+  group: generate-pack-production-v2
   cancel-in-progress: false
 
-jobs:
-  generate:
-    runs-on: self-hosted
-    timeout-minutes: 360
-    steps:
-      - name: Generate GitHub App Token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.APP_CLIENT_ID }}
-          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-          repositories: marketplace,skillstore
+env:
+  # Immutable release required by the v2 evaluator/API contract. Bump only
+  # together with a Skillstore CLI release and its checksums.txt asset.
+  PACK_PRODUCTION_CLI_VERSION: '2.9.0'
 
-      - name: Checkout repository
+jobs:
+  plan:
+    name: Plan bounded scenario queue
+    runs-on: self-hosted
+    timeout-minutes: 20
+    outputs:
+      has_scenarios: ${{ steps.queue.outputs.has_scenarios }}
+      scenario_count: ${{ steps.queue.outputs.scenario_count }}
+    steps:
+      - name: Prepare isolated checkout
+        run: rm -rf "$GITHUB_WORKSPACE/marketplace-plan" "$GITHUB_WORKSPACE/pack-plan"
+
+      - name: Checkout immutable workflow revision
         uses: actions/checkout@v5
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          path: marketplace-plan
+          ref: ${{ github.sha }}
           fetch-depth: 1
+          filter: ''
+          clean: true
+          persist-credentials: false
 
-      - name: Download Skillstore CLI
+      - name: Download pinned Skillstore CLI
         id: cli
-        uses: ./.github/actions/download-skillstore-cli
+        uses: ./marketplace-plan/.github/actions/download-skillstore-cli
         with:
-          version: ${{ inputs.cli_version }}
-          token: ${{ steps.app-token.outputs.token }}
+          version: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
+          minimum-version: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
+          require-checksum: 'true'
+          token: ${{ github.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
 
-      - name: Generate pack
-        id: gen
+      - name: Select up to three scenarios
+        id: queue
         env:
           CLI: ${{ steps.cli.outputs.cli-path }}
-          EVENT: ${{ github.event_name }}
           SCENARIO: ${{ inputs.scenario }}
-          TASK: ${{ inputs.task }}
-          KEYWORDS: ${{ inputs.keywords }}
-          MAXC: ${{ inputs.max_candidates }}
-          PICK: ${{ inputs.pick }}
-          MODEL: ${{ inputs.model }}
-          JUDGE: ${{ inputs.judge_model }}
-          RUNS: ${{ inputs.runs }}
-          THRESHOLD: ${{ inputs.threshold }}
-          # CLI reads these names; map from the repo's existing Supabase secrets
           PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
-          # lets `pack generate` generate a cover image via Helm (gemini-3.1-flash-image);
-          # absent => cover step is skipped (best-effort, never fails the pack)
-          HELM_API_KEY: ${{ secrets.HELM_API_KEY }}
-          # lets `pack generate` dispatch the translate-packs workflow after writing a pack
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+        working-directory: marketplace-plan
         run: |
-          set +e  # pack generate exits non-zero when the pack FAILs verification; that's data, not a job error
-          mkdir -p pack-results
-
-          ARGS=(pack generate --skills-dir skills --json)
-          if [ "$EVENT" = "schedule" ]; then
-            # Daily rotation: today's scenario, written as a generated candidate.
-            ARGS+=(--scenario daily-rotation --write \
-              --max-candidates 8 --pick 3 \
-              --model sonnet --judge-model gpt-5.5 --runs 1 --threshold 7)
+          mkdir -p "$GITHUB_WORKSPACE/pack-plan"
+          ARGS=(pack scenario-queue --limit 3 --lookback-days 30 --cooldown-days 7 --json)
+          if [ -n "$SCENARIO" ]; then
+            ARGS+=(--scenario "$SCENARIO")
+          fi
+          "$CLI" "${ARGS[@]}" > "$GITHUB_WORKSPACE/pack-plan/plan.json"
+          jq -e '
+            .schemaVersion == "pack-production-queue/v1" and
+            (.scenarios | type == "array" and length <= 3) and
+            ((.scenarios | length) > 0 or .source == "signals") and
+            (all(.scenarios[]; (.capabilitySlots | length >= 1) and (.requiredArtifacts | length >= 1)))
+          ' "$GITHUB_WORKSPACE/pack-plan/plan.json"
+          SCENARIO_COUNT=$(jq -r '.scenarios | length' "$GITHUB_WORKSPACE/pack-plan/plan.json")
+          echo "scenario_count=$SCENARIO_COUNT" >> "$GITHUB_OUTPUT"
+          if [ "$SCENARIO_COUNT" -eq 0 ]; then
+            echo "has_scenarios=false" >> "$GITHUB_OUTPUT"
+            jq \
+              --arg runId "${{ github.run_id }}" \
+              --argjson runAttempt "${{ github.run_attempt }}" \
+              --arg commitSha "${{ github.sha }}" \
+              '{
+              schemaVersion: "marketplace.pack-production-noop/v1",
+              outcome: "no_op",
+              reason: "no_eligible_scenarios",
+              workflow: {
+                repository: "aiskillstore/marketplace",
+                runId: $runId,
+                runAttempt: $runAttempt,
+                commitSha: $commitSha
+              },
+              planSchemaVersion: .schemaVersion,
+              source,
+              generatedAt,
+              lookbackDays,
+              scenarioCount: (.scenarios | length)
+            }' "$GITHUB_WORKSPACE/pack-plan/plan.json" > "$GITHUB_WORKSPACE/pack-plan/no-op.json"
+            echo "No eligible scenario is due; recording an audited no-op." >> "$GITHUB_STEP_SUMMARY"
           else
-            # Manual: a scenario id (fills task/keywords) OR explicit task+keywords.
-            if [ -n "$SCENARIO" ]; then
-              ARGS+=(--scenario "$SCENARIO")
-            else
-              ARGS+=(--task "$TASK" --keywords "$KEYWORDS")
+            echo "has_scenarios=true" >> "$GITHUB_OUTPUT"
+          fi
+          jq '{source, scenarios: [.scenarios[] | {id, version, queueScore, reasons}]}' \
+            "$GITHUB_WORKSPACE/pack-plan/plan.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload immutable plan
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-production-plan
+          path: pack-plan/
+          if-no-files-found: error
+          retention-days: 90
+
+  evaluate:
+    name: Evaluate without production credentials
+    needs: plan
+    if: needs.plan.outputs.has_scenarios == 'true'
+    # GitHub-hosted runners are single-use VMs. The evaluator never reuses the
+    # persistent OAuth HOME or sibling workspaces from our self-hosted pool.
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - name: Checkout immutable skills and orchestrator
+        uses: actions/checkout@v5
+        with:
+          path: marketplace-evaluate
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          filter: ''
+          clean: true
+          persist-credentials: false
+
+      - name: Download plan
+        uses: actions/download-artifact@v6
+        with:
+          name: pack-production-plan
+          path: pack-production-input
+
+      - name: Download and checksum pinned Skillstore CLI
+        id: cli
+        uses: ./marketplace-evaluate/.github/actions/download-skillstore-cli
+        with:
+          version: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
+          minimum-version: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
+          require-checksum: 'true'
+          token: ${{ github.token }}
+          cache-dir: ''
+
+      - name: Install evaluator runtimes before secrets are available
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg poppler-utils
+          sudo npm install --global \
+            @anthropic-ai/claude-code@2.1.210 \
+            @openai/codex@0.139.0
+          command -v ffprobe
+          command -v pdfinfo
+          command -v pdftotext
+          test "$(claude --version | awk '{print $1}')" = '2.1.210'
+          test "$(codex --version | awk '{print $2}')" = '0.139.0'
+
+      - name: Prepare disposable evaluator identities and filesystem
+        env:
+          CLI: ${{ steps.cli.outputs.cli-path }}
+        run: |
+          RUNNER_GROUP=$(id -gn)
+          sudo useradd --system --create-home --home-dir /home/packproxy --shell /usr/sbin/nologin packproxy
+          sudo useradd --create-home --home-dir /home/packeval --shell /bin/bash packeval
+          sudo install -o root -g root -m 0555 "$CLI" /usr/local/bin/skillstore-cli-pack-evaluator
+          sudo chown -R root:root \
+            "$GITHUB_WORKSPACE/marketplace-evaluate" \
+            "$GITHUB_WORKSPACE/pack-production-input"
+          sudo chmod -R a=rX,u+w \
+            "$GITHUB_WORKSPACE/marketplace-evaluate" \
+            "$GITHUB_WORKSPACE/pack-production-input"
+          sudo install -d -o packeval -g "$RUNNER_GROUP" -m 0770 \
+            "$GITHUB_WORKSPACE/pack-results"
+          sudo install -d -o packeval -g packeval -m 0700 \
+            /home/packeval/tmp \
+            /home/packeval/.codex
+          printf '%s\n' \
+            'model_provider = "pack_evaluator_proxy"' \
+            '[model_providers.pack_evaluator_proxy]' \
+            'name = "Job-local Pack evaluator proxy"' \
+            'base_url = "http://127.0.0.1:18765/v1"' \
+            'env_key = "PACK_EVALUATOR_PROXY_TOKEN"' \
+            'wire_api = "responses"' \
+            'supports_websockets = false' \
+            | sudo tee /home/packeval/.codex/config.toml >/dev/null
+          sudo chown packeval:packeval /home/packeval/.codex/config.toml
+          sudo chmod 0600 /home/packeval/.codex/config.toml
+
+      # The real Helm credential exists only in this runner-owned shell and the
+      # separate packproxy process. Agent commands run as a different, non-sudo
+      # user with an empty environment and receive only a localhost-scoped token.
+      - name: Evaluate queue until one candidate is ready
+        env:
+          PACK_EVALUATOR_HELM_API_KEY: ${{ secrets.PACK_EVALUATOR_HELM_API_KEY }}
+          SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
+        run: |
+          set -euo pipefail
+          LOCAL_TOKEN=$(openssl rand -hex 32)
+          PROXY_LOG=$(mktemp)
+          chmod 0600 "$PROXY_LOG"
+          cleanup() {
+            sudo pkill -u packproxy -f pack-evaluator-proxy.mjs 2>/dev/null || true
+            rm -f "$PROXY_LOG"
+          }
+          trap cleanup EXIT
+
+          sudo -u packproxy env -i \
+            PATH=/usr/local/bin:/usr/bin:/bin \
+            PACK_EVALUATOR_LOCAL_TOKEN="$LOCAL_TOKEN" \
+            PACK_EVALUATOR_UPSTREAM_KEY="$PACK_EVALUATOR_HELM_API_KEY" \
+            PACK_EVALUATOR_UPSTREAM_URL=https://helm.easymeta.au \
+            PACK_EVALUATOR_PROXY_PORT=18765 \
+            PACK_EVALUATOR_ALLOWED_MODELS=claude-sonnet-4.6,claude-sonnet-4-6,claude-sonnet-5,sonnet,gpt-5.5 \
+            PACK_EVALUATOR_MAX_REQUESTS=256 \
+            PACK_EVALUATOR_MAX_CONCURRENT=4 \
+            PACK_EVALUATOR_MAX_OUTPUT_TOKENS=65536 \
+            PACK_EVALUATOR_TTL_MS=14400000 \
+            PACK_EVALUATOR_REQUEST_TIMEOUT_MS=600000 \
+            node "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-evaluator-proxy.mjs" \
+            >"$PROXY_LOG" 2>&1 &
+          unset PACK_EVALUATOR_HELM_API_KEY
+
+          for _ in $(seq 1 30); do
+            if curl --fail --silent \
+              -H "Authorization: Bearer $LOCAL_TOKEN" \
+              http://127.0.0.1:18765/healthz >/dev/null; then
+              break
             fi
-            ARGS+=(--max-candidates "$MAXC" --pick "$PICK" \
-              --model "$MODEL" --judge-model "$JUDGE" \
-              --runs "$RUNS" --threshold "$THRESHOLD")
-            [ "${{ inputs.write }}" = "true" ] && ARGS+=(--write)
-          fi
+            sleep 1
+          done
+          curl --fail --silent \
+            -H "Authorization: Bearer $LOCAL_TOKEN" \
+            http://127.0.0.1:18765/healthz >/dev/null
+          PROXY_PID=$(pgrep -u packproxy -f pack-evaluator-proxy.mjs | head -n1)
+          test -n "$PROXY_PID"
 
-          "$CLI" "${ARGS[@]}" > pack-results/result.json 2> >(tee pack-results/run.log >&2)
-          RC=$?
-          echo "exit code: $RC"
-          cat pack-results/result.json || true
+          sudo -u packeval env -i \
+            PATH=/usr/local/bin:/usr/bin:/bin \
+            HOME=/home/packeval \
+            PROXY_PID="$PROXY_PID" \
+            bash -c '
+              set -euo pipefail
+              ! sudo -n true 2>/dev/null
+              ! test -r "/proc/$PROXY_PID/environ"
+              ! test -e /home/packeval/.codex/auth.json
+              ! test -e /home/packeval/.claude
+              ! test -r /var/run/docker.sock
+              ! env | grep -Eq "SUPABASE|HELM|GITHUB_TOKEN|GH_TOKEN|AUTOMATION|APP_PRIVATE_KEY|CALLBACK|CACHE_INVALIDATE"
+            '
 
-          R=pack-results/result.json
-          if jq -e . "$R" >/dev/null 2>&1; then
-            NAME=$(jq -r '.manifest.name' "$R")
-            SLUG=$(jq -r '.manifest.slug' "$R")
-            SKILLS=$(jq -r '.manifest.skills | join(", ")' "$R")
-            FIT=$(jq -r '.packFitness.medianScore' "$R")
-            PASS=$(jq -r 'if .packFitness.passed then "✅ PASS" else "❌ FAIL" end' "$R")
-            USED=$(jq -r '(.packFitness.usedSkillRate*100)|floor' "$R")
-            WRITTEN=$(jq -r 'if .written then ((.written.packId // .written.pluginId) + " (review_status=generated)" + (if .comparisonOf then " [comparison of " + .comparisonOf + "]" else "" end)) elif .skippedReason then ("skipped — " + .skippedReason) elif .writeError then ("write failed — " + .writeError) else "dry-run" end' "$R")
-            {
-              echo "## Pack Generation"
-              echo ""
-              echo "**Pack:** $NAME (\`$SLUG\`)"
-              echo ""
-              echo "**Skills:** $SKILLS"
-              echo ""
-              echo "**Fitness:** $FIT/10 — $PASS  (used-skill ${USED}%)"
-              echo ""
-              echo "**Written:** $WRITTEN"
-              echo ""
-              echo "### Candidates (best-of-breed PK)"
-              echo "| skill | score | used-skill |"
-              echo "|---|--:|--:|"
-              jq -r '.candidates[] | "| \(.slug) | \(.score)/10 | \((.usedSkillRate*100)|floor)% |"' "$R"
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            {
-              echo "## Pack Generation"
-              echo "Pipeline produced no JSON (exit $RC). See the run.log artifact."
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-          exit 0
+          sudo -u packeval env -i \
+            PATH=/usr/local/bin:/usr/bin:/bin \
+            HOME=/home/packeval \
+            CODEX_HOME=/home/packeval/.codex \
+            TMPDIR=/home/packeval/tmp \
+            CI=true \
+            NO_COLOR=1 \
+            SKILLSTORE_AGENTS="$SKILLSTORE_AGENTS" \
+            SKILLSTORE_AGENT_ENV_MODE=strict \
+            SKILLSTORE_AGENT_ENV_ALLOWLIST=CODEX_HOME,PACK_EVALUATOR_PROXY_TOKEN,ANTHROPIC_BASE_URL,ANTHROPIC_AUTH_TOKEN,NO_PROXY \
+            PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
+            ANTHROPIC_BASE_URL=http://127.0.0.1:18765 \
+            ANTHROPIC_AUTH_TOKEN="$LOCAL_TOKEN" \
+            NO_PROXY=127.0.0.1,localhost \
+            timeout --signal=TERM 4h \
+            prlimit --nproc=256:256 --as=6442450944:6442450944 -- \
+            node "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-production.mjs" evaluate \
+            --plan "$GITHUB_WORKSPACE/pack-production-input/plan.json" \
+            --results-dir "$GITHUB_WORKSPACE/pack-results" \
+            --cli /usr/local/bin/skillstore-cli-pack-evaluator \
+            --expected-cli-version "$PACK_PRODUCTION_CLI_VERSION" \
+            --skills-dir "$GITHUB_WORKSPACE/marketplace-evaluate/skills" \
+            --run-id "${{ github.run_id }}" \
+            --run-attempt "${{ github.run_attempt }}" \
+            --commit-sha "${{ github.sha }}" \
+            --model sonnet \
+            --judge-model gpt-5.5 \
+            --max-candidates 3 \
+            --pick 4 \
+            --runs 1 \
+            --final-runs 3 \
+            --threshold 7 \
+            --baseline-delta 1 \
+            --auto-publish-threshold 8 \
+            > "$GITHUB_WORKSPACE/pack-results/evaluate-command.json"
+          test ! -s "$PROXY_LOG" || sed -E 's/(Bearer|helm_live_)[^[:space:]]+/[REDACTED]/g' "$PROXY_LOG" >&2
+          jq '{attempts: [.reports[] | {scenarioId, outcome, outcomeReason}], selectedGenerationId}' \
+            "$GITHUB_WORKSPACE/pack-results/evaluate-summary.json" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload results
+      - name: Upload complete evaluation evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: pack-results
+          name: pack-production-evaluation
           path: pack-results/
-          retention-days: 7
+          if-no-files-found: error
+          retention-days: 90
+
+  persist:
+    name: Persist through trusted API
+    needs: [plan, evaluate]
+    if: needs.plan.outputs.has_scenarios == 'true' && needs.evaluate.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout orchestrator only
+        uses: actions/checkout@v5
+        with:
+          path: marketplace-persist
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/pack-production.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download evaluation evidence
+        uses: actions/download-artifact@v6
+        with:
+          name: pack-production-evaluation
+          path: pack-results
+
+      - name: Persist every attempt atomically
+        env:
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          PACK_PRODUCTION_AUTOMATION_KEY: ${{ secrets.PACK_PRODUCTION_AUTOMATION_KEY }}
+        run: |
+          node marketplace-persist/scripts/pack-production.mjs persist \
+            --results-dir "$GITHUB_WORKSPACE/pack-results" \
+            --api-url "$SKILLSTORE_API_URL" \
+            --token "$PACK_PRODUCTION_AUTOMATION_KEY" \
+            > "$GITHUB_WORKSPACE/pack-results/persist-command.json"
+
+      - name: Upload persistence readback
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-production-persisted
+          path: pack-results/
+          if-no-files-found: error
+          retention-days: 90
+
+  enrich_publish_readback:
+    name: Enrich, gate, publish, and prove production
+    needs: [plan, persist]
+    if: needs.plan.outputs.has_scenarios == 'true' && needs.persist.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout orchestrator only
+        uses: actions/checkout@v5
+        with:
+          path: marketplace-finalize
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/pack-production.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download persisted evidence
+        uses: actions/download-artifact@v6
+        with:
+          name: pack-production-persisted
+          path: pack-results
+
+      - name: Await enrichment and enforce publish gates
+        env:
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          PACK_PRODUCTION_AUTOMATION_KEY: ${{ secrets.PACK_PRODUCTION_AUTOMATION_KEY }}
+          # Fail closed until the hardened evaluator-container canary passes and
+          # PACK_PRODUCTION_AUTO_PUBLISH_ENABLED is explicitly enabled.
+          AUTO_PUBLISH: ${{ vars.PACK_PRODUCTION_AUTO_PUBLISH_ENABLED == 'true' && (github.event_name == 'schedule' || inputs.auto_publish) && 'true' || 'false' }}
+        run: |
+          node marketplace-finalize/scripts/pack-production.mjs finalize \
+            --results-dir "$GITHUB_WORKSPACE/pack-results" \
+            --api-url "$SKILLSTORE_API_URL" \
+            --token "$PACK_PRODUCTION_AUTOMATION_KEY" \
+            --auto-publish "$AUTO_PUBLISH" \
+            --max-wait-seconds 1800 \
+            --poll-seconds 30 \
+            > "$GITHUB_WORKSPACE/pack-results/finalize-command.json"
+          jq . "$GITHUB_WORKSPACE/pack-results/final-result.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload final production evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-production-final
+          path: pack-results/
+          if-no-files-found: error
+          retention-days: 90
+
+  production_slo:
+    name: Report rolling seven-day production SLO
+    needs: [plan, evaluate, persist, enrich_publish_readback]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout SLO reporter only
+        uses: actions/checkout@v5
+        with:
+          path: marketplace-slo
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/pack-production.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Download audited plan or no-op evidence
+        if: needs.plan.result == 'success'
+        uses: actions/download-artifact@v6
+        with:
+          name: pack-production-plan
+          path: pack-plan
+
+      - name: Query and report rolling seven-day SLO
+        env:
+          SKILLSTORE_API_URL: ${{ secrets.SKILLSTORE_API_URL }}
+          PACK_PRODUCTION_AUTOMATION_KEY: ${{ secrets.PACK_PRODUCTION_AUTOMATION_KEY }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          EVALUATE_RESULT: ${{ needs.evaluate.result }}
+          PERSIST_RESULT: ${{ needs.persist.result }}
+          FINALIZE_RESULT: ${{ needs.enrich_publish_readback.result }}
+          HAS_SCENARIOS: ${{ needs.plan.outputs.has_scenarios }}
+          SCENARIO_COUNT: ${{ needs.plan.outputs.scenario_count }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/pack-slo"
+          node marketplace-slo/scripts/pack-production.mjs slo \
+            --results-dir "$GITHUB_WORKSPACE/pack-slo" \
+            --api-url "$SKILLSTORE_API_URL" \
+            --token "$PACK_PRODUCTION_AUTOMATION_KEY" \
+            > "$GITHUB_WORKSPACE/pack-slo/slo-command.json"
+
+          SLO="$GITHUB_WORKSPACE/pack-slo/slo-result.json"
+          PASSED=$(jq -r '.met' "$SLO")
+          ACTUAL=$(jq -r '.publishedReadbackPassed' "$SLO")
+          TARGET=$(jq -r '.target' "$SLO")
+          {
+            echo "## Rolling 7-Day Pack Production SLO"
+            echo ""
+            echo "- Published + readback passed: $ACTUAL/$TARGET"
+            echo "- Plan: $PLAN_RESULT ($SCENARIO_COUNT scenarios)"
+            echo "- Evaluate: $EVALUATE_RESULT"
+            echo "- Persist: $PERSIST_RESULT"
+            echo "- Finalize: $FINALIZE_RESULT"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$PASSED" != "true" ]; then
+            echo "::error::Rolling 7-day Pack production SLO is below target: $ACTUAL/$TARGET"
+            echo "- Failure: SLO is below target; quality gates remain unchanged." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Upload terminal SLO and no-op evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-production-slo
+          path: |
+            pack-slo/
+            pack-plan/no-op.json
+          if-no-files-found: error
+          retention-days: 90
