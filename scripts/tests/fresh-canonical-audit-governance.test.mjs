@@ -101,8 +101,8 @@ test('workflow is two-phase, CLI-pinned, resumable, and closes P0 channels', () 
   const workflow = readFileSync(new URL('../../.github/workflows/govern-fresh-canonical-audits.yml', import.meta.url), 'utf8');
   assert.match(workflow, /options: \[dry-run, execute\]/);
   assert.match(workflow, /default: '2\.8\.0'/);
-  assert.match(workflow, /TODO_RELEASE_CLI_2_8_0_SHA256/);
-  assert.match(workflow, /replace CLI 2\.8\.0 digest TODO/);
+  assert.equal((workflow.match(/ecfaa49aa72d24b8ea6322c7dae24d4bbe9df174a5d009cc56d7d2a89e7ae05a/g) || []).length, 2);
+  assert.match(workflow, /\[\[ "\$audited" =~ \^\[0-9a-f\]\{64\}\$ \]\]/);
   assert.match(workflow, /skill audit/);
   assert.match(workflow, /fresh-run-manifest-file/);
   assert.match(workflow, /fresh-audit-run\.json/);
