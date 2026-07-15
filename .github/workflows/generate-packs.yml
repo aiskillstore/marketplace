@@ -209,6 +209,12 @@ jobs:
           sudo useradd --system --create-home --home-dir /home/packproxy --shell /usr/sbin/nologin packproxy
           sudo useradd --create-home --home-dir /home/packeval --shell /bin/bash packeval
           sudo install -o root -g root -m 0555 "$CLI" /usr/local/bin/skillstore-cli-pack-evaluator
+          sudo install -o root -g root -m 0555 \
+            "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-evaluator-proxy.mjs" \
+            /usr/local/lib/pack-evaluator-proxy.mjs
+          sudo install -o root -g root -m 0555 \
+            "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-production.mjs" \
+            /usr/local/lib/pack-production.mjs
           sudo chown -R root:root \
             "$GITHUB_WORKSPACE/marketplace-evaluate" \
             "$GITHUB_WORKSPACE/pack-production-input"
@@ -262,24 +268,32 @@ jobs:
             PACK_EVALUATOR_MAX_OUTPUT_TOKENS=65536 \
             PACK_EVALUATOR_TTL_MS=14400000 \
             PACK_EVALUATOR_REQUEST_TIMEOUT_MS=600000 \
-            node "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-evaluator-proxy.mjs" \
+            node /usr/local/lib/pack-evaluator-proxy.mjs \
             >"$PROXY_LOG" 2>&1 &
+          PROXY_LAUNCH_PID=$!
           unset PACK_EVALUATOR_HELM_API_KEY
 
+          PROXY_READY=false
           for _ in $(seq 1 30); do
             if curl --fail --silent \
               -H "Authorization: Bearer $LOCAL_TOKEN" \
               http://127.0.0.1:18765/healthz >/dev/null; then
+              PROXY_READY=true
               break
             fi
             sleep 1
           done
-          curl --fail --silent \
-            -H "Authorization: Bearer $LOCAL_TOKEN" \
-            http://127.0.0.1:18765/healthz >/dev/null
+          if [ "$PROXY_READY" != "true" ]; then
+            echo "::error::Pack evaluator proxy did not become healthy within 30 seconds"
+            test ! -s "$PROXY_LOG" || sed -E 's/(Bearer|helm_live_)[^[:space:]]+/[REDACTED]/g' "$PROXY_LOG" >&2
+            kill "$PROXY_LAUNCH_PID" 2>/dev/null || true
+            wait "$PROXY_LAUNCH_PID" 2>/dev/null || true
+            exit 1
+          fi
           PROXY_PID=$(pgrep -u packproxy -f pack-evaluator-proxy.mjs | head -n1)
           test -n "$PROXY_PID"
 
+          set +e
           sudo -u packeval env -i \
             PATH=/usr/local/bin:/usr/bin:/bin \
             HOME=/home/packeval \
@@ -310,7 +324,7 @@ jobs:
             NO_PROXY=127.0.0.1,localhost \
             timeout --signal=TERM 4h \
             prlimit --nproc=256:256 --as=6442450944:6442450944 -- \
-            node "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-production.mjs" evaluate \
+            node /usr/local/lib/pack-production.mjs evaluate \
             --plan "$GITHUB_WORKSPACE/pack-production-input/plan.json" \
             --results-dir "$GITHUB_WORKSPACE/pack-results" \
             --cli /usr/local/bin/skillstore-cli-pack-evaluator \
@@ -329,7 +343,15 @@ jobs:
             --baseline-delta 1 \
             --auto-publish-threshold 8 \
             > "$GITHUB_WORKSPACE/pack-results/evaluate-command.json"
+          EVALUATOR_RC=$?
+          set -e
           test ! -s "$PROXY_LOG" || sed -E 's/(Bearer|helm_live_)[^[:space:]]+/[REDACTED]/g' "$PROXY_LOG" >&2
+          if [ "$EVALUATOR_RC" -ne 0 ]; then
+            printf 'evaluator_exit_code=%s\n' "$EVALUATOR_RC" \
+              > "$GITHUB_WORKSPACE/pack-results/evaluator-failure.txt"
+            echo "::error::Pack evaluator exited with code $EVALUATOR_RC"
+            exit "$EVALUATOR_RC"
+          fi
           jq '{attempts: [.reports[] | {scenarioId, outcome, outcomeReason}], selectedGenerationId}' \
             "$GITHUB_WORKSPACE/pack-results/evaluate-summary.json" >> "$GITHUB_STEP_SUMMARY"
 
