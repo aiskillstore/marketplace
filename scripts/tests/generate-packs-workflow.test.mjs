@@ -35,7 +35,8 @@ test('evaluate job cannot interpolate production write credentials', () => {
     evaluate,
     /secrets\.(SUPABASE|APP_PRIVATE_KEY|AUTOMATION_API_KEY|SKILLSTORE_CALLBACK_TOKEN|CACHE_INVALIDATE_SECRET)/
   );
-  assert.doesNotMatch(evaluate, /--write|set \+e|continue-on-error/);
+  assert.doesNotMatch(evaluate, /--write|continue-on-error/);
+  assert.match(evaluate, /set \+e[\s\S]*EVALUATOR_RC=\$\?[\s\S]*exit "\$EVALUATOR_RC"/);
   assert.match(evaluate, /SKILLSTORE_AGENT_ENV_MODE=strict/);
   assert.match(evaluate, /persist-credentials: false/);
 });
@@ -51,6 +52,8 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /command -v pdftotext/);
   assert.match(evaluate, /useradd .*packproxy/);
   assert.match(evaluate, /useradd .*packeval/);
+  assert.match(evaluate, /\/usr\/local\/lib\/pack-evaluator-proxy\.mjs/);
+  assert.match(evaluate, /\/usr\/local\/lib\/pack-production\.mjs/);
   assert.match(evaluate, /sudo -u packproxy env -i/);
   assert.match(evaluate, /sudo -u packeval env -i/);
   assert.match(evaluate, /! sudo -n true/);
@@ -71,6 +74,8 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /PACK_EVALUATOR_MAX_REQUESTS=256/);
   assert.match(evaluate, /PACK_EVALUATOR_MAX_CONCURRENT=4/);
   assert.match(evaluate, /PACK_EVALUATOR_MAX_OUTPUT_TOKENS=65536/);
+  assert.match(evaluate, /Pack evaluator proxy did not become healthy within 30 seconds/);
+  assert.match(evaluate, /evaluator-failure\.txt/);
   assert.match(evaluate, /timeout --signal=TERM 4h/);
   assert.match(evaluate, /prlimit --nproc=256:256 --as=6442450944:6442450944/);
   assert.match(EVALUATOR_PROXY, /evaluator proxy request budget exhausted/);
