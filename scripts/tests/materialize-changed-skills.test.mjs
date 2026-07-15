@@ -136,3 +136,15 @@ test('rejects symbolic commit names instead of materializing mutable HEAD', () =
     rmSync(repositoryRoot, { recursive: true, force: true });
   }
 });
+
+test('rejects reserved published identities before materialization', () => {
+  const { repositoryRoot, commit } = makeRepository();
+  try {
+    assert.throws(
+      () => materializeChangedSkills({ repositoryRoot, commit, skills: ['pending/demo'] }),
+      /invalid or reserved path identity/,
+    );
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});

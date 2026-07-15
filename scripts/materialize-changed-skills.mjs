@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { lstatSync, readFileSync, rmSync } from 'node:fs';
 import { posix, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { publishedSkillDirectory } from './detect-changed-skills.mjs';
 
 const MAX_GIT_OUTPUT = 64 * 1024 * 1024;
 
@@ -48,6 +49,7 @@ export function parseChangedSkillPaths(rawSkills) {
     ) {
       throw new Error(`invalid changed skill path: ${skillPath}`);
     }
+    publishedSkillDirectory(`skills/${skillPath}/skill-report.json`);
   }
 
   return skillPaths;
@@ -91,6 +93,7 @@ function reportEntriesAtCommit(repositoryRoot, commit) {
     const [mode, type, oid] = record.slice(0, tabIndex).split(' ');
     const treePath = record.slice(tabIndex + 1);
     if (treePath.endsWith('/skill-report.json')) {
+      publishedSkillDirectory(treePath);
       reports.set(treePath, { mode, type, oid });
     }
   }

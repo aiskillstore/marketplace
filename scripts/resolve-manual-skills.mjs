@@ -3,6 +3,7 @@
 import { execFileSync } from 'node:child_process';
 import { posix } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { publishedSkillDirectory } from './detect-changed-skills.mjs';
 
 const MAX_GIT_OUTPUT = 64 * 1024 * 1024;
 
@@ -88,6 +89,7 @@ function reportBlobsAtCommit(repositoryRoot, commit) {
     ) {
       continue;
     }
+    publishedSkillDirectory(treePath);
     reports.push({ oid, treePath });
   }
   return reports;

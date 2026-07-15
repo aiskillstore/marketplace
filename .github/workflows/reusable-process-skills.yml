@@ -370,9 +370,15 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SLUGS: ${{ matrix.slugs }}
         run: |
+          set -euo pipefail
           echo "=== Shard ${{ matrix.shard }} ==="
           SKILL_COUNT=$(echo "$SLUGS" | tr ',' '\n' | grep -c . || echo 0)
           echo "Processing $SKILL_COUNT skill(s)"
+
+          RESULT_DIR="/tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}"
+          rm -rf "$RESULT_DIR"
+          mkdir -p "$RESULT_DIR/pending"
+          LOG_FILE="$RESULT_DIR/process-output-${{ matrix.shard }}.log"
 
           MODEL_FLAG=""
           if [ -n "${{ inputs.model }}" ]; then
@@ -383,11 +389,11 @@ jobs:
           set +e
           "$GITHUB_WORKSPACE/skillstore-cli" skill process "${{ needs.discover-and-plan.outputs.github_url }}" \
             --slugs "$SLUGS" \
-            --output . \
+            --output "$RESULT_DIR" \
             --marketplace-repo "${{ github.repository }}" \
             --skip-pr \
             $MODEL_FLAG \
-            2>&1 | tee process-output-${{ matrix.shard }}.log
+            2>&1 | tee "$LOG_FILE"
           FIRST_EXIT=$?
           set -e
 
@@ -395,7 +401,7 @@ jobs:
           FAILED_SLUGS=""
           for slug in $(echo "$SLUGS" | tr ',' '\n'); do
             [ -z "$slug" ] && continue
-            FOUND=$(find pending -path "*/$slug/skill-report.json" 2>/dev/null | head -1)
+            FOUND=$(find "$RESULT_DIR/pending" -path "*/$slug/skill-report.json" 2>/dev/null | head -1)
             if [ -z "$FOUND" ]; then
               [ -n "$FAILED_SLUGS" ] && FAILED_SLUGS="$FAILED_SLUGS,"
               FAILED_SLUGS="$FAILED_SLUGS$slug"
@@ -411,11 +417,11 @@ jobs:
 
             "$GITHUB_WORKSPACE/skillstore-cli" skill process "${{ needs.discover-and-plan.outputs.github_url }}" \
               --slugs "$FAILED_SLUGS" \
-              --output . \
+              --output "$RESULT_DIR" \
               --marketplace-repo "${{ github.repository }}" \
               --skip-pr \
               $MODEL_FLAG \
-              2>&1 | tee -a process-output-${{ matrix.shard }}.log || true
+              2>&1 | tee -a "$LOG_FILE" || true
           fi
 
           # Collect final results
@@ -424,7 +430,7 @@ jobs:
           HIGHEST_RISK="safe"
           PROCESSED_SLUGS=""
 
-          for report in $(find pending -name "skill-report.json" 2>/dev/null); do
+          for report in $(find "$RESULT_DIR/pending" -name "skill-report.json" 2>/dev/null); do
             SLUG=$(jq -r '.meta.slug' "$report")
             RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$report")
 
@@ -442,7 +448,7 @@ jobs:
           # Count remaining failures
           for slug in $(echo "$SLUGS" | tr ',' '\n'); do
             [ -z "$slug" ] && continue
-            FOUND=$(find pending -path "*/$slug/skill-report.json" 2>/dev/null | head -1)
+            FOUND=$(find "$RESULT_DIR/pending" -path "*/$slug/skill-report.json" 2>/dev/null | head -1)
             [ -z "$FOUND" ] && ERRORS=$((ERRORS + 1))
           done
 
@@ -456,14 +462,32 @@ jobs:
           echo ""
           echo "📊 Shard ${{ matrix.shard }}: $PROCESSED processed, $ERRORS errors, highest risk: $HIGHEST_RISK"
 
+      - name: Create mode-preserving shard archive
+        if: always()
+        env:
+          PLANNED_SLUGS: ${{ matrix.slugs }}
+        run: |
+          set -euo pipefail
+          RESULT_DIR="/tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}"
+          LOG_FILE="$RESULT_DIR/process-output-${{ matrix.shard }}.log"
+          mkdir -p "$RESULT_DIR/pending"
+          test -f "$LOG_FILE" || : > "$LOG_FILE"
+          printf '%s\n' "$PLANNED_SLUGS" > "$RESULT_DIR/planned-slugs.csv"
+          tar -C "$RESULT_DIR" -czf "$RESULT_DIR/shard-results.tar.gz" \
+            pending "$(basename "$LOG_FILE")" planned-slugs.csv
+
       - name: Upload shard results
+        if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: process-shard-${{ matrix.shard }}
-          path: |
-            pending/
-            process-output-${{ matrix.shard }}.log
+          name: process-shard-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: /tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}/shard-results.tar.gz
+          if-no-files-found: error
           retention-days: 1
+
+      - name: Cleanup isolated shard results
+        if: always()
+        run: rm -rf "/tmp/submission-shard-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}"
 
 
   # ============================================================
@@ -493,8 +517,8 @@ jobs:
       - name: Download all shard artifacts
         uses: actions/download-artifact@v7
         with:
-          pattern: process-shard-*
-          merge-multiple: true
+          pattern: process-shard-${{ github.run_attempt }}-*
+          merge-multiple: false
           path: /tmp/submission-artifacts-${{ github.run_id }}
 
       - name: Merge results and create PR
@@ -503,6 +527,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           REPOSITORY: ${{ github.repository }}
+          SHARD_MATRIX: ${{ needs.discover-and-plan.outputs.matrix }}
         run: |
           set -euo pipefail
 
@@ -511,7 +536,8 @@ jobs:
 
           cleanup() {
             echo "🧹 Cleaning up temp directories..."
-            rm -rf "$WORK_DIR" "$ARTIFACTS_DIR" 2>/dev/null || true
+            rm -rf "$WORK_DIR" "$ARTIFACTS_DIR" "${ARTIFACTS_DIR}.approval-plan.json" \
+              "${ARTIFACTS_DIR}.plan-items.jsonl" "${ARTIFACTS_DIR}.merged" 2>/dev/null || true
           }
           trap cleanup EXIT
 
@@ -522,17 +548,103 @@ jobs:
           git config user.name "ai-skill-store[bot]"
           git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
 
-          echo "=== Merging results from all shards ==="
-          mkdir -p pending
-          if [ -d "$ARTIFACTS_DIR/pending" ]; then
-            cp -r "$ARTIFACTS_DIR/pending/"* ./pending/ 2>/dev/null || true
+          echo "=== Resolving frozen results from all shards ==="
+          APPROVAL_PLAN="${ARTIFACTS_DIR}.approval-plan.json"
+          PLAN_ITEMS="${ARTIFACTS_DIR}.plan-items.jsonl"
+          MERGED_RESULTS="${ARTIFACTS_DIR}.merged"
+          mkdir -p "$MERGED_RESULTS"
+          : > "$PLAN_ITEMS"
+          mapfile -t SHARD_DIRS < <(find "$ARTIFACTS_DIR" -mindepth 1 -maxdepth 1 -type d \
+            -name 'process-shard-${{ github.run_attempt }}-*' | sort)
+          test "${#SHARD_DIRS[@]}" -eq "${{ needs.discover-and-plan.outputs.shard_count }}" || {
+            echo "::error::Downloaded ${#SHARD_DIRS[@]}/${{ needs.discover-and-plan.outputs.shard_count }} shard artifact(s)"
+            exit 1
+          }
+          for shard_dir in "${SHARD_DIRS[@]}"; do
+            test -d "$shard_dir" || continue
+            SHARD_ARCHIVE="$shard_dir/shard-results.tar.gz"
+            SHARD_ROOT="$shard_dir/extracted"
+            test -f "$SHARD_ARCHIVE"
+            mkdir -p "$SHARD_ROOT"
+            tar -xzf "$SHARD_ARCHIVE" -C "$SHARD_ROOT" --no-same-owner
+            SHARD_INDEX="${shard_dir##*-}"
+            [[ "$SHARD_INDEX" =~ ^[0-9]+$ ]]
+            EXPECTED_SLUGS=$(jq -er --argjson shard "$SHARD_INDEX" \
+              '.include[] | select(.shard == $shard) | .slugs' <<< "$SHARD_MATRIX")
+            test "$(cat "$SHARD_ROOT/planned-slugs.csv")" = "$EXPECTED_SLUGS" || {
+              echo "::error::Shard $SHARD_INDEX planned slug evidence does not match the workflow matrix"
+              exit 1
+            }
+            SHARD_FILES="${shard_dir}.files.txt"
+            SHARD_PLAN="${shard_dir}.approval-plan.json"
+            find "$SHARD_ROOT/pending" \( -type f -o -type l \) -print 2>/dev/null \
+              | sed "s|^$SHARD_ROOT/||" > "$SHARD_FILES"
+            if [ ! -s "$SHARD_FILES" ]; then
+              echo "::warning::Shard $SHARD_INDEX produced no successful skills"
+              continue
+            fi
+            node scripts/resolve-approved-submission.mjs \
+              --repo-root "$SHARD_ROOT" \
+              --files "$SHARD_FILES" \
+              --output "$SHARD_PLAN" \
+              --allow-blocked
+            jq -en --arg planned "$EXPECTED_SLUGS" --slurpfile plan "$SHARD_PLAN" '
+              ($planned | split(",") | map(select(length > 0)) | unique) as $expected
+              | ($plan[0].skills | map(.pendingDir | split("/")[-1]) | unique) as $actual
+              | (($actual - $expected) | length) == 0
+            ' >/dev/null || {
+              echo "::error::Shard $SHARD_INDEX produced a skill outside its planned slug set"
+              exit 1
+            }
+            jq -c '.skills[]' "$SHARD_PLAN" >> "$PLAN_ITEMS"
+            while IFS= read -r pending_dir; do
+              test ! -e "$MERGED_RESULTS/$pending_dir" || {
+                echo "::error::Duplicate pending path across shards: $pending_dir"
+                exit 1
+              }
+              mkdir -p "$MERGED_RESULTS/$(dirname "$pending_dir")"
+              cp -R "$SHARD_ROOT/$pending_dir" "$MERGED_RESULTS/$pending_dir"
+            done < <(jq -r '.skills[].pendingDir' "$SHARD_PLAN")
+          done
+          if [ ! -s "$PLAN_ITEMS" ]; then
+            echo "No skills were successfully processed"
+            echo "has_results=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          jq -s '
+            if ([.[].pendingDir] | length) != ([.[].pendingDir] | unique | length)
+              then error("duplicate pending path across submission shards")
+            elif ([.[].targetDir] | length) != ([.[].targetDir] | unique | length)
+              then error("duplicate publication target across submission shards")
+            elif ([.[].reportSlug] | length) != ([.[].reportSlug] | unique | length)
+              then error("duplicate report slug across submission shards")
+            else {schemaVersion: 1, skills: sort_by(.pendingDir)} end
+          ' "$PLAN_ITEMS" > "$APPROVAL_PLAN"
+          mapfile -t SUBMISSION_PATHS < <(jq -r '.skills[].pendingDir' "$APPROVAL_PLAN")
+          test "${#SUBMISSION_PATHS[@]}" -gt 0
+
+          echo "=== Copying only frozen submission results ==="
+          for pending_dir in "${SUBMISSION_PATHS[@]}"; do
+            test ! -e "$WORK_DIR/$pending_dir" || {
+              echo "::error::Pending path already exists on main: $pending_dir"
+              exit 1
+            }
+            target_dir=$(jq -r --arg pendingDir "$pending_dir" \
+              '.skills[] | select(.pendingDir == $pendingDir) | .targetDir' "$APPROVAL_PLAN")
+            test ! -e "$WORK_DIR/$target_dir" || {
+              echo "::error::Published target already exists; use the explicit update workflow: $target_dir"
+              exit 1
+            }
+            mkdir -p "$WORK_DIR/$(dirname "$pending_dir")"
+            cp -R "$MERGED_RESULTS/$pending_dir" "$WORK_DIR/$pending_dir"
+          done
 
           PROCESSED_COUNT=0
           HIGHEST_RISK="safe"
           PROCESSED_SKILLS=""
 
-          for report in $(find pending -name "skill-report.json" 2>/dev/null); do
+          for pending_dir in "${SUBMISSION_PATHS[@]}"; do
+            report="$pending_dir/skill-report.json"
             NAMESPACED_SLUG=$(jq -r 'if .meta.source_type == "official" then .meta.slug else .meta.owner + "/" + .meta.slug end' "$report")
             RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$report")
 
@@ -550,7 +662,7 @@ jobs:
           PROCESSED_SKILLS="${PROCESSED_SKILLS#,}"
 
           TOTAL_ERRORS=0
-          for log in "$ARTIFACTS_DIR"/process-output-*.log; do
+          for log in "$ARTIFACTS_DIR"/process-shard-${{ github.run_attempt }}-*/extracted/process-output-*.log; do
             if [ -f "$log" ]; then
               ERR_COUNT=$(grep -c "❌ error" "$log" 2>/dev/null) || ERR_COUNT=0
               TOTAL_ERRORS=$((TOTAL_ERRORS + ERR_COUNT))
@@ -587,7 +699,7 @@ jobs:
           git push origin --delete "$BRANCH_NAME" 2>/dev/null || true
 
           git checkout -b "$BRANCH_NAME"
-          git add pending/
+          git add -- "${SUBMISSION_PATHS[@]}"
 
           # Different commit messages for manual approval vs automatic
           if [ "${{ inputs.is_manual_approval }}" = "true" ]; then
@@ -620,11 +732,15 @@ jobs:
           SKILLS_TABLE="| Skill | Risk | Status |
           |-------|------|--------|"
 
-          for report in $(find pending -name "skill-report.json" 2>/dev/null | head -50); do
+          TABLE_COUNT=0
+          for pending_dir in "${SUBMISSION_PATHS[@]}"; do
+            [ "$TABLE_COUNT" -ge 50 ] && break
+            report="$pending_dir/skill-report.json"
             NAMESPACED_SLUG=$(jq -r 'if .meta.source_type == "official" then .meta.slug else .meta.owner + "/" + .meta.slug end' "$report")
             SKILL_RISK=$(jq -r '.security_audit.risk_level // "unknown"' "$report")
             SKILLS_TABLE="$SKILLS_TABLE
           | \`$NAMESPACED_SLUG\` | $SKILL_RISK | Ready |"
+            TABLE_COUNT=$((TABLE_COUNT + 1))
           done
 
           if [ "$PROCESSED_COUNT" -gt 50 ]; then

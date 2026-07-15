@@ -75,3 +75,20 @@ test('fails closed for missing identifiers and symbolic commits', () => {
     rmSync(repositoryRoot, { recursive: true, force: true });
   }
 });
+
+test('fails closed when the pinned tree contains a reserved published path', () => {
+  const { repositoryRoot } = makeRepository();
+  try {
+    write(repositoryRoot, 'skills/pending/bad/SKILL.md', '# Bad\n');
+    write(repositoryRoot, 'skills/pending/bad/skill-report.json', '{"meta":{"slug":"bad"}}\n');
+    git(repositoryRoot, ['add', '.']);
+    git(repositoryRoot, ['commit', '-m', 'invalid published path']);
+    const commit = git(repositoryRoot, ['rev-parse', 'HEAD']);
+    assert.throws(
+      () => resolveManualSkillPaths({ repositoryRoot, commit, skills: 'custom-demo' }),
+      /invalid or reserved path identity/,
+    );
+  } finally {
+    rmSync(repositoryRoot, { recursive: true, force: true });
+  }
+});

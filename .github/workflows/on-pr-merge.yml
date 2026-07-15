@@ -41,6 +41,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
           SUBMISSION_ID: ${{ steps.extract_submission.outputs.submission_id }}
         run: |
@@ -51,7 +53,7 @@ jobs:
 
           cleanup() {
             echo "🧹 Cleaning up temp directory..."
-            rm -rf "$WORK_DIR" 2>/dev/null || true
+            rm -rf "$WORK_DIR" "${WORK_DIR}.approval-plan.json" "${WORK_DIR}.pr-files.txt" 2>/dev/null || true
           }
           trap cleanup EXIT
 
@@ -62,43 +64,47 @@ jobs:
           git config user.name "ai-skill-store[bot]"
           git config user.email "2628292+ai-skill-store[bot]@users.noreply.github.com"
 
-          # Find pending skills by looking for SKILL.md files
-          SKILL_PATHS=""
-          SKILL_NAMES=""
+          # Freeze approval scope to this merged PR. Never scan the repository's
+          # shared pending tree: another submission may be present concurrently.
+          PR_FILES="${WORK_DIR}.pr-files.txt"
+          APPROVAL_PLAN="${WORK_DIR}.approval-plan.json"
+          gh api --paginate "repos/$REPOSITORY/pulls/$PR_NUMBER/files?per_page=100" \
+            --jq '.[].filename' > "$PR_FILES"
+          node scripts/resolve-approved-submission.mjs \
+            --repo-root "$WORK_DIR" \
+            --files "$PR_FILES" \
+            --output "$APPROVAL_PLAN"
 
-          for skill_file in $(find pending -name "SKILL.md" 2>/dev/null); do
-            SKILL_DIR=$(dirname "$skill_file")
-            SKILL_PATHS="$SKILL_PATHS $SKILL_DIR"
+          mapfile -t SKILL_PATHS < <(jq -r '.skills[].pendingDir' "$APPROVAL_PLAN")
+          SKILL_NAMES=$(jq -r '[.skills[].reportSlug | "/" + .] | join(" ")' "$APPROVAL_PLAN")
+          test "${#SKILL_PATHS[@]}" -gt 0
+          echo "Frozen pending skills: ${SKILL_PATHS[*]}"
 
-            # Extract skill name from directory for commit message
-            NAME=$(basename "$SKILL_DIR")
-            SKILL_NAMES="$SKILL_NAMES /$NAME"
+          [[ "$MERGE_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::Merged PR has no exact merge commit identity"
+            exit 1
+          }
+          git fetch --no-tags --depth=1 origin "$MERGE_COMMIT_SHA"
+          for PENDING_DIR in "${SKILL_PATHS[@]}"; do
+            git diff --quiet "$MERGE_COMMIT_SHA" HEAD -- "$PENDING_DIR" || {
+              echo "::error::Pending skill changed after the reviewed merge: $PENDING_DIR"
+              exit 1
+            }
           done
 
-          if [ -z "$SKILL_PATHS" ]; then
-            echo "No pending skills found to approve"
-            exit 0
-          fi
-
-          echo "Found pending skills:$SKILL_PATHS"
-
           echo "=== Moving skills from pending to skills ==="
-          for PENDING_DIR in $SKILL_PATHS; do
+          for PENDING_DIR in "${SKILL_PATHS[@]}"; do
             if [ -d "$PENDING_DIR" ] && [ -f "$PENDING_DIR/SKILL.md" ]; then
-              # Extract author (org) from pending path: pending/author/skill-name -> author
-              # Target path: skills/author/skill-name
-              AUTHOR=$(echo "$PENDING_DIR" | cut -d'/' -f2)
-              SKILL_NAME=$(basename "$PENDING_DIR")
-              TARGET_DIR="skills/$AUTHOR/$SKILL_NAME"
+              TARGET_DIR=$(jq -r --arg pendingDir "$PENDING_DIR" \
+                '.skills[] | select(.pendingDir == $pendingDir) | .targetDir' "$APPROVAL_PLAN")
 
               echo "Moving $PENDING_DIR to $TARGET_DIR"
 
               mkdir -p "$(dirname "$TARGET_DIR")"
-
-              if [ -d "$TARGET_DIR" ]; then
-                rm -rf "$TARGET_DIR"
-              fi
-
+              test ! -e "$TARGET_DIR" || {
+                echo "::error::Refusing to overwrite existing published target $TARGET_DIR"
+                exit 1
+              }
               mv "$PENDING_DIR" "$TARGET_DIR"
             fi
           done
@@ -121,27 +127,31 @@ jobs:
               SUBMISSION_TAG=" [submission: $SUBMISSION_ID]"
             fi
 
-            git commit -m "Approve skills:$SKILL_NAMES$SUBMISSION_TAG"
+            git commit -m "Approve skills: $SKILL_NAMES$SUBMISSION_TAG"
 
             # Configure git remote URL with authentication token
             echo "🔑 Configuring git authentication..."
             git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
 
-            # Push with retry for race conditions
+            # Push with bounded, lossless retry for main-branch races. A rebase
+            # conflict or three rejected pushes is a hard failure; never report
+            # a merged callback after dropping the publication commit.
+            PUSHED=false
             for i in 1 2 3; do
-              if git push origin main; then
+              git fetch origin main
+              git rebase origin/main
+              if git push origin HEAD:main; then
                 echo "✅ Successfully pushed to main"
+                PUSHED=true
                 break
               fi
-              echo "Push failed, pulling latest and retrying ($i/3)..."
-              git pull --rebase origin main || {
-                # If rebase fails, abort and retry with fresh state
-                git rebase --abort 2>/dev/null || true
-                git reset --hard origin/main
-                git cherry-pick HEAD@{1} || true
-              }
+              echo "Push failed after a clean rebase; retrying ($i/3)..."
               sleep 2
             done
+            test "$PUSHED" = true || {
+              echo "::error::Failed to publish approved skills after 3 attempts"
+              exit 1
+            }
           fi
 
       - name: Notify skillstore - Merged
