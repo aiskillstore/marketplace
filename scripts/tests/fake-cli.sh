@@ -100,6 +100,7 @@ for slug in "${ARR[@]}"; do
 				n=$(slug_call_count "$slug")
 				# Fail the first FAIL_TIMES times, then succeed.
 				if [ "$n" -le "$FAIL_TIMES" ]; then
+					echo "✗ First pass error scoring $slug: simulated transient root cause" >&2
 					echo "::fake::simulated failure for $slug (call $n/$FAIL_TIMES)" >&2
 					exit "$FAIL_EXIT"
 				fi
@@ -108,6 +109,7 @@ for slug in "${ARR[@]}"; do
 			;;
 		fail-slug-always)
 			if [ "$slug" = "${FAKE_CLI_FAIL_SLUG:-}" ]; then
+				echo "✗ First pass error scoring $slug: simulated persistent root cause" >&2
 				echo "::fake::permanent failure for $slug" >&2
 				exit "$FAIL_EXIT"
 			fi

@@ -2,6 +2,7 @@
 
 import { createHash } from 'node:crypto';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
@@ -63,6 +64,41 @@ export function parseScoreRunLog(log) {
     fail(`source score failure count mismatch: log=${failedSlugs.length}, summary=${errors}`);
   }
   return { errors, failedSlugs, processed, updated };
+}
+
+function recoveryCount(value, name) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 10_000) {
+    fail(`recovery result ${name} must be an integer between 0 and 10000`);
+  }
+  return value;
+}
+
+export function parseRecoveryResult({ failedText, metadata, successfulText }) {
+  if (metadata?.schemaVersion !== 1) fail('unsupported recovery result schema');
+  const requestedCount = recoveryCount(metadata.requestedCount, 'requestedCount');
+  const successfulCount = recoveryCount(metadata.successfulCount, 'successfulCount');
+  const failedCount = recoveryCount(metadata.failedCount, 'failedCount');
+  const causallyProvenCount = recoveryCount(metadata.causallyProvenCount, 'causallyProvenCount');
+  if (requestedCount !== successfulCount + failedCount) {
+    fail('recovery result counts do not reconcile');
+  }
+  if (causallyProvenCount !== successfulCount) {
+    fail('recovery result does not causally prove every success');
+  }
+  if (failedCount === 0) fail('recovery result has no residual failures');
+
+  const successfulSlugs = normalizeSlugs(successfulText.split(/\r?\n/), { allowEmpty: true });
+  const failedSlugs = normalizeSlugs(failedText.split(/\r?\n/));
+  if (successfulSlugs.length !== successfulCount || failedSlugs.length !== failedCount) {
+    fail('recovery result slug files do not match metadata counts');
+  }
+  const successfulSet = new Set(successfulSlugs);
+  const overlap = failedSlugs.filter((slug) => successfulSet.has(slug));
+  if (overlap.length > 0) fail(`recovery result success/failure overlap: ${overlap.slice(0, 10).join(', ')}`);
+  if (successfulSlugs.length + failedSlugs.length !== requestedCount) {
+    fail('recovery result slug union does not match requested count');
+  }
+  return { failedCount, failedSlugs, requestedCount, successfulCount };
 }
 
 export async function fetchApprovedCatalog({ fetchImpl = fetch, supabaseUrl, serviceRoleKey }) {
@@ -347,6 +383,21 @@ async function main() {
     appendOutput('updated', parsed.updated);
     return;
   }
+  if (command === 'extract-recovery-result') {
+    const resultDir = readOption(args, '--result-dir', { required: true });
+    const parsed = parseRecoveryResult({
+      failedText: readFileSync(join(resultDir, 'failed-slugs.txt'), 'utf8'),
+      metadata: JSON.parse(readFileSync(join(resultDir, 'metadata.json'), 'utf8')),
+      successfulText: readFileSync(join(resultDir, 'successful-slugs.txt'), 'utf8'),
+    });
+    const expected = readOption(args, '--expected-failures');
+    if (expected !== undefined && parsed.failedCount !== positiveInteger(expected, 'expected-failures', 10_000)) {
+      fail(`expected ${expected} failures but recovery result proved ${parsed.failedCount}`);
+    }
+    writeSlugs(readOption(args, '--output', { required: true }), parsed.failedSlugs);
+    appendOutput('slug_count', parsed.failedSlugs.length);
+    return;
+  }
   if (command === 'approved-catalog') {
     const slugs = await fetchApprovedCatalog({
       supabaseUrl: process.env.PUBLIC_SUPABASE_URL,
@@ -417,7 +468,7 @@ async function main() {
     }
     return;
   }
-  fail('usage: score-cache-closure.mjs <extract-run-log|approved-catalog|freeze-score-evidence|verify-score-transitions|readback> [options]');
+  fail('usage: score-cache-closure.mjs <extract-run-log|extract-recovery-result|approved-catalog|freeze-score-evidence|verify-score-transitions|readback> [options]');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {

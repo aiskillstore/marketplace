@@ -182,7 +182,7 @@ validate_one_slug_success() {
 	local processed updated errors
 	processed="$(grep -oE 'Processed:[[:space:]]*[0-9]+' "$output_path" | tail -n1 | grep -oE '[0-9]+' || true)"
 	updated="$(grep -oE 'Updated:[[:space:]]*[0-9]+' "$output_path" | tail -n1 | grep -oE '[0-9]+' || true)"
-	# CLI 2.8.0 reports `Final errors:`. Keep accepting the older
+	# CLI 2.8.x reports `Final errors:`. Keep accepting the older
 	# aggregate `Errors:` label for compatibility with legacy releases.
 	errors="$(grep -oE '(Final errors|Errors):[[:space:]]*[0-9]+' "$output_path" | tail -n1 | grep -oE '[0-9]+' || true)"
 	if [ "$processed" != "1" ] || [ "$errors" != "0" ]; then
@@ -276,12 +276,20 @@ score_one_slug() {
 
 		# Surface a one-line hint to workflow logs (warnings are visible
 		# in GitHub Actions UI without failing the step).
-		local err_summary
-		err_summary="$(_truncate "$(tail -n 5 "$stderr_path" 2>/dev/null | tr '\n' ' ')" 200)"
+		local err_summary root_error
+		# The fixed CLI writes the actionable failure before its final stack.
+		# Prefer that line so recovery evidence keeps the real database/data
+		# error instead of only a generic citty stack tail.
+		root_error="$(grep -F "error scoring $slug:" "$stderr_path" 2>/dev/null | tail -n1 || true)"
+		if [ -n "$root_error" ]; then
+			err_summary="$(_truncate "$(printf '%s' "$root_error" | tr '\n' ' ')" 500)"
+		else
+			err_summary="$(_truncate "$(tail -n 5 "$stderr_path" 2>/dev/null | tr '\n' ' ')" 300)"
+		fi
 		if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
 			err_summary="timed out after ${TIMEOUT_SECONDS}s ${err_summary}"
 		fi
-		echo "::warning::score failed for slug=$slug attempt=$current_attempt/$MAX_ATTEMPTS exit=$rc err=$( _truncate "$err_summary" 200 )"
+		echo "::warning::score failed for slug=$slug attempt=$current_attempt/$MAX_ATTEMPTS exit=$rc err=$( _truncate "$err_summary" 500 )"
 	done
 
 	echo "::error::score ultimately failed for slug=$slug after $MAX_ATTEMPTS attempts"
