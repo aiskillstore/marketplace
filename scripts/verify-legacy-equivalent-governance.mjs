@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const CLI_VERSION = '2.5.0';
+const CLI_VERSION = '2.7.0';
 const MAX_BATCH_SIZE = 500;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const COMMIT_RE = /^[0-9a-f]{40}$/;
@@ -36,6 +36,7 @@ export function canonicalSourceEvidence(value) {
     ...value,
     skills: [...(value?.skills || [])].sort((left, right) => String(left.id).localeCompare(String(right.id), 'en-US')),
     audits: [...(value?.audits || [])].sort((left, right) => String(left.id).localeCompare(String(right.id), 'en-US')),
+    bindings: [...(value?.bindings || [])].sort((left, right) => String(left.id).localeCompare(String(right.id), 'en-US')),
   });
 }
 
@@ -130,7 +131,7 @@ function decodePluginPath(value) {
   return path;
 }
 
-function qualifySourceAudit(audit, row) {
+function qualifySourceAudit(audit, row, legacyBinding) {
   if (
     audit.skill_id !== row.id
     || audit.derived_from_audit_id != null
@@ -142,6 +143,23 @@ function qualifySourceAudit(audit, row) {
     return { eligible: false, reason: 'source_audit_identity_unproven' };
   }
   if (AUDIT_PAYLOAD_HASH_RE.test(audit.content_hash)) {
+    if (
+      legacyBinding
+      && legacyBinding.skill_id === row.id
+      && legacyBinding.source_audit_id === audit.id
+      && legacyBinding.source_audit_version === audit.version
+      && legacyBinding.source_audit_payload_hash === audit.content_hash
+      && legacyBinding.subject_marketplace_commit_sha === row.marketplaceCommit
+      && legacyBinding.subject_content_hash === row.contentHash
+      && legacyBinding.subject_tree_hash === row.treeHash
+      && legacyBinding.subject_plugin_path === row.path
+      && legacyBinding.report_object_spec === `${row.marketplaceCommit}:${row.path}/skill-report.json`
+      && audit.audit_payload_hash === null
+      && audit.subject_marketplace_commit_sha === null
+      && audit.subject_content_hash === null
+      && audit.subject_tree_hash === null
+      && audit.subject_plugin_path === null
+    ) return { eligible: true, reason: 'eligible_legacy_binding_v1' };
     return { eligible: false, reason: 'source_audit_binding_unproven_legacy_digest' };
   }
 
@@ -219,6 +237,7 @@ export function qualifyLegacyGovernanceClassification({ classification, sourceEv
   const legacy = asMap(classification?.cohorts?.legacy_algorithm_equivalent, 'slug', 'legacy cohort');
   const skills = asMap(sourceEvidence.skills, 'id', 'source evidence Skills');
   const audits = asMap(sourceEvidence.audits, 'id', 'source evidence audits');
+  const bindings = asMap(sourceEvidence.bindings || [], 'source_audit_id', 'source evidence bindings');
   if (
     skills.size !== legacy.size
     || audits.size !== legacy.size
@@ -235,7 +254,7 @@ export function qualifyLegacyGovernanceClassification({ classification, sourceEv
     if (!skill || skill.slug !== row.slug || !audit || audit.id !== row.publicEligibilityAuditId) {
       fail(`source evidence identity mismatch for ${row.slug}`);
     }
-    const decision = qualifySourceAudit(audit, row);
+    const decision = qualifySourceAudit(audit, row, bindings.get(audit.id));
     const frozen = {
       slug: row.slug,
       skillId: row.id,

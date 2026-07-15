@@ -1,0 +1,168 @@
+name: Bind Legacy Audit Subjects
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        required: true
+        options: [dry-run, execute]
+      classification_run_id:
+        description: Successful legacy-governance dry-run containing the frozen classification
+        type: string
+        required: true
+      dry_run_id:
+        description: Successful binding dry-run ID; execute only
+        type: string
+        required: false
+      expected_targeted:
+        type: number
+        required: true
+        default: 61
+      expected_drift:
+        type: number
+        required: true
+        default: 24
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: artifact-version-backfill-production
+  cancel-in-progress: false
+
+jobs:
+  bind:
+    runs-on: self-hosted
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0, clean: true }
+      - name: Validate immutable operator boundary
+        env:
+          MODE: ${{ inputs.mode }}
+          SOURCE_RUN: ${{ inputs.classification_run_id }}
+          DRY_RUN: ${{ inputs.dry_run_id }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main
+          [[ "$SOURCE_RUN$DRY_RUN" != *[^0-9]* ]]
+          if [ "$MODE" = execute ]; then test -n "$DRY_RUN"; else test -z "$DRY_RUN"; fi
+      - id: token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+      - name: Download pinned binding CLI
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.token.outputs.token }}
+          version: '2.7.0'
+          minimum-version: '2.7.0'
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+      - name: Verify pinned Linux binary
+        run: |
+          set -euo pipefail
+          actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
+          test "$actual" = '__LEGACY_AUDIT_BINDING_LINUX_SHA256__'
+      - name: Download frozen hash-classification boundary
+        env: { GH_TOKEN: '${{ steps.token.outputs.token }}' }
+        run: |
+          set -euo pipefail
+          source_run='${{ inputs.mode == 'execute' && inputs.dry_run_id || inputs.classification_run_id }}'
+          mkdir -p "$RUNNER_TEMP/source"
+          gh run download "$source_run" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/source"
+          if [ '${{ inputs.mode }}' = execute ]; then
+            boundary=$(find "$RUNNER_TEMP/source" -type d -name 'legacy-audit-binding-boundary-*' -print -quit)
+          else
+            boundary=$(find "$RUNNER_TEMP/source" -type d -name 'legacy-equivalent-boundary-*' -print -quit)
+          fi
+          test -n "$boundary"
+          cp -R "$boundary" "$RUNNER_TEMP/boundary"
+      - name: Freeze or verify exact pre-write evidence
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          classification="$RUNNER_TEMP/boundary/hash-classification.json"
+          test -f "$classification"
+          node scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            --classification "$classification" --output "$RUNNER_TEMP/source-evidence.json"
+          node scripts/build-legacy-audit-binding-plan.mjs \
+            --classification "$classification" --source-evidence "$RUNNER_TEMP/source-evidence.json" \
+            --repository-root "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/binding-plan.json" \
+            --expected-targeted '${{ inputs.expected_targeted }}' \
+            --expected-drift '${{ inputs.expected_drift }}'
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$RUNNER_TEMP/boundary/plan.json" \
+            --output "$RUNNER_TEMP/binding-inventory.json"
+          if [ '${{ inputs.mode }}' = execute ]; then
+            cmp "$RUNNER_TEMP/binding-plan.json" "$RUNNER_TEMP/boundary/binding-plan.json"
+            cmp "$RUNNER_TEMP/source-evidence.json" "$RUNNER_TEMP/boundary/source-evidence.json"
+            cmp "$RUNNER_TEMP/binding-inventory.json" "$RUNNER_TEMP/boundary/binding-inventory.json"
+          fi
+      - name: Materialize exact pinned reports
+        run: |
+          set -euo pipefail
+          jq -c '.entries[]' "$RUNNER_TEMP/binding-plan.json" | while read -r row; do
+            commit=$(jq -r .marketplaceCommit <<<"$row"); path=$(jq -r .pluginPath <<<"$row")
+            mkdir -p "$RUNNER_TEMP/reports/$path"
+            git show "$commit:$path/skill-report.json" > "$RUNNER_TEMP/reports/$path/skill-report.json"
+          done
+      - name: Recompute all report payloads without writes
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: >-
+          "$GITHUB_WORKSPACE/skillstore-cli" skill bind-legacy-audit
+          --plan "$RUNNER_TEMP/binding-plan.json" --root "$RUNNER_TEMP/reports"
+          --dry-run --concurrency 1 --result-file "$RUNNER_TEMP/binding-dry-run.json"
+      - name: Record binding evidence only
+        if: inputs.mode == 'execute'
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: >-
+          "$GITHUB_WORKSPACE/skillstore-cli" skill bind-legacy-audit
+          --plan "$RUNNER_TEMP/binding-plan.json" --root "$RUNNER_TEMP/reports"
+          --concurrency 1 --result-file "$RUNNER_TEMP/binding-execute.json"
+      - name: Re-read source and assert only append-only bindings changed
+        if: inputs.mode == 'execute'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            --classification "$RUNNER_TEMP/boundary/hash-classification.json" \
+            --output "$RUNNER_TEMP/post-source-evidence.json"
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$RUNNER_TEMP/boundary/plan.json" \
+            --output "$RUNNER_TEMP/post-binding-inventory.json"
+          jq -S 'del(.bindings)' "$RUNNER_TEMP/source-evidence.json" > "$RUNNER_TEMP/before-without-bindings.json"
+          jq -S 'del(.bindings)' "$RUNNER_TEMP/post-source-evidence.json" > "$RUNNER_TEMP/after-without-bindings.json"
+          cmp "$RUNNER_TEMP/before-without-bindings.json" "$RUNNER_TEMP/after-without-bindings.json"
+          cmp "$RUNNER_TEMP/binding-inventory.json" "$RUNNER_TEMP/post-binding-inventory.json"
+          test "$(jq '.bindings | length' "$RUNNER_TEMP/post-source-evidence.json")" = '${{ inputs.expected_targeted }}'
+          test "$(jq '[.results[] | select(.status == "created" or .status == "existing")] | length' "$RUNNER_TEMP/binding-execute.json")" = '${{ inputs.expected_targeted }}'
+      - name: Freeze dry-run boundary
+        if: inputs.mode == 'dry-run'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/legacy-audit-binding-boundary-$GITHUB_RUN_ID"; mkdir -p "$out"
+          cp "$RUNNER_TEMP/binding-plan.json" "$RUNNER_TEMP/source-evidence.json" \
+            "$RUNNER_TEMP/binding-inventory.json" "$RUNNER_TEMP/binding-dry-run.json" \
+            "$RUNNER_TEMP/boundary/hash-classification.json" "$RUNNER_TEMP/boundary/plan.json" "$out/"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: legacy-audit-binding-${{ inputs.mode }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/legacy-audit-binding-boundary-*
+            ${{ runner.temp }}/binding-*.json
+            ${{ runner.temp }}/post-source-evidence.json
+            ${{ runner.temp }}/post-binding-inventory.json
+          if-no-files-found: error

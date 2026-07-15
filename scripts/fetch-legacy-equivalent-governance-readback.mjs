@@ -134,7 +134,7 @@ export async function fetchLegacyGovernanceSourceEvidence({
     values,
     fetchImpl,
   });
-  const [skills, audits] = await Promise.all([
+  const [skills, audits, bindings] = await Promise.all([
     request(
       'skills',
       'id,slug,name,description,author_name,supported_tools,file_structure',
@@ -142,6 +142,7 @@ export async function fetchLegacyGovernanceSourceEvidence({
       skillIds
     ),
     request('skill_security_audit', '*', 'id', auditIds),
+    request('legacy_audit_subject_bindings', '*', 'source_audit_id', auditIds),
   ]);
   if (skills.length !== legacy.length || audits.length !== legacy.length) {
     fail('source evidence readback is incomplete');
@@ -152,6 +153,7 @@ export async function fetchLegacyGovernanceSourceEvidence({
     skillIds,
     skills: sortRowsById(skills),
     audits: sortRowsById(audits),
+    bindings: sortRowsById(bindings),
   };
 }
 
