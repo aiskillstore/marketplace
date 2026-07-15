@@ -1,0 +1,337 @@
+name: Govern Legacy Report-Origin 70
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Freeze a no-write boundary, or execute one successful boundary'
+        type: choice
+        required: true
+        default: dry-run
+        options: [dry-run, execute]
+      dry_run_id:
+        description: 'Successful dry-run run ID; execute only'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: artifact-version-backfill-production
+  cancel-in-progress: false
+
+env:
+  ORIGIN_CLI_VERSION: '2.6.0'
+  # Production is intentionally impossible until the released linux-x64 binary
+  # has been audited and this placeholder is replaced by its exact SHA-256.
+  ORIGIN_CLI_SHA256: 'ae2d7caf57ea7849ad39b0518d640ee2a0c51f1eee3f4eb2b9797c1abb0bd4cc'
+  ORIGIN_COHORT: scripts/data/legacy-report-origin-cohort-v1.json
+  ORIGIN_COHORT_SHA256: d00f9af499ab9da6df52d0de76bac9021ffbf0401bfff85ad4ac26331c2a38af
+
+jobs:
+  freeze-boundary:
+    if: inputs.mode == 'dry-run'
+    runs-on: self-hosted
+    timeout-minutes: 120
+    steps:
+      - name: Checkout complete Marketplace history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          clean: true
+          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+
+      - name: Validate immutable runtime and exact cohort
+        env:
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main
+          [ -z "$DRY_RUN_ID" ] || { echo '::error::dry_run_id is execute-only'; exit 1; }
+          for path in "$ORIGIN_COHORT" \
+            scripts/build-legacy-report-origin-boundary.mjs \
+            scripts/materialize-legacy-report-origin-evidence.mjs \
+            scripts/verify-legacy-report-origin-boundary.mjs; do
+            test -f "$path" || { echo "::error file=$path::Missing report-origin runtime"; exit 1; }
+          done
+          test "$(sha256sum "$ORIGIN_COHORT" | awk '{print $1}')" = "$ORIGIN_COHORT_SHA256"
+          jq -e '.schemaVersion == 2 and .selectedCount == 70 and (.rows | length) == 70 and (.sourceBoundaries | length) == 7' "$ORIGIN_COHORT" >/dev/null
+          [[ "$ORIGIN_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo '::error::CLI 2.6.0 audit digest is still a non-production placeholder'; exit 1;
+          }
+
+      - name: Download and verify seven frozen drift classifications
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-boundaries"
+          while IFS= read -r boundary; do
+            run_id=$(jq -r .runId <<< "$boundary")
+            expected=$(jq -r .classificationSha256 <<< "$boundary")
+            run_json=$(gh run view "$run_id" --repo "$GITHUB_REPOSITORY" \
+              --json databaseId,conclusion,event,headBranch,workflowName)
+            jq -e --argjson id "$run_id" '
+              .databaseId == $id and .conclusion == "success" and
+              .event == "workflow_dispatch" and .headBranch == "main" and
+              .workflowName == "Govern Legacy-Equivalent Artifacts"
+            ' <<< "$run_json" >/dev/null || { echo "::error::invalid source boundary $run_id"; exit 1; }
+            target="$RUNNER_TEMP/source-boundaries/$run_id"
+            mkdir -p "$target"
+            gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+              --name "legacy-equivalent-boundary-$run_id" --dir "$target"
+            (cd "$target" && sha256sum --check SHA256SUMS)
+            test "$(sha256sum "$target/classification.json" | awk '{print $1}')" = "$expected" || {
+              echo "::error::classification $run_id differs from checked-in cohort"; exit 1;
+            }
+          done < <(jq -c '.sourceBoundaries[]' "$ORIGIN_COHORT")
+
+      - name: Build exact 70-row drift classification and plan
+        run: |
+          set -euo pipefail
+          node scripts/build-legacy-report-origin-boundary.mjs \
+            --cohort "$ORIGIN_COHORT" \
+            --boundaries-root "$RUNNER_TEMP/source-boundaries" \
+            --classification-output "$RUNNER_TEMP/classification.json" \
+            --plan-output "$RUNNER_TEMP/plan.json"
+
+      - name: Re-prove all report-origin evidence from Git
+        run: |
+          set -euo pipefail
+          node scripts/materialize-legacy-report-origin-evidence.mjs \
+            --repository-root "$GITHUB_WORKSPACE" --cohort "$ORIGIN_COHORT" \
+            --expected-count 70 --origin-root "$RUNNER_TEMP/origin" \
+            --previous-report-root "$RUNNER_TEMP/previous" \
+            --manifest "$RUNNER_TEMP/origin-lineage.json"
+
+      - name: Materialize exact current source trees
+        run: |
+          set -euo pipefail
+          while IFS= read -r group; do
+            commit=$(jq -r .marketplaceCommit <<< "$group")
+            root="$RUNNER_TEMP/current/$commit"
+            mkdir -p "$root"
+            mapfile -t paths < <(jq -r '.paths[]' <<< "$group")
+            git archive --format=tar "$commit" -- "${paths[@]}" | tar -xf - -C "$root"
+          done < <(jq -c '.groups[]' "$RUNNER_TEMP/plan.json")
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Download exact unpublished-gated CLI
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          version: '2.6.0'
+          minimum-version: '2.6.0'
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Verify audited CLI binary identity
+        run: |
+          set -euo pipefail
+          test "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" = "$ORIGIN_CLI_SHA256"
+
+      - name: Run exact 70-row administrator dry-run
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/dry-run-groups"
+          : > "$RUNNER_TEMP/dry-run-results.jsonl"
+          while IFS= read -r group; do
+            commit=$(jq -r .marketplaceCommit <<< "$group")
+            slugs=$(jq -r '.slugs | join(",")' <<< "$group")
+            result="$RUNNER_TEMP/dry-run-groups/$commit.json"
+            "$GITHUB_WORKSPACE/skillstore-cli" skill govern-legacy-equivalent \
+              --classification "$RUNNER_TEMP/classification.json" \
+              --legacy-origin-lineage "$RUNNER_TEMP/origin-lineage.json" \
+              --legacy-origin-root "$RUNNER_TEMP/origin" \
+              --legacy-previous-report-root "$RUNNER_TEMP/previous" \
+              --root "$RUNNER_TEMP/current/$commit" --slugs "$slugs" \
+              --dry-run --concurrency 1 --result-file "$result"
+            jq -n -c --arg commit "$commit" --slurpfile result "$result" \
+              '{marketplaceCommit:$commit,result:$result[0]}' >> "$RUNNER_TEMP/dry-run-results.jsonl"
+          done < <(jq -c '.groups[]' "$RUNNER_TEMP/plan.json")
+          jq -s . "$RUNNER_TEMP/dry-run-results.jsonl" > "$RUNNER_TEMP/dry-run-results.json"
+
+      - name: Freeze exact cohort, manifest, classification, and dry-run boundary
+        run: |
+          set -euo pipefail
+          boundary="$RUNNER_TEMP/origin-boundary"
+          mkdir -p "$boundary"
+          cp "$ORIGIN_COHORT" "$boundary/cohort.json"
+          cp "$RUNNER_TEMP/plan.json" "$boundary/plan.json"
+          cp "$RUNNER_TEMP/classification.json" "$boundary/classification.json"
+          cp "$RUNNER_TEMP/origin-lineage.json" "$boundary/origin-lineage.json"
+          cp "$RUNNER_TEMP/dry-run-results.json" "$boundary/dry-run-results.json"
+          node scripts/verify-legacy-report-origin-boundary.mjs --phase freeze \
+            --cohort "$boundary/cohort.json" --plan "$boundary/plan.json" \
+            --classification "$boundary/classification.json" \
+            --manifest "$boundary/origin-lineage.json" \
+            --dry-run-results "$boundary/dry-run-results.json" \
+            --run-id "$GITHUB_RUN_ID" --repository "$GITHUB_REPOSITORY" \
+            --workflow-commit "$GITHUB_SHA" --cli-version "$ORIGIN_CLI_VERSION" \
+            --cli-sha256 "$ORIGIN_CLI_SHA256" --output "$boundary/boundary.json"
+          (cd "$boundary" && sha256sum cohort.json plan.json classification.json \
+            origin-lineage.json dry-run-results.json boundary.json > SHA256SUMS)
+
+      - name: Upload immutable report-origin boundary
+        uses: actions/upload-artifact@v6
+        with:
+          name: legacy-report-origin-70-boundary-${{ github.run_id }}
+          path: ${{ runner.temp }}/origin-boundary/
+          if-no-files-found: error
+          retention-days: 30
+
+  execute-boundary:
+    if: inputs.mode == 'execute'
+    concurrency:
+      group: production-skill-score-writes
+      cancel-in-progress: false
+    runs-on: self-hosted
+    timeout-minutes: 120
+    steps:
+      - name: Checkout complete Marketplace history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          clean: true
+          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+
+      - name: Validate execute gate and production pin
+        env:
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = main
+          [[ "$DRY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::execute requires dry_run_id'; exit 1; }
+          [[ "$ORIGIN_CLI_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo '::error::CLI audit digest placeholder blocks production'; exit 1;
+          }
+
+      - name: Download exact successful dry-run boundary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+        run: |
+          set -euo pipefail
+          run_json=$(gh run view "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,conclusion,event,headBranch,headSha,workflowName)
+          jq -e --argjson id "$DRY_RUN_ID" '
+            .databaseId == $id and .conclusion == "success" and
+            .event == "workflow_dispatch" and .headBranch == "main" and
+            .workflowName == "Govern Legacy Report-Origin 70"
+          ' <<< "$run_json" >/dev/null || { echo '::error::dry_run_id is not a successful origin dry-run'; exit 1; }
+          mkdir -p "$RUNNER_TEMP/boundary"
+          gh run download "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "legacy-report-origin-70-boundary-$DRY_RUN_ID" --dir "$RUNNER_TEMP/boundary"
+          (cd "$RUNNER_TEMP/boundary" && sha256sum --check SHA256SUMS)
+          test "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/boundary.json")" = "$(jq -r .headSha <<< "$run_json")"
+          git merge-base --is-ancestor "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/boundary.json")" "$GITHUB_SHA"
+
+      - name: Recompute Git evidence and byte-match the frozen manifest
+        run: |
+          set -euo pipefail
+          test "$(sha256sum "$RUNNER_TEMP/boundary/cohort.json" | awk '{print $1}')" = "$ORIGIN_COHORT_SHA256"
+          node scripts/materialize-legacy-report-origin-evidence.mjs \
+            --repository-root "$GITHUB_WORKSPACE" --cohort "$RUNNER_TEMP/boundary/cohort.json" \
+            --expected-count 70 --origin-root "$RUNNER_TEMP/origin" \
+            --previous-report-root "$RUNNER_TEMP/previous" \
+            --manifest "$RUNNER_TEMP/current-origin-lineage.json"
+          cmp "$RUNNER_TEMP/boundary/origin-lineage.json" "$RUNNER_TEMP/current-origin-lineage.json" || {
+            echo '::error::report-origin Git evidence differs from frozen boundary'; exit 1;
+          }
+          node scripts/verify-legacy-report-origin-boundary.mjs --phase execute-preflight \
+            --boundary "$RUNNER_TEMP/boundary/boundary.json" \
+            --expected-run-id '${{ inputs.dry_run_id }}' \
+            --cohort "$RUNNER_TEMP/boundary/cohort.json" --plan "$RUNNER_TEMP/boundary/plan.json" \
+            --classification "$RUNNER_TEMP/boundary/classification.json" \
+            --manifest "$RUNNER_TEMP/boundary/origin-lineage.json" \
+            --dry-run-results "$RUNNER_TEMP/boundary/dry-run-results.json"
+
+      - name: Materialize only the frozen current source trees
+        run: |
+          set -euo pipefail
+          while IFS= read -r group; do
+            commit=$(jq -r .marketplaceCommit <<< "$group")
+            root="$RUNNER_TEMP/current/$commit"
+            mkdir -p "$root"
+            mapfile -t paths < <(jq -r '.paths[]' <<< "$group")
+            git archive --format=tar "$commit" -- "${paths[@]}" | tar -xf - -C "$root"
+          done < <(jq -c '.groups[]' "$RUNNER_TEMP/boundary/plan.json")
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Download exact audited CLI
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          version: '2.6.0'
+          minimum-version: '2.6.0'
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Verify frozen CLI binary identity
+        run: |
+          set -euo pipefail
+          expected=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/boundary.json")
+          actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
+          test "$expected" = "$ORIGIN_CLI_SHA256" && test "$actual" = "$ORIGIN_CLI_SHA256"
+
+      - name: Execute only the frozen 70 rows
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          SKILLSTORE_SITE_URL: https://skillstore.io
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/execution-groups"
+          : > "$RUNNER_TEMP/execution-results.jsonl"
+          while IFS= read -r group; do
+            commit=$(jq -r .marketplaceCommit <<< "$group")
+            slugs=$(jq -r '.slugs | join(",")' <<< "$group")
+            result="$RUNNER_TEMP/execution-groups/$commit.json"
+            "$GITHUB_WORKSPACE/skillstore-cli" skill govern-legacy-equivalent \
+              --classification "$RUNNER_TEMP/boundary/classification.json" \
+              --legacy-origin-lineage "$RUNNER_TEMP/current-origin-lineage.json" \
+              --legacy-origin-root "$RUNNER_TEMP/origin" \
+              --legacy-previous-report-root "$RUNNER_TEMP/previous" \
+              --root "$RUNNER_TEMP/current/$commit" --slugs "$slugs" \
+              --concurrency 1 --result-file "$result"
+            jq -n -c --arg commit "$commit" --slurpfile result "$result" \
+              '{marketplaceCommit:$commit,result:$result[0]}' >> "$RUNNER_TEMP/execution-results.jsonl"
+          done < <(jq -c '.groups[]' "$RUNNER_TEMP/boundary/plan.json")
+          jq -s . "$RUNNER_TEMP/execution-results.jsonl" > "$RUNNER_TEMP/execution-results.json"
+          jq -e '[.[].result.results[]] as $rows |
+            ($rows | length) == 70 and ($rows | map(.slug) | unique | length) == 70 and
+            ($rows | all(.mode == "execute" and .artifactRevision == 1))' \
+            "$RUNNER_TEMP/execution-results.json" >/dev/null
+
+      - name: Upload execution evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: legacy-report-origin-70-execution-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/boundary/
+            ${{ runner.temp }}/current-origin-lineage.json
+            ${{ runner.temp }}/execution-results.json
+          if-no-files-found: error
+          retention-days: 30
