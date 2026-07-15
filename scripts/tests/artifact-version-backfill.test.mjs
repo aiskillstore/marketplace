@@ -690,8 +690,8 @@ test('workflow is bounded, exact-only, cursor-safe, and evidence-producing', () 
     resolve(import.meta.dirname, '../fetch-artifact-version-inventory.mjs'),
     'utf8'
   );
-  assert.match(workflow, /default: '2\.2\.2'/);
-  assert.match(workflow, /CLI_VERSION" != "2\.2\.2"/);
+  assert.match(workflow, /default: '2\.3\.1'/);
+  assert.match(workflow, /CLI_VERSION" != "2\.3\.1"/);
   assert.match(workflow, /sparse-checkout: ''/);
   assert.match(workflow, /sparse-checkout-cone-mode: false/);
   const checkoutGuard = workflow.indexOf('name: Normalize full checkout and verify backfill runtime');
