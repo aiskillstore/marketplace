@@ -192,42 +192,72 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends ffmpeg poppler-utils ripgrep
-          sudo npm install --global \
+          sudo install -d -o root -g root -m 0755 \
+            /opt/pack-evaluator \
+            /opt/pack-evaluator/runtime
+          sudo npm install --global --prefix /opt/pack-evaluator/runtime \
             @anthropic-ai/claude-code@2.1.210 \
             @openai/codex@0.139.0
+          sudo chown -R root:root /opt/pack-evaluator/runtime
+          sudo chmod -R a=rX /opt/pack-evaluator/runtime
           command -v ffprobe
           command -v pdfinfo
           command -v pdftotext
           command -v rg
-          test "$(claude --version | awk '{print $1}')" = '2.1.210'
-          test "$(codex --version | awk '{print $2}')" = '0.139.0'
+          test "$(/opt/pack-evaluator/runtime/bin/claude --version | awk '{print $1}')" = '2.1.210'
+          test "$(/opt/pack-evaluator/runtime/bin/codex --version | awk '{print $2}')" = '0.139.0'
 
       - name: Prepare disposable evaluator identities and filesystem
         env:
           CLI: ${{ github.workspace }}/pack-production-cli/skillstore-cli-linux-x64
         run: |
-          RUNNER_GROUP=$(id -gn)
           sudo useradd --system --create-home --home-dir /home/packproxy --shell /usr/sbin/nologin packproxy
           sudo useradd --create-home --home-dir /home/packeval --shell /bin/bash packeval
-          sudo install -o root -g root -m 0555 "$CLI" /usr/local/bin/skillstore-cli-pack-evaluator
+          NODE_SOURCE=$(command -v node)
+          test -x "$NODE_SOURCE"
+          sudo install -d -o root -g root -m 0555 \
+            /opt/pack-evaluator \
+            /opt/pack-evaluator/bin \
+            /opt/pack-evaluator/lib \
+            /opt/pack-evaluator/input
+          sudo install -o root -g root -m 0555 "$CLI" /opt/pack-evaluator/bin/skillstore-cli
+          sudo install -o root -g root -m 0555 "$NODE_SOURCE" /opt/pack-evaluator/bin/node
           sudo install -o root -g root -m 0555 \
             "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-evaluator-proxy.mjs" \
-            /usr/local/lib/pack-evaluator-proxy.mjs
+            /opt/pack-evaluator/lib/pack-evaluator-proxy.mjs
           sudo install -o root -g root -m 0555 \
             "$GITHUB_WORKSPACE/marketplace-evaluate/scripts/pack-production.mjs" \
-            /usr/local/lib/pack-production.mjs
-          sudo install -d -o root -g root -m 0555 /opt/pack-evaluator
+            /opt/pack-evaluator/lib/pack-production.mjs
           sudo install -o root -g root -m 0444 \
             "$GITHUB_WORKSPACE/pack-production-input/plan.json" \
-            /opt/pack-evaluator/plan.json
-          sudo cp -a "$GITHUB_WORKSPACE/marketplace-evaluate/skills" /opt/pack-evaluator/skills
-          sudo chown -R root:root /opt/pack-evaluator/skills
-          sudo chmod -R a=rX,u+w /opt/pack-evaluator/skills
-          sudo chmod 0755 /home/packeval
-          sudo install -d -o packeval -g "$RUNNER_GROUP" -m 0770 /home/packeval/results
+            /opt/pack-evaluator/input/plan.json
+          if find "$GITHUB_WORKSPACE/marketplace-evaluate/skills" -type l -print -quit | grep -q .; then
+            echo '::error::Evaluator skill input contains a symbolic link'
+            exit 1
+          fi
+          sudo cp -a \
+            "$GITHUB_WORKSPACE/marketplace-evaluate/skills" \
+            /opt/pack-evaluator/input/skills
+          sudo chown -R root:root /opt/pack-evaluator/input/skills
+          sudo chmod -R a=rX /opt/pack-evaluator/input/skills
+          test "$(sha256sum "$CLI" | awk '{print $1}')" = \
+            "$(sha256sum /opt/pack-evaluator/bin/skillstore-cli | awk '{print $1}')"
+          test "$(sha256sum "$NODE_SOURCE" | awk '{print $1}')" = \
+            "$(sha256sum /opt/pack-evaluator/bin/node | awk '{print $1}')"
+          sudo chown -R root:root \
+            "$GITHUB_WORKSPACE/marketplace-evaluate" \
+            "$GITHUB_WORKSPACE/pack-production-input"
+          sudo chmod -R a=rX,u+w \
+            "$GITHUB_WORKSPACE/marketplace-evaluate" \
+            "$GITHUB_WORKSPACE/pack-production-input"
           sudo install -d -o packeval -g packeval -m 0700 \
-            /home/packeval/tmp \
-            /home/packeval/.codex
+            /home/packeval/tmp
+          sudo install -d -o root -g root -m 0555 \
+            /opt/pack-evaluator/codex-home
+          sudo install -d -o packeval -g packeval -m 0700 \
+            /opt/pack-evaluator/codex-home/log \
+            /opt/pack-evaluator/codex-home/sessions
+          sudo install -d -o root -g root -m 0700 /opt/pack-evaluator/results
           mkdir -p "$GITHUB_WORKSPACE/pack-results"
           printf '%s\n' \
             'model_provider = "pack_evaluator_proxy"' \
@@ -237,9 +267,9 @@ jobs:
             'env_key = "PACK_EVALUATOR_PROXY_TOKEN"' \
             'wire_api = "responses"' \
             'supports_websockets = false' \
-            | sudo tee /home/packeval/.codex/config.toml >/dev/null
-          sudo chown packeval:packeval /home/packeval/.codex/config.toml
-          sudo chmod 0600 /home/packeval/.codex/config.toml
+            | sudo tee /opt/pack-evaluator/codex-home/config.toml >/dev/null
+          sudo chown root:root /opt/pack-evaluator/codex-home/config.toml
+          sudo chmod 0444 /opt/pack-evaluator/codex-home/config.toml
 
       # The real Helm credential exists only in this runner-owned shell and the
       # separate packproxy process. Agent commands run as a different, non-sudo
@@ -251,6 +281,8 @@ jobs:
         run: |
           set -euo pipefail
           LOCAL_TOKEN=$(openssl rand -hex 32)
+          NODE_BIN=/opt/pack-evaluator/bin/node
+          test -x "$NODE_BIN"
           PROXY_LOG=$(mktemp)
           chmod 0600 "$PROXY_LOG"
           cleanup() {
@@ -260,7 +292,7 @@ jobs:
           trap cleanup EXIT
 
           sudo -u packproxy env -i \
-            PATH=/usr/local/bin:/usr/bin:/bin \
+            PATH=/opt/pack-evaluator/bin:/usr/bin:/bin \
             PACK_EVALUATOR_LOCAL_TOKEN="$LOCAL_TOKEN" \
             PACK_EVALUATOR_UPSTREAM_KEY="$PACK_EVALUATOR_HELM_API_KEY" \
             PACK_EVALUATOR_UPSTREAM_URL=https://helm.easymeta.au \
@@ -271,7 +303,7 @@ jobs:
             PACK_EVALUATOR_MAX_OUTPUT_TOKENS=65536 \
             PACK_EVALUATOR_TTL_MS=14400000 \
             PACK_EVALUATOR_REQUEST_TIMEOUT_MS=600000 \
-            node /usr/local/lib/pack-evaluator-proxy.mjs \
+            "$NODE_BIN" /opt/pack-evaluator/lib/pack-evaluator-proxy.mjs \
             >"$PROXY_LOG" 2>&1 &
           PROXY_LAUNCH_PID=$!
           unset PACK_EVALUATOR_HELM_API_KEY
@@ -288,7 +320,13 @@ jobs:
           done
           if [ "$PROXY_READY" != "true" ]; then
             echo "::error::Pack evaluator proxy did not become healthy within 30 seconds"
-            test ! -s "$PROXY_LOG" || sed -E 's/(Bearer|helm_live_)[^[:space:]]+/[REDACTED]/g' "$PROXY_LOG" >&2
+            if [ -s "$PROXY_LOG" ]; then
+              sed -E 's/(Bearer|helm_live_)[^[:space:]]+/[REDACTED]/g' "$PROXY_LOG" \
+                | tee "$GITHUB_WORKSPACE/pack-results/proxy-failure.log" >&2
+            else
+              echo 'proxy exited without diagnostic output' \
+                | tee "$GITHUB_WORKSPACE/pack-results/proxy-failure.log" >&2
+            fi
             kill "$PROXY_LAUNCH_PID" 2>/dev/null || true
             wait "$PROXY_LAUNCH_PID" 2>/dev/null || true
             exit 1
@@ -296,9 +334,8 @@ jobs:
           PROXY_PID=$(pgrep -u packproxy -f pack-evaluator-proxy.mjs | head -n1)
           test -n "$PROXY_PID"
 
-          pushd /home/packeval >/dev/null
-          sudo -u packeval env -i \
-            PATH=/usr/local/bin:/usr/bin:/bin \
+          if ! sudo -u packeval env -i \
+            PATH=/opt/pack-evaluator/bin:/usr/bin:/bin \
             HOME=/home/packeval \
             PROXY_PID="$PROXY_PID" \
             bash -c '
@@ -308,17 +345,39 @@ jobs:
               ! test -e /home/packeval/.codex/auth.json
               ! test -e /home/packeval/.claude
               ! test -r /var/run/docker.sock
-              test -r /opt/pack-evaluator/plan.json
-              test -n "$(find /opt/pack-evaluator/skills -name skill-report.json -print -quit)"
-              command -v rg >/dev/null
               ! env | grep -Eq "SUPABASE|HELM|GITHUB_TOKEN|GH_TOKEN|AUTOMATION|APP_PRIVATE_KEY|CALLBACK|CACHE_INVALIDATE"
-            '
+               test -x /opt/pack-evaluator/bin/node
+               test -x /opt/pack-evaluator/bin/skillstore-cli
+               test -r /opt/pack-evaluator/input/plan.json
+               test -r /opt/pack-evaluator/input/skills
+               test -n "$(find /opt/pack-evaluator/input/skills -name skill-report.json -print -quit)"
+               command -v rg >/dev/null
+              ! test -w /opt/pack-evaluator
+              ! test -w /opt/pack-evaluator/bin
+              ! test -w /opt/pack-evaluator/lib
+              ! test -w /opt/pack-evaluator/input
+              ! test -w /opt/pack-evaluator/runtime
+              ! test -w /opt/pack-evaluator/runtime/bin
+              ! test -w /opt/pack-evaluator/runtime/lib
+              test -x /opt/pack-evaluator/runtime/bin/claude
+              test -x /opt/pack-evaluator/runtime/bin/codex
+              test -r /opt/pack-evaluator/codex-home/config.toml
+              ! test -w /opt/pack-evaluator/codex-home
+              ! test -w /opt/pack-evaluator/codex-home/config.toml
+              ! test -r /opt/pack-evaluator/results
+            '; then
+            echo 'evaluator isolation preflight failed' \
+              > "$GITHUB_WORKSPACE/pack-results/preflight-failure.txt"
+            exit 1
+          fi
 
+          PACKEVAL_UID=$(id -u packeval)
+          PACKEVAL_GID=$(id -g packeval)
           set +e
-          sudo -u packeval env -i \
-            PATH=/usr/local/bin:/usr/bin:/bin \
+          sudo env -i \
+            PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
             HOME=/home/packeval \
-            CODEX_HOME=/home/packeval/.codex \
+            CODEX_HOME=/opt/pack-evaluator/codex-home \
             TMPDIR=/home/packeval/tmp \
             CI=true \
             NO_COLOR=1 \
@@ -331,12 +390,15 @@ jobs:
             NO_PROXY=127.0.0.1,localhost \
             timeout --signal=TERM 4h \
             prlimit --nproc=256:256 --as=6442450944:6442450944 -- \
-            node /usr/local/lib/pack-production.mjs evaluate \
-            --plan /opt/pack-evaluator/plan.json \
-            --results-dir /home/packeval/results \
-            --cli /usr/local/bin/skillstore-cli-pack-evaluator \
+            "$NODE_BIN" /opt/pack-evaluator/lib/pack-production.mjs evaluate \
+            --plan /opt/pack-evaluator/input/plan.json \
+            --results-dir /opt/pack-evaluator/results \
+            --cli /opt/pack-evaluator/bin/skillstore-cli \
             --expected-cli-version "$PACK_PRODUCTION_CLI_VERSION" \
-            --skills-dir /opt/pack-evaluator/skills \
+            --skills-dir /opt/pack-evaluator/input/skills \
+            --evaluator-uid "$PACKEVAL_UID" \
+            --evaluator-gid "$PACKEVAL_GID" \
+            --evaluator-cwd /home/packeval \
             --run-id "${{ github.run_id }}" \
             --run-attempt "${{ github.run_attempt }}" \
             --commit-sha "${{ github.sha }}" \
@@ -349,13 +411,76 @@ jobs:
             --threshold 7 \
             --baseline-delta 1 \
             --auto-publish-threshold 8 \
-            > /home/packeval/results/evaluate-command.json
+            > "$GITHUB_WORKSPACE/pack-results/evaluate-command.json"
           EVALUATOR_RC=$?
-          popd >/dev/null
           set -e
-          test ! -s "$PROXY_LOG" || sed -E 's/(Bearer|helm_live_)[^[:space:]]+/[REDACTED]/g' "$PROXY_LOG" >&2
-          sudo cp -a /home/packeval/results/. "$GITHUB_WORKSPACE/pack-results/"
+          sudo pkill -TERM -u packeval 2>/dev/null || true
+          for _ in $(seq 1 20); do
+            if ! sudo pgrep -u packeval >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.1
+          done
+          sudo pkill -KILL -u packeval 2>/dev/null || true
+          EVALUATOR_PROCESSES_STOPPED=true
+          if sudo pgrep -u packeval >/dev/null 2>&1; then
+            echo '::error::Unable to terminate all evaluator processes'
+            EVALUATOR_RC=1
+            EVALUATOR_PROCESSES_STOPPED=false
+          fi
+          if [ "$EVALUATOR_PROCESSES_STOPPED" != "true" ]; then
+            echo 'evaluator processes survived TERM and KILL' \
+              > "$GITHUB_WORKSPACE/pack-results/process-termination-failure.txt"
+          else
+            RESULT_BYTES=$(sudo du -sb /opt/pack-evaluator/results | awk '{print $1}')
+            RESULT_FILES=$(sudo find /opt/pack-evaluator/results -type f | wc -l)
+            if [ "$RESULT_BYTES" -gt 268435456 ]; then
+              echo "::error::Evaluator result directory exceeds 256 MiB: $RESULT_BYTES bytes"
+              EVALUATOR_RC=1
+            elif [ "$RESULT_FILES" -gt 1000 ]; then
+              echo "::error::Evaluator result directory exceeds 1000 files: $RESULT_FILES"
+              EVALUATOR_RC=1
+            elif sudo find /opt/pack-evaluator/results ! -type f ! -type d -print -quit | grep -q .; then
+              echo '::error::Evaluator result directory contains a non-regular entry'
+              EVALUATOR_RC=1
+            else
+              sudo cp -a /opt/pack-evaluator/results/. "$GITHUB_WORKSPACE/pack-results/"
+            fi
+          fi
           sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/pack-results"
+          find "$GITHUB_WORKSPACE/pack-results" -type d -exec chmod 0700 {} +
+          find "$GITHUB_WORKSPACE/pack-results" -type f -exec chmod 0600 {} +
+          if find "$GITHUB_WORKSPACE/pack-results" ! -type f ! -type d -print -quit | grep -q .; then
+            echo '::error::Copied evaluator evidence contains a non-regular entry'
+            rm -rf "$GITHUB_WORKSPACE/pack-results"
+            mkdir -p "$GITHUB_WORKSPACE/pack-results"
+            echo 'copied evaluator evidence failed regular-file validation' \
+              > "$GITHUB_WORKSPACE/pack-results/evidence-validation-failure.txt"
+            EVALUATOR_RC=1
+          fi
+          if [ "$EVALUATOR_RC" -eq 0 ]; then
+            if ! env -i PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
+              "$NODE_BIN" /opt/pack-evaluator/lib/pack-production.mjs verify \
+              --plan /opt/pack-evaluator/input/plan.json \
+              --results-dir "$GITHUB_WORKSPACE/pack-results" \
+              --cli /opt/pack-evaluator/bin/skillstore-cli \
+              --expected-cli-version "$PACK_PRODUCTION_CLI_VERSION" \
+              --run-id "${{ github.run_id }}" \
+              --run-attempt "${{ github.run_attempt }}" \
+              --commit-sha "${{ github.sha }}" \
+              --model sonnet \
+              --judge-model gpt-5.5 \
+              > "$GITHUB_WORKSPACE/pack-results/verification-command.json"; then
+              echo 'trusted evaluation closure verification failed' \
+                > "$GITHUB_WORKSPACE/pack-results/verification-failure.txt"
+              EVALUATOR_RC=1
+            fi
+          fi
+          find "$GITHUB_WORKSPACE/pack-results" -type f -exec chmod 0600 {} +
+          if [ -s "$PROXY_LOG" ]; then
+            sed -E 's/(Bearer|helm_live_)[^[:space:]]+/[REDACTED]/g' "$PROXY_LOG" \
+              | tee "$GITHUB_WORKSPACE/pack-results/proxy.log" >&2
+          fi
           if [ "$EVALUATOR_RC" -ne 0 ]; then
             printf 'evaluator_exit_code=%s\n' "$EVALUATOR_RC" \
               > "$GITHUB_WORKSPACE/pack-results/evaluator-failure.txt"

@@ -1,5 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   buildApiEvaluation,
   buildPublicReadbackExpectation,
@@ -8,6 +19,8 @@ import {
   readExactPublicPack,
   validatePublicPackReadback,
 } from '../pack-production.mjs';
+
+const PACK_PRODUCTION = fileURLToPath(new URL('../pack-production.mjs', import.meta.url));
 
 function cliReport() {
   const summary = {
@@ -95,6 +108,54 @@ const context = {
   model: 'sonnet',
   judgeModel: 'gpt-5.5',
 };
+
+function verificationFixture() {
+  const directory = mkdtempSync(join(tmpdir(), 'pack-production-verify-'));
+  const cli = join(directory, 'skillstore-cli');
+  writeFileSync(cli, '#!/bin/sh\necho "skillstore-cli 2.9.0"\n');
+  chmodSync(cli, 0o755);
+  const cliSha256 = createHash('sha256').update(readFileSync(cli)).digest('hex');
+  const report = cliReport();
+  const fixtureContext = { ...context, cliSha256 };
+  const evaluation = buildApiEvaluation(report, fixtureContext);
+  const prefix = '01-excel-dashboard';
+  writeFileSync(join(directory, 'plan.json'), `${JSON.stringify({
+    schemaVersion: 'pack-production-queue/v1',
+    scenarios: [report.scenario],
+  })}\n`);
+  writeFileSync(join(directory, `${prefix}.stdout.json`), `${JSON.stringify(report)}\n`);
+  writeFileSync(join(directory, `${prefix}.evaluation.json`), `${JSON.stringify(evaluation)}\n`);
+  writeFileSync(join(directory, 'evaluate-summary.json'), `${JSON.stringify({
+    schemaVersion: 'marketplace.pack-production-evaluate/v1',
+    cliVersion: '2.9.0',
+    cliSha256,
+    reports: [{
+      scenarioId: report.scenario.id,
+      generationId: report.generationId,
+      outcome: report.outcome,
+      outcomeReason: report.outcomeReason,
+      file: `/var/lib/pack-evaluator/results/${prefix}.evaluation.json`,
+    }],
+    selectedGenerationId: report.generationId,
+  })}\n`);
+  return { directory, cli, evaluationFile: join(directory, `${prefix}.evaluation.json`) };
+}
+
+function runVerification(fixture) {
+  return spawnSync(process.execPath, [
+    PACK_PRODUCTION,
+    'verify',
+    '--plan', join(fixture.directory, 'plan.json'),
+    '--results-dir', fixture.directory,
+    '--cli', fixture.cli,
+    '--expected-cli-version', '2.9.0',
+    '--run-id', context.runId,
+    '--run-attempt', String(context.runAttempt),
+    '--commit-sha', context.commitSha,
+    '--model', context.model,
+    '--judge-model', context.judgeModel,
+  ], { encoding: 'utf8' });
+}
 
 test('canonical JSON is stable across object key order', () => {
   assert.equal(canonicalJson({ z: 1, a: { y: 2, x: 3 } }), canonicalJson({ a: { x: 3, y: 2 }, z: 1 }));
@@ -215,4 +276,31 @@ test('terminal SLO evidence is fixed to seven days and internally consistent', (
   assert.throws(() => buildSloResult({ ...result, met: true }), /met flag is inconsistent/);
   assert.throws(() => buildSloResult({ ...result, windowDays: 30 }), /must be 7 days/);
   assert.throws(() => buildSloResult({ ...result, target: 1, met: true }), /target must be 2/);
+});
+
+test('trusted verification accepts only the exact reconstructed evaluation closure', () => {
+  const fixture = verificationFixture();
+  const result = runVerification(fixture);
+  assert.equal(result.status, 0, result.stderr);
+  const verification = JSON.parse(readFileSync(join(fixture.directory, 'evaluation-verification.json'), 'utf8'));
+  assert.equal(verification.schemaVersion, 'marketplace.pack-production-evaluation-verification/v1');
+  assert.deepEqual(verification.files.map((entry) => entry.file), ['01-excel-dashboard.evaluation.json']);
+});
+
+test('trusted verification rejects an injected evaluation file', () => {
+  const fixture = verificationFixture();
+  writeFileSync(join(fixture.directory, '00-injected.evaluation.json'), '{}\n');
+  const result = runVerification(fixture);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /not the exact trusted closure/);
+});
+
+test('trusted verification rejects a tampered otherwise-valid evaluation', () => {
+  const fixture = verificationFixture();
+  const evaluation = JSON.parse(readFileSync(fixture.evaluationFile, 'utf8'));
+  evaluation.candidate.fitness.score = 10;
+  writeFileSync(fixture.evaluationFile, `${JSON.stringify(evaluation)}\n`);
+  const result = runVerification(fixture);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /differs from trusted reconstruction/);
 });
