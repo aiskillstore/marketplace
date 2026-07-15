@@ -252,7 +252,10 @@ jobs:
             "$GITHUB_WORKSPACE/pack-production-input"
           sudo install -d -o packeval -g packeval -m 0700 \
             /home/packeval/tmp
-          sudo install -d -o root -g root -m 0555 \
+          # Codex 0.139 creates ephemeral state files directly under CODEX_HOME.
+          # A root-owned sticky directory lets packeval create only its own state
+          # while preventing it from replacing the root-owned immutable config.
+          sudo install -d -o root -g root -m 1777 \
             /opt/pack-evaluator/codex-home
           sudo install -d -o packeval -g packeval -m 0700 \
             /opt/pack-evaluator/codex-home/log \
@@ -476,7 +479,8 @@ jobs:
               test -x /opt/pack-evaluator/runtime/bin/claude
               test -x /opt/pack-evaluator/runtime/bin/codex
               test -r /opt/pack-evaluator/codex-home/config.toml
-              ! test -w /opt/pack-evaluator/codex-home
+               test -w /opt/pack-evaluator/codex-home
+               test "$(stat -c '%U:%G:%a' /opt/pack-evaluator/codex-home)" = 'root:root:1777'
               ! test -w /opt/pack-evaluator/codex-home/config.toml
               ! test -r /opt/pack-evaluator/results
             '; then
@@ -550,6 +554,28 @@ jobs:
           CODEX_PREFLIGHT_STDERR_BYTES=$(wc -c < "$CODEX_PREFLIGHT_STDERR")
           CODEX_PREFLIGHT_STDOUT_SHA256=$(sha256sum "$CODEX_PREFLIGHT_STDOUT" | awk '{print $1}')
           CODEX_PREFLIGHT_STDERR_SHA256=$(sha256sum "$CODEX_PREFLIGHT_STDERR" | awk '{print $1}')
+          classify_preflight_error() {
+            local file="$1"
+            if [ ! -s "$file" ]; then
+              printf 'none\n'
+            elif grep -Eqi 'permission denied|read-only file system|unable to open.*database|failed to.*(state|log|session)' "$file"; then
+              printf 'state_storage\n'
+            elif grep -Eqi '401|unauthoriz|authentication|api key' "$file"; then
+              printf 'authentication\n'
+            elif grep -Eqi '404|model.*not found|unsupported model' "$file"; then
+              printf 'model_route\n'
+            elif grep -Eqi 'timed out|timeout' "$file"; then
+              printf 'timeout\n'
+            elif grep -Eqi 'unknown argument|unexpected argument|usage:' "$file"; then
+              printf 'cli_arguments\n'
+            elif grep -Eqi 'connect|connection|transport|request' "$file"; then
+              printf 'upstream_transport\n'
+            else
+              printf 'unknown\n'
+            fi
+          }
+          CLAUDE_PREFLIGHT_ERROR_CLASS=$(classify_preflight_error "$CLAUDE_PREFLIGHT_STDERR")
+          CODEX_PREFLIGHT_ERROR_CLASS=$(classify_preflight_error "$CODEX_PREFLIGHT_STDERR")
           PREFLIGHT_CLEANUP_OUTCOME=passed
           sudo pkill -TERM -u packeval 2>/dev/null || true
           for _ in $(seq 1 10); do
@@ -574,11 +600,13 @@ jobs:
             --argjson claudeStderrBytes "$CLAUDE_PREFLIGHT_STDERR_BYTES" \
             --arg claudeStdoutSha256 "$CLAUDE_PREFLIGHT_STDOUT_SHA256" \
             --arg claudeStderrSha256 "$CLAUDE_PREFLIGHT_STDERR_SHA256" \
+            --arg claudeErrorClass "$CLAUDE_PREFLIGHT_ERROR_CLASS" \
             --arg codexOutcome "$CODEX_PREFLIGHT_OUTCOME" \
             --argjson codexStdoutBytes "$CODEX_PREFLIGHT_STDOUT_BYTES" \
             --argjson codexStderrBytes "$CODEX_PREFLIGHT_STDERR_BYTES" \
             --arg codexStdoutSha256 "$CODEX_PREFLIGHT_STDOUT_SHA256" \
             --arg codexStderrSha256 "$CODEX_PREFLIGHT_STDERR_SHA256" \
+            --arg codexErrorClass "$CODEX_PREFLIGHT_ERROR_CLASS" \
             --arg cleanupOutcome "$PREFLIGHT_CLEANUP_OUTCOME" \
             '{
               claude: {
@@ -586,14 +614,16 @@ jobs:
                 stdoutBytes: $claudeStdoutBytes,
                 stderrBytes: $claudeStderrBytes,
                 stdoutSha256: $claudeStdoutSha256,
-                stderrSha256: $claudeStderrSha256
+                stderrSha256: $claudeStderrSha256,
+                errorClass: $claudeErrorClass
               },
               codex: {
                 outcome: $codexOutcome,
                 stdoutBytes: $codexStdoutBytes,
                 stderrBytes: $codexStderrBytes,
                 stdoutSha256: $codexStdoutSha256,
-                stderrSha256: $codexStderrSha256
+                stderrSha256: $codexStderrSha256,
+                errorClass: $codexErrorClass
               },
               cleanup: {outcome: $cleanupOutcome}
             }' \

@@ -65,6 +65,9 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /\/opt\/pack-evaluator\/runtime\/bin\/codex/);
   assert.match(evaluate, /! test -w \/opt\/pack-evaluator\/runtime\/bin/);
   assert.match(evaluate, /CODEX_HOME=\/opt\/pack-evaluator\/codex-home/);
+  assert.match(evaluate, /install -d -o root -g root -m 1777[\s\S]*\/opt\/pack-evaluator\/codex-home/);
+  assert.match(evaluate, /test -w \/opt\/pack-evaluator\/codex-home/);
+  assert.match(evaluate, /stat -c '%U:%G:%a' \/opt\/pack-evaluator\/codex-home/);
   assert.match(evaluate, /! test -w \/opt\/pack-evaluator\/codex-home\/config\.toml/);
   assert.match(evaluate, /PATH=\/opt\/pack-evaluator\/runtime\/bin:\/opt\/pack-evaluator\/bin:\/usr\/bin:\/bin/);
   assert.doesNotMatch(evaluate, /PATH=\/usr\/local\/bin/);
@@ -124,6 +127,13 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /agent-preflight-diagnostics\.json/);
   assert.match(evaluate, /CLAUDE_PREFLIGHT_OUTCOME=invalid_response/);
   assert.match(evaluate, /CODEX_PREFLIGHT_OUTCOME=invalid_response/);
+  assert.match(evaluate, /classify_preflight_error\(\)/);
+  assert.match(evaluate, /state_storage/);
+  assert.match(evaluate, /authentication/);
+  assert.match(evaluate, /model_route/);
+  assert.match(evaluate, /upstream_transport/);
+  assert.match(evaluate, /errorClass: \$claudeErrorClass/);
+  assert.match(evaluate, /errorClass: \$codexErrorClass/);
   assert.match(evaluate, /claude:\s*\{/);
   assert.match(evaluate, /codex:\s*\{/);
   assert.match(evaluate, /cleanup:\s*\{outcome: \$cleanupOutcome\}/);
