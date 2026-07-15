@@ -3,7 +3,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CLI_SCHEMA = 'pack-generation-evaluation/v2';
@@ -11,6 +11,7 @@ const API_SCHEMA = 'skillstore.pack-evaluation/v2';
 const STATUS_SCHEMA = 'skillstore.pack-production-status/v1';
 const READBACK_SCHEMA = 'skillstore.pack-production-readback/v1';
 const SLO_SCHEMA = 'marketplace.pack-production-slo/v1';
+const VERIFICATION_SCHEMA = 'marketplace.pack-production-evaluation-verification/v1';
 const KNOWN_CLI_EXIT = new Map([
   ['candidate_ready', 0],
   ['quality_rejected', 10],
@@ -237,8 +238,25 @@ async function evaluate(args) {
   if (version !== expectedVersion) fail(`CLI version mismatch: expected ${expectedVersion}, got ${version}`);
   const checksum = await sha256File(cli);
   const reports = [];
+  const hasEvaluatorIdentity = args['evaluator-uid'] != null || args['evaluator-gid'] != null;
+  if (hasEvaluatorIdentity && (args['evaluator-uid'] == null || args['evaluator-gid'] == null)) {
+    fail('--evaluator-uid and --evaluator-gid must be supplied together');
+  }
+  const evaluatorUid = hasEvaluatorIdentity
+    ? positiveInteger(args['evaluator-uid'], 'evaluator-uid')
+    : undefined;
+  const evaluatorGid = hasEvaluatorIdentity
+    ? positiveInteger(args['evaluator-gid'], 'evaluator-gid')
+    : undefined;
+  const evaluatorCwd = hasEvaluatorIdentity
+    ? resolve(required(args, 'evaluator-cwd'))
+    : process.cwd();
+  if (hasEvaluatorIdentity && typeof process.getuid === 'function' && process.getuid() !== 0) {
+    fail('Evaluator identity separation requires a root orchestrator');
+  }
 
   for (const scenario of plan.scenarios) {
+    if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(scenario.id || '')) fail(`Unsafe scenario id: ${scenario.id}`);
     const ordinal = String(reports.length + 1).padStart(2, '0');
     const generationId = randomUUID();
     const context = workflowContext(args, generationId, scenario.id, cli, version, checksum);
@@ -259,9 +277,10 @@ async function evaluate(args) {
       '--json',
     ];
     const result = spawnSync(cli, commandArgs, {
-      cwd: process.cwd(),
+      cwd: evaluatorCwd,
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
+      ...(hasEvaluatorIdentity ? { uid: evaluatorUid, gid: evaluatorGid } : {}),
       env: {
         ...process.env,
         SKILLSTORE_AGENT_ENV_MODE: 'strict',
@@ -302,6 +321,86 @@ async function evaluate(args) {
   };
   await writeJson(resolve(resultsDir, 'evaluate-summary.json'), summary);
   process.stdout.write(`${JSON.stringify(summary)}\n`);
+}
+
+async function verifyEvaluation(args) {
+  const cli = resolve(required(args, 'cli'));
+  const plan = await readJson(resolve(required(args, 'plan')));
+  const resultsDir = resolve(required(args, 'results-dir'));
+  const summary = await readJson(resolve(resultsDir, 'evaluate-summary.json'));
+  if (plan.schemaVersion !== 'pack-production-queue/v1') fail(`Unsupported plan schema: ${plan.schemaVersion}`);
+  if (!Array.isArray(plan.scenarios) || plan.scenarios.length < 1 || plan.scenarios.length > 3) {
+    fail('Plan must contain one to three scenarios');
+  }
+  if (summary.schemaVersion !== 'marketplace.pack-production-evaluate/v1') {
+    fail(`Unsupported evaluate summary schema: ${summary.schemaVersion}`);
+  }
+  if (!Array.isArray(summary.reports) || summary.reports.length < 1 || summary.reports.length > plan.scenarios.length) {
+    fail('Evaluate summary report count is outside the immutable plan');
+  }
+
+  const version = cliVersion(cli);
+  const expectedVersion = required(args, 'expected-cli-version');
+  if (version !== expectedVersion || summary.cliVersion !== version) {
+    fail(`Evaluation CLI version mismatch: expected ${expectedVersion}, got ${version}/${summary.cliVersion}`);
+  }
+  const checksum = await sha256File(cli);
+  if (summary.cliSha256 !== checksum) fail('Evaluation CLI checksum differs from the trusted CLI');
+
+  const expectedFiles = [];
+  const verifiedFiles = [];
+  let selectedGenerationId = null;
+  let candidateSeen = false;
+  for (const [index, report] of summary.reports.entries()) {
+    const scenario = plan.scenarios[index];
+    if (!scenario || report.scenarioId !== scenario.id) fail('Evaluate summary scenario order differs from the plan');
+    if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(scenario.id)) fail(`Unsafe scenario id: ${scenario.id}`);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(report.generationId || '')) {
+      fail(`Invalid generation id for ${scenario.id}`);
+    }
+    if (candidateSeen) fail('Evaluate summary contains reports after a ready candidate');
+
+    const ordinal = String(index + 1).padStart(2, '0');
+    const prefix = `${ordinal}-${scenario.id}`;
+    const stdoutFile = `${prefix}.stdout.json`;
+    const evaluationFile = `${prefix}.evaluation.json`;
+    if (basename(String(report.file || '')) !== evaluationFile) {
+      fail(`Evaluate summary file differs from the deterministic path for ${scenario.id}`);
+    }
+    const raw = await readJson(resolve(resultsDir, stdoutFile));
+    if (raw.outcome !== report.outcome || raw.outcomeReason !== report.outcomeReason) {
+      fail(`Evaluate summary outcome differs from stdout for ${scenario.id}`);
+    }
+    const context = workflowContext(args, report.generationId, scenario.id, cli, version, checksum);
+    const rebuilt = buildApiEvaluation(raw, context);
+    const recorded = await readJson(resolve(resultsDir, evaluationFile));
+    if (canonicalJson(recorded) !== canonicalJson(rebuilt)) {
+      fail(`Evaluation artifact differs from trusted reconstruction for ${scenario.id}`);
+    }
+    expectedFiles.push(evaluationFile);
+    verifiedFiles.push({ file: evaluationFile, sha256: await sha256File(resolve(resultsDir, evaluationFile)) });
+    if (raw.outcome === 'candidate_ready') {
+      candidateSeen = true;
+      selectedGenerationId = report.generationId;
+    }
+  }
+
+  if ((summary.selectedGenerationId ?? null) !== selectedGenerationId) {
+    fail('Evaluate summary selected generation is inconsistent with verified outcomes');
+  }
+  const actualFiles = (await readdir(resultsDir)).filter((file) => file.endsWith('.evaluation.json')).sort();
+  if (canonicalJson(actualFiles) !== canonicalJson([...expectedFiles].sort())) {
+    fail('Evaluation artifact set is not the exact trusted closure');
+  }
+  const verification = {
+    schemaVersion: VERIFICATION_SCHEMA,
+    cliVersion: version,
+    cliSha256: checksum,
+    selectedGenerationId,
+    files: verifiedFiles.sort((left, right) => left.file.localeCompare(right.file)),
+  };
+  await writeJson(resolve(resultsDir, 'evaluation-verification.json'), verification);
+  process.stdout.write(`${JSON.stringify(verification)}\n`);
 }
 
 async function apiRequest(url, token, options = {}) {
@@ -416,10 +515,27 @@ async function persist(args) {
   const resultsDir = resolve(required(args, 'results-dir'));
   const token = required(args, 'token');
   const base = apiBase(args);
+  const verification = await readJson(resolve(resultsDir, 'evaluation-verification.json'));
+  if (verification.schemaVersion !== VERIFICATION_SCHEMA || !Array.isArray(verification.files)) {
+    fail('Trusted evaluation verification is missing or invalid');
+  }
   const files = (await readdir(resultsDir))
     .filter((file) => file.endsWith('.evaluation.json'))
     .sort();
   if (files.length === 0) fail('No evaluation artifacts found to persist');
+  const verifiedFiles = verification.files.map((entry) => entry?.file).sort();
+  if (canonicalJson(files) !== canonicalJson(verifiedFiles)) {
+    fail('Persist artifact set differs from the trusted evaluation closure');
+  }
+  for (const entry of verification.files) {
+    if (typeof entry?.file !== 'string' || !/^\d{2}-[a-z0-9][a-z0-9-]{0,79}\.evaluation\.json$/.test(entry.file)) {
+      fail(`Invalid verification filename: ${entry?.file}`);
+    }
+    if (!/^[0-9a-f]{64}$/.test(entry?.sha256 || '')) fail(`Invalid verification hash for ${entry?.file}`);
+    if (await sha256File(resolve(resultsDir, entry.file)) !== entry.sha256) {
+      fail(`Persist artifact hash differs from trusted verification: ${entry.file}`);
+    }
+  }
 
   const persisted = [];
   for (const file of files) {
@@ -652,6 +768,8 @@ async function main() {
   switch (args.command) {
     case 'evaluate':
       return evaluate(args);
+    case 'verify':
+      return verifyEvaluation(args);
     case 'persist':
       return persist(args);
     case 'finalize':
@@ -659,7 +777,7 @@ async function main() {
     case 'slo':
       return reportSlo(args);
     default:
-      fail('Usage: pack-production.mjs <evaluate|persist|finalize|slo> [options]');
+      fail('Usage: pack-production.mjs <evaluate|verify|persist|finalize|slo> [options]');
   }
 }
 
