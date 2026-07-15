@@ -287,8 +287,12 @@ jobs:
           NODE_BIN=/opt/pack-evaluator/bin/node
           test -x "$NODE_BIN"
           PROXY_LOG=$(mktemp)
+          PROXY_ACTIVITY=$(mktemp)
+          chmod 0600 "$PROXY_ACTIVITY"
+          sudo chown packproxy:packproxy "$PROXY_ACTIVITY"
           chmod 0600 "$PROXY_LOG"
           CHECKPOINT_LOCK="$RUNNER_TEMP/pack-production-checkpoint.lock"
+          EVALUATOR_RESULTS_DIR=/opt/pack-evaluator/results
           CHECKPOINT_PID=''
           EVALUATOR_PID=''
           EVALUATOR_FINISHED=false
@@ -297,9 +301,9 @@ jobs:
             (
               flock -x 9
               for name in evaluate-progress.ndjson evaluate-checkpoint.json evaluate-summary.json; do
-                if sudo test -f "/opt/pack-evaluator/results/$name"; then
+                if sudo test -f "$EVALUATOR_RESULTS_DIR/$name"; then
                   temporary="$GITHUB_WORKSPACE/pack-diagnostics/.${name}.tmp.${BASHPID}"
-                  sudo cp "/opt/pack-evaluator/results/$name" "$temporary"
+                  sudo cp "$EVALUATOR_RESULTS_DIR/$name" "$temporary"
                   sudo chown "$(id -u):$(id -g)" "$temporary"
                   chmod 0600 "$temporary"
                   mv -f "$temporary" "$GITHUB_WORKSPACE/pack-diagnostics/$name"
@@ -314,6 +318,22 @@ jobs:
               checkpoint_progress || true
             done
           }
+          write_interrupted_marker() {
+            if [ "$EVALUATOR_FINISHED" = "true" ]; then
+              return 0
+            fi
+            local temporary
+            temporary=$(mktemp "$GITHUB_WORKSPACE/pack-diagnostics/.evaluator-interrupted.XXXXXX")
+            printf 'evaluator_interrupted=true\n' > "$temporary"
+            chmod 0600 "$temporary"
+            mv -f "$temporary" "$GITHUB_WORKSPACE/pack-diagnostics/evaluator-interrupted.txt"
+          }
+          bounded_checkpoint_progress() {
+            export -f checkpoint_progress
+            export CHECKPOINT_LOCK EVALUATOR_RESULTS_DIR GITHUB_WORKSPACE
+            timeout --signal=TERM --kill-after=0.2s 1s bash -c 'checkpoint_progress' \
+              >/dev/null 2>&1 || true
+          }
           cleanup() {
             local exit_code="${1:-$?}"
             if [ "$CLEANUP_DONE" = "true" ]; then
@@ -321,38 +341,44 @@ jobs:
             fi
             CLEANUP_DONE=true
             set +e
+            write_interrupted_marker
+            bounded_checkpoint_progress
             if [ -n "$EVALUATOR_PID" ]; then
               sudo kill -TERM "$EVALUATOR_PID" 2>/dev/null || true
             fi
             sudo pkill -TERM -f '/opt/pack-evaluator/lib/pack-production.mjs evaluate' 2>/dev/null || true
-            for _ in $(seq 1 20); do
+            for _ in $(seq 1 40); do
               if ! sudo pgrep -f '/opt/pack-evaluator/lib/pack-production.mjs evaluate' >/dev/null 2>&1; then
                 break
               fi
               sleep 0.1
             done
             sudo pkill -KILL -f '/opt/pack-evaluator/lib/pack-production.mjs evaluate' 2>/dev/null || true
+            sleep 0.1
+            if sudo pgrep -f '/opt/pack-evaluator/lib/pack-production.mjs evaluate' >/dev/null 2>&1; then
+              echo 'root evaluator survived TERM and KILL' \
+                > "$GITHUB_WORKSPACE/pack-diagnostics/root-termination-failure.txt"
+            fi
             if [ -n "$CHECKPOINT_PID" ]; then
               kill "$CHECKPOINT_PID" 2>/dev/null || true
               wait "$CHECKPOINT_PID" 2>/dev/null || true
             fi
-            checkpoint_progress || true
             sudo pkill -TERM -u packeval 2>/dev/null || true
-            for _ in $(seq 1 20); do
+            for _ in $(seq 1 10); do
               if ! sudo pgrep -u packeval >/dev/null 2>&1; then
                 break
               fi
               sleep 0.1
             done
             sudo pkill -KILL -u packeval 2>/dev/null || true
-            checkpoint_progress || true
-            if [ "$EVALUATOR_FINISHED" != "true" ]; then
-              printf 'evaluator_interrupted=true\n' \
-                > "$GITHUB_WORKSPACE/pack-diagnostics/evaluator-interrupted.txt"
-              chmod 0600 "$GITHUB_WORKSPACE/pack-diagnostics/"* 2>/dev/null || true
+            sleep 0.1
+            if sudo pgrep -u packeval >/dev/null 2>&1; then
+              echo 'packeval processes survived TERM and KILL' \
+                > "$GITHUB_WORKSPACE/pack-diagnostics/process-termination-failure.txt"
             fi
             sudo pkill -u packproxy -f pack-evaluator-proxy.mjs 2>/dev/null || true
             rm -f "$PROXY_LOG"
+            sudo rm -f "$PROXY_ACTIVITY"
             return "$exit_code"
           }
           terminate_step() {
@@ -378,6 +404,7 @@ jobs:
             PACK_EVALUATOR_MAX_OUTPUT_TOKENS=65536 \
             PACK_EVALUATOR_TTL_MS=14400000 \
             PACK_EVALUATOR_REQUEST_TIMEOUT_MS=600000 \
+            PACK_EVALUATOR_ACTIVITY_FILE="$PROXY_ACTIVITY" \
             "$NODE_BIN" /opt/pack-evaluator/lib/pack-evaluator-proxy.mjs \
             >"$PROXY_LOG" 2>&1 &
           PROXY_LAUNCH_PID=$!
@@ -494,6 +521,8 @@ jobs:
             --evaluation-budget-ms 13800000 \
             --scenario-timeout-ms 7200000 \
             --minimum-fallback-ms 2700000 \
+            --scenario-idle-timeout-ms 1200000 \
+            --proxy-activity-file "$PROXY_ACTIVITY" \
             > "$GITHUB_WORKSPACE/pack-diagnostics/evaluate-command.json" &
           EVALUATOR_PID=$!
           wait "$EVALUATOR_PID"
@@ -505,7 +534,7 @@ jobs:
           CHECKPOINT_PID=''
           set -e
           sudo pkill -TERM -u packeval 2>/dev/null || true
-          for _ in $(seq 1 20); do
+          for _ in $(seq 1 10); do
             if ! sudo pgrep -u packeval >/dev/null 2>&1; then
               break
             fi

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { timingSafeEqual } from 'node:crypto';
+import { appendFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
@@ -147,6 +148,7 @@ export function createPackEvaluatorProxy({
   maxOutputTokens = 65_536,
   ttlMs = 4 * 60 * 60 * 1000,
   requestTimeoutMs = 10 * 60 * 1000,
+  onActivity = () => {},
 }) {
   if (!localToken || localToken.length < 32) fail('PACK_EVALUATOR_LOCAL_TOKEN must be at least 32 characters');
   if (!upstreamKey) fail('PACK_EVALUATOR_UPSTREAM_KEY is required');
@@ -159,6 +161,13 @@ export function createPackEvaluatorProxy({
   const expiresAt = Date.now() + lifetimeMs;
   let requestsStarted = 0;
   let activeRequests = 0;
+  const recordActivity = (activity) => {
+    try {
+      onActivity(activity);
+    } catch (error) {
+      process.stderr.write(`Pack evaluator activity marker failed: ${error?.code ?? 'unknown'}\n`);
+    }
+  };
   const upstreamBase = new URL(upstreamBaseUrl);
   if (upstreamBase.protocol !== 'https:' && upstreamBase.hostname !== '127.0.0.1') {
     fail('PACK_EVALUATOR_UPSTREAM_URL must use HTTPS');
@@ -202,6 +211,7 @@ export function createPackEvaluatorProxy({
       );
       requestsStarted += 1;
       activeRequests += 1;
+      recordActivity({ phase: 'started', requestNumber: requestsStarted });
       try {
         const upstream = await fetchImpl(target, {
           method: 'POST',
@@ -226,6 +236,7 @@ export function createPackEvaluatorProxy({
         response.end();
       } finally {
         activeRequests -= 1;
+        recordActivity({ phase: 'completed', requestNumber: requestsStarted });
       }
     } catch (error) {
       const status = Number.isSafeInteger(error?.status) ? error.status : 502;
@@ -247,6 +258,9 @@ export async function startPackEvaluatorProxy(environment = process.env) {
     maxOutputTokens: environment.PACK_EVALUATOR_MAX_OUTPUT_TOKENS,
     ttlMs: environment.PACK_EVALUATOR_TTL_MS,
     requestTimeoutMs: environment.PACK_EVALUATOR_REQUEST_TIMEOUT_MS,
+    onActivity: environment.PACK_EVALUATOR_ACTIVITY_FILE
+      ? () => appendFileSync(environment.PACK_EVALUATOR_ACTIVITY_FILE, `${Date.now()}\n`, { mode: 0o600 })
+      : undefined,
   });
   await new Promise((resolve, reject) => {
     server.once('error', reject);

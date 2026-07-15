@@ -2,7 +2,7 @@
 
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { createWriteStream } from 'node:fs';
+import { createWriteStream, statSync } from 'node:fs';
 import { chmod, chown, copyFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { finished } from 'node:stream/promises';
@@ -199,19 +199,28 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
   const onProgress = options.onProgress ?? ((message) => process.stderr.write(`${message}\n`));
   const heartbeatMs = positiveInteger(options.heartbeatMs, 'heartbeat-ms', 60_000);
   const timeoutMs = positiveInteger(options.timeoutMs, 'scenario-timeout-ms', 150 * 60_000);
-  const killGraceMs = positiveInteger(options.killGraceMs, 'kill-grace-ms', 10_000);
+  const idleTimeoutMs = positiveInteger(options.idleTimeoutMs, 'scenario-idle-timeout-ms', 20 * 60_000);
+  const killGraceMs = positiveInteger(options.killGraceMs, 'kill-grace-ms', 3_000);
   const label = options.label ?? 'unknown';
   let stdoutBytes = 0;
   let stderrBytes = 0;
   let outputExceeded = false;
   let timedOut = false;
+  let stalled = false;
   let interruptedSignal = null;
   let stderrRemainder = '';
   let killTimer = null;
+  let terminationRequested = false;
   const stderrDigest = createHash('sha256');
   let checkpointWrites = Promise.resolve();
   let checkpointError = null;
   let progressSequence = options.progressSequenceStart ?? 0;
+  let lastActivityAt = Date.now();
+  let externalActivityMtimeMs = 0;
+
+  const markActivity = () => {
+    lastActivityAt = Date.now();
+  };
 
   const writeProgressEvent = (event) => {
     const entry = {
@@ -239,6 +248,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
     scenarioIndex: options.scenarioIndex ?? null,
     scenarioCount: options.scenarioCount ?? null,
     timeoutMs,
+    idleTimeoutMs,
   });
   onProgress(`[pack-evaluator] scenario=${label} started timeout=${Math.ceil(timeoutMs / 60_000)}m`);
 
@@ -264,6 +274,8 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
   };
 
   const requestTermination = (reason, signal = 'SIGTERM') => {
+    if (terminationRequested) return false;
+    terminationRequested = true;
     writeProgressEvent({
       event: reason,
       scenarioId: label,
@@ -274,6 +286,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
     if (killTimer == null) {
       killTimer = setTimeout(() => signalProcessGroup('SIGKILL'), killGraceMs);
     }
+    return true;
   };
 
   const stopForOutputLimit = (kind) => {
@@ -299,6 +312,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
     const message = normalizeEvaluatorProgressLine(line);
     if (!message) return;
     stderrStream.write(`${message}\n`);
+    markActivity();
     writeProgressEvent({
       event: 'scenario.progress',
       scenarioId: label,
@@ -336,14 +350,37 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
     });
     onProgress(`[pack-evaluator] scenario=${label} heartbeat elapsed=${Math.floor(elapsedMs / 1000)}s`);
   }, heartbeatMs);
+  const idleTimer = setInterval(() => {
+    if (stalled || terminationRequested) return;
+    if (options.externalActivityFile) {
+      try {
+        const activity = statSync(options.externalActivityFile);
+        if (activity.mtimeMs > externalActivityMtimeMs) {
+          externalActivityMtimeMs = activity.mtimeMs;
+          markActivity();
+        }
+      } catch (error) {
+        if (error?.code !== 'ENOENT' && requestTermination('scenario.activity_probe_failed')) {
+          stalled = true;
+          onProgress(`[pack-evaluator] scenario=${label} activity probe failed`);
+        }
+      }
+    }
+    if (Date.now() - lastActivityAt >= idleTimeoutMs) {
+      if (requestTermination('scenario.stalled')) {
+        stalled = true;
+        onProgress(`[pack-evaluator] scenario=${label} stalled for ${Math.ceil(idleTimeoutMs / 60_000)}m`);
+      }
+    }
+  }, Math.max(10, Math.min(heartbeatMs, 30_000, Math.floor(idleTimeoutMs / 4))));
   const scenarioTimer = setTimeout(() => {
-    timedOut = true;
-    onProgress(`[pack-evaluator] scenario=${label} reached its ${Math.ceil(timeoutMs / 60_000)}m hard limit`);
-    requestTermination('scenario.timeout');
+    if (requestTermination('scenario.timeout')) {
+      timedOut = true;
+      onProgress(`[pack-evaluator] scenario=${label} reached its ${Math.ceil(timeoutMs / 60_000)}m hard limit`);
+    }
   }, timeoutMs);
   const onSignal = (signal) => {
-    interruptedSignal ??= signal;
-    requestTermination('scenario.signal_received', signal);
+    if (requestTermination('scenario.signal_received', signal)) interruptedSignal = signal;
   };
   const onSigint = () => onSignal('SIGINT');
   const onSigterm = () => onSignal('SIGTERM');
@@ -372,6 +409,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
     await new Promise((resolveWait) => setTimeout(resolveWait, 50));
     signalProcessGroup('SIGKILL');
     clearInterval(heartbeatTimer);
+    clearInterval(idleTimer);
     clearTimeout(scenarioTimer);
     if (killTimer != null) clearTimeout(killTimer);
     process.removeListener('SIGINT', onSigint);
@@ -385,6 +423,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
       status: result?.status ?? null,
       signal: result?.signal ?? null,
       timedOut,
+      stalled,
       outputExceeded,
       stdoutBytes,
       stderrBytes,
@@ -407,6 +446,7 @@ export async function runEvaluatorProcess(command, commandArgs, options) {
   return {
     ...result,
     timedOut,
+    stalled,
     outputExceeded,
     interruptedSignal,
     stdoutBytes,
@@ -705,6 +745,12 @@ async function evaluate(args) {
     'scenario-timeout-ms',
     120 * 60_000,
   );
+  const scenarioIdleTimeoutMs = positiveInteger(
+    args['scenario-idle-timeout-ms'],
+    'scenario-idle-timeout-ms',
+    20 * 60_000,
+  );
+  const proxyActivityFile = args['proxy-activity-file'] ? resolve(args['proxy-activity-file']) : null;
   const minimumFallbackMs = positiveInteger(
     args['minimum-fallback-ms'],
     'minimum-fallback-ms',
@@ -823,6 +869,8 @@ async function evaluate(args) {
         scenarioCount: plan.scenarios.length,
         progressSequenceStart: progressSequence,
         timeoutMs: scenarioBudgetMs,
+        idleTimeoutMs: scenarioIdleTimeoutMs,
+        ...(proxyActivityFile ? { externalActivityFile: proxyActivityFile } : {}),
         ...(hasEvaluatorIdentity ? { uid: evaluatorUid, gid: evaluatorGid } : {}),
         env: runtime.env,
       });
@@ -857,7 +905,12 @@ async function evaluate(args) {
     if (result.timedOut) {
       attempts.push({ ...attempt, status: 'timed_out' });
       await checkpointSummary();
-      continue;
+      break;
+    }
+    if (result.stalled) {
+      attempts.push({ ...attempt, status: 'stalled' });
+      await checkpointSummary();
+      break;
     }
     if (result.outputExceeded) {
       attempts.push({ ...attempt, status: 'output_limit_exceeded' });

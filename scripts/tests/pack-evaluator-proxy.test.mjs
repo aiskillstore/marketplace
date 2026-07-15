@@ -11,6 +11,7 @@ let proxy;
 let upstreamUrl;
 let proxyUrl;
 let observed;
+let activities;
 
 before(async () => {
   upstream = createServer(async (request, response) => {
@@ -29,11 +30,13 @@ before(async () => {
   upstream.listen(0, '127.0.0.1');
   await once(upstream, 'listening');
   upstreamUrl = `http://127.0.0.1:${upstream.address().port}`;
+  activities = [];
 
   proxy = createPackEvaluatorProxy({
     localToken: LOCAL_TOKEN,
     upstreamKey: UPSTREAM_KEY,
     upstreamBaseUrl: upstreamUrl,
+    onActivity: (activity) => activities.push(activity),
   });
   proxy.listen(0, '127.0.0.1');
   await once(proxy, 'listening');
@@ -82,6 +85,7 @@ test('replaces local credentials with the bounded upstream credential', async ()
   assert.match(observed.body, /gpt-5\.5/);
   assert.equal(response.headers.has('set-cookie'), false);
   assert.equal(JSON.parse(observed.body).max_output_tokens, 65536);
+  assert.deepEqual(activities.slice(-2).map((activity) => activity.phase), ['started', 'completed']);
 });
 
 test('rejects models and token requests outside the evaluator budget', async () => {
