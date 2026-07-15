@@ -39,6 +39,57 @@ export function canonicalSourceEvidence(value) {
   });
 }
 
+function canonicalPackTopology(inventory) {
+  const packMemberships = [...(inventory?.packMemberships || [])]
+    .sort((left, right) => `${left.skill_id}:${left.pack_id}`.localeCompare(
+      `${right.skill_id}:${right.pack_id}`,
+      'en-US'
+    ));
+  const packs = [...(inventory?.packs || [])]
+    .map((pack) => ({ id: pack.id, slug: pack.slug, published_at: pack.published_at }))
+    .sort((left, right) => String(left.id).localeCompare(String(right.id), 'en-US'));
+  return canonicalJson({ packMemberships, packs });
+}
+
+function canonicalPackState(inventory) {
+  const packMemberships = [...(inventory?.packMemberships || [])]
+    .sort((left, right) => `${left.skill_id}:${left.pack_id}`.localeCompare(
+      `${right.skill_id}:${right.pack_id}`,
+      'en-US'
+    ));
+  const packs = [...(inventory?.packs || [])]
+    .sort((left, right) => String(left.id).localeCompare(String(right.id), 'en-US'));
+  return canonicalJson({ packMemberships, packs });
+}
+
+function assertPackUpdatedAtDoesNotRegress(beforeInventory, afterInventory, context) {
+  const before = asMap(beforeInventory?.packs || [], 'id', `${context} prior Packs`);
+  const after = asMap(afterInventory?.packs || [], 'id', `${context} current Packs`);
+  if (before.size !== after.size) fail(`${context} Pack topology changed`);
+  const advances = [];
+  for (const [id, prior] of before) {
+    const current = after.get(id);
+    const priorTimestamp = Date.parse(prior?.updated_at);
+    const currentTimestamp = Date.parse(current?.updated_at);
+    if (
+      !current
+      || !Number.isFinite(priorTimestamp)
+      || !Number.isFinite(currentTimestamp)
+      || currentTimestamp < priorTimestamp
+    ) {
+      fail(`${context} Pack updated_at regressed for ${id}`);
+    }
+    if (currentTimestamp > priorTimestamp) {
+      advances.push({
+        packId: id,
+        frozenUpdatedAt: prior.updated_at,
+        currentUpdatedAt: current.updated_at,
+      });
+    }
+  }
+  return advances;
+}
+
 function sha256File(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
@@ -432,12 +483,16 @@ export function verifyLegacyGovernanceBoundary({
   const governableLegacy = asMap(governableLegacyRows(classification), 'slug', 'governable legacy cohort');
   const legacySlugs = new Set(governableLegacy.keys());
   if (
-    canonicalJson(frozenInventory.packMemberships) !== canonicalJson(currentInventory.packMemberships)
-    || canonicalJson(frozenInventory.packs) !== canonicalJson(currentInventory.packs)
+    canonicalPackTopology(frozenInventory) !== canonicalPackTopology(currentInventory)
     || frozenSkills.size !== currentSkills.size
   ) {
     fail('production state changed after the frozen dry-run boundary');
   }
+  const packUpdatedAtAdvances = assertPackUpdatedAtDoesNotRegress(
+    frozenInventory,
+    currentInventory,
+    'production state after the frozen dry-run boundary'
+  );
   let resumableCount = 0;
   for (const selected of plan.selected) {
     const before = frozenSkills.get(selected.slug);
@@ -491,6 +546,7 @@ export function verifyLegacyGovernanceBoundary({
     runId: boundary.runId,
     legacyCount: boundary.legacyCount,
     resumableCount,
+    packUpdatedAtAdvances,
     groups: expectedGroups,
   };
 }
@@ -507,6 +563,7 @@ export function verifyLegacyGovernanceExecution({
   classification,
   executionResults,
   frozenInventory,
+  currentInventory,
   postInventory,
   readback,
   frozenSourceEvidence,
@@ -545,10 +602,18 @@ export function verifyLegacyGovernanceExecution({
   const sourceAuditUnproven = classification.governance.unproven.map((decision) => rawLegacy.get(decision.slug));
 
   if (
-    canonicalJson(frozenInventory.packMemberships) !== canonicalJson(postInventory.packMemberships)
-    || canonicalJson(frozenInventory.packs) !== canonicalJson(postInventory.packs)
+    canonicalPackTopology(frozenInventory) !== canonicalPackTopology(currentInventory)
+    || canonicalPackTopology(frozenInventory) !== canonicalPackTopology(postInventory)
   ) {
-    fail('dependent Pack identity or timestamps changed during governance');
+    fail('dependent Pack topology changed during governance');
+  }
+  assertPackUpdatedAtDoesNotRegress(
+    frozenInventory,
+    currentInventory,
+    'dependent Pack state before governance'
+  );
+  if (canonicalPackState(currentInventory) !== canonicalPackState(postInventory)) {
+    fail('dependent Pack state changed during governance execution');
   }
 
   for (const frozen of classification.cohorts.exact.concat(
@@ -715,6 +780,7 @@ export function main(argv = process.argv.slice(2)) {
       classification: readJson(args.classification),
       executionResults: readJson(args['execution-results']),
       frozenInventory: readJson(args['frozen-inventory']),
+      currentInventory: readJson(args['current-inventory']),
       postInventory: readJson(args['post-inventory']),
       readback: readJson(args.readback),
       frozenSourceEvidence: readJson(args['frozen-source-evidence']),

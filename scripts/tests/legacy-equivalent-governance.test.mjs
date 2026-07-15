@@ -322,6 +322,51 @@ test('freezes and verifies one exact dry-run boundary', () => {
       paths: fixture.files,
       expectedRunId: '12345',
     }).status, 'execution_preflight_verified');
+    const packTimestampAdvance = structuredClone(fixture.preInventory);
+    packTimestampAdvance.packs[0].updated_at = '2026-07-15T00:00:00.000Z';
+    const advancedPreflight = verifyLegacyGovernanceBoundary({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      frozenInventory: fixture.preInventory,
+      currentInventory: packTimestampAdvance,
+      frozenSourceEvidence: fixture.sourceEvidence,
+      currentSourceEvidence: fixture.sourceEvidence,
+      paths: fixture.files,
+      expectedRunId: '12345',
+    });
+    assert.equal(advancedPreflight.status, 'execution_preflight_verified');
+    assert.deepEqual(advancedPreflight.packUpdatedAtAdvances, [{
+      packId: fixture.preInventory.packs[0].id,
+      frozenUpdatedAt: fixture.preInventory.packs[0].updated_at,
+      currentUpdatedAt: packTimestampAdvance.packs[0].updated_at,
+    }]);
+    const packTimestampRegression = structuredClone(fixture.preInventory);
+    packTimestampRegression.packs[0].updated_at = '2025-07-15T00:00:00.000Z';
+    assert.throws(() => verifyLegacyGovernanceBoundary({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      frozenInventory: fixture.preInventory,
+      currentInventory: packTimestampRegression,
+      frozenSourceEvidence: fixture.sourceEvidence,
+      currentSourceEvidence: fixture.sourceEvidence,
+      paths: fixture.files,
+      expectedRunId: '12345',
+    }), /Pack updated_at regressed/);
+    const packTopologyDrift = structuredClone(fixture.preInventory);
+    packTopologyDrift.packs[0].slug = 'changed-pack';
+    assert.throws(() => verifyLegacyGovernanceBoundary({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      frozenInventory: fixture.preInventory,
+      currentInventory: packTopologyDrift,
+      frozenSourceEvidence: fixture.sourceEvidence,
+      currentSourceEvidence: fixture.sourceEvidence,
+      paths: fixture.files,
+      expectedRunId: '12345',
+    }), /production state changed/);
     const drift = structuredClone(fixture.preInventory);
     drift.rows[0].updated_at = '2026-07-15T00:00:00.000Z';
     assert.throws(() => verifyLegacyGovernanceBoundary({
@@ -446,6 +491,7 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
         source_path: fixture.row.path,
       }],
     };
+    postInventory.packs[0].updated_at = '2026-07-15T00:00:00.000Z';
     const readback = {
       skills: [{
         ...fixture.sourceEvidence.skills[0],
@@ -477,18 +523,35 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       scoreBreakdowns: [{ skill_id: SKILL_ID, score_snapshot_id: SNAPSHOT_ID, stale_at: null, stale_reason: null }],
       attestations: [],
     };
+    const currentInventory = structuredClone(fixture.preInventory);
+    currentInventory.packs[0].updated_at = postInventory.packs[0].updated_at;
     const verified = verifyLegacyGovernanceExecution({
       boundary: fixture.boundary,
       plan: fixture.plan,
       classification: fixture.classification,
       executionResults,
       frozenInventory: fixture.preInventory,
+      currentInventory,
       postInventory,
       readback,
       frozenSourceEvidence: fixture.sourceEvidence,
       postSourceEvidence: structuredClone(fixture.sourceEvidence),
     });
     assert.equal(verified.executedCount, 1);
+    postInventory.packs[0].updated_at = '2026-07-15T00:00:01.000Z';
+    assert.throws(() => verifyLegacyGovernanceExecution({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      executionResults,
+      frozenInventory: fixture.preInventory,
+      currentInventory,
+      postInventory,
+      readback,
+      frozenSourceEvidence: fixture.sourceEvidence,
+      postSourceEvidence: structuredClone(fixture.sourceEvidence),
+    }), /Pack state changed during governance execution/);
+    postInventory.packs[0].updated_at = '2026-07-15T00:00:00.000Z';
     readback.scoreSnapshots[0].score_subject.auditId = SOURCE_AUDIT_ID;
     assert.throws(() => verifyLegacyGovernanceExecution({
       boundary: fixture.boundary,
@@ -496,6 +559,7 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       classification: fixture.classification,
       executionResults,
       frozenInventory: fixture.preInventory,
+      currentInventory,
       postInventory,
       readback,
       frozenSourceEvidence: fixture.sourceEvidence,
@@ -509,6 +573,7 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       classification: fixture.classification,
       executionResults,
       frozenInventory: fixture.preInventory,
+      currentInventory,
       postInventory,
       readback,
       frozenSourceEvidence: fixture.sourceEvidence,
@@ -523,6 +588,7 @@ test('verifies artifact, derived audit, score, Pack, and attestation execution e
       classification: fixture.classification,
       executionResults,
       frozenInventory: fixture.preInventory,
+      currentInventory,
       postInventory,
       readback: {
         ...readback,
@@ -623,10 +689,13 @@ test('workflow is two-phase, exactly pinned, bounded, and never executes ordinar
   assert.match(workflow, /CLI 2\.4\.4 binary differs from the frozen dry-run boundary/);
   assert.ok((workflow.match(/4ee53da0adf5b1ab990f065edacff5e9ec60a37ce015e10decf76c65828321b0/g) || []).length >= 2);
   assert.match(workflow, /--phase execute-preflight/);
+  assert.match(workflow, /--current-inventory "\$RUNNER_TEMP\/current-inventory\.json"/);
+  assert.match(workflow, /\$\{\{ runner\.temp \}\}\/current-inventory\.json/);
   assert.match(workflow, /--phase qualify/);
   assert.match(workflow, /skill govern-legacy-equivalent/);
   assert.match(workflow, /cache batches of at most ten/);
   assert.match(workflow, /--concurrency 1/);
+  assert.match(workflow, /execute-boundary:[\s\S]{0,160}group: production-skill-score-writes/);
   assert.match(workflow, /legacy-equivalent-boundary-/);
   assert.match(workflow, /legacy-equivalent-execution-/);
   assert.match(workflow, /legacy-equivalent-failed-dry-run-/);
