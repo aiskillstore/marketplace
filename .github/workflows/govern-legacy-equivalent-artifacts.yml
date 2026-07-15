@@ -1,0 +1,527 @@
+name: Govern Legacy-Equivalent Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Freeze a dry-run boundary, or execute one prior successful boundary'
+        type: choice
+        required: true
+        default: dry-run
+        options:
+          - dry-run
+          - execute
+      cli_version:
+        description: 'Exact audited skillstore-cli version'
+        type: string
+        required: true
+        default: '2.4.0'
+      batch_size:
+        description: 'Maximum Skills classified by a new dry-run boundary (1-500)'
+        type: number
+        required: true
+        default: 500
+      start_after:
+        description: 'Prior classification scan end; dry-run only'
+        type: string
+        required: false
+        default: ''
+      end_at:
+        description: 'Optional inclusive dry-run range end'
+        type: string
+        required: false
+        default: ''
+      dry_run_id:
+        description: 'Successful dry-run workflow run ID; required for execute'
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: artifact-version-backfill-production
+  cancel-in-progress: false
+
+jobs:
+  freeze-boundary:
+    if: inputs.mode == 'dry-run'
+    runs-on: self-hosted
+    timeout-minutes: 120
+    steps:
+      - name: Checkout complete Marketplace history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          clean: true
+          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+
+      - name: Normalize checkout and verify governance runtime
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git sparse-checkout disable
+          git reset --hard HEAD
+          for path in \
+            .github/actions/download-skillstore-cli/action.yml \
+            scripts/fetch-artifact-version-inventory.mjs \
+            scripts/plan-artifact-version-backfill.mjs \
+            scripts/verify-artifact-version-classification.mjs \
+            scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            scripts/verify-legacy-equivalent-governance.mjs; do
+            test -f "$path" || { echo "::error file=$path::Missing governance runtime"; exit 1; }
+          done
+
+      - name: Validate frozen-boundary inputs
+        id: inputs
+        env:
+          CLI_VERSION: ${{ inputs.cli_version }}
+          BATCH_SIZE: ${{ inputs.batch_size }}
+          START_AFTER: ${{ inputs.start_after }}
+          END_AT: ${{ inputs.end_at }}
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+        run: |
+          set -euo pipefail
+          test "$CLI_VERSION" = '2.4.0' || { echo '::error::workflow is pinned to skillstore-cli 2.4.0'; exit 1; }
+          test "$GITHUB_REF_NAME" = 'main' || { echo '::error::frozen boundaries may only be created from main'; exit 1; }
+          [[ "$BATCH_SIZE" =~ ^[0-9]+$ ]] && [ "$BATCH_SIZE" -ge 1 ] && [ "$BATCH_SIZE" -le 500 ] || {
+            echo '::error::batch_size must be between 1 and 500'; exit 1;
+          }
+          [ -z "$DRY_RUN_ID" ] || { echo '::error::dry_run_id is execute-only'; exit 1; }
+          [[ "$START_AFTER$END_AT" != *$'\n'* && "$START_AFTER$END_AT" != *$'\r'* ]] || {
+            echo '::error::cursor inputs must be exact production slugs'; exit 1;
+          }
+          echo "cli_version=$CLI_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch exact production catalog
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node scripts/fetch-artifact-version-inventory.mjs --skills-only --output "$RUNNER_TEMP/catalog.json"
+
+      - name: Build bounded deterministic plan
+        id: plan
+        env:
+          BATCH_SIZE: ${{ inputs.batch_size }}
+          START_AFTER: ${{ inputs.start_after }}
+          END_AT: ${{ inputs.end_at }}
+        run: |
+          set -euo pipefail
+          args=(
+            --repository-root "$GITHUB_WORKSPACE"
+            --inventory "$RUNNER_TEMP/catalog.json"
+            --batch-size "$BATCH_SIZE"
+            --output "$RUNNER_TEMP/plan.json"
+            --paths-output "$RUNNER_TEMP/paths.txt"
+          )
+          [ -z "$START_AFTER" ] || args+=(--start-after "$START_AFTER")
+          [ -z "$END_AT" ] || args+=(--end-at "$END_AT")
+          node scripts/plan-artifact-version-backfill.mjs "${args[@]}"
+          echo "selected_count=$(jq -r .selectedCount "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
+          echo "last_selected=$(jq -r '.lastSelected // ""' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch frozen pre-inventory
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: >-
+          node scripts/fetch-artifact-version-inventory.mjs
+          --scope-inventory "$RUNNER_TEMP/plan.json"
+          --output "$RUNNER_TEMP/pre-inventory.json"
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Download exact unpublished-gated CLI
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          version: '2.4.0'
+          minimum-version: '2.4.0'
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Verify audited CLI 2.4.0 binary identity
+        run: |
+          set -euo pipefail
+          expected='eec024fd85af15a50103b80bfca2e00dcc30f62f94f1dbb32c7a5eba0061b461'
+          actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
+          test "$actual" = "$expected" || {
+            echo '::error::CLI 2.4.0 binary does not match the audited linux-x64 digest'; exit 1;
+          }
+
+      - name: Materialize pinned snapshots
+        run: |
+          set -euo pipefail
+          while IFS= read -r batch; do
+            index=$(jq -r .index <<< "$batch")
+            while IFS= read -r group; do
+              commit=$(jq -r .marketplaceCommit <<< "$group")
+              root="$RUNNER_TEMP/materialized/batch-$index/$commit"
+              mkdir -p "$root"
+              mapfile -t paths < <(jq -r '.paths[]' <<< "$group")
+              git archive --format=tar "$commit" -- "${paths[@]}" | tar -xf - -C "$root"
+            done < <(jq -c '.groups[]' <<< "$batch")
+          done < <(jq -c '.batches[]' "$RUNNER_TEMP/plan.json")
+
+      - name: Classify all rows without writes
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/classification-groups"
+          : > "$RUNNER_TEMP/classification-results.jsonl"
+          while IFS= read -r batch; do
+            index=$(jq -r .index <<< "$batch")
+            while IFS= read -r group; do
+              commit=$(jq -r .marketplaceCommit <<< "$group")
+              count=$(jq -r .count <<< "$group")
+              mapfile -t paths < <(jq -r '.paths[]' <<< "$group")
+              slug_paths=$(printf '%s\n' "${paths[@]}" | paste -sd,)
+              raw="$RUNNER_TEMP/classification-groups/$index-$commit.raw.json"
+              normalized="$RUNNER_TEMP/classification-groups/$index-$commit.json"
+              set +e
+              (cd "$RUNNER_TEMP/materialized/batch-$index/$commit" && "$GITHUB_WORKSPACE/skillstore-cli" skill sync \
+                --slugs "$slug_paths" --artifact-only --legacy-only --repair-stale-report-hashes \
+                --dry-run --concurrency 5 --marketplace-commit "$commit" --output json) > "$raw"
+              exit_code=$?
+              set -e
+              jq -e . "$raw" > "$normalized"
+              jq -n -c --argjson batchIndex "$index" --arg marketplaceCommit "$commit" \
+                --argjson selectedCount "$count" --argjson exitCode "$exit_code" \
+                --slurpfile result "$normalized" \
+                '{batchIndex:$batchIndex,marketplaceCommit:$marketplaceCommit,selectedCount:$selectedCount,exitCode:$exitCode,result:$result[0]}' \
+                >> "$RUNNER_TEMP/classification-results.jsonl"
+            done < <(jq -c '.groups[]' <<< "$batch")
+          done < <(jq -c '.batches[]' "$RUNNER_TEMP/plan.json")
+          jq -s . "$RUNNER_TEMP/classification-results.jsonl" > "$RUNNER_TEMP/classification-results.json"
+          node scripts/verify-artifact-version-classification.mjs --phase classification \
+            --plan "$RUNNER_TEMP/plan.json" --results "$RUNNER_TEMP/classification-results.json" \
+            --output "$RUNNER_TEMP/classification.json"
+          node scripts/verify-legacy-equivalent-governance.mjs --phase groups \
+            --plan "$RUNNER_TEMP/plan.json" --classification "$RUNNER_TEMP/classification.json" \
+            --output "$RUNNER_TEMP/legacy-groups.json"
+
+      - name: Run administrator governance dry-run
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/governance-dry-run-groups"
+          : > "$RUNNER_TEMP/governance-dry-run.jsonl"
+          while IFS= read -r group; do
+            index=$(jq -r .batchIndex <<< "$group")
+            commit=$(jq -r .marketplaceCommit <<< "$group")
+            count=$(jq -r .count <<< "$group")
+            slugs=$(jq -r '.slugs | join(",")' <<< "$group")
+            result="$RUNNER_TEMP/governance-dry-run-groups/$index-$commit.json"
+            "$GITHUB_WORKSPACE/skillstore-cli" skill govern-legacy-equivalent \
+              --classification "$RUNNER_TEMP/classification.json" \
+              --root "$RUNNER_TEMP/materialized/batch-$index/$commit" \
+              --slugs "$slugs" --dry-run --concurrency 1 --result-file "$result"
+            jq -n -c --argjson batchIndex "$index" --arg marketplaceCommit "$commit" \
+              --argjson selectedCount "$count" --argjson slugs "$(jq -c .slugs <<< "$group")" \
+              --slurpfile result "$result" \
+              '{batchIndex:$batchIndex,marketplaceCommit:$marketplaceCommit,selectedCount:$selectedCount,slugs:$slugs,exitCode:0,result:$result[0]}' \
+              >> "$RUNNER_TEMP/governance-dry-run.jsonl"
+          done < <(jq -c '.groups[]' "$RUNNER_TEMP/legacy-groups.json")
+          jq -s . "$RUNNER_TEMP/governance-dry-run.jsonl" > "$RUNNER_TEMP/governance-dry-run.json"
+
+      - name: Freeze complete source audit and install metadata evidence
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: >-
+          node scripts/fetch-legacy-equivalent-governance-readback.mjs
+          --classification "$RUNNER_TEMP/classification.json"
+          --output "$RUNNER_TEMP/source-evidence.json"
+
+      - name: Freeze immutable execution boundary
+        run: |
+          set -euo pipefail
+          boundary="$RUNNER_TEMP/legacy-boundary"
+          mkdir -p "$boundary"
+          cp "$RUNNER_TEMP/plan.json" "$boundary/plan.json"
+          cp "$RUNNER_TEMP/classification.json" "$boundary/classification.json"
+          cp "$RUNNER_TEMP/pre-inventory.json" "$boundary/pre-inventory.json"
+          cp "$RUNNER_TEMP/governance-dry-run.json" "$boundary/governance-dry-run.json"
+          cp "$RUNNER_TEMP/source-evidence.json" "$boundary/source-evidence.json"
+          node scripts/verify-legacy-equivalent-governance.mjs --phase freeze \
+            --plan "$boundary/plan.json" --classification "$boundary/classification.json" \
+            --pre-inventory "$boundary/pre-inventory.json" --dry-run-results "$boundary/governance-dry-run.json" \
+            --source-evidence "$boundary/source-evidence.json" \
+            --run-id "$GITHUB_RUN_ID" --repository "$GITHUB_REPOSITORY" \
+            --workflow-commit "$GITHUB_SHA" --cli-version '2.4.0' \
+            --cli-sha256 "$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')" \
+            --output "$boundary/boundary.json"
+          (cd "$boundary" && sha256sum plan.json classification.json pre-inventory.json governance-dry-run.json source-evidence.json boundary.json > SHA256SUMS)
+
+      - name: Upload strict frozen-boundary evidence
+        if: success()
+        id: boundary-evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: legacy-equivalent-boundary-${{ github.run_id }}
+          path: ${{ runner.temp }}/legacy-boundary/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish dry-run boundary summary
+        if: always() && steps.plan.outcome == 'success'
+        run: |
+          {
+            echo '## Legacy-equivalent frozen boundary'
+            echo "- Run ID: \`$GITHUB_RUN_ID\`"
+            echo "- CLI: \`2.4.0\`"
+            echo "- Selected: \`${{ steps.plan.outputs.selected_count }}\` (maximum 500)"
+            echo "- Scan end: \`${{ steps.plan.outputs.last_selected }}\`"
+            echo '- No production write was authorized.'
+            echo "- Execute with \`dry_run_id=$GITHUB_RUN_ID\`; no scan cursor is a completion claim."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve failed dry-run evidence
+        if: failure()
+        run: |
+          set -euo pipefail
+          boundary="$RUNNER_TEMP/legacy-boundary"
+          mkdir -p "$boundary"
+          for item in plan classification pre-inventory governance-dry-run source-evidence classification-results legacy-groups; do
+            source="$RUNNER_TEMP/$item.json"
+            [ ! -f "$source" ] || cp "$source" "$boundary/$item.json"
+          done
+          jq -n --arg status failed --arg runId "$GITHUB_RUN_ID" --arg sha "$GITHUB_SHA" \
+            '{schemaVersion:1,status:$status,runId:$runId,workflowCommit:$sha}' > "$boundary/failure.json"
+          (cd "$boundary" && find . -maxdepth 1 -name '*.json' -print0 | sort -z | xargs -0 sha256sum > FAILURE_SHA256SUMS)
+
+      - name: Upload failed dry-run evidence
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: legacy-equivalent-failed-dry-run-${{ github.run_id }}
+          path: ${{ runner.temp }}/legacy-boundary/
+          if-no-files-found: error
+          retention-days: 30
+
+  execute-boundary:
+    if: inputs.mode == 'execute'
+    runs-on: self-hosted
+    timeout-minutes: 120
+    steps:
+      - name: Checkout complete Marketplace history
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          clean: true
+          sparse-checkout: ''
+          sparse-checkout-cone-mode: false
+
+      - name: Normalize checkout and validate execute inputs
+        env:
+          CLI_VERSION: ${{ inputs.cli_version }}
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+          START_AFTER: ${{ inputs.start_after }}
+          END_AT: ${{ inputs.end_at }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git sparse-checkout disable
+          git reset --hard HEAD
+          test "$CLI_VERSION" = '2.4.0' || { echo '::error::workflow is pinned to skillstore-cli 2.4.0'; exit 1; }
+          test "$GITHUB_REF_NAME" = 'main' || { echo '::error::execute may only run from main'; exit 1; }
+          [[ "$DRY_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::execute requires a numeric dry_run_id'; exit 1; }
+          [ -z "$START_AFTER$END_AT" ] || { echo '::error::execute uses only its frozen boundary'; exit 1; }
+          for path in scripts/fetch-artifact-version-inventory.mjs \
+            scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            scripts/verify-legacy-equivalent-governance.mjs; do
+            test -f "$path" || { echo "::error file=$path::Missing governance runtime"; exit 1; }
+          done
+
+      - name: Download exact successful dry-run boundary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN_ID: ${{ inputs.dry_run_id }}
+        run: |
+          set -euo pipefail
+          run_json=$(gh run view "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --json databaseId,conclusion,event,headBranch,headSha,workflowName,url)
+          jq -e --argjson id "$DRY_RUN_ID" '
+            .databaseId == $id and .conclusion == "success" and .event == "workflow_dispatch" and
+            .headBranch == "main" and .workflowName == "Govern Legacy-Equivalent Artifacts"
+          ' <<< "$run_json" >/dev/null || { echo '::error::dry_run_id is not a successful governance workflow'; exit 1; }
+          mkdir -p "$RUNNER_TEMP/boundary"
+          gh run download "$DRY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "legacy-equivalent-boundary-$DRY_RUN_ID" --dir "$RUNNER_TEMP/boundary"
+          (cd "$RUNNER_TEMP/boundary" && sha256sum --check SHA256SUMS)
+          test "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/boundary.json")" = "$(jq -r .headSha <<< "$run_json")" || {
+            echo '::error::boundary workflow commit does not match its source run'; exit 1;
+          }
+          git merge-base --is-ancestor "$(jq -r .workflowCommit "$RUNNER_TEMP/boundary/boundary.json")" "$GITHUB_SHA" || {
+            echo '::error::boundary workflow commit is not an ancestor of this main execution'; exit 1;
+          }
+
+      - name: Refetch current scoped production state
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$RUNNER_TEMP/boundary/plan.json" \
+            --output "$RUNNER_TEMP/current-inventory.json"
+          node scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            --classification "$RUNNER_TEMP/boundary/classification.json" \
+            --output "$RUNNER_TEMP/current-source-evidence.json"
+
+      - name: Verify frozen boundary before any write
+        run: |
+          set -euo pipefail
+          node scripts/verify-legacy-equivalent-governance.mjs --phase execute-preflight \
+            --boundary "$RUNNER_TEMP/boundary/boundary.json" --plan "$RUNNER_TEMP/boundary/plan.json" \
+            --classification "$RUNNER_TEMP/boundary/classification.json" \
+            --frozen-inventory "$RUNNER_TEMP/boundary/pre-inventory.json" \
+            --current-inventory "$RUNNER_TEMP/current-inventory.json" \
+            --frozen-source-evidence "$RUNNER_TEMP/boundary/source-evidence.json" \
+            --current-source-evidence "$RUNNER_TEMP/current-source-evidence.json" \
+            --dry-run-results "$RUNNER_TEMP/boundary/governance-dry-run.json" \
+            --expected-run-id '${{ inputs.dry_run_id }}' --output "$RUNNER_TEMP/execution-preflight.json"
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
+      - name: Download exact audited CLI 2.4.0
+        uses: ./.github/actions/download-skillstore-cli
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          version: '2.4.0'
+          minimum-version: '2.4.0'
+          cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Verify frozen CLI binary identity
+        run: |
+          set -euo pipefail
+          audited='eec024fd85af15a50103b80bfca2e00dcc30f62f94f1dbb32c7a5eba0061b461'
+          expected=$(jq -r .cliSha256 "$RUNNER_TEMP/boundary/boundary.json")
+          actual=$(sha256sum "$GITHUB_WORKSPACE/skillstore-cli" | awk '{print $1}')
+          test "$expected" = "$audited" && test "$actual" = "$audited" || {
+            echo '::error::CLI 2.4.0 binary differs from the frozen dry-run boundary'; exit 1;
+          }
+
+      - name: Materialize only frozen legacy groups
+        run: |
+          set -euo pipefail
+          while IFS= read -r group; do
+            index=$(jq -r .batchIndex <<< "$group")
+            commit=$(jq -r .marketplaceCommit <<< "$group")
+            root="$RUNNER_TEMP/materialized/batch-$index/$commit"
+            mkdir -p "$root"
+            mapfile -t paths < <(jq -r '.paths[]' <<< "$group")
+            git archive --format=tar "$commit" -- "${paths[@]}" | tar -xf - -C "$root"
+          done < <(jq -c '.groups[]' "$RUNNER_TEMP/boundary/boundary.json")
+
+      - name: Execute frozen legacy cohort serially with cache batches of at most ten
+        env:
+          PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CACHE_INVALIDATE_SECRET: ${{ secrets.CACHE_INVALIDATE_SECRET }}
+          SKILLSTORE_SITE_URL: https://skillstore.io
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/execution-groups"
+          : > "$RUNNER_TEMP/execution-results.jsonl"
+          while IFS= read -r group; do
+            index=$(jq -r .batchIndex <<< "$group")
+            commit=$(jq -r .marketplaceCommit <<< "$group")
+            count=$(jq -r .count <<< "$group")
+            slugs=$(jq -r '.slugs | join(",")' <<< "$group")
+            result="$RUNNER_TEMP/execution-groups/$index-$commit.json"
+            "$GITHUB_WORKSPACE/skillstore-cli" skill govern-legacy-equivalent \
+              --classification "$RUNNER_TEMP/boundary/classification.json" \
+              --root "$RUNNER_TEMP/materialized/batch-$index/$commit" \
+              --slugs "$slugs" --concurrency 1 --result-file "$result"
+            jq -n -c --argjson batchIndex "$index" --arg marketplaceCommit "$commit" \
+              --argjson selectedCount "$count" --argjson slugs "$(jq -c .slugs <<< "$group")" \
+              --slurpfile result "$result" \
+              '{batchIndex:$batchIndex,marketplaceCommit:$marketplaceCommit,selectedCount:$selectedCount,slugs:$slugs,exitCode:0,result:$result[0]}' \
+              >> "$RUNNER_TEMP/execution-results.jsonl"
+          done < <(jq -c '.groups[]' "$RUNNER_TEMP/boundary/boundary.json")
+          jq -s . "$RUNNER_TEMP/execution-results.jsonl" > "$RUNNER_TEMP/execution-results.json"
+
+      - name: Fetch post-execution inventory and governance evidence
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          set -euo pipefail
+          node scripts/fetch-artifact-version-inventory.mjs \
+            --scope-inventory "$RUNNER_TEMP/boundary/plan.json" --output "$RUNNER_TEMP/post-inventory.json"
+          node scripts/fetch-legacy-equivalent-governance-readback.mjs \
+            --execution-results "$RUNNER_TEMP/execution-results.json" --output "$RUNNER_TEMP/governance-readback.json"
+
+      - name: Verify complete production execution evidence
+        run: >-
+          node scripts/verify-legacy-equivalent-governance.mjs --phase execution
+          --boundary "$RUNNER_TEMP/boundary/boundary.json"
+          --plan "$RUNNER_TEMP/boundary/plan.json"
+          --classification "$RUNNER_TEMP/boundary/classification.json"
+          --execution-results "$RUNNER_TEMP/execution-results.json"
+          --frozen-inventory "$RUNNER_TEMP/boundary/pre-inventory.json"
+          --post-inventory "$RUNNER_TEMP/post-inventory.json"
+          --readback "$RUNNER_TEMP/governance-readback.json"
+          --frozen-source-evidence "$RUNNER_TEMP/boundary/source-evidence.json"
+          --output "$RUNNER_TEMP/execution-verification.json"
+
+      - name: Preserve execution status evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/execution-evidence"
+          mkdir -p "$evidence"
+          if [ ! -f "$RUNNER_TEMP/execution-results.json" ] && [ -f "$RUNNER_TEMP/execution-results.jsonl" ]; then
+            jq -s . "$RUNNER_TEMP/execution-results.jsonl" > "$RUNNER_TEMP/execution-results.json"
+          fi
+          jq -n --arg runId "$GITHUB_RUN_ID" --arg boundaryRun '${{ inputs.dry_run_id }}' \
+            --arg sha "$GITHUB_SHA" --arg jobStatus '${{ job.status }}' \
+            '{schemaVersion:1,runId:$runId,boundaryRunId:$boundaryRun,workflowCommit:$sha,jobStatus:$jobStatus}' \
+            > "$evidence/run-status.json"
+
+      - name: Upload strict execution evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: legacy-equivalent-execution-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/boundary/
+            ${{ runner.temp }}/execution-preflight.json
+            ${{ runner.temp }}/current-source-evidence.json
+            ${{ runner.temp }}/execution-results.json
+            ${{ runner.temp }}/post-inventory.json
+            ${{ runner.temp }}/governance-readback.json
+            ${{ runner.temp }}/execution-verification.json
+            ${{ runner.temp }}/execution-evidence/run-status.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish verified execution summary
+        run: |
+          {
+            echo '## Legacy-equivalent execution verified'
+            echo "- Frozen boundary run: \`${{ inputs.dry_run_id }}\`"
+            echo '- CLI: `2.4.0`'
+            echo "- Executed: \`$(jq -r .executedCount "$RUNNER_TEMP/execution-verification.json")\`"
+            echo '- Artifact, observation, derived audit, score binding, Pack timestamps, and no-attestation invariants passed.'
+            echo '- Cache authorization was preflighted before writes; API and artifact invalidation was bounded to groups of ten.'
+          } >> "$GITHUB_STEP_SUMMARY"
