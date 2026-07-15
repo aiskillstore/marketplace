@@ -832,6 +832,8 @@ async function evaluate(args) {
       '--judge-model', context.judgeModel,
       '--runs', args.runs ?? '1',
       '--final-runs', args['final-runs'] ?? '3',
+      '--agent-timeout-ms', args['agent-timeout-ms'] ?? '360000',
+      '--agent-max-retries', args['agent-max-retries'] ?? '1',
       '--threshold', args.threshold ?? '7',
       '--baseline-delta', args['baseline-delta'] ?? '1',
       '--auto-publish-threshold', args['auto-publish-threshold'] ?? '8',
