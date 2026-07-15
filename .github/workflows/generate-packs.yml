@@ -24,7 +24,7 @@ concurrency:
 env:
   # Immutable release required by the v2 evaluator/API contract. Bump only
   # together with a Skillstore CLI release and its checksums.txt asset.
-  PACK_PRODUCTION_CLI_VERSION: '2.9.0'
+  PACK_PRODUCTION_CLI_VERSION: '2.10.0'
 
 jobs:
   plan:
@@ -258,7 +258,10 @@ jobs:
             /opt/pack-evaluator/codex-home/log \
             /opt/pack-evaluator/codex-home/sessions
           sudo install -d -o root -g root -m 0700 /opt/pack-evaluator/results
-          mkdir -p "$GITHUB_WORKSPACE/pack-results"
+          sudo install -d -o root -g root -m 0711 /opt/pack-evaluator/generations
+          mkdir -p \
+            "$GITHUB_WORKSPACE/pack-diagnostics" \
+            "$GITHUB_WORKSPACE/pack-harvest"
           printf '%s\n' \
             'model_provider = "pack_evaluator_proxy"' \
             '[model_providers.pack_evaluator_proxy]' \
@@ -285,11 +288,83 @@ jobs:
           test -x "$NODE_BIN"
           PROXY_LOG=$(mktemp)
           chmod 0600 "$PROXY_LOG"
+          CHECKPOINT_LOCK="$RUNNER_TEMP/pack-production-checkpoint.lock"
+          CHECKPOINT_PID=''
+          EVALUATOR_PID=''
+          EVALUATOR_FINISHED=false
+          CLEANUP_DONE=false
+          checkpoint_progress() {
+            (
+              flock -x 9
+              for name in evaluate-progress.ndjson evaluate-checkpoint.json evaluate-summary.json; do
+                if sudo test -f "/opt/pack-evaluator/results/$name"; then
+                  temporary="$GITHUB_WORKSPACE/pack-diagnostics/.${name}.tmp.${BASHPID}"
+                  sudo cp "/opt/pack-evaluator/results/$name" "$temporary"
+                  sudo chown "$(id -u):$(id -g)" "$temporary"
+                  chmod 0600 "$temporary"
+                  mv -f "$temporary" "$GITHUB_WORKSPACE/pack-diagnostics/$name"
+                fi
+              done
+            ) 9>"$CHECKPOINT_LOCK"
+          }
+          checkpoint_loop() {
+            trap - EXIT INT TERM
+            while true; do
+              sleep 30
+              checkpoint_progress || true
+            done
+          }
           cleanup() {
+            local exit_code="${1:-$?}"
+            if [ "$CLEANUP_DONE" = "true" ]; then
+              return "$exit_code"
+            fi
+            CLEANUP_DONE=true
+            set +e
+            if [ -n "$EVALUATOR_PID" ]; then
+              sudo kill -TERM "$EVALUATOR_PID" 2>/dev/null || true
+            fi
+            sudo pkill -TERM -f '/opt/pack-evaluator/lib/pack-production.mjs evaluate' 2>/dev/null || true
+            for _ in $(seq 1 20); do
+              if ! sudo pgrep -f '/opt/pack-evaluator/lib/pack-production.mjs evaluate' >/dev/null 2>&1; then
+                break
+              fi
+              sleep 0.1
+            done
+            sudo pkill -KILL -f '/opt/pack-evaluator/lib/pack-production.mjs evaluate' 2>/dev/null || true
+            if [ -n "$CHECKPOINT_PID" ]; then
+              kill "$CHECKPOINT_PID" 2>/dev/null || true
+              wait "$CHECKPOINT_PID" 2>/dev/null || true
+            fi
+            checkpoint_progress || true
+            sudo pkill -TERM -u packeval 2>/dev/null || true
+            for _ in $(seq 1 20); do
+              if ! sudo pgrep -u packeval >/dev/null 2>&1; then
+                break
+              fi
+              sleep 0.1
+            done
+            sudo pkill -KILL -u packeval 2>/dev/null || true
+            checkpoint_progress || true
+            if [ "$EVALUATOR_FINISHED" != "true" ]; then
+              printf 'evaluator_interrupted=true\n' \
+                > "$GITHUB_WORKSPACE/pack-diagnostics/evaluator-interrupted.txt"
+              chmod 0600 "$GITHUB_WORKSPACE/pack-diagnostics/"* 2>/dev/null || true
+            fi
             sudo pkill -u packproxy -f pack-evaluator-proxy.mjs 2>/dev/null || true
             rm -f "$PROXY_LOG"
+            return "$exit_code"
           }
-          trap cleanup EXIT
+          terminate_step() {
+            local exit_code="$1"
+            cleanup "$exit_code"
+            trap - EXIT
+            exit "$exit_code"
+          }
+          trap 'terminate_step 143' TERM
+          trap 'terminate_step 130' INT
+          trap 'terminate_step 129' HUP
+          trap 'cleanup $?' EXIT
 
           sudo -u packproxy env -i \
             PATH=/opt/pack-evaluator/bin:/usr/bin:/bin \
@@ -320,13 +395,14 @@ jobs:
           done
           if [ "$PROXY_READY" != "true" ]; then
             echo "::error::Pack evaluator proxy did not become healthy within 30 seconds"
-            if [ -s "$PROXY_LOG" ]; then
-              sed -E 's/(Bearer|helm_live_)[^[:space:]]+/[REDACTED]/g' "$PROXY_LOG" \
-                | tee "$GITHUB_WORKSPACE/pack-results/proxy-failure.log" >&2
-            else
-              echo 'proxy exited without diagnostic output' \
-                | tee "$GITHUB_WORKSPACE/pack-results/proxy-failure.log" >&2
-            fi
+            PROXY_BYTES=$(wc -c < "$PROXY_LOG")
+            PROXY_SHA256=$(sha256sum "$PROXY_LOG" | awk '{print $1}')
+            jq -n \
+              --arg outcome startup_failed \
+              --argjson bytes "$PROXY_BYTES" \
+              --arg sha256 "$PROXY_SHA256" \
+              '{outcome: $outcome, bytes: $bytes, sha256: $sha256}' \
+              > "$GITHUB_WORKSPACE/pack-diagnostics/proxy-diagnostics.json"
             kill "$PROXY_LAUNCH_PID" 2>/dev/null || true
             wait "$PROXY_LAUNCH_PID" 2>/dev/null || true
             exit 1
@@ -359,6 +435,7 @@ jobs:
               ! test -w /opt/pack-evaluator/runtime
               ! test -w /opt/pack-evaluator/runtime/bin
               ! test -w /opt/pack-evaluator/runtime/lib
+              ! test -w /opt/pack-evaluator/generations
               test -x /opt/pack-evaluator/runtime/bin/claude
               test -x /opt/pack-evaluator/runtime/bin/codex
               test -r /opt/pack-evaluator/codex-home/config.toml
@@ -367,12 +444,14 @@ jobs:
               ! test -r /opt/pack-evaluator/results
             '; then
             echo 'evaluator isolation preflight failed' \
-              > "$GITHUB_WORKSPACE/pack-results/preflight-failure.txt"
+              > "$GITHUB_WORKSPACE/pack-diagnostics/preflight-failure.txt"
             exit 1
           fi
 
           PACKEVAL_UID=$(id -u packeval)
           PACKEVAL_GID=$(id -g packeval)
+          checkpoint_loop &
+          CHECKPOINT_PID=$!
           set +e
           sudo env -i \
             PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
@@ -388,7 +467,7 @@ jobs:
             ANTHROPIC_BASE_URL=http://127.0.0.1:18765 \
             ANTHROPIC_AUTH_TOKEN="$LOCAL_TOKEN" \
             NO_PROXY=127.0.0.1,localhost \
-            timeout --signal=TERM 4h \
+            timeout --signal=TERM --kill-after=30s 4h \
             prlimit --nproc=256:256 --as=6442450944:6442450944 -- \
             "$NODE_BIN" /opt/pack-evaluator/lib/pack-production.mjs evaluate \
             --plan /opt/pack-evaluator/input/plan.json \
@@ -399,6 +478,7 @@ jobs:
             --evaluator-uid "$PACKEVAL_UID" \
             --evaluator-gid "$PACKEVAL_GID" \
             --evaluator-cwd /home/packeval \
+            --evaluator-runtime-root /opt/pack-evaluator/generations \
             --run-id "${{ github.run_id }}" \
             --run-attempt "${{ github.run_attempt }}" \
             --commit-sha "${{ github.sha }}" \
@@ -411,8 +491,18 @@ jobs:
             --threshold 7 \
             --baseline-delta 1 \
             --auto-publish-threshold 8 \
-            > "$GITHUB_WORKSPACE/pack-results/evaluate-command.json"
+            --evaluation-budget-ms 13800000 \
+            --scenario-timeout-ms 7200000 \
+            --minimum-fallback-ms 2700000 \
+            > "$GITHUB_WORKSPACE/pack-diagnostics/evaluate-command.json" &
+          EVALUATOR_PID=$!
+          wait "$EVALUATOR_PID"
           EVALUATOR_RC=$?
+          EVALUATOR_PID=''
+          EVALUATOR_FINISHED=true
+          kill "$CHECKPOINT_PID" 2>/dev/null || true
+          wait "$CHECKPOINT_PID" 2>/dev/null || true
+          CHECKPOINT_PID=''
           set -e
           sudo pkill -TERM -u packeval 2>/dev/null || true
           for _ in $(seq 1 20); do
@@ -430,7 +520,7 @@ jobs:
           fi
           if [ "$EVALUATOR_PROCESSES_STOPPED" != "true" ]; then
             echo 'evaluator processes survived TERM and KILL' \
-              > "$GITHUB_WORKSPACE/pack-results/process-termination-failure.txt"
+              > "$GITHUB_WORKSPACE/pack-diagnostics/process-termination-failure.txt"
           else
             RESULT_BYTES=$(sudo du -sb /opt/pack-evaluator/results | awk '{print $1}')
             RESULT_FILES=$(sudo find /opt/pack-evaluator/results -type f | wc -l)
@@ -444,25 +534,25 @@ jobs:
               echo '::error::Evaluator result directory contains a non-regular entry'
               EVALUATOR_RC=1
             else
-              sudo cp -a /opt/pack-evaluator/results/. "$GITHUB_WORKSPACE/pack-results/"
+              sudo cp -a /opt/pack-evaluator/results/. "$GITHUB_WORKSPACE/pack-harvest/"
             fi
           fi
-          sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/pack-results"
-          find "$GITHUB_WORKSPACE/pack-results" -type d -exec chmod 0700 {} +
-          find "$GITHUB_WORKSPACE/pack-results" -type f -exec chmod 0600 {} +
-          if find "$GITHUB_WORKSPACE/pack-results" ! -type f ! -type d -print -quit | grep -q .; then
+          sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE/pack-harvest"
+          find "$GITHUB_WORKSPACE/pack-harvest" -type d -exec chmod 0700 {} +
+          find "$GITHUB_WORKSPACE/pack-harvest" -type f -exec chmod 0600 {} +
+          if find "$GITHUB_WORKSPACE/pack-harvest" ! -type f ! -type d -print -quit | grep -q .; then
             echo '::error::Copied evaluator evidence contains a non-regular entry'
-            rm -rf "$GITHUB_WORKSPACE/pack-results"
-            mkdir -p "$GITHUB_WORKSPACE/pack-results"
+            rm -rf "$GITHUB_WORKSPACE/pack-harvest"
+            mkdir -p "$GITHUB_WORKSPACE/pack-harvest"
             echo 'copied evaluator evidence failed regular-file validation' \
-              > "$GITHUB_WORKSPACE/pack-results/evidence-validation-failure.txt"
+              > "$GITHUB_WORKSPACE/pack-diagnostics/evidence-validation-failure.txt"
             EVALUATOR_RC=1
           fi
           if [ "$EVALUATOR_RC" -eq 0 ]; then
             if ! env -i PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
               "$NODE_BIN" /opt/pack-evaluator/lib/pack-production.mjs verify \
               --plan /opt/pack-evaluator/input/plan.json \
-              --results-dir "$GITHUB_WORKSPACE/pack-results" \
+              --results-dir "$GITHUB_WORKSPACE/pack-harvest" \
               --cli /opt/pack-evaluator/bin/skillstore-cli \
               --expected-cli-version "$PACK_PRODUCTION_CLI_VERSION" \
               --run-id "${{ github.run_id }}" \
@@ -470,33 +560,63 @@ jobs:
               --commit-sha "${{ github.sha }}" \
               --model sonnet \
               --judge-model gpt-5.5 \
-              > "$GITHUB_WORKSPACE/pack-results/verification-command.json"; then
+              > "$GITHUB_WORKSPACE/pack-diagnostics/verification-command.json"; then
               echo 'trusted evaluation closure verification failed' \
-                > "$GITHUB_WORKSPACE/pack-results/verification-failure.txt"
+                > "$GITHUB_WORKSPACE/pack-diagnostics/verification-failure.txt"
               EVALUATOR_RC=1
             fi
           fi
-          find "$GITHUB_WORKSPACE/pack-results" -type f -exec chmod 0600 {} +
-          if [ -s "$PROXY_LOG" ]; then
-            sed -E 's/(Bearer|helm_live_)[^[:space:]]+/[REDACTED]/g' "$PROXY_LOG" \
-              | tee "$GITHUB_WORKSPACE/pack-results/proxy.log" >&2
+          rm -f "$GITHUB_WORKSPACE/pack-harvest/"*.stdout.partial
+          if [ "$EVALUATOR_RC" -eq 0 ]; then
+            mkdir -p "$GITHUB_WORKSPACE/pack-trusted"
+            cp "$GITHUB_WORKSPACE/pack-harvest/evaluate-summary.json" \
+              "$GITHUB_WORKSPACE/pack-harvest/evaluation-verification.json" \
+              "$GITHUB_WORKSPACE/pack-harvest/"*.evaluation.json \
+              "$GITHUB_WORKSPACE/pack-harvest/"*.stdout.json \
+              "$GITHUB_WORKSPACE/pack-trusted/"
+            find "$GITHUB_WORKSPACE/pack-trusted" -type f -exec chmod 0600 {} +
           fi
+          for name in evaluate-progress.ndjson evaluate-checkpoint.json evaluate-summary.json; do
+            if [ -f "$GITHUB_WORKSPACE/pack-harvest/$name" ]; then
+              cp "$GITHUB_WORKSPACE/pack-harvest/$name" "$GITHUB_WORKSPACE/pack-diagnostics/$name"
+            fi
+          done
+          find "$GITHUB_WORKSPACE/pack-harvest" -maxdepth 1 -type f -name '*.run.log' \
+            -exec cp {} "$GITHUB_WORKSPACE/pack-diagnostics/" \;
+          find "$GITHUB_WORKSPACE/pack-diagnostics" -type f -exec chmod 0600 {} +
+          PROXY_BYTES=$(wc -c < "$PROXY_LOG")
+          PROXY_SHA256=$(sha256sum "$PROXY_LOG" | awk '{print $1}')
+          jq -n \
+            --arg outcome completed \
+            --argjson bytes "$PROXY_BYTES" \
+            --arg sha256 "$PROXY_SHA256" \
+            '{outcome: $outcome, bytes: $bytes, sha256: $sha256}' \
+            > "$GITHUB_WORKSPACE/pack-diagnostics/proxy-diagnostics.json"
           if [ "$EVALUATOR_RC" -ne 0 ]; then
             printf 'evaluator_exit_code=%s\n' "$EVALUATOR_RC" \
-              > "$GITHUB_WORKSPACE/pack-results/evaluator-failure.txt"
+              > "$GITHUB_WORKSPACE/pack-diagnostics/evaluator-failure.txt"
             echo "::error::Pack evaluator exited with code $EVALUATOR_RC"
             exit "$EVALUATOR_RC"
           fi
-          jq '{attempts: [.reports[] | {scenarioId, outcome, outcomeReason}], selectedGenerationId}' \
-            "$GITHUB_WORKSPACE/pack-results/evaluate-summary.json" >> "$GITHUB_STEP_SUMMARY"
+          jq '{attempts: [.attempts[] | {scenarioId, status, outcome, durationMs}], selectedGenerationId}' \
+            "$GITHUB_WORKSPACE/pack-harvest/evaluate-summary.json" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload complete evaluation evidence
-        if: always()
+      - name: Upload trusted evaluation evidence
+        if: success()
         uses: actions/upload-artifact@v6
         with:
           name: pack-production-evaluation
-          path: pack-results/
+          path: pack-trusted/
           if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload bounded evaluation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-production-diagnostics
+          path: pack-diagnostics/
+          if-no-files-found: warn
           retention-days: 90
 
   persist:
