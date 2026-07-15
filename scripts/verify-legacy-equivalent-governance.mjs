@@ -429,7 +429,8 @@ export function verifyLegacyGovernanceBoundary({
   const currentSkills = asMap(currentInventory.rows, 'slug', 'current Skills');
   const artifacts = asMap(currentInventory.artifacts, 'skill_id', 'current artifacts');
   const observations = asMap(currentInventory.observations, 'skill_id', 'current observations');
-  const legacySlugs = new Set(governableLegacyRows(classification).map((row) => row.slug));
+  const governableLegacy = asMap(governableLegacyRows(classification), 'slug', 'governable legacy cohort');
+  const legacySlugs = new Set(governableLegacy.keys());
   if (
     canonicalJson(frozenInventory.packMemberships) !== canonicalJson(currentInventory.packMemberships)
     || canonicalJson(frozenInventory.packs) !== canonicalJson(currentInventory.packs)
@@ -449,7 +450,7 @@ export function verifyLegacyGovernanceBoundary({
       continue;
     }
     if (canonicalJson(before) === canonicalJson(current)) continue;
-    const repair = selected.evidence.artifact.hashRepair;
+    const repair = governableLegacy.get(selected.slug).evidence.artifact.hashRepair;
     const artifact = artifacts.get(selected.id);
     const observation = observations.get(selected.id);
     if (

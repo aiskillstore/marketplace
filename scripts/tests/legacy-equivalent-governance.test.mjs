@@ -72,10 +72,11 @@ function frozenRow() {
 
 function fixtures() {
   const row = frozenRow();
+  const { evidence: _classificationOnlyEvidence, ...plannedRow } = row;
   const plan = {
     schemaVersion: 3,
     selectedCount: 1,
-    selected: [row],
+    selected: [plannedRow],
     lastSelected: row.slug,
     batches: [{
       index: 1,
