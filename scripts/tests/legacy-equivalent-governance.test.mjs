@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import {
+  canonicalSourceEvidence,
   createLegacyGovernanceBoundary,
   qualifyLegacyGovernanceClassification,
   verifyLegacyGovernanceBoundary,
@@ -24,6 +25,20 @@ const LEGACY_CONTENT = 'b'.repeat(64);
 const LEGACY_TREE = 'c'.repeat(64);
 const CONTENT = 'd'.repeat(64);
 const TREE = 'e'.repeat(64);
+
+test('canonicalizes source evidence row order without hiding value drift', () => {
+  const left = {
+    schemaVersion: 1,
+    skills: [{ id: '2', name: 'Second' }, { id: '1', name: 'First' }],
+    audits: [{ id: 'a', version: 1 }, { id: 'b', version: 2 }],
+  };
+  const reordered = structuredClone(left);
+  reordered.skills.reverse();
+  reordered.audits.reverse();
+  assert.equal(canonicalSourceEvidence(left), canonicalSourceEvidence(reordered));
+  reordered.audits[0].version = 3;
+  assert.notEqual(canonicalSourceEvidence(left), canonicalSourceEvidence(reordered));
+});
 
 function frozenRow() {
   return {
@@ -292,6 +307,20 @@ test('freezes and verifies one exact dry-run boundary', () => {
       expectedRunId: '12345',
     });
     assert.equal(verified.status, 'execution_preflight_verified');
+    const reorderedSourceEvidence = structuredClone(fixture.sourceEvidence);
+    reorderedSourceEvidence.skills.reverse();
+    reorderedSourceEvidence.audits.reverse();
+    assert.equal(verifyLegacyGovernanceBoundary({
+      boundary: fixture.boundary,
+      plan: fixture.plan,
+      classification: fixture.classification,
+      frozenInventory: fixture.preInventory,
+      currentInventory: structuredClone(fixture.preInventory),
+      frozenSourceEvidence: fixture.sourceEvidence,
+      currentSourceEvidence: reorderedSourceEvidence,
+      paths: fixture.files,
+      expectedRunId: '12345',
+    }).status, 'execution_preflight_verified');
     const drift = structuredClone(fixture.preInventory);
     drift.rows[0].updated_at = '2026-07-15T00:00:00.000Z';
     assert.throws(() => verifyLegacyGovernanceBoundary({
