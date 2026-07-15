@@ -67,3 +67,20 @@ test('uses pinned commit trees instead of the mutable runner working tree', () =
     rmSync(repositoryRoot, { recursive: true, force: true });
   }
 });
+
+test('fails closed on reserved or over-nested published report paths', () => {
+  assert.throws(
+    () => resolveChangedSkillPaths(
+      ['skills/pending/pending/SKILL.md'],
+      ['skills/pending/pending/skill-report.json'],
+    ),
+    /invalid or reserved path identity/,
+  );
+  assert.throws(
+    () => resolveChangedSkillPaths(
+      ['skills/owner/group/skill/SKILL.md'],
+      ['skills/owner/group/skill/skill-report.json'],
+    ),
+    /invalid path depth/,
+  );
+});

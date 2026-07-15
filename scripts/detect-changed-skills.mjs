@@ -21,16 +21,26 @@ function gitPaths(repositoryRoot, args) {
   return output.toString('utf8').split('\0').filter(Boolean);
 }
 
+export function publishedSkillDirectory(reportPath) {
+  if (!reportPath.startsWith('skills/') || posix.basename(reportPath) !== 'skill-report.json') {
+    return null;
+  }
+  const segments = reportPath.split('/');
+  if (segments.length !== 3 && segments.length !== 4) {
+    throw new Error(`published skill report has invalid path depth: ${reportPath}`);
+  }
+  const identitySegments = segments.slice(1, -1);
+  if (
+    identitySegments.includes('pending')
+    || identitySegments.some((segment) => !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(segment))
+  ) {
+    throw new Error(`published skill report has invalid or reserved path identity: ${reportPath}`);
+  }
+  return identitySegments.join('/');
+}
+
 export function resolveChangedSkillPaths(changedPaths, reportPaths) {
-  const published = new Set(
-    reportPaths.flatMap((reportPath) => {
-      if (!reportPath.startsWith('skills/') || posix.basename(reportPath) !== 'skill-report.json') {
-        return [];
-      }
-      const directory = posix.dirname(reportPath).slice('skills/'.length);
-      return directory && directory !== '.' ? [directory] : [];
-    }),
-  );
+  const published = new Set(reportPaths.map(publishedSkillDirectory).filter(Boolean));
   const changedSkills = new Set();
 
   for (const changedPath of changedPaths) {
