@@ -43,7 +43,6 @@ test('evaluate job cannot interpolate production write credentials', () => {
 test('evaluate runs on a disposable VM with a user-separated job-local inference proxy', () => {
   const evaluate = section('  evaluate:', '  persist:');
   assert.match(evaluate, /runs-on: ubuntu-latest/);
-  assert.match(evaluate, /cache-dir: ''/);
   assert.match(evaluate, /@anthropic-ai\/claude-code@2\.1\.210/);
   assert.match(evaluate, /@openai\/codex@0\.139\.0/);
   assert.match(evaluate, /apt-get install --yes --no-install-recommends ffmpeg poppler-utils/);
@@ -61,6 +60,10 @@ test('evaluate runs on a disposable VM with a user-separated job-local inference
   assert.match(evaluate, /supports_websockets = false/);
   assert.match(evaluate, /! test -e \/home\/packeval\/\.codex\/auth\.json/);
   assert.doesNotMatch(evaluate, /cp .*\.codex\/auth\.json|\/home\/runner\/_work\/_cache/);
+  assert.match(evaluate, /name: pack-production-cli/);
+  assert.match(evaluate, /sha256sum -c checksums\.txt/);
+  assert.match(evaluate, /Verify Plan CLI handoff before execution/);
+  assert.doesNotMatch(evaluate, /secrets\.APP_PRIVATE_KEY|steps\.cli-app-token/);
   assert.match(EVALUATOR_PROXY, /127\.0\.0\.1/);
   assert.match(EVALUATOR_PROXY, /ALLOWED_PATHS/);
   assert.match(EVALUATOR_PROXY, /authorization.*Bearer.*upstreamKey/s);
@@ -91,7 +94,11 @@ test('planning is bounded to three artifact scenarios and CLI release is immutab
   assert.match(persist, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(finalize, /if: needs\.plan\.outputs\.has_scenarios == 'true'/);
   assert.match(WORKFLOW, /PACK_PRODUCTION_CLI_VERSION: '2\.9\.0'/);
-  assert.equal((WORKFLOW.match(/require-checksum: 'true'/g) ?? []).length, 2);
+  assert.equal((WORKFLOW.match(/require-checksum: 'true'/g) ?? []).length, 1);
+  assert.match(plan, /actions\/create-github-app-token@v3/);
+  assert.match(plan, /repositories: marketplace,skillstore/);
+  assert.match(plan, /name: pack-production-cli/);
+  assert.match(plan, /retention-days: 1/);
   assert.doesNotMatch(WORKFLOW, /version: latest|cli_version:/);
 });
 
