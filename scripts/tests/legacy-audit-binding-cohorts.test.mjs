@@ -96,7 +96,7 @@ test('binding workflow is two-phase, pinned, score/artifact preserving, and cach
   ), 'utf8');
   assert.match(workflow, /options: \[dry-run, execute\]/);
   assert.match(workflow, /version: '2\.7\.0'/);
-  assert.match(workflow, /__LEGACY_AUDIT_BINDING_LINUX_SHA256__/);
+  assert.match(workflow, /cc987bdb22b3c19b7f7dec60b707032979823579167c0b911e408771ed9e13d7/);
   assert.match(workflow, /skill bind-legacy-audit/);
   assert.match(workflow, /--dry-run --concurrency 1/);
   assert.match(workflow, /cmp "\$RUNNER_TEMP\/binding-inventory\.json" "\$RUNNER_TEMP\/post-binding-inventory\.json"/);
