@@ -9,8 +9,8 @@ const workflow = readFileSync(
 );
 
 test('sync uses an attestation-capable CLI and a dedicated issuance credential', () => {
-  assert.match(workflow, /version: '2\.3\.0'/);
-  assert.match(workflow, /minimum-version: '2\.3\.0'/);
+  assert.match(workflow, /version: '2\.4\.4'/);
+  assert.match(workflow, /minimum-version: '2\.4\.4'/);
   assert.match(
     workflow,
     /SECURITY_PASSPORT_MODE: \$\{\{ vars\.SECURITY_PASSPORT_MODE \|\| 'off' \}\}/,
