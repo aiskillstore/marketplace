@@ -422,6 +422,7 @@ test('scenario budgets reserve real execution time for the fallback queue', () =
 test('a timed-out scenario stops fallback work and blocks workflow success', () => {
   const directory = mkdtempSync(join(tmpdir(), 'pack-production-fallback-'));
   const cli = join(directory, 'fake-skillstore-cli');
+  const cliArgsFile = join(directory, 'cli-args.json');
   const scenarios = {
     slow: {
       id: 'slow', version: '1.0.0', slug: 'slow-pack', name: 'Slow Pack',
@@ -439,6 +440,7 @@ test('a timed-out scenario stops fallback work and blocks workflow success', () 
   const script = `#!/usr/bin/env node
 const args = process.argv.slice(2);
 if (args.includes('--version')) { console.log('skillstore-cli 2.10.0'); process.exit(0); }
+require('node:fs').writeFileSync(${JSON.stringify(cliArgsFile)}, JSON.stringify(args));
 const value = (name) => args[args.indexOf(name) + 1];
 const scenarioId = value('--scenario');
 if (scenarioId === 'slow') {
@@ -492,6 +494,8 @@ if (scenarioId === 'slow') {
     '--evaluation-budget-ms', '2000',
     '--scenario-timeout-ms', '500',
     '--minimum-fallback-ms', '500',
+    '--agent-timeout-ms', '1234',
+    '--agent-max-retries', '2',
   ], { encoding: 'utf8', timeout: 5_000 });
   assert.equal(evaluation.status, 1);
   assert.match(evaluation.stderr, /operationally incomplete attempts: slow:timed_out/);
@@ -500,6 +504,9 @@ if (scenarioId === 'slow') {
   assert.deepEqual(summary.attempts.map((attempt) => attempt.status), ['timed_out']);
   assert.deepEqual(summary.reports, []);
   assert.equal(readFileSync(join(resultsDir, '01-slow.run.log'), 'utf8'), '');
+  const forwardedArgs = JSON.parse(readFileSync(cliArgsFile, 'utf8'));
+  assert.equal(forwardedArgs[forwardedArgs.indexOf('--agent-timeout-ms') + 1], '1234');
+  assert.equal(forwardedArgs[forwardedArgs.indexOf('--agent-max-retries') + 1], '2');
   assert.throws(() => readFileSync(join(resultsDir, '01-slow.evaluation.json')));
   assert.throws(() => readFileSync(join(resultsDir, '02-fast.run.log')));
 

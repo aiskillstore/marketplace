@@ -24,7 +24,7 @@ concurrency:
 env:
   # Immutable release required by the v3 evaluator/API contract. Bump only
   # together with a Skillstore CLI release and its checksums.txt asset.
-  PACK_PRODUCTION_CLI_VERSION: '2.10.0'
+  PACK_PRODUCTION_CLI_VERSION: '2.11.0'
 
 jobs:
   plan:
@@ -280,7 +280,6 @@ jobs:
       - name: Evaluate queue until one candidate is ready
         env:
           PACK_EVALUATOR_HELM_API_KEY: ${{ secrets.PACK_EVALUATOR_HELM_API_KEY }}
-          SKILLSTORE_AGENTS: ${{ vars.SKILLSTORE_AGENTS }}
         run: |
           set -euo pipefail
           LOCAL_TOKEN=$(openssl rand -hex 32)
@@ -288,6 +287,10 @@ jobs:
           test -x "$NODE_BIN"
           PROXY_LOG=$(mktemp)
           PROXY_ACTIVITY=$(mktemp)
+          CLAUDE_PREFLIGHT_STDOUT=$(mktemp)
+          CLAUDE_PREFLIGHT_STDERR=$(mktemp)
+          CODEX_PREFLIGHT_STDOUT=$(mktemp)
+          CODEX_PREFLIGHT_STDERR=$(mktemp)
           chmod 0600 "$PROXY_ACTIVITY"
           sudo chown packproxy:packproxy "$PROXY_ACTIVITY"
           chmod 0600 "$PROXY_LOG"
@@ -343,21 +346,23 @@ jobs:
             set +e
             write_interrupted_marker
             bounded_checkpoint_progress
-            if [ -n "$EVALUATOR_PID" ]; then
-              sudo kill -TERM "$EVALUATOR_PID" 2>/dev/null || true
-            fi
-            sudo pkill -TERM -f '/opt/pack-evaluator/lib/pack-production.mjs evaluate' 2>/dev/null || true
-            for _ in $(seq 1 40); do
-              if ! sudo pgrep -f '/opt/pack-evaluator/lib/pack-production.mjs evaluate' >/dev/null 2>&1; then
-                break
-              fi
+            evaluator_group_alive() {
+              sudo ps -o stat= -g "$EVALUATOR_PID" 2>/dev/null | grep -qv '^[[:space:]]*Z'
+            }
+            if [ -n "$EVALUATOR_PID" ] && [ "$EVALUATOR_FINISHED" != "true" ]; then
+              sudo kill -TERM -- "-$EVALUATOR_PID" 2>/dev/null || true
+              for _ in $(seq 1 40); do
+                if ! evaluator_group_alive; then
+                  break
+                fi
+                sleep 0.1
+              done
+              sudo kill -KILL -- "-$EVALUATOR_PID" 2>/dev/null || true
               sleep 0.1
-            done
-            sudo pkill -KILL -f '/opt/pack-evaluator/lib/pack-production.mjs evaluate' 2>/dev/null || true
-            sleep 0.1
-            if sudo pgrep -f '/opt/pack-evaluator/lib/pack-production.mjs evaluate' >/dev/null 2>&1; then
-              echo 'root evaluator survived TERM and KILL' \
-                > "$GITHUB_WORKSPACE/pack-diagnostics/root-termination-failure.txt"
+              if evaluator_group_alive; then
+                echo 'root evaluator survived TERM and KILL' \
+                  > "$GITHUB_WORKSPACE/pack-diagnostics/root-termination-failure.txt"
+              fi
             fi
             if [ -n "$CHECKPOINT_PID" ]; then
               kill "$CHECKPOINT_PID" 2>/dev/null || true
@@ -377,7 +382,12 @@ jobs:
                 > "$GITHUB_WORKSPACE/pack-diagnostics/process-termination-failure.txt"
             fi
             sudo pkill -u packproxy -f pack-evaluator-proxy.mjs 2>/dev/null || true
-            rm -f "$PROXY_LOG"
+            rm -f \
+              "$PROXY_LOG" \
+              "$CLAUDE_PREFLIGHT_STDOUT" \
+              "$CLAUDE_PREFLIGHT_STDERR" \
+              "$CODEX_PREFLIGHT_STDOUT" \
+              "$CODEX_PREFLIGHT_STDERR"
             sudo rm -f "$PROXY_ACTIVITY"
             return "$exit_code"
           }
@@ -475,19 +485,141 @@ jobs:
             exit 1
           fi
 
+          CLAUDE_PREFLIGHT_OUTCOME=passed
+          if ! printf '%s\n' 'Reply with exactly PACK_EVALUATOR_READY and nothing else.' | \
+            sudo -u packeval env -i \
+              PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
+              HOME=/home/packeval \
+              CODEX_HOME=/opt/pack-evaluator/codex-home \
+              TMPDIR=/home/packeval/tmp \
+              CI=true \
+              NO_COLOR=1 \
+              ANTHROPIC_BASE_URL=http://127.0.0.1:18765 \
+              ANTHROPIC_AUTH_TOKEN="$LOCAL_TOKEN" \
+              NO_PROXY=127.0.0.1,localhost \
+              timeout --signal=TERM --kill-after=5s 60s \
+              /opt/pack-evaluator/runtime/bin/claude \
+                --print \
+                --output-format text \
+                --permission-mode bypassPermissions \
+                --model sonnet \
+                - \
+              > "$CLAUDE_PREFLIGHT_STDOUT" \
+              2> "$CLAUDE_PREFLIGHT_STDERR"; then
+            CLAUDE_PREFLIGHT_OUTCOME=command_failed
+          elif [ "$(tr -d '\r\n' < "$CLAUDE_PREFLIGHT_STDOUT")" != 'PACK_EVALUATOR_READY' ]; then
+            CLAUDE_PREFLIGHT_OUTCOME=invalid_response
+          fi
+
+          CODEX_PREFLIGHT_OUTCOME=not_run
+          if [ "$CLAUDE_PREFLIGHT_OUTCOME" = "passed" ]; then
+            CODEX_PREFLIGHT_OUTCOME=passed
+            if ! printf '%s\n' 'Reply with exactly PACK_EVALUATOR_READY and nothing else.' | \
+              sudo -u packeval env -i \
+                PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
+                HOME=/home/packeval \
+                CODEX_HOME=/opt/pack-evaluator/codex-home \
+                TMPDIR=/home/packeval/tmp \
+                CI=true \
+                NO_COLOR=1 \
+                PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
+                NO_PROXY=127.0.0.1,localhost \
+                timeout --signal=TERM --kill-after=5s 60s \
+                /opt/pack-evaluator/runtime/bin/codex \
+                  exec \
+                  --skip-git-repo-check \
+                  --sandbox read-only \
+                  --cd /home/packeval \
+                  --ephemeral \
+                  --color never \
+                  -m gpt-5.5 \
+                  - \
+                > "$CODEX_PREFLIGHT_STDOUT" \
+                2> "$CODEX_PREFLIGHT_STDERR"; then
+              CODEX_PREFLIGHT_OUTCOME=command_failed
+            elif [ "$(tr -d '\r\n' < "$CODEX_PREFLIGHT_STDOUT")" != 'PACK_EVALUATOR_READY' ]; then
+              CODEX_PREFLIGHT_OUTCOME=invalid_response
+            fi
+          fi
+
+          CLAUDE_PREFLIGHT_STDOUT_BYTES=$(wc -c < "$CLAUDE_PREFLIGHT_STDOUT")
+          CLAUDE_PREFLIGHT_STDERR_BYTES=$(wc -c < "$CLAUDE_PREFLIGHT_STDERR")
+          CLAUDE_PREFLIGHT_STDOUT_SHA256=$(sha256sum "$CLAUDE_PREFLIGHT_STDOUT" | awk '{print $1}')
+          CLAUDE_PREFLIGHT_STDERR_SHA256=$(sha256sum "$CLAUDE_PREFLIGHT_STDERR" | awk '{print $1}')
+          CODEX_PREFLIGHT_STDOUT_BYTES=$(wc -c < "$CODEX_PREFLIGHT_STDOUT")
+          CODEX_PREFLIGHT_STDERR_BYTES=$(wc -c < "$CODEX_PREFLIGHT_STDERR")
+          CODEX_PREFLIGHT_STDOUT_SHA256=$(sha256sum "$CODEX_PREFLIGHT_STDOUT" | awk '{print $1}')
+          CODEX_PREFLIGHT_STDERR_SHA256=$(sha256sum "$CODEX_PREFLIGHT_STDERR" | awk '{print $1}')
+          PREFLIGHT_CLEANUP_OUTCOME=passed
+          sudo pkill -TERM -u packeval 2>/dev/null || true
+          for _ in $(seq 1 10); do
+            if ! sudo pgrep -u packeval >/dev/null 2>&1; then
+              break
+            fi
+            sleep 0.1
+          done
+          sudo pkill -KILL -u packeval 2>/dev/null || true
+          sleep 0.1
+          if sudo pgrep -u packeval >/dev/null 2>&1; then
+            PREFLIGHT_CLEANUP_OUTCOME=failed
+          else
+            PREFLIGHT_PGREP_RC=$?
+            if [ "$PREFLIGHT_PGREP_RC" -ne 1 ]; then
+              PREFLIGHT_CLEANUP_OUTCOME=probe_failed
+            fi
+          fi
+          jq -n \
+            --arg claudeOutcome "$CLAUDE_PREFLIGHT_OUTCOME" \
+            --argjson claudeStdoutBytes "$CLAUDE_PREFLIGHT_STDOUT_BYTES" \
+            --argjson claudeStderrBytes "$CLAUDE_PREFLIGHT_STDERR_BYTES" \
+            --arg claudeStdoutSha256 "$CLAUDE_PREFLIGHT_STDOUT_SHA256" \
+            --arg claudeStderrSha256 "$CLAUDE_PREFLIGHT_STDERR_SHA256" \
+            --arg codexOutcome "$CODEX_PREFLIGHT_OUTCOME" \
+            --argjson codexStdoutBytes "$CODEX_PREFLIGHT_STDOUT_BYTES" \
+            --argjson codexStderrBytes "$CODEX_PREFLIGHT_STDERR_BYTES" \
+            --arg codexStdoutSha256 "$CODEX_PREFLIGHT_STDOUT_SHA256" \
+            --arg codexStderrSha256 "$CODEX_PREFLIGHT_STDERR_SHA256" \
+            --arg cleanupOutcome "$PREFLIGHT_CLEANUP_OUTCOME" \
+            '{
+              claude: {
+                outcome: $claudeOutcome,
+                stdoutBytes: $claudeStdoutBytes,
+                stderrBytes: $claudeStderrBytes,
+                stdoutSha256: $claudeStdoutSha256,
+                stderrSha256: $claudeStderrSha256
+              },
+              codex: {
+                outcome: $codexOutcome,
+                stdoutBytes: $codexStdoutBytes,
+                stderrBytes: $codexStderrBytes,
+                stdoutSha256: $codexStdoutSha256,
+                stderrSha256: $codexStderrSha256
+              },
+              cleanup: {outcome: $cleanupOutcome}
+            }' \
+            > "$GITHUB_WORKSPACE/pack-diagnostics/agent-preflight-diagnostics.json"
+          if [ "$CLAUDE_PREFLIGHT_OUTCOME" != "passed" ] || \
+             [ "$CODEX_PREFLIGHT_OUTCOME" != "passed" ] || \
+             [ "$PREFLIGHT_CLEANUP_OUTCOME" != "passed" ]; then
+            echo "::error::Pack evaluator model preflight failed: claude=$CLAUDE_PREFLIGHT_OUTCOME codex=$CODEX_PREFLIGHT_OUTCOME cleanup=$PREFLIGHT_CLEANUP_OUTCOME"
+            exit 1
+          fi
+
           PACKEVAL_UID=$(id -u packeval)
           PACKEVAL_GID=$(id -g packeval)
           checkpoint_loop &
           CHECKPOINT_PID=$!
           set +e
-          sudo env -i \
+          # Claude executes installed Skills; Codex independently judges artifact evidence.
+          # Explicit model targeting keeps the two roles separate rather than cross-falling back.
+          setsid sudo env -i \
             PATH=/opt/pack-evaluator/runtime/bin:/opt/pack-evaluator/bin:/usr/bin:/bin \
             HOME=/home/packeval \
             CODEX_HOME=/opt/pack-evaluator/codex-home \
             TMPDIR=/home/packeval/tmp \
             CI=true \
             NO_COLOR=1 \
-            SKILLSTORE_AGENTS="$SKILLSTORE_AGENTS" \
+            SKILLSTORE_AGENTS=codex,claude \
             SKILLSTORE_AGENT_ENV_MODE=strict \
             SKILLSTORE_AGENT_ENV_ALLOWLIST=CODEX_HOME,PACK_EVALUATOR_PROXY_TOKEN,ANTHROPIC_BASE_URL,ANTHROPIC_AUTH_TOKEN,NO_PROXY \
             PACK_EVALUATOR_PROXY_TOKEN="$LOCAL_TOKEN" \
@@ -511,10 +643,12 @@ jobs:
             --commit-sha "${{ github.sha }}" \
             --model sonnet \
             --judge-model gpt-5.5 \
-            --max-candidates 3 \
+            --max-candidates 4 \
             --pick 4 \
             --runs 1 \
             --final-runs 3 \
+            --agent-timeout-ms 360000 \
+            --agent-max-retries 1 \
             --threshold 7 \
             --baseline-delta 1 \
             --auto-publish-threshold 8 \
