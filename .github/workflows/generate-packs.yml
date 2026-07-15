@@ -35,8 +35,16 @@ jobs:
       has_scenarios: ${{ steps.queue.outputs.has_scenarios }}
       scenario_count: ${{ steps.queue.outputs.scenario_count }}
     steps:
+      - name: Generate read-only cross-repository CLI token
+        id: cli-app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.APP_CLIENT_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          repositories: marketplace,skillstore
+
       - name: Prepare isolated checkout
-        run: rm -rf "$GITHUB_WORKSPACE/marketplace-plan" "$GITHUB_WORKSPACE/pack-plan"
+        run: rm -rf "$GITHUB_WORKSPACE/marketplace-plan" "$GITHUB_WORKSPACE/pack-plan" "$GITHUB_WORKSPACE/pack-cli"
 
       - name: Checkout immutable workflow revision
         uses: actions/checkout@v5
@@ -55,8 +63,23 @@ jobs:
           version: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
           minimum-version: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
           require-checksum: 'true'
-          token: ${{ github.token }}
+          token: ${{ steps.cli-app-token.outputs.token }}
           cache-dir: /home/runner/_work/_cache/skillstore-cli
+
+      - name: Stage verified CLI handoff evidence
+        env:
+          CLI: ${{ steps.cli.outputs.cli-path }}
+          CLI_SHA256: ${{ steps.cli.outputs.cli-sha256 }}
+          CLI_VERSION: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/pack-plan" "$GITHUB_WORKSPACE/pack-cli"
+          install -m 0555 "$CLI" "$GITHUB_WORKSPACE/pack-cli/skillstore-cli-linux-x64"
+          printf '%s  skillstore-cli-linux-x64\n' "$CLI_SHA256" > "$GITHUB_WORKSPACE/pack-cli/checksums.txt"
+          jq -n \
+            --arg version "$CLI_VERSION" \
+            --arg sha256 "$CLI_SHA256" \
+            '{version: $version, sha256: $sha256}' \
+            > "$GITHUB_WORKSPACE/pack-plan/cli-identity.json"
 
       - name: Select up to three scenarios
         id: queue
@@ -118,6 +141,15 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      - name: Upload verified evaluator CLI
+        if: steps.queue.outputs.has_scenarios == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: pack-production-cli
+          path: pack-cli/
+          if-no-files-found: error
+          retention-days: 1
+
   evaluate:
     name: Evaluate without production credentials
     needs: plan
@@ -143,15 +175,18 @@ jobs:
           name: pack-production-plan
           path: pack-production-input
 
-      - name: Download and checksum pinned Skillstore CLI
-        id: cli
-        uses: ./marketplace-evaluate/.github/actions/download-skillstore-cli
+      - name: Download verified CLI handoff
+        uses: actions/download-artifact@v6
         with:
-          version: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
-          minimum-version: ${{ env.PACK_PRODUCTION_CLI_VERSION }}
-          require-checksum: 'true'
-          token: ${{ github.token }}
-          cache-dir: ''
+          name: pack-production-cli
+          path: pack-production-cli
+
+      - name: Verify Plan CLI handoff before execution
+        run: |
+          (cd pack-production-cli && sha256sum -c checksums.txt)
+          chmod +x pack-production-cli/skillstore-cli-linux-x64
+          VERSION=$(pack-production-cli/skillstore-cli-linux-x64 --version | grep -Eo '[0-9]+([.][0-9]+){2}' | head -n1)
+          test "$VERSION" = "$PACK_PRODUCTION_CLI_VERSION"
 
       - name: Install evaluator runtimes before secrets are available
         run: |
@@ -168,7 +203,7 @@ jobs:
 
       - name: Prepare disposable evaluator identities and filesystem
         env:
-          CLI: ${{ steps.cli.outputs.cli-path }}
+          CLI: ${{ github.workspace }}/pack-production-cli/skillstore-cli-linux-x64
         run: |
           RUNNER_GROUP=$(id -gn)
           sudo useradd --system --create-home --home-dir /home/packproxy --shell /usr/sbin/nologin packproxy
